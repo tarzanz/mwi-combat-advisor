@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.9.1
+// @version      0.10.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -330,16 +330,16 @@
 
   // src/stats.js
   function logGamma(x) {
-    const c = [76.18009172947146, -86.50532032941678, 24.01409824083091, -1.231739572450155, 0.001208650973866179, -5395239384953e-18];
+    const c2 = [76.18009172947146, -86.50532032941678, 24.01409824083091, -1.231739572450155, 0.001208650973866179, -5395239384953e-18];
     let y = x;
     const tmp = x + 5.5 - (x + 0.5) * Math.log(x + 5.5);
     let series = 1.000000000190015;
-    for (const coefficient of c) series += coefficient / ++y;
+    for (const coefficient of c2) series += coefficient / ++y;
     return -tmp + Math.log(2.5066282746310007 * series / x);
   }
   function betaContinuedFraction(a, b, x) {
     const tiny = 1e-30;
-    let c = 1;
+    let c2 = 1;
     let d = 1 - (a + b) * x / (a + 1);
     if (Math.abs(d) < tiny) d = tiny;
     d = 1 / d;
@@ -349,17 +349,17 @@
       let aa = m * (b - m) * x / ((a + m2 - 1) * (a + m2));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
-      c = 1 + aa / c;
-      if (Math.abs(c) < tiny) c = tiny;
+      c2 = 1 + aa / c2;
+      if (Math.abs(c2) < tiny) c2 = tiny;
       d = 1 / d;
-      h *= d * c;
+      h *= d * c2;
       aa = -(a + m) * (a + b + m) * x / ((a + m2) * (a + m2 + 1));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
-      c = 1 + aa / c;
-      if (Math.abs(c) < tiny) c = tiny;
+      c2 = 1 + aa / c2;
+      if (Math.abs(c2) < tiny) c2 = tiny;
       d = 1 / d;
-      const delta = d * c;
+      const delta = d * c2;
       h *= delta;
       if (Math.abs(delta - 1) < 3e-12) break;
     }
@@ -906,16 +906,16 @@
   }
   function bestPerItem(evaluated) {
     const groups = /* @__PURE__ */ new Map();
-    for (const c of evaluated) {
-      const key = [c.kind, c.hrid, c.enhancementLevel ?? "", c.kind === "abilityLevel" ? c.level : "", c.remove ? "remove" : ""].join("|");
+    for (const c2 of evaluated) {
+      const key = [c2.kind, c2.hrid, c2.enhancementLevel ?? "", c2.kind === "abilityLevel" ? c2.level : "", c2.remove ? "remove" : ""].join("|");
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(c);
+      groups.get(key).push(c2);
     }
     return [...groups.values()].map((options) => {
-      const pool = options.some((c) => c.safe) ? options.filter((c) => c.safe) : options;
+      const pool = options.some((c2) => c2.safe) ? options.filter((c2) => c2.safe) : options;
       const top = pool.reduce((a, b) => b.delta > a.delta ? b : a);
       if (!top.extraFood || top.delta <= 0) return top;
-      return pool.filter((c) => c.delta >= 0.85 * top.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta)[0];
+      return pool.filter((c2) => c2.delta >= 0.85 * top.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta)[0];
     });
   }
   async function analyzeUpgrades(pool, profile, zone, settings, onProgress, onRefineProgress) {
@@ -925,9 +925,9 @@
       ...abilityCandidates(profile, budget),
       ...consumableCandidates(profile, "drinks"),
       ...consumableCandidates(profile, "food")
-    ].map((c, id) => ({ ...c, id }));
+    ].map((c2, id) => ({ ...c2, id }));
     const seeds = (n2) => Array.from({ length: n2 }, (_, i) => i);
-    const items = [{ profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR) }, ...candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds) }))];
+    const items = [{ profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR) }, ...candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings.seeds) }))];
     const runs = await simulateRuns(pool, items, zone, settings.hours, onProgress);
     const simulated = [{ profile }, ...candidates].map((v, i) => ({ ...v, result: summarize(runs[i], zone.tier), runs: runs[i] }));
     const slots = slotCounts(profile, getClientData());
@@ -951,19 +951,19 @@
   function uncertainCandidates(raw, settings) {
     const rated = rateUpgrades(raw, settings);
     const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
-    return [...rated.gear, ...rated.abilities, ...rated.drinks, ...rated.food].filter((c) => c.delta > 0 && c.safe && c.confidence < REFINE_BELOW && c.runs.length < maxRuns).sort((a, b) => b.delta - a.delta).slice(0, MAX_REFINED);
+    return [...rated.gear, ...rated.abilities, ...rated.drinks, ...rated.food].filter((c2) => c2.delta > 0 && c2.safe && c2.confidence < REFINE_BELOW && c2.runs.length < maxRuns).sort((a, b) => b.delta - a.delta).slice(0, MAX_REFINED);
   }
   async function refineUncertain(pool, raw, settings, onProgress) {
-    const targets = uncertainCandidates(raw, settings).map((c) => raw.candidates.find((x) => x.id === c.id));
+    const targets = uncertainCandidates(raw, settings).map((c2) => raw.candidates.find((x) => x.id === c2.id));
     if (!targets.length) return 0;
-    const items = targets.map((c) => {
-      const first = Math.max(...c.runs.map((r) => r.seed)) + 1;
-      return { profile: c.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
+    const items = targets.map((c2) => {
+      const first = Math.max(...c2.runs.map((r) => r.seed)) + 1;
+      return { profile: c2.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
     });
     const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
-    targets.forEach((c, i) => {
-      c.runs = [...c.runs, ...runs[i]];
-      c.result = summarize(c.runs, raw.zone.tier);
+    targets.forEach((c2, i) => {
+      c2.runs = [...c2.runs, ...runs[i]];
+      c2.result = summarize(c2.runs, raw.zone.tier);
     });
     return targets.length;
   }
@@ -972,24 +972,24 @@
     const goal = makeGoal(settings, { xp: xpValue(base, settings.objective), gold: base.loot });
     const baseScore = score(base, goal);
     const baseScores = raw.baseRuns.map((r) => score(r, goal));
-    const used = (c) => c.remove || !["food", "drinks"].includes(c.kind) || (c.result.consumables[c.hrid] || 0) > 0.01;
-    const evaluated = raw.candidates.filter(used).map((c) => {
-      const delta = score(c.result, goal) - baseScore;
-      const confidence = confidenceGreater(c.runs.map((r) => score(r, goal)), baseScores) ?? 0.5;
+    const used = (c2) => c2.remove || !["food", "drinks"].includes(c2.kind) || (c2.result.consumables[c2.hrid] || 0) > 0.01;
+    const evaluated = raw.candidates.filter(used).map((c2) => {
+      const delta = score(c2.result, goal) - baseScore;
+      const confidence = confidenceGreater(c2.runs.map((r) => score(r, goal)), baseScores) ?? 0.5;
       return {
-        ...c,
+        ...c2,
         delta,
         deltaPct: delta,
         // scores are already fractions of the reference
         confidence,
         significant: confidence >= CONFIDENCE_LEVEL,
-        xpDelta: xpValue(c.result, settings.objective) - xpValue(base, settings.objective),
-        profitDelta: c.result.profit - base.profit,
+        xpDelta: xpValue(c2.result, settings.objective) - xpValue(base, settings.objective),
+        profitDelta: c2.result.profit - base.profit,
         // A change that makes you die noticeably more often is never recommended, whatever the
         // gain – unless you accept rare deaths and it stays within that limit.
-        safe: c.result.deaths <= Math.max(base.deaths * 1.1 + 0.3, deathLimit(settings)),
-        costPerHourDelta: c.result.cost - base.cost,
-        deathsDelta: c.result.deaths - base.deaths
+        safe: c2.result.deaths <= Math.max(base.deaths * 1.1 + 0.3, deathLimit(settings)),
+        costPerHourDelta: c2.result.cost - base.cost,
+        deathsDelta: c2.result.deaths - base.deaths
       };
     });
     const best = bestPerItem(evaluated);
@@ -998,19 +998,19 @@
       ...raw,
       goal,
       baseScore,
-      gear: best.filter((c) => c.kind === "gear").sort(byDelta),
-      abilities: best.filter((c) => c.kind === "ability" || c.kind === "abilityLevel").sort(byDelta),
-      drinks: best.filter((c) => c.kind === "drinks").sort(byDelta),
-      food: best.filter((c) => c.kind === "food").sort(byDelta)
+      gear: best.filter((c2) => c2.kind === "gear").sort(byDelta),
+      abilities: best.filter((c2) => c2.kind === "ability" || c2.kind === "abilityLevel").sort(byDelta),
+      drinks: best.filter((c2) => c2.kind === "drinks").sort(byDelta),
+      food: best.filter((c2) => c2.kind === "food").sort(byDelta)
     };
   }
   function stepConfidence(analysis, from, to) {
     if (!from) return to.confidence;
-    const scores = (c) => c.runs.map((r) => score(r, analysis.goal));
+    const scores = (c2) => c2.runs.map((r) => score(r, analysis.goal));
     return confidenceGreater(scores(to), scores(from)) ?? 0.5;
   }
   function hullSteps(group, options, minGain, minEfficiency, confident) {
-    const points = [{ cost: 0, delta: 0, candidate: null }, ...options.map((c) => ({ cost: c.cost, delta: c.delta, candidate: c }))].sort(
+    const points = [{ cost: 0, delta: 0, candidate: null }, ...options.map((c2) => ({ cost: c2.cost, delta: c2.delta, candidate: c2 }))].sort(
       (a, b) => a.cost - b.cost || b.delta - a.delta
     );
     const rising = [];
@@ -1043,12 +1043,12 @@
     return steps;
   }
   function pickConsumable(list, gold) {
-    const ok = list.filter((c) => c.significant && c.safe && c.delta > 0);
+    const ok = list.filter((c2) => c2.significant && c2.safe && c2.delta > 0);
     if (!ok.length) return { value: null, max: null };
     const max = ok.reduce((a, b) => b.delta > a.delta + 1e-9 || Math.abs(b.delta - a.delta) <= 1e-9 && b.remove ? b : a);
     const preferStopping = (a, b) => (b.remove ? 1 : 0) - (a.remove ? 1 : 0);
-    const value = gold > 0 ? max : ok.filter((c) => c.delta >= 0.5 * max.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta || preferStopping(a, b))[0];
-    const stop = ok.find((c) => c.remove && c.slot === value.slot && c !== value && c.delta >= value.delta - STOP_TOLERANCE);
+    const value = gold > 0 ? max : ok.filter((c2) => c2.delta >= 0.5 * max.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta || preferStopping(a, b))[0];
+    const stop = ok.find((c2) => c2.remove && c2.slot === value.slot && c2 !== value && c2.delta >= value.delta - STOP_TOLERANCE);
     const chosen = stop || value;
     return { value: chosen, max: max === chosen ? null : max };
   }
@@ -1056,17 +1056,17 @@
   function buildPlan(analysis, budget, spending = "balanced") {
     const minGain = 0.01;
     const minEfficiency = (SPENDING[spending] || SPENDING.balanced).minPctPerMillion / 100 / 1e6;
-    const usable = (c) => c.significant && c.safe && c.delta > 0;
+    const usable = (c2) => c2.significant && c2.safe && c2.delta > 0;
     const groups = /* @__PURE__ */ new Map();
-    for (const c of analysis.gear.filter(usable)) {
-      const key = c.slot === "main_hand" || c.slot === "two_hand" ? "weapon" : c.slot;
+    for (const c2 of analysis.gear.filter(usable)) {
+      const key = c2.slot === "main_hand" || c2.slot === "two_hand" ? "weapon" : c2.slot;
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(c);
+      groups.get(key).push(c2);
     }
-    for (const c of analysis.abilities.filter(usable)) {
-      const key = c.kind === "abilityLevel" || c.replaces ? c.slot : "new-ability:" + c.hrid;
+    for (const c2 of analysis.abilities.filter(usable)) {
+      const key = c2.kind === "abilityLevel" || c2.replaces ? c2.slot : "new-ability:" + c2.hrid;
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(c);
+      groups.get(key).push(c2);
     }
     const confident = (from, to) => stepConfidence(analysis, from, to) >= CONFIDENCE_LEVEL;
     const steps = [...groups.entries()].flatMap(([key, options]) => hullSteps(key, options, minGain, minEfficiency, confident));
@@ -1143,12 +1143,12 @@
         const worker = new Worker(this.url);
         const entry = { worker, busy: true };
         ready.push(
-          new Promise((resolve, reject) => {
+          new Promise((resolve2, reject) => {
             worker.onmessage = (event) => {
               if (event.data.type === "ready") {
                 worker.onmessage = (e) => this.onResult(entry, e.data);
                 entry.busy = false;
-                resolve();
+                resolve2();
               }
             };
             worker.onerror = (event) => reject(new Error(event.message || "Simulation worker error"));
@@ -1160,8 +1160,8 @@
       await Promise.all(ready);
     }
     run(job) {
-      return new Promise((resolve, reject) => {
-        this.queue.push({ id: this.nextId++, job, resolve, reject });
+      return new Promise((resolve2, reject) => {
+        this.queue.push({ id: this.nextId++, job, resolve: resolve2, reject });
         this.pump();
       });
     }
@@ -1304,6 +1304,10 @@
   margin-left: 8px; padding: 5px 10px; border-radius: 6px; border: 1px solid #f2c25b;
   background: #43351f; color: #ffe2a0; font: 600 12px sans-serif; cursor: pointer; white-space: nowrap;
 }
+.mwia-plan-cost, .mwia-plan-costs { flex-basis: 100%; width: 100%; font: 12px/1.4 sans-serif; color: #aab3dc; }
+.mwia-plan-cost { margin-top: 4px; }
+.mwia-plan-costs { margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; }
+.mwia-plan-cost-best { color: #7ee2b0; font-weight: 600; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
 .mwia-tip-pop {
@@ -1377,7 +1381,15 @@
     if (n2 >= 1e3 && n2 % 10 === 0) return n2 / 1e3 + "k";
     return String(n2);
   }
-  var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  function shortCoins(n2) {
+    const abs = Math.abs(n2);
+    const fixed = (value, digits) => value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    if (abs >= 1e9) return fixed(n2 / 1e9, 2) + "B";
+    if (abs >= 1e6) return fixed(n2 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
+    if (abs >= 1e4) return fixed(n2 / 1e3, abs >= 1e5 ? 0 : 1) + "k";
+    return Math.round(n2).toLocaleString("en-US");
+  }
+  var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c2) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c2]);
 
   // src/mwitools-cart.js
   var READY_TIMEOUT_MS = 5e3;
@@ -1392,7 +1404,7 @@
   async function whenReady(api) {
     const start = Date.now();
     while (!api.ready && Date.now() - start < READY_TIMEOUT_MS) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve2) => setTimeout(resolve2, 100));
     }
   }
   async function addToCart(win2, items) {
@@ -1461,7 +1473,7 @@
   function makeDraggable(button) {
     let start = null;
     let moved = false;
-    const place = (x, y) => {
+    const place2 = (x, y) => {
       button.style.left = `${Math.min(Math.max(4, x), innerWidth - button.offsetWidth - 4)}px`;
       button.style.top = `${Math.min(Math.max(4, y), innerHeight - button.offsetHeight - 4)}px`;
       button.style.right = "auto";
@@ -1470,7 +1482,7 @@
     const placeSaved = () => {
       try {
         const saved = JSON.parse(localStorage.getItem(POSITION_KEY) || "null");
-        if (saved) place(saved.x * innerWidth, saved.y * innerHeight);
+        if (saved) place2(saved.x * innerWidth, saved.y * innerHeight);
       } catch {
       }
     };
@@ -1494,7 +1506,7 @@
       const dy = event.clientY - start.y;
       if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       moved = true;
-      place(start.left + dx, start.top + dy);
+      place2(start.left + dx, start.top + dy);
     });
     const end = () => {
       if (start && moved) save2();
@@ -1891,20 +1903,20 @@
       \u23F1 = you kill faster than monsters appear there.</p>`;
     return html;
   }
-  function upgradeNotes(c, base) {
+  function upgradeNotes(c2, base) {
     const notes = [];
-    if (c.owned && c.cost === 0) notes.push('<span class="mwia-ok">you own it</span>');
-    if (c.deathsDelta < 0 && base.deaths > 0) notes.push(`<span class="mwia-ok">fewer deaths</span>`);
-    if (!c.safe) notes.push(`<span class="mwia-bad">more deaths</span>`);
+    if (c2.owned && c2.cost === 0) notes.push('<span class="mwia-ok">you own it</span>');
+    if (c2.deathsDelta < 0 && base.deaths > 0) notes.push(`<span class="mwia-ok">fewer deaths</span>`);
+    if (!c2.safe) notes.push(`<span class="mwia-bad">more deaths</span>`);
     return notes.join(" ");
   }
-  function cartItems(c) {
-    const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c.result?.consumables?.[hrid] || 0)));
-    if (c.kind === "abilityLevel") return [{ hrid: c.bookHrid, quantity: c.books }];
-    if (c.kind === "ability") return c.cost ? [{ hrid: c.bookHrid, quantity: 1 }] : [];
-    if (c.kind === "food" || c.kind === "drinks") return c.remove ? [] : [{ hrid: c.hrid, quantity: forOneDay(c.hrid) }];
-    const items = c.cost ? [{ hrid: c.hrid, quantity: 1, enhancementLevel: c.enhancementLevel || 0 }] : [];
-    if (c.extraFood) items.push({ hrid: c.extraFood, quantity: forOneDay(c.extraFood) });
+  function cartItems(c2) {
+    const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c2.result?.consumables?.[hrid] || 0)));
+    if (c2.kind === "abilityLevel") return [{ hrid: c2.bookHrid, quantity: c2.books }];
+    if (c2.kind === "ability") return c2.cost ? [{ hrid: c2.bookHrid, quantity: 1 }] : [];
+    if (c2.kind === "food" || c2.kind === "drinks") return c2.remove ? [] : [{ hrid: c2.hrid, quantity: forOneDay(c2.hrid) }];
+    const items = c2.cost ? [{ hrid: c2.hrid, quantity: 1, enhancementLevel: c2.enhancementLevel || 0 }] : [];
+    if (c2.extraFood) items.push({ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) });
     return items;
   }
   var cartLabel = (i) => `${i.quantity ? i.quantity + "\xD7 " : ""}${itemName(i.hrid)}${i.enhancementLevel ? " +" + i.enhancementLevel : ""}`;
@@ -2003,14 +2015,14 @@
               <br><span class="mwia-dim">Run the zone analysis again after buying \u2013 with better gear a harder zone may become the best.</span></div>`;
       }
     }
-    html += upgradeTable("Equipment", result.gear, base, (c) => SLOT_NAMES[c.slot], (c) => gearLabel(c) + (c.extraFood ? ` <span class="mwia-dim">+ ${esc(itemName(c.extraFood))} in new slot</span>` : ""), (c) => c.replaces ? gearLabel(c.replaces) : "\u2013", "Item");
+    html += upgradeTable("Equipment", result.gear, base, (c2) => SLOT_NAMES[c2.slot], (c2) => gearLabel(c2) + (c2.extraFood ? ` <span class="mwia-dim">+ ${esc(itemName(c2.extraFood))} in new slot</span>` : ""), (c2) => c2.replaces ? gearLabel(c2.replaces) : "\u2013", "Item");
     html += upgradeTable(
       "Abilities",
       result.abilities,
       base,
-      (c) => `Slot ${c.slot.replace("ability", "")}`,
-      (c) => esc(abilityName(c.hrid)) + (c.kind === "abilityLevel" ? ` <span class="mwia-dim">lvl ${c.fromLevel} \u2192 ${c.level} (${c.books} books)</span>` : ` <span class="mwia-dim">lvl ${c.level}</span>`),
-      (c) => c.kind === "abilityLevel" ? '<span class="mwia-dim">level up</span>' : c.replaces ? esc(abilityName(c.replaces)) : "\u2013",
+      (c2) => `Slot ${c2.slot.replace("ability", "")}`,
+      (c2) => esc(abilityName(c2.hrid)) + (c2.kind === "abilityLevel" ? ` <span class="mwia-dim">lvl ${c2.fromLevel} \u2192 ${c2.level} (${c2.books} books)</span>` : ` <span class="mwia-dim">lvl ${c2.level}</span>`),
+      (c2) => c2.kind === "abilityLevel" ? '<span class="mwia-dim">level up</span>' : c2.replaces ? esc(abilityName(c2.replaces)) : "\u2013",
       "Ability"
     );
     if (!getClientData().levelExperienceTable) {
@@ -2018,7 +2030,7 @@
     }
     html += consumableTable("Drinks", result.drinks, base);
     html += consumableTable("Food", result.food, base);
-    if (result.food.some((c) => !c.safe && c.delta > 0) && result.gear.some((c) => c.extraFood && c.safe && c.delta > 0)) {
+    if (result.food.some((c2) => !c2.safe && c2.delta > 0) && result.gear.some((c2) => c2.extraFood && c2.safe && c2.delta > 0)) {
       html += `<p class="mwia-reco">Some food gives more XP but makes you die, because it replaces your only HP food. A bigger pouch gives an extra
           food slot so you can keep both \u2013 see the pouch row under Equipment.</p>`;
     }
@@ -2030,59 +2042,59 @@
       (\u2716) are never put on the shopping list.</p>`;
     return html;
   }
-  function dropsHpFood(c) {
-    if (c.kind !== "food") return false;
+  function dropsHpFood(c2) {
+    if (c2.kind !== "food") return false;
     const items = getClientData().itemDetailMap;
     const heals = (hrid) => (items[hrid]?.consumableDetail?.hitpointRestore || 0) > 0;
     const before = currentProfile()?.food || [];
-    const after = c.profile?.food || [];
+    const after = c2.profile?.food || [];
     return before.some((h) => h && heals(h)) && !after.some((h) => h && heals(h));
   }
-  function gainText(c) {
+  function gainText(c2) {
     const gold = ui.upgradeResult.goal.gold;
-    const profit = `${signed(coins, perDay(c.profitDelta))} profit/day`;
-    if (gold === 0) return `${pct(c.deltaPct)} ${objectiveLabel()}`;
+    const profit = `${signed(coins, perDay(c2.profitDelta))} profit/day`;
+    if (gold === 0) return `${pct(c2.deltaPct)} ${objectiveLabel()}`;
     if (gold === 1) return profit;
-    return `${pct(c.deltaPct)} gain (${signed(int, c.xpDelta)} ${objectiveLabel()}, ${profit})`;
+    return `${pct(c2.deltaPct)} gain (${signed(int, c2.xpDelta)} ${objectiveLabel()}, ${profit})`;
   }
-  function confidenceCell(c) {
-    const value = Math.round(c.confidence * 100);
-    const cls = c.confidence >= CONFIDENCE_LEVEL ? "mwia-ok" : c.confidence >= 0.7 ? "mwia-warn" : "mwia-dim";
-    return `<span class="${cls}" title="Chance that this really improves your focus, from ${c.runs.length} paired simulations">${value}%</span>`;
+  function confidenceCell(c2) {
+    const value = Math.round(c2.confidence * 100);
+    const cls = c2.confidence >= CONFIDENCE_LEVEL ? "mwia-ok" : c2.confidence >= 0.7 ? "mwia-warn" : "mwia-dim";
+    return `<span class="${cls}" title="Chance that this really improves your focus, from ${c2.runs.length} paired simulations">${value}%</span>`;
   }
   var CONF_TITLE = "How sure we are that this is an improvement and not luck (paired t-test over several simulations with different random seeds). Only \u2265 90% goes on the shopping list.";
   var GAIN_TITLE = "Improvement of your focus as a share of what you have now: XP/h and profit/h, weighted by the XP\u2013Gold slider";
   function upgradeTable(title, list, base, slotText, nameHtml, replacesHtml, nameHeader) {
-    const shown = list.filter((c) => c.delta > 0).slice(0, 20);
+    const shown = list.filter((c2) => c2.delta > 0).slice(0, 20);
     let html = `<h3>${title}</h3>`;
     if (!shown.length) return html + `<p class="mwia-dim">Nothing within budget improved your focus.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Slot</th><th>${nameHeader}</th><th>Replaces</th><th class="mwia-num">Price</th>
       <th class="mwia-num">+${objectiveLabel()}</th><th class="mwia-num">+Profit/day</th><th class="mwia-num" title="${GAIN_TITLE}">Gain</th>
       <th class="mwia-num">Gain per 1M</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th><th></th></tr></thead><tbody>`;
-    for (const c of shown) {
-      const efficiency = c.cost > 0 ? pct(c.delta / c.cost * 1e6) : "\u221E";
-      html += `<tr class="${c.significant ? "" : "mwia-faded"}"><td>${slotText(c)}</td><td>${nameHtml(c)}</td><td>${replacesHtml(c)}</td>
-          <td class="mwia-num">${c.cost ? coins(c.cost) : "0"}</td><td class="mwia-num">${signed(int, c.xpDelta)}</td><td class="mwia-num">${signed(coins, perDay(c.profitDelta))}</td>
-          <td class="mwia-num">${pct(c.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c)}</td>
-          <td>${upgradeNotes(c, base)}</td><td>${cartButton(cartItems(c))}</td></tr>`;
+    for (const c2 of shown) {
+      const efficiency = c2.cost > 0 ? pct(c2.delta / c2.cost * 1e6) : "\u221E";
+      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${slotText(c2)}</td><td>${nameHtml(c2)}</td><td>${replacesHtml(c2)}</td>
+          <td class="mwia-num">${c2.cost ? coins(c2.cost) : "0"}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td><td class="mwia-num">${signed(coins, perDay(c2.profitDelta))}</td>
+          <td class="mwia-num">${pct(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
+          <td>${upgradeNotes(c2, base)}</td><td>${cartButton(cartItems(c2))}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
   function consumableTable(title, list, base) {
-    const shown = list.filter((c) => c.delta > 0 || c.deathsDelta < 0).slice(0, 10);
+    const shown = list.filter((c2) => c2.delta > 0 || c2.deathsDelta < 0).slice(0, 10);
     let html = `<h3>${title}</h3>`;
     if (!shown.length) return html + `<p class="mwia-dim">No ${title.toLowerCase()} noticeably improved your focus.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>${title === "Food" ? "Food" : "Drink"}</th><th>Replaces</th><th class="mwia-num">Unit price</th>
       <th class="mwia-num">Extra cost/day</th><th class="mwia-num">+${objectiveLabel()}</th><th class="mwia-num" title="Includes the extra food/drink cost">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num">Deaths/h</th><th class="mwia-num" title="Extra cost per 1000 extra XP">Cost per 1000 XP</th><th></th></tr></thead><tbody>`;
-    for (const c of shown) {
-      const per1000 = c.xpDelta > 0 ? coins(c.costPerHourDelta / c.xpDelta * 1e3) : c.remove && c.xpDelta < 0 ? `saves ${coins(c.costPerHourDelta / c.xpDelta * 1e3)}` : "\u2013";
-      const name = (c.remove ? `<i>Stop using</i> ${esc(itemName(c.hrid))}` : esc(itemName(c.hrid))) + (dropsHpFood(c) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
-      html += `<tr class="${c.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c.replaces ? esc(itemName(c.replaces)) : "\u2013"}</td>
-          <td class="mwia-num">${c.remove ? "\u2013" : coins(askPrice(c.hrid))}</td><td class="mwia-num">${coins(perDay(c.costPerHourDelta))}</td><td class="mwia-num">${signed(int, c.xpDelta)}</td>
-          <td class="mwia-num">${signed(coins, perDay(c.profitDelta))}</td><td class="mwia-num">${pct(c.deltaPct)}</td><td class="mwia-num">${confidenceCell(c)}</td>
-          <td class="mwia-num ${c.safe ? "" : "mwia-bad"}">${dec(c.result.deaths, 2)}${c.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
-          <td>${cartButton(cartItems(c), "\u{1F6D2} 1 day")}</td></tr>`;
+    for (const c2 of shown) {
+      const per1000 = c2.xpDelta > 0 ? coins(c2.costPerHourDelta / c2.xpDelta * 1e3) : c2.remove && c2.xpDelta < 0 ? `saves ${coins(c2.costPerHourDelta / c2.xpDelta * 1e3)}` : "\u2013";
+      const name = (c2.remove ? `<i>Stop using</i> ${esc(itemName(c2.hrid))}` : esc(itemName(c2.hrid))) + (dropsHpFood(c2) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
+      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c2.replaces ? esc(itemName(c2.replaces)) : "\u2013"}</td>
+          <td class="mwia-num">${c2.remove ? "\u2013" : coins(askPrice(c2.hrid))}</td><td class="mwia-num">${coins(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td>
+          <td class="mwia-num">${signed(coins, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
+          <td class="mwia-num ${c2.safe ? "" : "mwia-bad"}">${dec(c2.result.deaths, 2)}${c2.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
+          <td>${cartButton(cartItems(c2), "\u{1F6D2} 1 day")}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -2279,13 +2291,16 @@
     }
     return counts;
   }
+  var actionsCache = /* @__PURE__ */ new WeakMap();
   function productionActions(data) {
+    if (actionsCache.has(data)) return actionsCache.get(data);
     const byItem = /* @__PURE__ */ new Map();
     const actions = Object.values(data.actionDetailMap).filter((action) => action.function === "/action_functions/production" && action.outputItems?.length).sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
     for (const action of actions) {
       const hrid = action.outputItems[0].itemHrid;
       if (!byItem.has(hrid)) byItem.set(hrid, action);
     }
+    actionsCache.set(data, byItem);
     return byItem;
   }
   function inputsOf(action) {
@@ -2293,10 +2308,8 @@
     if (action.upgradeItemHrid) inputs.push({ hrid: action.upgradeItemHrid, count: 1 });
     return inputs;
   }
-  function buildTrain({ goals, policies }, data, { owned, houseLevels = {}, skills = {} }) {
-    const actions = productionActions(data);
+  function goalDemand(goals, data, houseLevels) {
     const name = (hrid) => data.itemDetailMap[hrid]?.name || hrid.split("/").pop();
-    const warnings = [];
     const demand = /* @__PURE__ */ new Map();
     const add = (hrid, count) => demand.set(hrid, (demand.get(hrid) || 0) + count);
     const titles = [];
@@ -2313,11 +2326,11 @@
         add(goal.hrid, goal.target);
       }
     }
-    const produced = (hrid) => PRODUCE.has(policies.get(hrid)) && actions.has(hrid);
-    for (const [hrid, policy] of policies) {
-      if (policy === "mixed") warnings.push(`${name(hrid)} has different choices per goal; the train makes all of it.`);
-      if (PRODUCE.has(policy) && !actions.has(hrid)) warnings.push(`${name(hrid)} has no production action; get it yourself.`);
-    }
+    return { demand, titles };
+  }
+  function resolve(goalItems, produced, actions, owned, name) {
+    const demand = new Map(goalItems);
+    const add = (hrid, count) => demand.set(hrid, (demand.get(hrid) || 0) + count);
     const order = [];
     const seen = /* @__PURE__ */ new Set();
     const visit = (hrid) => {
@@ -2342,6 +2355,19 @@
       }
       rows.set(hrid, row);
     }
+    return { order, rows };
+  }
+  function buildTrain({ goals, policies }, data, { owned, houseLevels = {}, skills = {} }) {
+    const actions = productionActions(data);
+    const name = (hrid) => data.itemDetailMap[hrid]?.name || hrid.split("/").pop();
+    const warnings = [];
+    const { demand, titles } = goalDemand(goals, data, houseLevels);
+    const produced = (hrid) => PRODUCE.has(policies.get(hrid)) && actions.has(hrid);
+    for (const [hrid, policy] of policies) {
+      if (policy === "mixed") warnings.push(`${name(hrid)} has different choices per goal; the train makes all of it.`);
+      if (PRODUCE.has(policy) && !actions.has(hrid)) warnings.push(`${name(hrid)} has no production action; get it yourself.`);
+    }
+    const { order, rows } = resolve(demand, produced, actions, owned, name);
     const height = /* @__PURE__ */ new Map();
     const heightOf = (hrid) => {
       if (height.has(hrid)) return height.get(hrid);
@@ -2372,6 +2398,44 @@
     const shortages = order.map((hrid) => rows.get(hrid)).filter((row) => !row.action && row.need > 0).map((row) => ({ itemHrid: row.hrid, name: row.name, need: Math.ceil(row.need - 1e-9), buy: policies.get(row.hrid) === "buy" }));
     return { title: titles.join(", "), stops, covered, shortages, warnings };
   }
+  var COIN = "/items/coin";
+  function boughtCost(rows, price) {
+    let coins2 = 0;
+    const unpriced = [];
+    for (const row of rows.values()) {
+      if (row.action || row.need <= 0 || row.hrid === COIN) continue;
+      const each = price(row.hrid);
+      if (each === null || each === void 0) unpriced.push(row.name);
+      else coins2 += Math.ceil(row.need - 1e-9) * each;
+    }
+    return { coins: coins2, unpriced };
+  }
+  function planCosts({ goals, policies }, data, { owned, houseLevels = {}, price }) {
+    const actions = productionActions(data);
+    const name = (hrid) => data.itemDetailMap[hrid]?.name || hrid.split("/").pop();
+    const { demand } = goalDemand(goals, data, houseLevels);
+    const run = (produced) => resolve(demand, produced, actions, owned, name).rows;
+    const current = run((hrid) => PRODUCE.has(policies.get(hrid)) && actions.has(hrid));
+    const wanted = new Map([...current.values()].map((row) => [row.hrid, row.wanted]));
+    return {
+      wanted,
+      current: boughtCost(current, price),
+      buy: boughtCost(run(() => false), price),
+      single: boughtCost(run((hrid) => demand.has(hrid) && actions.has(hrid)), price),
+      chain: boughtCost(run((hrid) => actions.has(hrid)), price)
+    };
+  }
+  function itemCosts(hrid, count, data, { owned, price }) {
+    const actions = productionActions(data);
+    const name = (h) => data.itemDetailMap[h]?.name || h.split("/").pop();
+    const run = (produced) => boughtCost(resolve(/* @__PURE__ */ new Map([[hrid, count]]), produced, actions, owned, name).rows, price);
+    const craftable = actions.has(hrid);
+    return {
+      buy: run(() => false),
+      single: craftable ? run((h) => h === hrid) : null,
+      chain: craftable ? run((h) => actions.has(h)) : null
+    };
+  }
 
   // src/game-nav.js
   var NAV_LINK = '[class*="NavigationBar_navigationLink"]';
@@ -2396,7 +2460,7 @@
   function navDiagnostics() {
     return lastDiagnostics;
   }
-  var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
   var clean = (text) => String(text || "").replace(/\s+/g, " ").trim();
   function visible(element) {
     if (!element?.isConnected || element.hidden) return false;
@@ -2526,6 +2590,133 @@
     report.push(`no panel for "${action.name}"`);
     lastDiagnostics = report.join(" \xB7 ");
     return false;
+  }
+
+  // src/plan-costs-ui.js
+  var RECOMPUTE_MS = 3e3;
+  var RETRY_MS = 3e4;
+  var ROW_TIP = "Market cost of the materials you would buy (lowest ask), after what is in your inventory. One step: make it from bought ingredients. Full chain: make everything that has a recipe, buy only raw materials. This row is counted on its own, so inventory shared with other rows counts here too. Artisan Tea is not counted.";
+  var TOTAL_TIP = "Market cost of the materials to buy for the whole plan (lowest ask), after what is in your inventory. Your choices is what the plan train lists as missing materials. Coins for the upgrade itself and Artisan Tea are not counted.";
+  var c = { loading: false, triedAt: 0, priceError: null, signature: "", at: 0 };
+  function costText(cost) {
+    if (!cost) return null;
+    let text = shortCoins(cost.coins);
+    if (cost.unpriced.length) text += " + ?";
+    return text;
+  }
+  function costLine(options) {
+    const priced = options.filter((option) => option.cost && !option.cost.unpriced.length);
+    const best = priced.length > 1 ? Math.min(...priced.map((option) => option.cost.coins)) : null;
+    const unpriced = [...new Set(options.flatMap((option) => option.cost?.unpriced || []))];
+    const parts = options.filter((option) => option.cost).map((option) => {
+      const cheapest = best !== null && !option.cost.unpriced.length && option.cost.coins === best;
+      return `<span class="${cheapest ? "mwia-plan-cost-best" : ""}">${esc(option.label)} ${costText(option.cost)}</span>`;
+    });
+    let html = parts.join(" \xB7 ");
+    if (unpriced.length) html += ` <span class="mwia-dim">(no price: ${esc(unpriced.join(", "))})</span>`;
+    return html;
+  }
+  function place(html, existing, create) {
+    const element = existing || create();
+    if (element.dataset.html !== html) {
+      element.dataset.html = html;
+      element.innerHTML = html;
+    }
+  }
+  function costElement(className, tip2) {
+    const element = document.createElement("div");
+    element.className = className;
+    element.title = tip2;
+    element.addEventListener("click", (event) => event.preventDefault());
+    enableTapTips(element);
+    return element;
+  }
+  function shownRequired(summary) {
+    const text = summary.querySelector(".planning-step-count")?.textContent || summary.textContent;
+    const match = text.match(/Required\s*([\d.,]+\s*[kmb]?)/i);
+    return match ? parseCoins(match[1].replace(/\s+/g, "")) : null;
+  }
+  function showPlanCosts(win2) {
+    const steps = document.querySelectorAll(".planning-step");
+    if (!steps.length) return;
+    if (!state.character) return;
+    const data = getClientData();
+    if (!data || pricesAge() === null && !c.priceError) {
+      if (!c.loading && Date.now() - c.triedAt > RETRY_MS) {
+        c.loading = true;
+        c.triedAt = Date.now();
+        Promise.all([data || loadClientData(win2), loadPrices()]).then(() => {
+          c.priceError = null;
+        }).catch((error) => {
+          c.priceError = error.message;
+        }).finally(() => {
+          c.loading = false;
+          c.at = 0;
+          if (getClientData()) showPlanCosts(win2);
+        });
+      }
+      return;
+    }
+    const plan = readPlanningTab(document, data);
+    const signature = JSON.stringify([plan.goals, [...plan.policies], pricesAge() !== null && Date.now() - pricesAge()]);
+    const fresh = signature === c.signature && Date.now() - c.at < RECOMPUTE_MS;
+    const missing = [...steps].some((step) => !step.querySelector(".mwia-plan-cost")) || document.querySelector(".planning-calculate-bar") && !document.querySelector(".mwia-plan-costs");
+    if (fresh && !missing) return;
+    c.signature = signature;
+    c.at = Date.now();
+    const owned = inventoryCounts(state.items);
+    const houseLevels = {};
+    for (const room of Object.values(state.character.characterHouseRoomMap || {})) houseLevels[room.houseRoomHrid] = room.level;
+    const price = (hrid) => askPrice(hrid);
+    let totalHtml;
+    let wanted = /* @__PURE__ */ new Map();
+    if (c.priceError) totalHtml = `Material cost: ${esc(c.priceError)}`;
+    else if (!plan.goals.length) totalHtml = "Material cost: no active goals.";
+    else {
+      const totals = planCosts(plan, data, { owned, houseLevels, price });
+      wanted = totals.wanted;
+      totalHtml = "<b>Materials to buy:</b> " + costLine([
+        { label: "your choices", cost: totals.current },
+        { label: "all Buy", cost: totals.buy },
+        { label: "all One step", cost: totals.single },
+        { label: "all Full chain", cost: totals.chain }
+      ]);
+    }
+    for (const stage of document.querySelectorAll(".planning-stage")) {
+      const bar = stage.querySelector(".planning-calculate-bar");
+      if (!bar) continue;
+      place(totalHtml, stage.querySelector(".mwia-plan-costs"), () => {
+        const element = costElement("mwia-plan-costs", TOTAL_TIP);
+        bar.before(element);
+        return element;
+      });
+    }
+    const byName = new Map(Object.values(data.itemDetailMap).map((item) => [item.name, item.hrid]));
+    for (const step of steps) {
+      const summary = step.querySelector(":scope > summary") || step;
+      const use = summary.querySelector(".planning-row-icon use");
+      const bare = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1];
+      const hrid = bare ? "/items/" + bare : byName.get(summary.querySelector(".planning-step-name")?.textContent.trim());
+      const count = wanted.get(hrid) || shownRequired(summary);
+      let html = "";
+      if (c.priceError || !hrid || !data.itemDetailMap[hrid]) html = "";
+      else if (!count) html = '<span class="mwia-dim">Not needed with the current choices</span>';
+      else {
+        const costs = itemCosts(hrid, count, data, { owned, price });
+        html = costLine([
+          { label: "Buy", cost: costs.buy },
+          { label: "One step", cost: costs.single },
+          { label: "Full chain", cost: costs.chain }
+        ]);
+      }
+      place(html, summary.querySelector(".mwia-plan-cost"), () => {
+        const element = costElement("mwia-plan-cost", ROW_TIP);
+        const policySwitch = summary.querySelector(".planning-policy-switch");
+        if (policySwitch) policySwitch.after(element);
+        else summary.appendChild(element);
+        return element;
+      });
+    }
   }
 
   // src/train-ui.js
@@ -2658,6 +2849,7 @@
     }, NOT_QUEUED_AFTER_MS);
   }
   function onGameMessage(type, data) {
+    scheduleScan();
     if (type === "init_character_data") {
       t.seenActionIds = /* @__PURE__ */ new Set();
       restore();
@@ -2786,6 +2978,7 @@
     requestAnimationFrame(() => {
       scanQueued = false;
       injectStartButtons();
+      showPlanCosts(t.win);
       if (currentStop()) fillPanel();
     });
   }

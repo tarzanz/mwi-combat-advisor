@@ -92,6 +92,10 @@ export const CSS = `
   margin-left: 8px; padding: 5px 10px; border-radius: 6px; border: 1px solid #f2c25b;
   background: #43351f; color: #ffe2a0; font: 600 12px sans-serif; cursor: pointer; white-space: nowrap;
 }
+.mwia-plan-cost, .mwia-plan-costs { flex-basis: 100%; width: 100%; font: 12px/1.4 sans-serif; color: #aab3dc; }
+.mwia-plan-cost { margin-top: 4px; }
+.mwia-plan-costs { margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; }
+.mwia-plan-cost-best { color: #7ee2b0; font-weight: 600; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
 .mwia-tip-pop {

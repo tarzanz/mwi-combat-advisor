@@ -10,6 +10,7 @@ import { addToCart } from "./mwitools-cart.js";
 import { buildTrain, inventoryCounts, readPlanningTab } from "./plan-train.js";
 import { findActionPanel, navDiagnostics, openAction, setReactInput } from "./game-nav.js";
 import { enableTapTips, isNarrow } from "./touch.js";
+import { showPlanCosts } from "./plan-costs-ui.js";
 
 const STORE_PREFIX = "mwia-train:";
 const LOW_KEY = "mwia-train-low";
@@ -158,6 +159,8 @@ function onQueueButtonClick(event) {
 }
 
 function onGameMessage(type, data) {
+    // New character or inventory data changes the material costs in the planning tab.
+    scheduleScan();
     if (type === "init_character_data") {
         t.seenActionIds = new Set();
         restore();
@@ -301,6 +304,7 @@ function scheduleScan() {
     requestAnimationFrame(() => {
         scanQueued = false;
         injectStartButtons();
+        showPlanCosts(t.win);
         if (currentStop()) fillPanel();
     });
 }

@@ -34,6 +34,11 @@ buy, by simulating *your own* character.
   waits and says so. Progress survives a reload. The panel also lists missing raw materials (with a 🛒 button for
   the MWITools cart) and warns where your skill level is too low. Inputs are counted without Artisan Tea, so you may
   end up with a little spare material.
+- **Material costs** – in the MWITools planning tab, every step-2 row shows what the item costs to *Buy*, to make in
+  *One step* (ingredients bought) or with the *Full chain* (only raw materials bought), cheapest in green. Above
+  *Calculate Step 3* the same for the whole plan: your current choices, all Buy, all One step, all Full chain. Lowest
+  ask prices; what is in your inventory is not bought again (each row on its own, the plan total shared). Coins for
+  a house upgrade and Artisan Tea are not counted.
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the **⚔ Advisor** button can be
   dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact

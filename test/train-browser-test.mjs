@@ -9,7 +9,8 @@ import path from "node:path";
 import puppeteer from "puppeteer-core";
 import { WebSocketServer } from "ws";
 import { fixtureCharacter } from "./fixture-character.js";
-import { buildTrain, inventoryCounts, productionActions } from "../src/plan-train.js";
+import { buildTrain, inventoryCounts, itemCosts, planCosts, productionActions } from "../src/plan-train.js";
+import { shortCoins } from "../src/format.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const [shotDir = "/tmp"] = process.argv.slice(2);
@@ -46,6 +47,16 @@ const steps = [...policies].map(([hrid, policy]) => ({ hrid, name: clientData.it
 const owned = inventoryCounts(character.characterItems);
 const skills = Object.fromEntries(character.characterSkills.map((s) => [s.skillHrid, s.level]));
 const expected = buildTrain({ goals: [{ kind: "house", hrid: HOUSE, target: 2 }], policies }, clientData, { owned, houseLevels: { [HOUSE]: 1 }, skills });
+
+// Market: every item at three times its vendor price, except Birch Log, which nobody sells.
+const marketData = {};
+for (const item of Object.values(clientData.itemDetailMap)) {
+    if (item.hrid !== "/items/birch_log") marketData[item.hrid] = { 0: { a: 3 * (item.sellPrice || 1), b: item.sellPrice || 1 } };
+}
+const price = (hrid) => marketData[hrid]?.[0].a ?? null;
+const plan = { goals: [{ kind: "house", hrid: HOUSE, target: 2 }], policies };
+const expectedCosts = planCosts(plan, clientData, { owned, houseLevels: { [HOUSE]: 1 }, price });
+const lumberCosts = itemCosts("/items/lumber", expectedCosts.wanted.get("/items/lumber"), clientData, { owned, price });
 
 const MOBILE = !!process.env.MOBILE;
 const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="/advisor.user.js"></script>
@@ -124,6 +135,9 @@ const server = http.createServer((req, res) => {
     } else if (req.url === "/advisor.user.js") {
         res.setHeader("content-type", "text/javascript");
         res.end(userscript);
+    } else if (req.url.startsWith("/game_data/marketplace.json")) {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ marketData }));
     } else if (req.url === "/client-data.json") {
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify(clientData));
@@ -168,6 +182,26 @@ try {
     await page.waitForFunction(() => window.lastType === "init_character_data", { timeout: 10000 });
     await page.waitForSelector(".planning-calculate-bar .mwia-train-start", { timeout: 5000 });
     check("Plan train button added to MWITools step 2", true);
+
+    await page.waitForFunction(() => /Materials to buy/.test(document.querySelector(".mwia-plan-costs")?.textContent || ""), { timeout: 8000 });
+    const costs = await page.evaluate(() => ({
+        total: document.querySelector(".mwia-plan-costs").textContent,
+        rows: [...document.querySelectorAll(".planning-step")].map((step) => ({
+            name: step.querySelector(".planning-step-name").textContent,
+            cost: step.querySelector(":scope > summary .mwia-plan-cost")?.textContent || null,
+        })),
+    }));
+    const totalText = (label, cost) => `${label} ${shortCoins(cost.coins)}${cost.unpriced.length ? " + ?" : ""}`;
+    check("plan total: your choices, all Buy, all One step, all Full chain",
+        costs.total.includes(totalText("your choices", expectedCosts.current)) && costs.total.includes(totalText("all Buy", expectedCosts.buy)) &&
+        costs.total.includes(totalText("all One step", expectedCosts.single)) && costs.total.includes(totalText("all Full chain", expectedCosts.chain)), costs.total);
+    check("plan total names the item without a price", /no price: Birch Log/.test(costs.total), costs.total);
+    check("every step-2 row has a cost line", costs.rows.every((row) => row.cost), JSON.stringify(costs.rows.filter((row) => !row.cost)));
+    const lumber = costs.rows.find((row) => row.name === "Lumber")?.cost || "";
+    check("Lumber row: Buy, One step and Full chain",
+        lumber.includes(totalText("Buy", lumberCosts.buy)) && lumber.includes(totalText("One step", lumberCosts.single)) && lumber.includes(totalText("Full chain", lumberCosts.chain)), lumber);
+    console.log("   " + costs.total + "\n   Lumber: " + lumber);
+    await page.screenshot({ path: path.join(shotDir, "train-0-costs.png") });
 
     await page.click(".mwia-train-start");
     await page.waitForSelector(".mwia-train:not(.mwia-hidden) .mwia-train-now", { timeout: 5000 });

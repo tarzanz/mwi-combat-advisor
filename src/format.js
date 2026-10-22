@@ -20,5 +20,14 @@ export function coinsInput(n) {
     return String(n);
 }
 
+// 950 / 12.5k / 1.27M / 2.10B: short enough for a line under a button row.
+export function shortCoins(n) {
+    const abs = Math.abs(n);
+    const fixed = (value, digits) => value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    if (abs >= 1e9) return fixed(n / 1e9, 2) + "B";
+    if (abs >= 1e6) return fixed(n / 1e6, abs >= 1e7 ? 1 : 2) + "M";
+    if (abs >= 1e4) return fixed(n / 1e3, abs >= 1e5 ? 0 : 1) + "k";
+    return Math.round(n).toLocaleString("en-US");
+}
 
 export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);

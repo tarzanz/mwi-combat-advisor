@@ -59,7 +59,9 @@ export function inventoryCounts(items) {
 }
 
 // The production action that makes an item (not alchemy or enhancing).
+const actionsCache = new WeakMap();
 export function productionActions(data) {
+    if (actionsCache.has(data)) return actionsCache.get(data);
     const byItem = new Map();
     const actions = Object.values(data.actionDetailMap)
         .filter((action) => action.function === "/action_functions/production" && action.outputItems?.length)
@@ -68,6 +70,7 @@ export function productionActions(data) {
         const hrid = action.outputItems[0].itemHrid;
         if (!byItem.has(hrid)) byItem.set(hrid, action);
     }
+    actionsCache.set(data, byItem);
     return byItem;
 }
 
@@ -77,16 +80,12 @@ function inputsOf(action) {
     return inputs;
 }
 
-// goals: [{kind:"house"|"item", hrid, target}], policies: Map itemHrid -> policy,
-// owned: Map itemHrid -> count, houseLevels: {roomHrid: level}, skills: {skillHrid: level}.
-export function buildTrain({ goals, policies }, data, { owned, houseLevels = {}, skills = {} }) {
-    const actions = productionActions(data);
+// What the goals ask for: house upgrade costs from the current level, or items.
+function goalDemand(goals, data, houseLevels) {
     const name = (hrid) => data.itemDetailMap[hrid]?.name || hrid.split("/").pop();
-    const warnings = [];
     const demand = new Map();
     const add = (hrid, count) => demand.set(hrid, (demand.get(hrid) || 0) + count);
     const titles = [];
-
     for (const goal of goals) {
         if (goal.kind === "house") {
             const room = data.houseRoomDetailMap?.[goal.hrid];
@@ -100,12 +99,16 @@ export function buildTrain({ goals, policies }, data, { owned, houseLevels = {},
             add(goal.hrid, goal.target);
         }
     }
+    return { demand, titles };
+}
 
-    const produced = (hrid) => PRODUCE.has(policies.get(hrid)) && actions.has(hrid);
-    for (const [hrid, policy] of policies) {
-        if (policy === "mixed") warnings.push(`${name(hrid)} has different choices per goal; the train makes all of it.`);
-        if (PRODUCE.has(policy) && !actions.has(hrid)) warnings.push(`${name(hrid)} has no production action; get it yourself.`);
-    }
+// Follows the demand down the recipes. produced(hrid) says whether an item is
+// made (its inputs are then needed too) or bought. Returns the items with inputs
+// before what is made from them, and per item { hrid, name, wanted, have, need,
+// action?, count? }.
+function resolve(goalItems, produced, actions, owned, name) {
+    const demand = new Map(goalItems);
+    const add = (hrid, count) => demand.set(hrid, (demand.get(hrid) || 0) + count);
 
     // Inputs before the things made from them (depth-first post-order).
     const order = [];
@@ -134,6 +137,23 @@ export function buildTrain({ goals, policies }, data, { owned, houseLevels = {},
         }
         rows.set(hrid, row);
     }
+    return { order, rows };
+}
+
+// goals: [{kind:"house"|"item", hrid, target}], policies: Map itemHrid -> policy,
+// owned: Map itemHrid -> count, houseLevels: {roomHrid: level}, skills: {skillHrid: level}.
+export function buildTrain({ goals, policies }, data, { owned, houseLevels = {}, skills = {} }) {
+    const actions = productionActions(data);
+    const name = (hrid) => data.itemDetailMap[hrid]?.name || hrid.split("/").pop();
+    const warnings = [];
+    const { demand, titles } = goalDemand(goals, data, houseLevels);
+
+    const produced = (hrid) => PRODUCE.has(policies.get(hrid)) && actions.has(hrid);
+    for (const [hrid, policy] of policies) {
+        if (policy === "mixed") warnings.push(`${name(hrid)} has different choices per goal; the train makes all of it.`);
+        if (PRODUCE.has(policy) && !actions.has(hrid)) warnings.push(`${name(hrid)} has no production action; get it yourself.`);
+    }
+    const { order, rows } = resolve(demand, produced, actions, owned, name);
 
     const height = new Map();
     const heightOf = (hrid) => {
@@ -170,4 +190,58 @@ export function buildTrain({ goals, policies }, data, { owned, houseLevels = {},
         .filter((row) => !row.action && row.need > 0)
         .map((row) => ({ itemHrid: row.hrid, name: row.name, need: Math.ceil(row.need - 1e-9), buy: policies.get(row.hrid) === "buy" }));
     return { title: titles.join(", "), stops, covered, shortages, warnings };
+}
+
+// ----- material costs ----------------------------------------------------------
+
+const COIN = "/items/coin";
+
+// Market cost of everything that has to be bought. price(hrid) is coins per
+// item, or null when nobody sells it. Coins themselves are left out: they cost
+// the same whichever way the materials are sourced.
+function boughtCost(rows, price) {
+    let coins = 0;
+    const unpriced = [];
+    for (const row of rows.values()) {
+        if (row.action || row.need <= 0 || row.hrid === COIN) continue;
+        const each = price(row.hrid);
+        if (each === null || each === undefined) unpriced.push(row.name);
+        else coins += Math.ceil(row.need - 1e-9) * each;
+    }
+    return { coins, unpriced };
+}
+
+// The whole plan sourced four ways: the planning tab's own choices, everything
+// bought ready-made, every goal item made from bought inputs (one step), and
+// everything made down to raw materials (full chain). Inventory is shared
+// across the plan, as in the train. Also returns how many of each item the
+// plan wants with the current choices.
+export function planCosts({ goals, policies }, data, { owned, houseLevels = {}, price }) {
+    const actions = productionActions(data);
+    const name = (hrid) => data.itemDetailMap[hrid]?.name || hrid.split("/").pop();
+    const { demand } = goalDemand(goals, data, houseLevels);
+    const run = (produced) => resolve(demand, produced, actions, owned, name).rows;
+    const current = run((hrid) => PRODUCE.has(policies.get(hrid)) && actions.has(hrid));
+    const wanted = new Map([...current.values()].map((row) => [row.hrid, row.wanted]));
+    return {
+        wanted,
+        current: boughtCost(current, price),
+        buy: boughtCost(run(() => false), price),
+        single: boughtCost(run((hrid) => demand.has(hrid) && actions.has(hrid)), price),
+        chain: boughtCost(run((hrid) => actions.has(hrid)), price),
+    };
+}
+
+// One item on its own: bought, made from bought inputs, or made down to raw
+// materials. single and chain are null when the item has no recipe.
+export function itemCosts(hrid, count, data, { owned, price }) {
+    const actions = productionActions(data);
+    const name = (h) => data.itemDetailMap[h]?.name || h.split("/").pop();
+    const run = (produced) => boughtCost(resolve(new Map([[hrid, count]]), produced, actions, owned, name).rows, price);
+    const craftable = actions.has(hrid);
+    return {
+        buy: run(() => false),
+        single: craftable ? run((h) => h === hrid) : null,
+        chain: craftable ? run((h) => actions.has(h)) : null,
+    };
 }
