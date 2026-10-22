@@ -1,0 +1,18 @@
+{
+  "name": "mwi-combat-advisor",
+  "version": "0.8.0",
+  "description": "Userscript: combat advisor for Milky Way Idle",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test/run-tests.mjs"
+  },
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "esbuild": "^0.25.10",
+    "heap-js": "^2.6.0",
+    "puppeteer-core": "^24.22.0",
+    "ws": "^8.18.3"
+  },
+  "private": true
+}
