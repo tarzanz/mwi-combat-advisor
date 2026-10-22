@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.9.0.1
+// @version      0.9.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -2466,7 +2466,7 @@
     return true;
   }
   function clickSkill(skill) {
-    const link = [...document.querySelectorAll(NAV_LINK)].find((candidate) => iconIds(candidate).includes(skill));
+    const link = [...document.querySelectorAll(NAV_LINK)].find((candidate) => !candidate.querySelector(NAV_LINK) && iconIds(candidate).includes(skill));
     link?.click();
     return link || null;
   }

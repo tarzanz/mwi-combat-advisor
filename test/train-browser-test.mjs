@@ -87,7 +87,8 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
   // The game: navigation, skill page with category tabs, action cards, action panel.
   const production = Object.values(data.actionDetailMap).filter((a) => a.function === "/action_functions/production");
   const skills = ["crafting", "tailoring", "cooking"];
-  document.getElementById("nav").innerHTML = skills.map((s) => '<div class="NavigationBar_navigationLink__abc" data-skill="' + s + '"><svg><use href="/sprites/skills.svg#' + s + '"></use></svg>' + s + '</div>').join("");
+  // Like the real game, the links sit in a container whose class also starts with "NavigationBar_navigationLink".
+  document.getElementById("nav").innerHTML = '<div class="NavigationBar_navigationLinks__zz">' + skills.map((s) => '<div class="NavigationBar_navigationLink__abc" data-skill="' + s + '"><svg><use href="/sprites/skills.svg#' + s + '"></use></svg>' + s + '</div>').join("") + '</div>';
   let currentCategory = null;
   function showSkill(skill, category) {
     const list = production.filter((a) => a.type === "/action_types/" + skill);

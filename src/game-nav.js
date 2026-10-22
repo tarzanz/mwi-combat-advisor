@@ -110,8 +110,10 @@ function clickTab(label) {
     return true;
 }
 
+// The selector also matches the container around all the links (and around
+// groups of links), which holds every icon; only a link without links inside counts.
 function clickSkill(skill) {
-    const link = [...document.querySelectorAll(NAV_LINK)].find((candidate) => iconIds(candidate).includes(skill));
+    const link = [...document.querySelectorAll(NAV_LINK)].find((candidate) => !candidate.querySelector(NAV_LINK) && iconIds(candidate).includes(skill));
     link?.click();
     return link || null;
 }
