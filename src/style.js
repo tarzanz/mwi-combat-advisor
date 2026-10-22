@@ -1,9 +1,12 @@
+// Phones (and phones turned sideways) get the full-screen layout.
+export const NARROW = "(max-width: 700px), (max-height: 500px)";
+
 export const CSS = `
 .mwia-launcher {
   position: fixed; right: 44px; bottom: 74px; z-index: 999;
   padding: 6px 12px; border-radius: 16px; border: 1px solid #5b6bb0;
   background: #262c4a; color: #e8ebff; font: 600 13px/1.2 sans-serif; cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  box-shadow: 0 2px 8px rgba(0,0,0,.4); touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .mwia-launcher:hover { background: #333b63; }
 .mwia-panel {
@@ -89,4 +92,58 @@ export const CSS = `
   background: #43351f; color: #ffe2a0; font: 600 12px sans-serif; cursor: pointer; white-space: nowrap;
 }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
+.mwia-narrow-only { display: none; }
+.mwia-tip-pop {
+  position: fixed; z-index: 2000; max-width: min(300px, calc(100vw - 16px)); padding: 6px 9px; border-radius: 6px;
+  background: #0f1222; color: #e8ebff; border: 1px solid #5b6bb0; box-shadow: 0 4px 16px rgba(0,0,0,.6); font: 12px/1.4 sans-serif;
+}
+
+/* Touch screens: bigger targets, and 16px inputs so iOS doesn't zoom in on focus. */
+@media (hover: none), (pointer: coarse) {
+  .mwia-panel button, .mwia-train button, .mwia-train-start { touch-action: manipulation; }
+  .mwia-launcher { padding: 9px 14px; font-size: 14px; }
+  .mwia-tab { padding: 10px 12px; }
+  .mwia-link { padding: 6px 10px; }
+  .mwia-btn { padding: 10px 16px; }
+  .mwia-cart-btn { font-size: 13px; padding: 4px 10px; min-height: 32px; }
+  .mwia-settings select, .mwia-settings input[type="text"] { font-size: 16px; padding: 6px 8px; }
+  .mwia-settings input[type="checkbox"] { width: 22px; height: 22px; }
+  .mwia-panel th[title], .mwia-panel span[title], .mwia-panel label[title] { text-decoration: underline dotted #5b6bb0; }
+}
+
+@media ${NARROW} {
+  .mwia-panel {
+    top: 0; right: 0; bottom: 0; left: 0; width: auto; max-height: none; z-index: 1400;
+    border: none; border-radius: 0; box-sizing: border-box;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .mwia-header .mwia-link { font-size: 20px; }
+  .mwia-tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .mwia-tab { white-space: nowrap; }
+  .mwia-body { flex: 1; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 10px 12px 24px; }
+  .mwia-settings label { flex: 1 1 140px; }
+  .mwia-settings select, .mwia-settings input[type="text"] { max-width: none; width: 100%; box-sizing: border-box; }
+
+  /* Wide tables become one card per row. */
+  .mwia-wide, .mwia-wide tbody { display: block; }
+  .mwia-wide thead { display: none; }
+  .mwia-wide tr { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; padding: 8px 4px; border-bottom: 1px solid #2c3459; }
+  .mwia-wide td { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: none; text-align: left !important; }
+  .mwia-wide td::before { content: attr(data-label); color: #8189b0; white-space: nowrap; }
+  .mwia-wide td[data-label=""]::before, .mwia-wide td.mwia-card-title::before { content: none; }
+  .mwia-wide td[data-label=""] { grid-column: 1 / -1; justify-content: flex-start; }
+  .mwia-wide td[data-label=""]:empty { display: none; }
+  .mwia-wide td.mwia-card-title { grid-column: 1 / -1; order: -1; font-size: 13px; font-weight: 600; color: #e8ebff; }
+  .mwia-best { background: #1f3326; }
+  .mwia-faded { opacity: .55; }
+  .mwia-faded td { opacity: 1; }
+
+  .mwia-train {
+    top: calc(8px + env(safe-area-inset-top)); right: 8px; bottom: auto; left: 8px;
+    width: auto; max-height: 45vh; font-size: 13px;
+  }
+  .mwia-train-buttons button { flex: 1; }
+  .mwia-train.mwia-train-low { top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .mwia-narrow-only { display: inline-block; }
+}
 `;

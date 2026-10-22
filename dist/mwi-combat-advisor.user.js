@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.8.1
+// @version      0.9.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1212,12 +1212,13 @@
   };
 
   // src/style.js
+  var NARROW = "(max-width: 700px), (max-height: 500px)";
   var CSS = `
 .mwia-launcher {
   position: fixed; right: 44px; bottom: 74px; z-index: 999;
   padding: 6px 12px; border-radius: 16px; border: 1px solid #5b6bb0;
   background: #262c4a; color: #e8ebff; font: 600 13px/1.2 sans-serif; cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  box-shadow: 0 2px 8px rgba(0,0,0,.4); touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .mwia-launcher:hover { background: #333b63; }
 .mwia-panel {
@@ -1303,6 +1304,60 @@
   background: #43351f; color: #ffe2a0; font: 600 12px sans-serif; cursor: pointer; white-space: nowrap;
 }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
+.mwia-narrow-only { display: none; }
+.mwia-tip-pop {
+  position: fixed; z-index: 2000; max-width: min(300px, calc(100vw - 16px)); padding: 6px 9px; border-radius: 6px;
+  background: #0f1222; color: #e8ebff; border: 1px solid #5b6bb0; box-shadow: 0 4px 16px rgba(0,0,0,.6); font: 12px/1.4 sans-serif;
+}
+
+/* Touch screens: bigger targets, and 16px inputs so iOS doesn't zoom in on focus. */
+@media (hover: none), (pointer: coarse) {
+  .mwia-panel button, .mwia-train button, .mwia-train-start { touch-action: manipulation; }
+  .mwia-launcher { padding: 9px 14px; font-size: 14px; }
+  .mwia-tab { padding: 10px 12px; }
+  .mwia-link { padding: 6px 10px; }
+  .mwia-btn { padding: 10px 16px; }
+  .mwia-cart-btn { font-size: 13px; padding: 4px 10px; min-height: 32px; }
+  .mwia-settings select, .mwia-settings input[type="text"] { font-size: 16px; padding: 6px 8px; }
+  .mwia-settings input[type="checkbox"] { width: 22px; height: 22px; }
+  .mwia-panel th[title], .mwia-panel span[title], .mwia-panel label[title] { text-decoration: underline dotted #5b6bb0; }
+}
+
+@media ${NARROW} {
+  .mwia-panel {
+    top: 0; right: 0; bottom: 0; left: 0; width: auto; max-height: none; z-index: 1400;
+    border: none; border-radius: 0; box-sizing: border-box;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .mwia-header .mwia-link { font-size: 20px; }
+  .mwia-tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .mwia-tab { white-space: nowrap; }
+  .mwia-body { flex: 1; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 10px 12px 24px; }
+  .mwia-settings label { flex: 1 1 140px; }
+  .mwia-settings select, .mwia-settings input[type="text"] { max-width: none; width: 100%; box-sizing: border-box; }
+
+  /* Wide tables become one card per row. */
+  .mwia-wide, .mwia-wide tbody { display: block; }
+  .mwia-wide thead { display: none; }
+  .mwia-wide tr { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; padding: 8px 4px; border-bottom: 1px solid #2c3459; }
+  .mwia-wide td { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: none; text-align: left !important; }
+  .mwia-wide td::before { content: attr(data-label); color: #8189b0; white-space: nowrap; }
+  .mwia-wide td[data-label=""]::before, .mwia-wide td.mwia-card-title::before { content: none; }
+  .mwia-wide td[data-label=""] { grid-column: 1 / -1; justify-content: flex-start; }
+  .mwia-wide td[data-label=""]:empty { display: none; }
+  .mwia-wide td.mwia-card-title { grid-column: 1 / -1; order: -1; font-size: 13px; font-weight: 600; color: #e8ebff; }
+  .mwia-best { background: #1f3326; }
+  .mwia-faded { opacity: .55; }
+  .mwia-faded td { opacity: 1; }
+
+  .mwia-train {
+    top: calc(8px + env(safe-area-inset-top)); right: 8px; bottom: auto; left: 8px;
+    width: auto; max-height: 45vh; font-size: 13px;
+  }
+  .mwia-train-buttons button { flex: 1; }
+  .mwia-train.mwia-train-low { top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .mwia-narrow-only { display: inline-block; }
+}
 `;
 
   // src/format.js
@@ -1364,6 +1419,112 @@
       }
     }
     return outcome;
+  }
+
+  // src/touch.js
+  var isTouch = () => !!window.matchMedia?.("(hover: none)").matches;
+  var isNarrow = () => !!window.matchMedia?.(NARROW).matches;
+  var POSITION_KEY = "mwia-launcher-pos";
+  var DRAG_THRESHOLD = 8;
+  var tip = null;
+  var hidingTips = false;
+  function hideTip() {
+    tip?.remove();
+    tip = null;
+  }
+  function showTip(anchor, text) {
+    hideTip();
+    tip = document.createElement("div");
+    tip.className = "mwia-tip-pop";
+    tip.textContent = text;
+    document.body.appendChild(tip);
+    const box = anchor.getBoundingClientRect();
+    const left = Math.min(Math.max(8, box.left + box.width / 2 - tip.offsetWidth / 2), innerWidth - tip.offsetWidth - 8);
+    const below = box.bottom + 6;
+    const top = below + tip.offsetHeight < innerHeight - 8 ? below : Math.max(8, box.top - tip.offsetHeight - 6);
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  }
+  function enableTapTips(root) {
+    if (!hidingTips) {
+      hidingTips = true;
+      document.addEventListener("pointerdown", hideTip, true);
+      document.addEventListener("scroll", hideTip, true);
+    }
+    root.addEventListener("click", (event) => {
+      if (!isTouch() || event.target.closest("button, select, input, textarea, a")) return;
+      const owner = event.target.closest("[title]");
+      if (owner && root.contains(owner) && owner.title) showTip(owner, owner.title);
+    });
+  }
+  function makeDraggable(button) {
+    let start = null;
+    let moved = false;
+    const place = (x, y) => {
+      button.style.left = `${Math.min(Math.max(4, x), innerWidth - button.offsetWidth - 4)}px`;
+      button.style.top = `${Math.min(Math.max(4, y), innerHeight - button.offsetHeight - 4)}px`;
+      button.style.right = "auto";
+      button.style.bottom = "auto";
+    };
+    const placeSaved = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(POSITION_KEY) || "null");
+        if (saved) place(saved.x * innerWidth, saved.y * innerHeight);
+      } catch {
+      }
+    };
+    const save2 = () => {
+      const box = button.getBoundingClientRect();
+      try {
+        localStorage.setItem(POSITION_KEY, JSON.stringify({ x: box.left / innerWidth, y: box.top / innerHeight }));
+      } catch {
+      }
+    };
+    button.addEventListener("pointerdown", (event) => {
+      if (event.button) return;
+      const box = button.getBoundingClientRect();
+      start = { x: event.clientX, y: event.clientY, left: box.left, top: box.top };
+      moved = false;
+      button.setPointerCapture?.(event.pointerId);
+    });
+    button.addEventListener("pointermove", (event) => {
+      if (!start) return;
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      moved = true;
+      place(start.left + dx, start.top + dy);
+    });
+    const end = () => {
+      if (start && moved) save2();
+      start = null;
+    };
+    button.addEventListener("pointerup", end);
+    button.addEventListener("pointercancel", end);
+    button.addEventListener(
+      "click",
+      (event) => {
+        if (!moved) return;
+        moved = false;
+        event.stopImmediatePropagation();
+        event.preventDefault();
+      },
+      true
+    );
+    window.addEventListener("resize", placeSaved);
+    requestAnimationFrame(placeSaved);
+  }
+  var TITLE_COLUMNS = /* @__PURE__ */ new Set(["Zone", "Item", "Ability", "Food", "Drink"]);
+  function labelTableCells(container) {
+    for (const table of container.querySelectorAll(".mwia-wide")) {
+      const headers = [...table.querySelectorAll("thead th")].map((th) => th.textContent.trim());
+      for (const row of table.querySelectorAll("tbody tr")) {
+        [...row.cells].forEach((cell, i) => {
+          cell.dataset.label = headers[i] || "";
+          if (TITLE_COLUMNS.has(headers[i])) cell.classList.add("mwia-card-title");
+        });
+      }
+    }
   }
 
   // src/ui.js
@@ -1469,7 +1630,7 @@
     await loadPrices();
     if (!state.character) throw new Error("No character data yet. Reload the game page (F5) with the script enabled.");
     if (!ui.pool) {
-      const size = Math.max(1, Math.min((navigator.hardwareConcurrency || 4) - 1, 8));
+      const size = Math.max(1, Math.min((navigator.hardwareConcurrency || 4) - 1, isTouch() ? 4 : 8));
       ui.pool = new SimPool(ui.workerSource, engineTables(), size);
       await ui.pool.start();
     }
@@ -1556,6 +1717,7 @@
     else if (ui.tab === "upgrades") html += renderUpgrades();
     else html += renderGuide();
     body.innerHTML = html;
+    labelTableCells(body);
   }
   function statusLine() {
     if (!state.character) return '<span class="mwia-warn">Waiting for character data \u2013 reload the page if this stays.</span>';
@@ -2022,6 +2184,7 @@
     button.title = "Combat Advisor";
     button.textContent = "\u2694 Advisor";
     document.body.appendChild(button);
+    makeDraggable(button);
     const root = document.createElement("div");
     root.className = "mwia-panel mwia-hidden";
     root.innerHTML = `
@@ -2040,6 +2203,7 @@
     ui.root = root;
     root.addEventListener("click", onClick);
     root.addEventListener("change", onChange);
+    enableTapTips(root);
     root.addEventListener("input", (event) => {
       if (event.target.dataset?.setting !== "goldWeight") return;
       const label = event.target.closest(".mwia-focus")?.querySelector(".mwia-focus-text");
@@ -2328,6 +2492,7 @@
 
   // src/train-ui.js
   var STORE_PREFIX = "mwia-train:";
+  var LOW_KEY = "mwia-train-low";
   var NOT_QUEUED_AFTER_MS = 4e3;
   var t = {
     win: null,
@@ -2337,6 +2502,8 @@
     notice: null,
     // { kind, text }
     collapsed: false,
+    low: false,
+    // phones: panel at the bottom of the screen instead of the top
     seenActionIds: /* @__PURE__ */ new Set(),
     filled: /* @__PURE__ */ new WeakMap(),
     // count input -> stop index it was filled for
@@ -2383,7 +2550,7 @@
       for (const skill of state.character.characterSkills || []) skills[skill.skillHrid] = skill.level;
       const train = buildTrain(plan, data, { owned: inventoryCounts(state.items), houseLevels, skills });
       t.train = { ...train, index: 0 };
-      t.collapsed = false;
+      t.collapsed = isNarrow();
       t.notice = null;
       rememberQueuedActions();
       save();
@@ -2479,6 +2646,7 @@
     if (!t.root) return;
     const train = t.train;
     t.root.classList.toggle("mwia-hidden", !train);
+    t.root.classList.toggle("mwia-train-low", t.low);
     if (!train) return;
     const stop = currentStop();
     const done = train.index >= train.stops.length && !train.failed;
@@ -2486,19 +2654,21 @@
     let html = `<div class="mwia-train-head">
         <button class="mwia-link" data-train="toggle" title="Show or hide the stops">${t.collapsed ? "\u25B8" : "\u25BE"}</button>
         <b>\u{1F682} ${esc(train.title)}</b>
+        <button class="mwia-link mwia-narrow-only" data-train="move" title="Move to the ${t.low ? "top" : "bottom"} of the screen">\u21C5</button>
         <button class="mwia-link" data-train="end" title="End the train">\u2715</button>
       </div>`;
     if (headline) html += `<div class="mwia-train-now">${headline}</div>`;
     if (t.notice) html += `<div class="mwia-notice mwia-notice-${t.notice.kind}">${esc(t.notice.text)}</div>`;
+    if (stop && !train.failed) {
+      if (!t.collapsed) html += `<p class="mwia-dim">Click the game's <b>Add to queue</b>; the next stop opens when the game confirms it.</p>`;
+      html += `<div class="mwia-train-buttons">
+            <button class="mwia-cart-btn" data-train="back" ${train.index === 0 ? "disabled" : ""}>\u25C2 Back</button>
+            <button class="mwia-cart-btn" data-train="open">Open stop</button>
+            <button class="mwia-cart-btn" data-train="next">Next \u25B8</button>
+          </div>`;
+    }
     if (!t.collapsed && !train.failed) {
-      if (stop) {
-        html += `<p class="mwia-dim">Click the game's <b>Add to queue</b>; the next stop opens when the game confirms it.</p>
-              <div class="mwia-train-buttons">
-                <button class="mwia-cart-btn" data-train="back" ${train.index === 0 ? "disabled" : ""}>\u25C2 Back</button>
-                <button class="mwia-cart-btn" data-train="open">Open stop</button>
-                <button class="mwia-cart-btn" data-train="next">Next \u25B8</button>
-              </div>`;
-      } else if (done) {
+      if (done) {
         html += `<p>Everything is in the queue. When it has finished, ${/→/.test(train.title) ? "upgrade the house room" : "the goal items are ready"}.</p>`;
       }
       html += `<ol class="mwia-train-stops">${train.stops.map((s, i) => `<li class="${i < train.index ? "mwia-train-done" : i === train.index ? "mwia-train-current" : ""}">
@@ -2523,6 +2693,13 @@
     const action = button.dataset.train;
     if (action === "toggle") {
       t.collapsed = !t.collapsed;
+      render2();
+    } else if (action === "move") {
+      t.low = !t.low;
+      try {
+        localStorage.setItem(LOW_KEY, t.low ? "1" : "");
+      } catch {
+      }
       render2();
     } else if (action === "end") endTrain();
     else if (action === "back") advance(-1);
@@ -2579,7 +2756,13 @@
     t.root = document.createElement("div");
     t.root.className = "mwia-train mwia-hidden";
     t.root.addEventListener("click", onClick2);
+    enableTapTips(t.root);
     document.body.appendChild(t.root);
+    try {
+      t.low = !!localStorage.getItem(LOW_KEY);
+    } catch {
+      t.low = false;
+    }
     restore();
     rememberQueuedActions();
     render2();

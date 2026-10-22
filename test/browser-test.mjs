@@ -1,6 +1,7 @@
 // End-to-end check in a real Firefox: a fake game page + fake game socket,
 // the built userscript injected first, then the panel is driven like a user would.
-// Usage: node test/browser-test.mjs <marketplace.json> <screenshot-dir>
+// Usage: node test/browser-test.mjs <marketplace.json> <screenshot-dir> [mwitools.user.js]
+// MOBILE=1 runs it at iPhone size (390×844) with a touch screen's "(hover: none)".
 import { readFileSync, readdirSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -14,11 +15,14 @@ const dataDir = path.join(root, "engine/data");
 const clientData = {};
 for (const f of readdirSync(dataDir)) clientData[f.replace(".json", "")] = JSON.parse(readFileSync(path.join(dataDir, f), "utf8"));
 const userscript = readFileSync(path.join(root, "dist/mwi-combat-advisor.user.js"), "utf8");
+const MOBILE = !!process.env.MOBILE;
+const TOUCH_STUB = `<script>{ const real = window.matchMedia.bind(window);
+  window.matchMedia = (q) => (q === "(hover: none)" ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : real(q)); }</script>`;
 
 const server = http.createServer((req, res) => {
     if (req.url === "/") {
         res.setHeader("content-type", "text/html");
-        res.end(`<!doctype html><html><head><meta charset="utf-8"><script src="/advisor.user.js"></script>${mwitoolsFile ? '<script src="/gm-shim.js"></script><script src="/mwitools.user.js"></script>' : ""}</head>
+        res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${MOBILE ? TOUCH_STUB : ""}<script src="/advisor.user.js"></script>${mwitoolsFile ? '<script src="/gm-shim.js"></script><script src="/mwitools.user.js"></script>' : ""}</head>
           <body style="background:#0b0e1a;color:#ddd;font-family:sans-serif"><h1>Fake game</h1>
           <script>
             const xhr = new XMLHttpRequest(); xhr.open("GET", "/client-data.json", false); xhr.send();
@@ -88,7 +92,7 @@ try {
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-    await page.setViewport({ width: 1300, height: 1000 });
+    await page.setViewport(MOBILE ? { width: 390, height: 844 } : { width: 1300, height: 1000 });
     await page.goto(url);
     await page.waitForFunction(() => window.lastType === "items_updated", { timeout: 10000 });
     check("game still receives its messages through the hook", true);
@@ -98,8 +102,27 @@ try {
         await page.waitForSelector(".mwi-performance-backdrop", { timeout: 15000 }).catch(() => {});
         await page.evaluate(() => document.querySelector(".mwi-performance-backdrop")?.parentElement?.remove());
     }
+    if (MOBILE) {
+        // Dragging the launcher moves it and must not open the panel.
+        const before = await page.$eval(".mwia-launcher", (n) => n.getBoundingClientRect().toJSON());
+        await page.mouse.move(before.x + 10, before.y + 10);
+        await page.mouse.down();
+        await page.mouse.move(before.x - 60, before.y - 200, { steps: 6 });
+        await page.mouse.up();
+        const after = await page.$eval(".mwia-launcher", (n) => n.getBoundingClientRect().toJSON());
+        const opened = await page.$eval(".mwia-panel", (n) => !n.classList.contains("mwia-hidden"));
+        const saved = await page.evaluate(() => localStorage.getItem("mwia-launcher-pos"));
+        check("launcher can be dragged without opening the panel", Math.abs(after.y - (before.y - 210)) < 3 && !opened && !!saved, `${before.y} → ${after.y}, opened ${opened}`);
+    }
     await page.click(".mwia-launcher");
     await page.waitForSelector(".mwia-panel:not(.mwia-hidden) .mwia-grid", { timeout: 10000 });
+    if (MOBILE) {
+        const fit = await page.evaluate(() => {
+            const box = document.querySelector(".mwia-panel").getBoundingClientRect();
+            return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, w: innerWidth, h: innerHeight, scroll: document.documentElement.scrollWidth };
+        });
+        check("phone: panel fills the screen without sideways scrolling", fit.left === 0 && fit.top === 0 && fit.right === fit.w && fit.bottom === fit.h && fit.scroll <= fit.w, JSON.stringify(fit));
+    }
     const overview = await page.$eval(".mwia-body", (n) => n.innerText);
     check("overview shows levels", /Magic\s+21/.test(overview));
     check("overview reflects items_updated (Linen Gloves on hands)", /Hands\s+Linen Gloves/.test(overview));
@@ -113,6 +136,20 @@ try {
     const zones = await page.$eval(".mwia-body", (n) => n.innerText);
     check("zone recommendation shown", /Recommendation:/.test(zones), zones.split("\n").find((l) => l.startsWith("Recommendation")));
     await page.screenshot({ path: path.join(shotDir, "2-zones.png") });
+    if (MOBILE) {
+        const card = await page.$eval(".mwia-wide tbody tr", (row) => ({
+            display: getComputedStyle(row).display,
+            title: row.querySelector(".mwia-card-title")?.textContent.trim(),
+            labels: [...row.cells].map((c) => c.dataset.label),
+        }));
+        check("phone: zone table shows cards with labels", card.display === "grid" && !!card.title && card.labels.includes("Profit/day"), JSON.stringify(card));
+        await page.click(".mwia-wide span[title]");
+        const tipText = await page.$eval(".mwia-tip-pop", (n) => n.textContent).catch(() => null);
+        check("phone: tapping a hint shows its text", !!tipText && tipText.length > 5, tipText);
+        await page.screenshot({ path: path.join(shotDir, "2b-zones-tip.png") });
+        await page.mouse.click(200, 300);
+        check("phone: next tap hides the hint", !(await page.$(".mwia-tip-pop")));
+    }
 
     await page.click('[data-tab="upgrades"]');
     await page.$eval('[data-setting="budget"]', (n) => { n.focus(); n.select(); });
@@ -129,11 +166,17 @@ try {
     check("shopping list rendered", /Total one-time cost/.test(upgrades));
     check("combined effect verified", /Everything combined/.test(upgrades));
     check("owned gloves not suggested again", !/Linen Gloves[^\n]*you own it/.test(upgrades));
-    check("coin rates shown per day", /profit [^\n]*\/day/.test(upgrades) && /Extra cost\/day/.test(upgrades));
+    // On a phone the column names are card labels (CSS), not text.
+    const headers = MOBILE ? await page.$$eval(".mwia-wide td", (cells) => cells.map((c) => c.dataset.label).join("|")) : upgrades;
+    check("coin rates shown per day", /profit [^\n]*\/day/.test(upgrades) && /Extra cost\/day/.test(headers));
     check("confidence column shown", /Sure/.test(upgrades) && /\d+%/.test(upgrades));
     check("enhanced gear listed", /\+\d+\s/.test(upgrades.slice(upgrades.indexOf("Equipment\n"))));
     console.log(upgrades.slice(upgrades.indexOf("Zone:"), upgrades.indexOf("Equipment\n")));
     await page.screenshot({ path: path.join(shotDir, "3-upgrades.png"), fullPage: false });
+    if (MOBILE) {
+        const overflow = await page.$eval(".mwia-body", (n) => ({ scroll: n.scrollWidth, client: n.clientWidth }));
+        check("phone: upgrade tables fit the width", overflow.scroll <= overflow.client + 1, JSON.stringify(overflow));
+    }
     await page.$eval(".mwia-body", (n) => n.scrollTo(0, 99999));
     await page.screenshot({ path: path.join(shotDir, "4-upgrades-tables.png") });
     // XP–Gold slider: re-rates instantly without simulating again.
@@ -150,7 +193,7 @@ try {
     check("accept rare deaths is saved", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-settings")).acceptRareDeaths === true));
     await page.$eval('[data-setting="acceptRareDeaths"]', (n) => { n.checked = false; n.dispatchEvent(new Event("change", { bubbles: true })); });
     await page.click('[data-tab="zones"]');
-    check("zones tab has the slider and profit column", await page.$eval(".mwia-body", (n) => !!n.querySelector('[data-setting="goldWeight"]') && /Match/.test(n.innerText)));
+    check("zones tab has the slider and profit column", await page.$eval(".mwia-body", (n) => !!n.querySelector('[data-setting="goldWeight"]') && (/Match/.test(n.innerText) || !!n.querySelector('td[data-label="Match"]'))));
     await page.click('[data-tab="upgrades"]');
 
     if (mwitoolsFile) {

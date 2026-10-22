@@ -36,6 +36,7 @@ import { SimPool } from "./pool.js";
 import { CSS } from "./style.js";
 import { coinsInput, esc, parseCoins } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
+import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
 const SETTINGS_KEY = "mwia-settings";
 const DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto" };
@@ -156,7 +157,8 @@ async function ensureReady() {
     await loadPrices();
     if (!state.character) throw new Error("No character data yet. Reload the game page (F5) with the script enabled.");
     if (!ui.pool) {
-        const size = Math.max(1, Math.min((navigator.hardwareConcurrency || 4) - 1, 8));
+        // Fewer workers on phones and tablets: they get hot and throttle.
+        const size = Math.max(1, Math.min((navigator.hardwareConcurrency || 4) - 1, isTouch() ? 4 : 8));
         ui.pool = new SimPool(ui.workerSource, engineTables(), size);
         await ui.pool.start();
     }
@@ -255,6 +257,7 @@ function render() {
     else if (ui.tab === "upgrades") html += renderUpgrades();
     else html += renderGuide();
     body.innerHTML = html;
+    labelTableCells(body);
 }
 
 function statusLine() {
@@ -784,6 +787,7 @@ export function mountUI(win, workerSource) {
     button.title = "Combat Advisor";
     button.textContent = "⚔ Advisor";
     document.body.appendChild(button);
+    makeDraggable(button);
 
     const root = document.createElement("div");
     root.className = "mwia-panel mwia-hidden";
@@ -804,6 +808,7 @@ export function mountUI(win, workerSource) {
 
     root.addEventListener("click", onClick);
     root.addEventListener("change", onChange);
+    enableTapTips(root);
     // Live label while dragging the XP–Gold slider; the re-rating happens on "change".
     root.addEventListener("input", (event) => {
         if (event.target.dataset?.setting !== "goldWeight") return;

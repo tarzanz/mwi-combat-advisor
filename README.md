@@ -34,12 +34,17 @@ buy, by simulating *your own* character.
   waits and says so. Progress survives a reload. The panel also lists missing raw materials (with a 🛒 button for
   the MWITools cart) and warns where your skill level is too low. Inputs are counted without Artisan Tea, so you may
   end up with a little spare material.
+- **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
+  screens a tap shows the hints that a mouse would show on hover (dotted underline), the **⚔ Advisor** button can be
+  dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact
+  (current stop and buttons only; ▸ shows the list) and ⇅ moves it between the top and bottom of the screen.
 
 The script never buys, equips or queues anything by itself; you always click the game's own buttons.
 
 ## Install
 
-1. Install Tampermonkey or Violentmonkey in your browser.
+1. Install Tampermonkey or Violentmonkey in your browser. On an iPhone, the Orion browser can run Violentmonkey from
+   the Firefox add-on store.
 2. Open <https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js> and
    confirm the install. Updates come from the same link; "check for updates" in the script manager fetches them.
 3. Reload the game. A **⚔ Advisor** button appears at the bottom right.
@@ -72,6 +77,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - Results are estimates – a few percent either way is normal.
 - The plan train relies on the class names of the MWITools planning tab and the game's action pages; it has only been
   tested against mock-ups of both.
+- The phone layout has been tested at iPhone size in desktop Firefox, not on a real phone. Keep the screen on while
+  an analysis runs: a phone pauses the page in the background.
 
 ## Development
 
@@ -81,6 +88,7 @@ npm run build                                   # -> dist/mwi-combat-advisor.use
 npm test -- engine/data path/to/marketplace.json          # analysis logic in Node
 node test/browser-test.mjs path/to/marketplace.json /tmp [mwitools.user.js]  # full userscript in headless Firefox
 node test/train-browser-test.mjs /tmp                     # plan train against a mock planning tab and game
+MOBILE=1 node test/browser-test.mjs …                     # either browser test at iPhone size with a touch screen
 ```
 
 Installed scripts update from `dist/` on `main`, so a release is: bump `version` in `package.json`, `npm run build`,

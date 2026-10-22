@@ -9,8 +9,10 @@ import { esc } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
 import { buildTrain, inventoryCounts, readPlanningTab } from "./plan-train.js";
 import { findActionPanel, openAction, setReactInput } from "./game-nav.js";
+import { enableTapTips, isNarrow } from "./touch.js";
 
 const STORE_PREFIX = "mwia-train:";
+const LOW_KEY = "mwia-train-low";
 const NOT_QUEUED_AFTER_MS = 4000;
 
 const t = {
@@ -19,6 +21,7 @@ const t = {
     root: null,
     notice: null, // { kind, text }
     collapsed: false,
+    low: false, // phones: panel at the bottom of the screen instead of the top
     seenActionIds: new Set(),
     filled: new WeakMap(), // count input -> stop index it was filled for
     queueClickTimer: null,
@@ -74,7 +77,8 @@ async function startFromPlanning() {
         for (const skill of state.character.characterSkills || []) skills[skill.skillHrid] = skill.level;
         const train = buildTrain(plan, data, { owned: inventoryCounts(state.items), houseLevels, skills });
         t.train = { ...train, index: 0 };
-        t.collapsed = false;
+        // A phone screen is small; start with just the current stop showing.
+        t.collapsed = isNarrow();
         t.notice = null;
         rememberQueuedActions();
         save();
@@ -185,6 +189,7 @@ function render() {
     if (!t.root) return;
     const train = t.train;
     t.root.classList.toggle("mwia-hidden", !train);
+    t.root.classList.toggle("mwia-train-low", t.low);
     if (!train) return;
     const stop = currentStop();
     const done = train.index >= train.stops.length && !train.failed;
@@ -192,19 +197,21 @@ function render() {
     let html = `<div class="mwia-train-head">
         <button class="mwia-link" data-train="toggle" title="Show or hide the stops">${t.collapsed ? "▸" : "▾"}</button>
         <b>🚂 ${esc(train.title)}</b>
+        <button class="mwia-link mwia-narrow-only" data-train="move" title="Move to the ${t.low ? "top" : "bottom"} of the screen">⇅</button>
         <button class="mwia-link" data-train="end" title="End the train">✕</button>
       </div>`;
     if (headline) html += `<div class="mwia-train-now">${headline}</div>`;
     if (t.notice) html += `<div class="mwia-notice mwia-notice-${t.notice.kind}">${esc(t.notice.text)}</div>`;
+    if (stop && !train.failed) {
+        if (!t.collapsed) html += `<p class="mwia-dim">Click the game's <b>Add to queue</b>; the next stop opens when the game confirms it.</p>`;
+        html += `<div class="mwia-train-buttons">
+            <button class="mwia-cart-btn" data-train="back" ${train.index === 0 ? "disabled" : ""}>◂ Back</button>
+            <button class="mwia-cart-btn" data-train="open">Open stop</button>
+            <button class="mwia-cart-btn" data-train="next">Next ▸</button>
+          </div>`;
+    }
     if (!t.collapsed && !train.failed) {
-        if (stop) {
-            html += `<p class="mwia-dim">Click the game's <b>Add to queue</b>; the next stop opens when the game confirms it.</p>
-              <div class="mwia-train-buttons">
-                <button class="mwia-cart-btn" data-train="back" ${train.index === 0 ? "disabled" : ""}>◂ Back</button>
-                <button class="mwia-cart-btn" data-train="open">Open stop</button>
-                <button class="mwia-cart-btn" data-train="next">Next ▸</button>
-              </div>`;
-        } else if (done) {
+        if (done) {
             html += `<p>Everything is in the queue. When it has finished, ${/→/.test(train.title) ? "upgrade the house room" : "the goal items are ready"}.</p>`;
         }
         html += `<ol class="mwia-train-stops">${train.stops
@@ -232,6 +239,14 @@ async function onClick(event) {
     const action = button.dataset.train;
     if (action === "toggle") {
         t.collapsed = !t.collapsed;
+        render();
+    } else if (action === "move") {
+        t.low = !t.low;
+        try {
+            localStorage.setItem(LOW_KEY, t.low ? "1" : "");
+        } catch {
+            // the choice is just not remembered
+        }
         render();
     } else if (action === "end") endTrain();
     else if (action === "back") advance(-1);
@@ -295,7 +310,13 @@ export function mountPlanTrain(win) {
     t.root = document.createElement("div");
     t.root.className = "mwia-train mwia-hidden";
     t.root.addEventListener("click", onClick);
+    enableTapTips(t.root);
     document.body.appendChild(t.root);
+    try {
+        t.low = !!localStorage.getItem(LOW_KEY);
+    } catch {
+        t.low = false;
+    }
     restore();
     rememberQueuedActions();
     render();

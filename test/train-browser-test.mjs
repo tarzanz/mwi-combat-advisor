@@ -2,6 +2,7 @@
 // tab (goals + step 2), a fake game with skill pages, category tabs, action
 // cards and an action panel, and a fake socket that confirms queued actions.
 // Usage: node test/train-browser-test.mjs <screenshot-dir>
+// MOBILE=1 runs it at iPhone size (390×844).
 import { readFileSync, readdirSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -46,7 +47,8 @@ const owned = inventoryCounts(character.characterItems);
 const skills = Object.fromEntries(character.characterSkills.map((s) => [s.skillHrid, s.level]));
 const expected = buildTrain({ goals: [{ kind: "house", hrid: HOUSE, target: 2 }], policies }, clientData, { owned, houseLevels: { [HOUSE]: 1 }, skills });
 
-const page_html = `<!doctype html><html><head><meta charset="utf-8"><script src="/advisor.user.js"></script>
+const MOBILE = !!process.env.MOBILE;
+const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="/advisor.user.js"></script>
 <style>
   body{background:#0b0e1a;color:#ddd;font-family:sans-serif;display:flex;gap:20px}
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1300}
@@ -160,7 +162,7 @@ try {
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
-    await page.setViewport({ width: 1300, height: 900 });
+    await page.setViewport(MOBILE ? { width: 390, height: 844 } : { width: 1300, height: 900 });
     await page.goto(url);
     await page.waitForFunction(() => window.lastType === "init_character_data", { timeout: 10000 });
     await page.waitForSelector(".planning-calculate-bar .mwia-train-start", { timeout: 5000 });
@@ -168,6 +170,30 @@ try {
 
     await page.click(".mwia-train-start");
     await page.waitForSelector(".mwia-train:not(.mwia-hidden) .mwia-train-now", { timeout: 5000 });
+    if (MOBILE) {
+        const first = expected.stops[0];
+        await page.waitForFunction((name) => [...document.querySelectorAll('[class*="SkillActionDetail_name"]')].some((n) => n.textContent === name), { timeout: 8000 }, first.actionName);
+        const compact = await page.evaluate(() => {
+            const box = document.querySelector(".mwia-train").getBoundingClientRect();
+            const queue = document.querySelector(".modal .queue").getBoundingClientRect();
+            const hit = document.elementFromPoint(queue.x + queue.width / 2, queue.y + queue.height / 2);
+            return {
+                list: !!document.querySelector(".mwia-train-stops"),
+                next: !!document.querySelector('.mwia-train [data-train="next"]'),
+                left: box.left, right: box.right, top: box.top, height: box.height,
+                queueFree: !!hit?.closest(".queue"),
+            };
+        });
+        check("phone: train starts compact with its buttons", !compact.list && compact.next && compact.height < 200, JSON.stringify(compact));
+        check("phone: train fits the screen width", compact.left >= 0 && compact.right <= 390, JSON.stringify(compact));
+        check("phone: game's Add to queue is not covered", compact.queueFree);
+        await page.screenshot({ path: path.join(shotDir, "train-m1-compact.png") });
+        await page.click('.mwia-train [data-train="move"]');
+        const low = await page.evaluate(() => ({ bottom: document.querySelector(".mwia-train").getBoundingClientRect().bottom, saved: localStorage.getItem("mwia-train-low") }));
+        check("phone: ⇅ moves the train to the bottom and remembers it", low.bottom > 800 && low.saved === "1", JSON.stringify(low));
+        await page.click('.mwia-train [data-train="move"]');
+        await page.click('.mwia-train [data-train="toggle"]');
+    }
     const widget = await page.$eval(".mwia-train", (n) => n.innerText);
     check("train title from the house goal", /Mystical Study → 2/.test(widget));
     check("as many stops as the plan", (await page.$$eval(".mwia-train-stops li", (l) => l.length)) === expected.stops.length, `${expected.stops.length} expected`);
