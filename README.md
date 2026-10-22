@@ -40,10 +40,9 @@ The script never buys, equips or queues anything by itself; you always click the
 ## Install
 
 1. Install Tampermonkey or Violentmonkey in your browser.
-2. Serve `dist/` locally: `python3 -m http.server 8765 --bind 127.0.0.1 --directory dist`
-3. Open <http://127.0.0.1:8765/mwi-combat-advisor.user.js> and confirm the install. The script's update URL points
-   there, so after `npm run build` opening the same link (or "check for updates") installs the new version.
-4. Reload the game. A **⚔ Advisor** button appears at the bottom right.
+2. Open <https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js> and
+   confirm the install. Updates come from the same link; "check for updates" in the script manager fetches them.
+3. Reload the game. A **⚔ Advisor** button appears at the bottom right.
 
 Pasting `dist/mwi-combat-advisor.user.js` into a new script works too, but then updates are manual.
 
@@ -83,5 +82,8 @@ npm test -- engine/data path/to/marketplace.json          # analysis logic in No
 node test/browser-test.mjs path/to/marketplace.json /tmp [mwitools.user.js]  # full userscript in headless Firefox
 node test/train-browser-test.mjs /tmp                     # plan train against a mock planning tab and game
 ```
+
+Installed scripts update from `dist/` on `main`, so a release is: bump `version` in `package.json`, `npm run build`,
+commit and push.
 
 To update the engine, copy `src/combatsimulator` from the simulator's `dev` branch over `engine/`.

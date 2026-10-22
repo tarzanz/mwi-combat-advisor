@@ -44,8 +44,8 @@ function thirdPartyNotices() {
     return `\n// ---- Third-party licences ----\n// MWICombatSimulator (engine/):\n${licence("engine/LICENSE")}\n//\n// heap-js:\n${licence("node_modules/heap-js/LICENSE")}\n`;
 }
 
-// Served locally (see README) so Violentmonkey can install and update straight from it.
-const UPDATE_URL = "http://127.0.0.1:8765/mwi-combat-advisor.user.js";
+// The built script is committed, so userscript managers install and update straight from GitHub.
+const UPDATE_URL = "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js";
 
 const header = `// ==UserScript==
 // @name         MWI Combat Advisor
@@ -58,6 +58,7 @@ const header = `// ==UserScript==
 // @run-at       document-start
 // @grant        none
 // @license      MIT
+// @homepageURL  https://github.com/tarzanz/mwi-combat-advisor
 // @downloadURL  ${UPDATE_URL}
 // @updateURL    ${UPDATE_URL}
 // ==/UserScript==

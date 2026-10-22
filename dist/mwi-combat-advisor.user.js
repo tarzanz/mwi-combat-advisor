@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.8.0
+// @version      0.8.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -9,8 +9,9 @@
 // @run-at       document-start
 // @grant        none
 // @license      MIT
-// @downloadURL  http://127.0.0.1:8765/mwi-combat-advisor.user.js
-// @updateURL    http://127.0.0.1:8765/mwi-combat-advisor.user.js
+// @homepageURL  https://github.com/tarzanz/mwi-combat-advisor
+// @downloadURL  https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js
+// @updateURL    https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js
 // ==/UserScript==
 
 // Combat engine: MWICombatSimulator by AmVoidGuy / shykai (MIT licence),
