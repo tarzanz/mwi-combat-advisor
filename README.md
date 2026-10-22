@@ -31,8 +31,10 @@ buy, by simulating *your own* character.
   production steps so every ingredient comes before what is made from it. A small panel then walks through the stops:
   it opens each action (skill page → category tab → action), fills in the count and highlights the game's buttons.
   When the game confirms that the action reached the queue, the next stop opens. If nothing arrives (full queue), it
-  waits and says so. Progress survives a reload. The panel also lists missing raw materials (with a 🛒 button for
-  the MWITools cart) and warns where your skill level is too low. Inputs are counted without Artisan Tea, so you may
+  waits and says so. Progress survives a reload. Raw materials you have the level to gather (foraging, woodcutting,
+  milking) become stops of their own at the start, enough actions that the average yield plus a margin covers the need
+  about nine times in ten; *buy instead* / *gather* switches each one. The panel also lists the materials left to buy
+  (with a 🛒 button for the MWITools cart) and warns where your skill level is too low. Inputs are counted without Artisan Tea, so you may
   end up with a little spare material.
 - **Material costs** – in the MWITools planning tab, every step-2 row shows what the item costs to *Buy*, to make in
   *One step* (ingredients bought) or with the *Full chain* (only raw materials bought), cheapest in green. Above

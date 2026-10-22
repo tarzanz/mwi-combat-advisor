@@ -9,7 +9,7 @@ import path from "node:path";
 import puppeteer from "puppeteer-core";
 import { WebSocketServer } from "ws";
 import { fixtureCharacter } from "./fixture-character.js";
-import { buildTrain, inventoryCounts, itemCosts, planCosts, productionActions } from "../src/plan-train.js";
+import { buildTrain, inventoryCounts, itemCosts, planCosts, productionActions, trainStops } from "../src/plan-train.js";
 import { shortCoins } from "../src/format.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -47,6 +47,9 @@ const steps = [...policies].map(([hrid, policy]) => ({ hrid, name: clientData.it
 const owned = inventoryCounts(character.characterItems);
 const skills = Object.fromEntries(character.characterSkills.map((s) => [s.skillHrid, s.level]));
 const expected = buildTrain({ goals: [{ kind: "house", hrid: HOUSE, target: 2 }], policies }, clientData, { owned, houseLevels: { [HOUSE]: 1 }, skills });
+// Foraging 28 gathers Flax; without Woodcutting the logs are bought.
+expected.made = expected.stops;
+expected.stops = trainStops(expected);
 
 // Market: every item at three times its vendor price, except Birch Log, which nobody sells.
 const marketData = {};
@@ -100,8 +103,8 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
     '<div class="planning-source-list"><span class="planning-policy-switch"><button data-policy="buy" aria-pressed="true">Buy</button></span></div></details>').join("") + '</section>';
 
   // The game: navigation, skill page with category tabs, action cards, action panel.
-  const production = Object.values(data.actionDetailMap).filter((a) => a.function === "/action_functions/production");
-  const skills = ["crafting", "tailoring", "cooking"];
+  const production = Object.values(data.actionDetailMap).filter((a) => a.function === "/action_functions/production" || a.function === "/action_functions/gathering");
+  const skills = ["foraging", "woodcutting", "crafting", "tailoring", "cooking"];
   // Like the real game, the links sit in a container whose class also starts with "NavigationBar_navigationLink".
   document.getElementById("nav").innerHTML = '<div class="NavigationBar_navigationLinks__zz">' + skills.map((s) => '<div class="NavigationBar_navigationLink__abc" data-skill="' + s + '"><svg><use href="/sprites/skills.svg#' + s + '"></use></svg>' + s + '</div>').join("") + '</div>';
   let currentCategory = null;
@@ -111,7 +114,7 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
     currentCategory = category || categories[0];
     const page = document.getElementById("skillpage");
     page.innerHTML = '<div>' + categories.map((c) => '<button role="tab" aria-selected="' + (c === currentCategory) + '" data-cat="' + c + '">' + data.actionCategoryDetailMap[c].name + '</button>').join("") + '</div>' +
-      list.filter((a) => a.category === currentCategory).map((a) => '<div class="SkillAction_skillAction__x" data-hrid="' + a.hrid + '"><svg><use href="/sprites/items.svg#' + a.outputItems[0].itemHrid.split("/").pop() + '"></use></svg><div class="SkillAction_name__x">' + a.name + '</div></div>').join("");
+      list.filter((a) => a.category === currentCategory).map((a) => '<div class="SkillAction_skillAction__x" data-hrid="' + a.hrid + '"><svg><use href="/sprites/items.svg#' + (a.outputItems ? a.outputItems[0].itemHrid : a.hrid).split("/").pop() + '"></use></svg><div class="SkillAction_name__x">' + a.name + '</div></div>').join("");
     page.querySelectorAll("[role=tab]").forEach((b) => b.onclick = () => setTimeout(() => showSkill(skill, b.dataset.cat), 50));
     page.querySelectorAll(".SkillAction_skillAction__x").forEach((c) => c.onclick = () => setTimeout(() => openPanel(data.actionDetailMap[c.dataset.hrid]), 50));
   }
@@ -241,6 +244,16 @@ try {
     check("as many stops as the plan", (await page.$$eval(".mwia-train-stops li", (l) => l.length)) === expected.stops.length, `${expected.stops.length} expected`);
     check("Cotton Fabric (Buy) listed as missing, not made", /Missing materials:[^\n]*Cotton Fabric/.test(widget) && !expected.stops.some((s) => s.name === "Cotton Fabric"));
     check("level warning for Linen (Tailoring 8)", /needs Tailoring 15/.test(widget));
+    check("Flax gathered first (Foraging 28), logs bought (no Woodcutting)",
+        expected.stops[0].actionName === "Flax" && /Flax ×/.test(widget.split("Missing materials")[0]) && /Missing materials:[^\n]*Log ×[^\n]*Birch Log ×/.test(widget) && !/Missing materials:[^\n]*Flax/.test(widget), widget);
+
+    // Gather ↔ buy: Flax to the shopping list and back.
+    const stopCount = () => page.$$eval(".mwia-train-stops li", (l) => l.length);
+    await page.click('.mwia-train-stops [data-train="gather"]');
+    const bought = await page.$eval(".mwia-train", (n) => n.innerText);
+    check("buy instead: Flax leaves the stops and is missing", (await stopCount()) === expected.stops.length - 1 && /Missing materials:[^\n]*Flax ×/.test(bought), bought);
+    await page.$$eval('.mwia-train p [data-train="gather"]', (buttons) => buttons.find((b) => b.dataset.item === "/items/flax").click());
+    check("gather: Flax is a stop again", (await stopCount()) === expected.stops.length && (await page.$eval(".mwia-train-now", (n) => n.textContent)).includes("Flax"));
     console.log("   stops: " + expected.stops.map((s) => `${s.actionName}×${s.count}`).join(", "));
     await page.screenshot({ path: path.join(shotDir, "train-1-start.png") });
 

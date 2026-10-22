@@ -74,6 +74,40 @@ export function productionActions(data) {
     return byItem;
 }
 
+// The gathering action that yields the most of each item per action, with the
+// mean and variance of that yield (a drop chance times an even spread of counts).
+const gatherCache = new WeakMap();
+export function gatheringSources(data) {
+    if (gatherCache.has(data)) return gatherCache.get(data);
+    const byItem = new Map();
+    const actions = Object.values(data.actionDetailMap)
+        .filter((action) => action.function === "/action_functions/gathering")
+        .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
+    for (const action of actions) {
+        for (const drop of action.dropTable || []) {
+            const p = drop.dropRate ?? 1;
+            const low = drop.minCount ?? 1;
+            const high = drop.maxCount ?? low;
+            const spread = (high + low) / 2;
+            const mean = p * spread;
+            const variance = p * (((high - low + 1) ** 2 - 1) / 12 + spread ** 2) - mean ** 2;
+            const best = byItem.get(drop.itemHrid);
+            if (mean > 0 && (!best || mean > best.mean)) byItem.set(drop.itemHrid, { action, mean, variance });
+        }
+    }
+    gatherCache.set(data, byItem);
+    return byItem;
+}
+
+// Actions to queue so the gathered amount covers the need about nine times in
+// ten (normal approximation). Gathering bonuses such as teas only add to it.
+const SAFETY_Z = 1.28;
+export function gatherCount(need, { mean, variance }) {
+    let count = Math.max(1, Math.ceil(need / mean - 1e-9));
+    while (count * mean - SAFETY_Z * Math.sqrt(count * variance) < need - 1e-9) count++;
+    return count;
+}
+
 function inputsOf(action) {
     const inputs = (action.inputItems || []).map((input) => ({ hrid: input.itemHrid, count: input.count }));
     if (action.upgradeItemHrid) inputs.push({ hrid: action.upgradeItemHrid, count: 1 });
@@ -189,7 +223,46 @@ export function buildTrain({ goals, policies }, data, { owned, houseLevels = {},
         .map((hrid) => rows.get(hrid))
         .filter((row) => !row.action && row.need > 0)
         .map((row) => ({ itemHrid: row.hrid, name: row.name, need: Math.ceil(row.need - 1e-9), buy: policies.get(row.hrid) === "buy" }));
-    return { title: titles.join(", "), stops, covered, shortages, warnings };
+    // Raw materials that can be gathered: gathered by default where the level allows.
+    const sources = gatheringSources(data);
+    const gather = shortages
+        .filter((shortage) => sources.has(shortage.itemHrid))
+        .map((shortage) => {
+            const { action, mean, variance } = sources.get(shortage.itemHrid);
+            const required = action.levelRequirement;
+            const level = skills[required?.skillHrid] ?? null;
+            const count = gatherCount(shortage.need, { mean, variance });
+            return {
+                itemHrid: shortage.itemHrid,
+                name: shortage.name,
+                actionHrid: action.hrid,
+                actionName: action.name,
+                skill: action.type.split("/").pop(),
+                category: action.category,
+                count,
+                output: Math.round(count * mean),
+                need: shortage.need,
+                levelRequired: required?.level || 0,
+                level,
+                skillHrid: required?.skillHrid || null,
+                gather: true,
+                on: level !== null && level >= (required?.level || 0),
+            };
+        });
+    return { title: titles.join(", "), stops, gather, covered, shortages, warnings };
+}
+
+// The stops in train order: the raw materials to gather first, then production.
+// train.made holds the production stops; trains saved before gathering existed
+// only have train.stops.
+export function trainStops(train) {
+    return [...(train.gather || []).filter((item) => item.on), ...(train.made || train.stops)];
+}
+
+// What is left to buy: the shortages minus what is gathered.
+export function toBuy(train) {
+    const gathered = new Set((train.gather || []).filter((item) => item.on).map((item) => item.itemHrid));
+    return train.shortages.filter((shortage) => !gathered.has(shortage.itemHrid));
 }
 
 // ----- material costs ----------------------------------------------------------

@@ -7,7 +7,7 @@ import { getClientData, loadClientData } from "./game-data.js";
 import { onStateChange, state } from "./game-state.js";
 import { esc } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
-import { buildTrain, inventoryCounts, readPlanningTab } from "./plan-train.js";
+import { buildTrain, inventoryCounts, readPlanningTab, toBuy, trainStops } from "./plan-train.js";
 import { findActionPanel, navDiagnostics, openAction, setReactInput } from "./game-nav.js";
 import { enableTapTips, isNarrow } from "./touch.js";
 import { showPlanCosts } from "./plan-costs-ui.js";
@@ -18,7 +18,7 @@ const NOT_QUEUED_AFTER_MS = 4000;
 
 const t = {
     win: null,
-    train: null, // { title, stops, index, shortages, covered, warnings }
+    train: null, // { title, stops, made, gather, index, shortages, covered, warnings }
     root: null,
     notice: null, // { kind, text }
     collapsed: false,
@@ -77,7 +77,8 @@ async function startFromPlanning() {
         const skills = {};
         for (const skill of state.character.characterSkills || []) skills[skill.skillHrid] = skill.level;
         const train = buildTrain(plan, data, { owned: inventoryCounts(state.items), houseLevels, skills });
-        t.train = { ...train, index: 0 };
+        t.train = { ...train, made: train.stops, index: 0 };
+        t.train.stops = trainStops(t.train);
         // A phone screen is small; start with just the current stop showing.
         t.collapsed = isNarrow();
         t.notice = null;
@@ -116,6 +117,21 @@ function advance(step = 1) {
     save();
     render();
     if (currentStop()) goToCurrent();
+}
+
+// Gather a raw material yourself or buy it. Stops already passed stay passed.
+function toggleGather(itemHrid) {
+    const item = t.train?.gather?.find((candidate) => candidate.itemHrid === itemHrid);
+    if (!item) return;
+    item.on = !item.on;
+    const done = new Set(t.train.stops.slice(0, t.train.index).map((stop) => stop.actionHrid));
+    const all = trainStops(t.train);
+    const passed = all.filter((stop) => done.has(stop.actionHrid));
+    t.train.stops = [...passed, ...all.filter((stop) => !done.has(stop.actionHrid))];
+    t.train.index = passed.length;
+    t.notice = null;
+    save();
+    render();
 }
 
 function endTrain() {
@@ -219,15 +235,23 @@ function render() {
         }
         html += `<ol class="mwia-train-stops">${train.stops
             .map((s, i) => `<li class="${i < train.index ? "mwia-train-done" : i === train.index ? "mwia-train-current" : ""}">
-                <span>${esc(s.actionName)}</span> <span class="mwia-num">×${n(s.count)}</span>
-                <span class="mwia-dim">${esc(cap(s.skill))}</span>${levelNote(s)}</li>`)
+                <span>${esc(s.actionName)}</span> <span class="mwia-num"${s.gather ? ` title="${n(s.count)} actions give about ${n(s.output)}; ${n(s.need)} needed"` : ""}>×${n(s.count)}</span>
+                <span class="mwia-dim">${esc(cap(s.skill))}</span>${levelNote(s)}${
+                    s.gather && i >= train.index ? ` <button class="mwia-link" data-train="gather" data-item="${esc(s.itemHrid)}" title="Buy ${esc(s.name)} instead of gathering it">buy instead</button>` : ""
+                }</li>`)
             .join("")}</ol>`;
         if (!train.stops.length) html += `<p>Nothing needs to be made — your inventory already covers the plan.</p>`;
         if (train.covered.length) html += `<p class="mwia-dim">Already in inventory: ${esc(train.covered.join(", "))}</p>`;
-        const buyable = train.shortages.filter((s) => s.itemHrid !== "/items/coin");
+        const buyable = toBuy(train).filter((s) => s.itemHrid !== "/items/coin");
         const coins = train.shortages.find((s) => s.itemHrid === "/items/coin");
+        const gatherable = new Map((train.gather || []).map((item) => [item.itemHrid, item]));
+        const gatherButton = (s) => {
+            const item = gatherable.get(s.itemHrid);
+            if (!item) return "";
+            return ` <button class="mwia-link" data-train="gather" data-item="${esc(s.itemHrid)}" title="Gather it yourself (${esc(cap(item.skill))} ${item.levelRequired})">gather</button>${levelNote(item)}`;
+        };
         if (buyable.length) {
-            html += `<p><b>Missing materials:</b> ${buyable.map((s) => `${esc(s.name)} ×${n(s.need)}`).join(", ")}
+            html += `<p><b>Missing materials:</b> ${buyable.map((s) => `${esc(s.name)} ×${n(s.need)}${gatherButton(s)}`).join(", ")}
               <button class="mwia-cart-btn" data-train="cart" title="Add the missing materials to the MWITools shopping cart">🛒 Add to cart</button></p>`;
         }
         if (coins) html += `<p class="mwia-warn">Coins short: ${n(coins.need)}</p>`;
@@ -258,8 +282,9 @@ async function onClick(event) {
         t.notice = null;
         render();
         goToCurrent();
-    } else if (action === "cart") {
-        const items = t.train.shortages
+    } else if (action === "gather") toggleGather(button.dataset.item);
+    else if (action === "cart") {
+        const items = toBuy(t.train)
             .filter((s) => s.itemHrid !== "/items/coin")
             .map((s) => ({ hrid: s.itemHrid, quantity: s.need, enhancementLevel: 0 }));
         try {

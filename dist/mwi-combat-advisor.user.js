@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.10.1
+// @version      0.11.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -2308,6 +2308,32 @@
     actionsCache.set(data, byItem);
     return byItem;
   }
+  var gatherCache = /* @__PURE__ */ new WeakMap();
+  function gatheringSources(data) {
+    if (gatherCache.has(data)) return gatherCache.get(data);
+    const byItem = /* @__PURE__ */ new Map();
+    const actions = Object.values(data.actionDetailMap).filter((action) => action.function === "/action_functions/gathering").sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
+    for (const action of actions) {
+      for (const drop of action.dropTable || []) {
+        const p = drop.dropRate ?? 1;
+        const low = drop.minCount ?? 1;
+        const high = drop.maxCount ?? low;
+        const spread = (high + low) / 2;
+        const mean = p * spread;
+        const variance = p * (((high - low + 1) ** 2 - 1) / 12 + spread ** 2) - mean ** 2;
+        const best = byItem.get(drop.itemHrid);
+        if (mean > 0 && (!best || mean > best.mean)) byItem.set(drop.itemHrid, { action, mean, variance });
+      }
+    }
+    gatherCache.set(data, byItem);
+    return byItem;
+  }
+  var SAFETY_Z = 1.28;
+  function gatherCount(need, { mean, variance }) {
+    let count = Math.max(1, Math.ceil(need / mean - 1e-9));
+    while (count * mean - SAFETY_Z * Math.sqrt(count * variance) < need - 1e-9) count++;
+    return count;
+  }
   function inputsOf(action) {
     const inputs = (action.inputItems || []).map((input) => ({ hrid: input.itemHrid, count: input.count }));
     if (action.upgradeItemHrid) inputs.push({ hrid: action.upgradeItemHrid, count: 1 });
@@ -2401,7 +2427,37 @@
     });
     const covered = madeRows.filter((row) => row.count === 0).map((row) => row.name);
     const shortages = order.map((hrid) => rows.get(hrid)).filter((row) => !row.action && row.need > 0).map((row) => ({ itemHrid: row.hrid, name: row.name, need: Math.ceil(row.need - 1e-9), buy: policies.get(row.hrid) === "buy" }));
-    return { title: titles.join(", "), stops, covered, shortages, warnings };
+    const sources = gatheringSources(data);
+    const gather = shortages.filter((shortage) => sources.has(shortage.itemHrid)).map((shortage) => {
+      const { action, mean, variance } = sources.get(shortage.itemHrid);
+      const required = action.levelRequirement;
+      const level = skills[required?.skillHrid] ?? null;
+      const count = gatherCount(shortage.need, { mean, variance });
+      return {
+        itemHrid: shortage.itemHrid,
+        name: shortage.name,
+        actionHrid: action.hrid,
+        actionName: action.name,
+        skill: action.type.split("/").pop(),
+        category: action.category,
+        count,
+        output: Math.round(count * mean),
+        need: shortage.need,
+        levelRequired: required?.level || 0,
+        level,
+        skillHrid: required?.skillHrid || null,
+        gather: true,
+        on: level !== null && level >= (required?.level || 0)
+      };
+    });
+    return { title: titles.join(", "), stops, gather, covered, shortages, warnings };
+  }
+  function trainStops(train) {
+    return [...(train.gather || []).filter((item) => item.on), ...train.made || train.stops];
+  }
+  function toBuy(train) {
+    const gathered = new Set((train.gather || []).filter((item) => item.on).map((item) => item.itemHrid));
+    return train.shortages.filter((shortage) => !gathered.has(shortage.itemHrid));
   }
   var COIN = "/items/coin";
   function boughtCost(rows, price) {
@@ -2731,7 +2787,7 @@
   var t = {
     win: null,
     train: null,
-    // { title, stops, index, shortages, covered, warnings }
+    // { title, stops, made, gather, index, shortages, covered, warnings }
     root: null,
     notice: null,
     // { kind, text }
@@ -2783,7 +2839,8 @@
       const skills = {};
       for (const skill of state.character.characterSkills || []) skills[skill.skillHrid] = skill.level;
       const train = buildTrain(plan, data, { owned: inventoryCounts(state.items), houseLevels, skills });
-      t.train = { ...train, index: 0 };
+      t.train = { ...train, made: train.stops, index: 0 };
+      t.train.stops = trainStops(t.train);
       t.collapsed = isNarrow();
       t.notice = null;
       rememberQueuedActions();
@@ -2816,6 +2873,19 @@
     save();
     render2();
     if (currentStop()) goToCurrent();
+  }
+  function toggleGather(itemHrid) {
+    const item = t.train?.gather?.find((candidate) => candidate.itemHrid === itemHrid);
+    if (!item) return;
+    item.on = !item.on;
+    const done = new Set(t.train.stops.slice(0, t.train.index).map((stop) => stop.actionHrid));
+    const all = trainStops(t.train);
+    const passed = all.filter((stop) => done.has(stop.actionHrid));
+    t.train.stops = [...passed, ...all.filter((stop) => !done.has(stop.actionHrid))];
+    t.train.index = passed.length;
+    t.notice = null;
+    save();
+    render2();
   }
   function endTrain() {
     clearTimeout(t.queueClickTimer);
@@ -2907,14 +2977,20 @@
         html += `<p>Everything is in the queue. When it has finished, ${/→/.test(train.title) ? "upgrade the house room" : "the goal items are ready"}.</p>`;
       }
       html += `<ol class="mwia-train-stops">${train.stops.map((s, i) => `<li class="${i < train.index ? "mwia-train-done" : i === train.index ? "mwia-train-current" : ""}">
-                <span>${esc(s.actionName)}</span> <span class="mwia-num">\xD7${n(s.count)}</span>
-                <span class="mwia-dim">${esc(cap(s.skill))}</span>${levelNote(s)}</li>`).join("")}</ol>`;
+                <span>${esc(s.actionName)}</span> <span class="mwia-num"${s.gather ? ` title="${n(s.count)} actions give about ${n(s.output)}; ${n(s.need)} needed"` : ""}>\xD7${n(s.count)}</span>
+                <span class="mwia-dim">${esc(cap(s.skill))}</span>${levelNote(s)}${s.gather && i >= train.index ? ` <button class="mwia-link" data-train="gather" data-item="${esc(s.itemHrid)}" title="Buy ${esc(s.name)} instead of gathering it">buy instead</button>` : ""}</li>`).join("")}</ol>`;
       if (!train.stops.length) html += `<p>Nothing needs to be made \u2014 your inventory already covers the plan.</p>`;
       if (train.covered.length) html += `<p class="mwia-dim">Already in inventory: ${esc(train.covered.join(", "))}</p>`;
-      const buyable = train.shortages.filter((s) => s.itemHrid !== "/items/coin");
+      const buyable = toBuy(train).filter((s) => s.itemHrid !== "/items/coin");
       const coins2 = train.shortages.find((s) => s.itemHrid === "/items/coin");
+      const gatherable = new Map((train.gather || []).map((item) => [item.itemHrid, item]));
+      const gatherButton = (s) => {
+        const item = gatherable.get(s.itemHrid);
+        if (!item) return "";
+        return ` <button class="mwia-link" data-train="gather" data-item="${esc(s.itemHrid)}" title="Gather it yourself (${esc(cap(item.skill))} ${item.levelRequired})">gather</button>${levelNote(item)}`;
+      };
       if (buyable.length) {
-        html += `<p><b>Missing materials:</b> ${buyable.map((s) => `${esc(s.name)} \xD7${n(s.need)}`).join(", ")}
+        html += `<p><b>Missing materials:</b> ${buyable.map((s) => `${esc(s.name)} \xD7${n(s.need)}${gatherButton(s)}`).join(", ")}
               <button class="mwia-cart-btn" data-train="cart" title="Add the missing materials to the MWITools shopping cart">\u{1F6D2} Add to cart</button></p>`;
       }
       if (coins2) html += `<p class="mwia-warn">Coins short: ${n(coins2.need)}</p>`;
@@ -2943,8 +3019,9 @@
       t.notice = null;
       render2();
       goToCurrent();
-    } else if (action === "cart") {
-      const items = t.train.shortages.filter((s) => s.itemHrid !== "/items/coin").map((s) => ({ hrid: s.itemHrid, quantity: s.need, enhancementLevel: 0 }));
+    } else if (action === "gather") toggleGather(button.dataset.item);
+    else if (action === "cart") {
+      const items = toBuy(t.train).filter((s) => s.itemHrid !== "/items/coin").map((s) => ({ hrid: s.itemHrid, quantity: s.need, enhancementLevel: 0 }));
       try {
         const outcome = await addToCart(t.win, items);
         const parts = [];
