@@ -101,6 +101,21 @@ export const CSS = `
 .planning-step .mwia-plan-cost { margin-top: 4px; }
 .planning-stage .mwia-plan-costs { margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; }
 .planning-step .mwia-plan-cost-best, .planning-stage .mwia-plan-cost-best { color: #7ee2b0; font-weight: 600; }
+.mwia-skill-list { display: flex; flex-direction: column; }
+.mwia-skill-row { border-bottom: 1px solid #262d4d; }
+.mwia-skill-row.mwia-best { background: #1f3326; }
+.mwia-skill-row.mwia-faded > summary { opacity: .6; }
+.mwia-skill-row > summary { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 6px 4px; cursor: pointer; list-style: none; }
+.mwia-skill-row > summary::-webkit-details-marker { display: none; }
+.mwia-skill-row > summary::before { content: "▸"; color: #5b6bb0; flex: none; }
+.mwia-skill-row[open] > summary::before { content: "▾"; }
+.mwia-skill-name { flex: 1; min-width: 0; }
+.mwia-skill-name small, .mwia-skill-hint { display: block; color: #8189b0; font-size: 11px; }
+.mwia-skill-hint { color: #7ee2b0; }
+.mwia-skill-nums { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mwia-skill-nums .mwia-dim { font-size: 11px; }
+.mwia-skill-detail { padding: 2px 8px 8px 20px; font-size: 12px; color: #c3c9e8; overflow-wrap: anywhere; }
+.mwia-skill-detail p { margin: 4px 0; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
 .mwia-tip-pop {

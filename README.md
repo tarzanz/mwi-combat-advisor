@@ -24,6 +24,17 @@ buy, by simulating *your own* character.
   button) that puts it in the MWITools cart through its public API (`window.MWITools.shopping`), including the +N
   enhancement level. Gear and books are added once; food and drinks as one day of combat. Something already in the
   cart is topped up to the suggested amount rather than added twice.
+- **Skilling** – every gathering and production action your levels allow (milking, foraging, woodcutting,
+  cheesesmithing, crafting, tailoring, cooking, brewing), ranked by gold per day, with XP per day beside it. It uses
+  your levels, the buffs the game sends (house, equipment, community, guild, achievements, Moo Pass, personal) and the
+  teas in each skill's drink slots: efficiency from levels above the requirement and from buffs, action speed (3 s
+  floor), quantity, Artisan, Processing and Wisdom Tea, 12 drinks an hour (more with a Guzzling Pouch). Materials
+  and teas are bought at the cheapest ask; products sell at the ask (a listing) or the best bid (*Sell at*), minus
+  the 4% market tax. Filter by skill; tap a row for the whole calculation. For each action it also tries every tea
+  setup that fits your slots, shows the one that earns the most and what each of its teas earns above its cost; *Teas:
+  Best teas* ranks with those setups. ⚠ marks thin markets (no buy orders, or an ask far above the bid) and
+  materials nobody sells. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
+  using the skill's fastest XP action you have now. The same formulas as MWITools.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the
   plan's goals (house level / item quantity) and the Full chain / One step / Buy choice of every step-2 row, works out
@@ -67,7 +78,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
   AmVoidGuy/shykai (MIT), copied to `engine/` (see `engine/SOURCE.txt`). It runs in web workers on the game page.
 - Game data (items, monsters, zones, abilities) is taken from the game client at runtime, so new patches are picked
   up automatically. Only tables the client lacks fall back to the simulator repository.
-- Prices: the game's public `marketplace.json` (lowest ask for buying, best bid for loot value).
+- Prices: the game's public `marketplace.json` (lowest ask for buying, best bid for loot value; the Skilling tab
+  lets you pick ask or bid for what you sell).
 - Every suggestion is simulated several times with different random seeds (many short runs; the current setup gets
   three times as many). A one-sided Welch t-test against the current setup gives the **Sure** column – how certain it
   is that the change really improves your focus. Only suggestions that are at least 90% sure go on the shopping
@@ -84,6 +96,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - Results are estimates – a few percent either way is normal.
 - The plan train relies on the class names of the MWITools planning tab and the game's action pages; it has only been
   tested against mock-ups of both.
+- Skilling: rare drops that aren't on the market (meteorite caches, artisan's crates) count as nothing, and
+  chains (gather, then process yourself) are not combined yet; each action is priced on its own.
 - The phone layout has been tested at iPhone size in desktop Firefox, not on a real phone. Keep the screen on while
   an analysis runs: a phone pauses the page in the background.
 
@@ -95,7 +109,9 @@ npm run build                                   # -> dist/mwi-combat-advisor.use
 npm test -- engine/data path/to/marketplace.json          # analysis logic in Node
 node test/browser-test.mjs path/to/marketplace.json /tmp [mwitools.user.js]  # full userscript in headless Firefox
 node test/train-browser-test.mjs /tmp                     # plan train against a mock planning tab and game
-MOBILE=1 node test/browser-test.mjs …                     # either browser test at iPhone size with a touch screen
+node test/skilling-browser-test.mjs /tmp                  # Skilling tab against a mock game and market
+MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
+BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # in Chromium instead of Firefox
 ```
 
 Installed scripts update from `dist/` on `main`, so a release is: bump `version` in `package.json`, `npm run build`,

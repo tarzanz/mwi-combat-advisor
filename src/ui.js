@@ -36,10 +36,11 @@ import { SimPool } from "./pool.js";
 import { CSS } from "./style.js";
 import { coinsInput, esc, parseCoins } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
+import { renderSkilling, toggleShowAll } from "./skilling-ui.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto" };
+const DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current" };
 
 const SKILL_NAMES = {
     stamina: "Stamina",
@@ -85,6 +86,7 @@ const ui = {
     win: null,
     notice: null,
     cartItems: new Map(), // button id -> items for the MWITools cart (rebuilt on every render)
+    skillingLoad: null, // { loading, error } while the Skilling tab fetches game data and prices
 };
 
 function loadSettings() {
@@ -255,6 +257,7 @@ function render() {
     if (ui.tab === "overview") html += renderOverview();
     else if (ui.tab === "zones") html += renderZones();
     else if (ui.tab === "upgrades") html += renderUpgrades();
+    else if (ui.tab === "skilling") html += renderSkillingTab();
     else html += renderGuide();
     body.innerHTML = html;
     labelTableCells(body);
@@ -711,6 +714,26 @@ function renderGuide() {
     </div>`;
 }
 
+// Needs no simulation, only game data and prices, which load on first open.
+function renderSkillingTab() {
+    if (!state.character) {
+        return `<p>The script hasn't seen your character yet. It reads it when the game connects, so <b>reload the page (F5)</b> with the script enabled.</p>`;
+    }
+    if (getClientData() && pricesAge() !== null) return renderSkilling(ui.settings);
+    const load = ui.skillingLoad;
+    if (load?.error) {
+        return `<div class="mwia-error">${esc(load.error)}</div><button class="mwia-btn" data-action="skilling-load">Try again</button>`;
+    }
+    if (!load?.loading) {
+        ui.skillingLoad = { loading: true };
+        Promise.all([loadClientData(ui.win), loadPrices()])
+            .then(() => (ui.skillingLoad = null))
+            .catch((error) => (ui.skillingLoad = { error: error.message || String(error) }))
+            .finally(() => ui.tab === "skilling" && render());
+    }
+    return `<p class="mwia-dim">Loading game data and market prices…</p>`;
+}
+
 // ---------- events ----------
 
 function onClick(event) {
@@ -736,6 +759,14 @@ function onClick(event) {
             break;
         case "load":
             runTask(async () => {});
+            break;
+        case "skilling-load":
+            ui.skillingLoad = null;
+            render();
+            break;
+        case "skilling-all":
+            toggleShowAll();
+            render();
             break;
         case "cart-add":
             sendToCart(target.dataset.cart);
@@ -763,6 +794,10 @@ function onChange(event) {
         ui.settings[key] = event.target.value;
     }
     saveSettings();
+    if (key.startsWith("skilling")) {
+        render();
+        return;
+    }
     // Re-rating and re-planning are cheap; only the combined check needs a new analysis.
     if (["budget", "spending", "goldWeight", "objective", "acceptRareDeaths"].includes(key) && !ui.busy) {
         if (["goldWeight", "objective", "acceptRareDeaths"].includes(key)) rerateUpgrades();
@@ -800,6 +835,7 @@ export function mountUI(win, workerSource) {
         <button class="mwia-tab" data-tab="overview">Overview</button>
         <button class="mwia-tab" data-tab="zones">Where to fight</button>
         <button class="mwia-tab" data-tab="upgrades">Upgrades</button>
+        <button class="mwia-tab" data-tab="skilling">Skilling</button>
         <button class="mwia-tab" data-tab="guide">Guide</button>
       </nav>
       <div class="mwia-body"></div>`;

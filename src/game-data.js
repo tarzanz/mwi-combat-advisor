@@ -65,6 +65,16 @@ export function pricesAge() {
     return pricesFetchedAt ? Date.now() - pricesFetchedAt : null;
 }
 
+// The market's { a: cheapest ask, b: best bid } for an item, or null.
+export function marketEntry(itemHrid, enhancementLevel = 0) {
+    return prices?.[itemHrid]?.[String(enhancementLevel)] || null;
+}
+
+// When the prices in use were fetched (changes on every refresh).
+export function pricesStamp() {
+    return pricesFetchedAt;
+}
+
 // Cheapest price to buy right now, or null when nobody sells it.
 export function askPrice(itemHrid, enhancementLevel = 0) {
     if (itemHrid === "/items/coin") return 1;

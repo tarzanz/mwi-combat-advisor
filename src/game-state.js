@@ -1,5 +1,5 @@
 // Listens to the game's WebSocket and keeps a copy of the parts of the
-// character that matter for combat: skills, equipment, inventory, abilities,
+// character that matter for combat and skilling: skills, equipment, inventory, abilities,
 // consumable slots, triggers, house rooms, achievements and buffs.
 
 const INTERESTING = new RegExp(
@@ -14,16 +14,32 @@ const INTERESTING = new RegExp(
             "action_type_consumable_slots_updated",
             "all_combat_triggers_updated",
             "combat_triggers_updated",
-            "house_rooms_updated",
             "actions_updated",
             "achievements_updated",
             "community_buffs_updated",
             "moo_pass_buffs_updated",
             "personal_buffs_updated",
             "guild_buffs_updated",
+            "house_rooms_updated",
+            "achievement_buffs_updated",
+            "consumable_buffs_updated",
+            "equipment_buffs_updated",
         ].join("|") +
         ')"'
 );
+
+// The buffs the game keeps per action type (skilling speed, efficiency, XP...).
+// Any of these messages can carry any of the maps.
+const BUFF_MAPS = [
+    "mooPassActionTypeBuffsMap",
+    "communityActionTypeBuffsMap",
+    "houseActionTypeBuffsMap",
+    "guildActionTypeBuffsMap",
+    "achievementActionTypeBuffsMap",
+    "consumableActionTypeBuffsMap",
+    "equipmentActionTypeBuffsMap",
+    "personalActionTypeBuffsMap",
+];
 
 const listeners = new Set();
 
@@ -120,7 +136,7 @@ function handle(data) {
                 copyFields(data, ["combatUnit", "noncombatStats"]);
                 break;
             case "action_type_consumable_slots_updated":
-                copyFields(data, ["actionTypeFoodSlotsMap", "actionTypeDrinkSlotsMap"]);
+                copyFields(data, ["actionTypeFoodSlotsMap", "actionTypeDrinkSlotsMap", ...BUFF_MAPS]);
                 break;
             case "all_combat_triggers_updated":
                 copyFields(data, ["abilityCombatTriggersMap", "consumableCombatTriggersMap"]);
@@ -139,7 +155,7 @@ function handle(data) {
                 }
                 break;
             case "house_rooms_updated":
-                copyFields(data, ["characterHouseRoomMap"]);
+                copyFields(data, ["characterHouseRoomMap", ...BUFF_MAPS]);
                 break;
             case "actions_updated":
                 mergeActions(data.endCharacterActions);
@@ -148,16 +164,13 @@ function handle(data) {
                 copyFields(data, ["characterAchievements"]);
                 break;
             case "community_buffs_updated":
-                copyFields(data, ["communityActionTypeBuffsMap"]);
-                break;
             case "moo_pass_buffs_updated":
-                copyFields(data, ["mooPassActionTypeBuffsMap"]);
-                break;
             case "personal_buffs_updated":
-                copyFields(data, ["personalActionTypeBuffsMap"]);
-                break;
             case "guild_buffs_updated":
-                copyFields(data, ["guildActionTypeBuffsMap"]);
+            case "achievement_buffs_updated":
+            case "consumable_buffs_updated":
+            case "equipment_buffs_updated":
+                copyFields(data, BUFF_MAPS);
                 break;
         }
     }

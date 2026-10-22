@@ -1,0 +1,150 @@
+// The Skilling tab: gathering and crafting ranked by gold per day, with the
+// calculation behind every number one tap away.
+
+import { getClientData, itemName, marketEntry, pricesStamp } from "./game-data.js";
+import { state } from "./game-state.js";
+import { esc, shortCoins } from "./format.js";
+import { MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, marketPricer, perDay, rankSkilling, skillingCharacter } from "./skilling.js";
+
+const SHORT_LIST = 25;
+
+const view = { key: "", result: null, showAll: false };
+
+const dec = (n, d = 1) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
+const count = (n) => (n >= 100 ? dec(n, 0) : n >= 1 ? dec(n, 2) : n.toPrecision(2));
+const coins = (n) => (n < 0 ? "−" : "") + shortCoins(Math.abs(n));
+const skillLabel = (skill) => skill.charAt(0).toUpperCase() + skill.slice(1);
+const skillOf = (entry) => entry.skill.split("/").pop();
+const names = (teas) => teas.map(itemName).join(", ");
+
+function hoursText(hours) {
+    if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`;
+    if (hours < 48) return `${dec(hours, hours < 10 ? 1 : 0)} h`;
+    return `${dec(hours / 24, hours < 240 ? 1 : 0)} days`;
+}
+
+export function skillingSettingsHtml(s) {
+    const option = (value, label, current) => `<option value="${value}" ${current === value ? "selected" : ""}>${label}</option>`;
+    return `<div class="mwia-settings">
+      <label>Skill <select data-setting="skillingSkill">${option("all", "All skills", s.skillingSkill)}${SKILLING_SKILLS.map((k) => option(k, skillLabel(k), s.skillingSkill)).join("")}</select></label>
+      <label title="Products are listed at the cheapest ask (you wait for a buyer) or sold instantly to the best bid. The 4% market tax is taken off either way.">Sell at <select data-setting="skillingSellAt">${option("ask", "Ask (list it)", s.skillingSellAt)}${option("bid", "Bid (sell now)", s.skillingSellAt)}</select></label>
+      <label title="Rank with the teas you have in the skill's drink slots now, or with the setup that earns the most.">Teas <select data-setting="skillingTeas">${option("current", "My current teas", s.skillingTeas)}${option("best", "Best teas", s.skillingTeas)}</select></label>
+    </div>`;
+}
+
+function ranking(settings) {
+    const data = getClientData();
+    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas].join("|");
+    if (view.key !== key) {
+        const who = skillingCharacter(state.character, state.items, data);
+        const market = marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt);
+        view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas });
+        view.key = key;
+    }
+    return view.result;
+}
+
+export function toggleShowAll() {
+    view.showAll = !view.showAll;
+}
+
+export function renderSkilling(settings) {
+    const { available, upcoming } = ranking(settings);
+    let html = skillingSettingsHtml(settings);
+    html += `<p class="mwia-dim">Gold per day after the ${dec(MARKET_TAX * 100, 0)}% market tax, with materials and teas bought at the cheapest ask. Only what your levels allow. Tap a row to see how it was worked out.</p>`;
+    if (available[0] && !available[0].buffsKnown) {
+        html += `<div class="mwia-notice mwia-notice-warn">The game hasn't sent your buffs (house, equipment, community) yet, so only levels and teas are counted. Reload the page to fix it.</div>`;
+    }
+    const shown = view.showAll ? available : available.slice(0, SHORT_LIST);
+    html += `<section><h3>Best now</h3>`;
+    if (!available.length) html += `<p class="mwia-dim">Nothing to do in this skill at your level.</p>`;
+    html += `<div class="mwia-skill-list">${shown.map((entry, i) => rowHtml(entry, i === 0 && entry.valid && entry.profitPerHour > 0)).join("")}</div>`;
+    if (available.length > SHORT_LIST) {
+        html += `<button class="mwia-link" data-action="skilling-all">${view.showAll ? "Show fewer" : `Show all ${available.length}`}</button>`;
+    }
+    html += `</section>`;
+    if (upcoming.length) {
+        html += `<section><h3>Unlocks soon</h3><p class="mwia-dim">Within ${NEAR_LEVELS} levels, worked out at the level it unlocks. The time assumes you train the skill with its fastest XP action you have now.</p>
+          <div class="mwia-skill-list">${upcoming.map((entry) => rowHtml(entry, false, true)).join("")}</div></section>`;
+    }
+    return html;
+}
+
+function warningText(warning) {
+    const item = itemName(warning.itemHrid);
+    switch (warning.kind) {
+        case "noinput":
+            return `Nobody sells ${names(warning.items)} right now.`;
+        case "nobids":
+            return `No buy orders for ${item}: it may take a while to sell.`;
+        case "noasks":
+            return `No one lists ${item}; priced at the best bid.`;
+        case "spread":
+            return `Thin market for ${item}: the cheapest ask (${coins(warning.ask)}) is ${dec(warning.ask / warning.bid, 1)}× the best bid (${coins(warning.bid)}).`;
+        case "vendor":
+            return `${item} isn't on the market; valued at the vendor price.`;
+        case "unsellable":
+            return `${item} can't be sold.`;
+        default:
+            return "";
+    }
+}
+
+function rowHtml(entry, best, upcoming = false) {
+    const day = perDay(entry.profitPerHour);
+    const sub = upcoming
+        ? `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level} · in ${entry.needLevels} level${entry.needLevels === 1 ? "" : "s"}${entry.hoursToUnlock !== null ? ` · ~${hoursText(entry.hoursToUnlock)}` : ""}`
+        : `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level}`;
+    const warn = entry.warnings.length ? ` <span class="mwia-warn" title="${esc(entry.warnings.map(warningText).join(" "))}">⚠</span>` : "";
+    const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas
+        ? `<span class="mwia-skill-hint">🍵 +${coins(perDay(entry.best.result.profitPerHour - entry.current.profitPerHour))}/day with other teas</span>`
+        : "";
+    const gold = entry.valid ? `<span class="${day < 0 ? "mwia-bad" : best ? "mwia-ok" : ""}">${coins(day)}/day</span>` : `<span class="mwia-dim">–</span>`;
+    return `<details class="mwia-skill-row${best ? " mwia-best" : ""}${entry.valid && day > 0 ? "" : " mwia-faded"}">
+      <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}</span>
+        <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(perDay(entry.xpPerHour))} XP/day</span></span></summary>
+      <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
+}
+
+function detailHtml(e, upcoming) {
+    const lines = [];
+    const speed = e.speed ? ` → ${dec(e.cycleSeconds, 2)} s with ${pct(e.speed)} speed${e.cycleSeconds <= 3 + 1e-9 ? " (3 s is the floor)" : ""}` : "";
+    const buffEfficiency = e.efficiency - e.levelEfficiency;
+    lines.push(`<b>Time:</b> ${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} needed${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) → <b>${dec(e.actionsPerHour, 0)} actions/h</b>.`);
+
+    const outputs = e.outputs.filter((o) => o.value > 0 || o.kind === "product").map((o) => {
+        const how = o.sell.source === "ask" || o.sell.source === "bid" ? ` <span class="mwia-dim">(${o.sell.source} −${dec(MARKET_TAX * 100, 0)}%)</span>` : o.sell.source === "vendor" ? ` <span class="mwia-dim">(vendor)</span>` : "";
+        return `${count(o.count)} × ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}${how}`;
+    });
+    const boosts = [e.quantity && `quantity ${pct(e.quantity)}`, e.processing && `processing ${pct(e.processing)}`].filter(Boolean).join(", ");
+    lines.push(`<b>Each action gives</b>${boosts ? ` (${boosts})` : ""}: ${outputs.join(" · ")} = ${coins(e.revenuePerAction)}`);
+    if (e.inputs.length) {
+        const inputs = e.inputs.map((i) => `${count(i.count)} × ${esc(itemName(i.itemHrid))} @ ${i.price === null ? "–" : coins(i.price)}`);
+        lines.push(`<b>Each action uses</b>${e.artisan ? ` (artisan ${pct(-e.artisan)})` : ""}: ${inputs.join(" · ")} = ${coins(e.costPerAction)}`);
+    }
+    if (e.teas.length) {
+        lines.push(`<b>Teas:</b> ${e.teaCosts.map((t) => `${esc(itemName(t.itemHrid))} @ ${coins(t.price)}`).join(" · ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h`);
+    }
+    lines.push(`<b>Gold:</b> (${coins(e.revenuePerAction)} − ${coins(e.costPerAction)}) × ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` − ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h = <b>${coins(perDay(e.profitPerHour))}/day</b>`);
+    lines.push(`<b>XP:</b> ${dec(e.xpPerAction, 1)} per action × ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h = <b>${coins(perDay(e.xpPerHour))}/day</b>`);
+    for (const warning of e.warnings) lines.push(`<span class="mwia-warn">⚠ ${esc(warningText(warning))}</span>`);
+    if (!upcoming) lines.push(teaHtml(e));
+    return lines.map((line) => `<p>${line}</p>`).join("");
+}
+
+function teaHtml(entry) {
+    const { current, best } = entry;
+    const now = current.teas.length ? `Your teas: ${esc(names(current.teas))}.` : "You have no teas in this skill.";
+    if (!entry.betterTeas) {
+        if (!best.result.teas.length) return `<b>Teas:</b> ${now} No tea earns back its cost here.`;
+        return `<b>Teas:</b> ${now} That is already the best setup. ${worthText(best.worth)}`;
+    }
+    return `<b>Teas:</b> ${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> → ${coins(perDay(best.result.profitPerHour))}/day
+        (<span class="mwia-ok">+${coins(perDay(best.result.profitPerHour - current.profitPerHour))}</span>). ${worthText(best.worth)}`;
+}
+
+function worthText(worth) {
+    if (!worth.length) return "";
+    return worth.map((w) => `${esc(itemName(w.itemHrid))} earns ${coins(perDay(w.gainPerHour))}/day more than it costs.`).join(" ");
+}
