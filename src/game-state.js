@@ -24,6 +24,8 @@ const INTERESTING = new RegExp(
             "achievement_buffs_updated",
             "consumable_buffs_updated",
             "equipment_buffs_updated",
+            "market_listings_updated",
+            "market_item_order_books_updated",
         ].join("|") +
         ')"'
 );
@@ -43,9 +45,71 @@ const BUFF_MAPS = [
 
 const listeners = new Set();
 
+// Order books arrive only when the player opens an item on the market, so the
+// last ones seen are kept across reloads for a day.
+const BOOKS_KEY = "mwia-order-books";
+const BOOK_MAX_AGE_MS = 24 * 3600 * 1000;
+const MAX_BOOKS = 150;
+
+function loadOrderBooks() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(BOOKS_KEY) || "{}");
+        return new Map(Object.entries(saved).filter(([, book]) => Date.now() - book.at < BOOK_MAX_AGE_MS));
+    } catch {
+        return new Map();
+    }
+}
+
+function saveOrderBooks() {
+    const newest = [...state.orderBooks].sort((a, b) => b[1].at - a[1].at).slice(0, MAX_BOOKS);
+    state.orderBooks = new Map(newest);
+    try {
+        localStorage.setItem(BOOKS_KEY, JSON.stringify(Object.fromEntries(newest)));
+    } catch {
+        // kept for this session only
+    }
+}
+
+const normalizeOrder = (order) =>
+    Array.isArray(order)
+        ? { price: Number(order[0]) || 0, quantity: Number(order[1]) || 0 }
+        : { price: Number(order?.price) || 0, quantity: Number(order?.quantity ?? (order?.orderQuantity ?? 0) - (order?.filledQuantity ?? 0)) || 0 };
+
+function applyOrderBook(data) {
+    const payload = data.marketItemOrderBooks ?? data;
+    const book = payload.orderBooks?.[0] ?? payload.orderBooks?.["0"];
+    if (!payload.itemHrid || !book) return;
+    state.orderBooks.set(payload.itemHrid, {
+        at: Date.now(),
+        asks: (book.asks || []).map(normalizeOrder).filter((o) => o.quantity > 0),
+        bids: (book.bids || []).map(normalizeOrder).filter((o) => o.quantity > 0),
+    });
+    saveOrderBooks();
+}
+
+const listingDone = (listing) =>
+    !!(listing.isDone || listing.isCancelled || listing.isCanceled || listing.isExpired) || /(cancel|complete|expire|closed|done)/i.test(String(listing.status ?? ""));
+
+// The player's own market orders: a full list, or only the changed ones.
+function applyListings(data) {
+    const full = data.myMarketListings ?? data.marketListings;
+    if (Array.isArray(full)) {
+        state.character.myMarketListings = full.filter((listing) => !listingDone(listing));
+        return;
+    }
+    const listings = [...(state.character.myMarketListings || [])];
+    for (const listing of data.endMarketListings || []) {
+        const index = listings.findIndex((other) => other.id === listing.id);
+        if (index >= 0) listings.splice(index, 1);
+        if (!listingDone(listing)) listings.push(listing);
+    }
+    state.character.myMarketListings = listings;
+}
+
 export const state = {
     character: null, // the latest init_character_data, patched by later messages
     items: new Map(), // hash/id -> character item
+    orderBooks: loadOrderBooks(), // itemHrid -> { at, asks, bids } for enhancement level 0, from viewing it on the market
     updatedAt: 0,
 };
 
@@ -113,6 +177,8 @@ function handle(data) {
         state.character = data;
         state.items = new Map();
         applyItems(data.characterItems);
+    } else if (data.type === "market_item_order_books_updated") {
+        applyOrderBook(data);
     } else if (!state.character) {
         return;
     } else {
@@ -156,6 +222,9 @@ function handle(data) {
                 break;
             case "house_rooms_updated":
                 copyFields(data, ["characterHouseRoomMap", ...BUFF_MAPS]);
+                break;
+            case "market_listings_updated":
+                applyListings(data);
                 break;
             case "actions_updated":
                 mergeActions(data.endCharacterActions);

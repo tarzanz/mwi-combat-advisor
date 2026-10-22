@@ -317,10 +317,62 @@ export function bestTeas(action, who, data, market, evaluate) {
     return { result: best, worth };
 }
 
+// How much of an item you already have on the way to buyers: in the inventory and on your own sell orders.
+export function heldStock(character, items, itemHrid) {
+    let inventory = 0;
+    for (const item of items.values()) {
+        if (item.itemHrid === itemHrid && item.itemLocationHrid === INVENTORY && !item.enhancementLevel) inventory += item.count || 0;
+    }
+    let listed = 0;
+    for (const listing of character.myMarketListings || []) {
+        if (listing.itemHrid === itemHrid && listing.isSell && !listing.enhancementLevel) listed += Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0));
+    }
+    return { inventory, listed };
+}
+
+// The selling price (before tax) where an item stops paying for its materials and teas.
+function breakEvenPrice(entry) {
+    const main = entry.outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0];
+    if (!main) return null;
+    const others = entry.revenuePerAction - main.value;
+    return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others) / main.count / (1 - MARKET_TAX);
+}
+
+// How many to make: what the market takes over the planned days (your sales
+// limit, or the buy orders that pay above break-even), less what you already
+// hold or have listed, and no more than your coins buy materials for.
+export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins = Infinity, have = () => 0, minJobHours = 0 }) {
+    if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
+    const breakEven = breakEvenPrice(entry);
+    const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
+    const fromCap = sellCap > 0 ? sellCap * days : null;
+    const demand = Math.max(fromCap ?? 0, profitableBids ?? 0);
+    const result = { breakEven, profitableBids, fromCap, bookAt: book?.at ?? null, stock, demand, known: fromCap !== null || profitableBids !== null };
+    if (!result.known) return result;
+    const units = Math.max(0, demand - stock.inventory - stock.listed);
+    let count = Math.ceil(units / entry.mainCount - 1e-9);
+    // Materials bought for n actions, using what is in the inventory first.
+    const spend = (n) => entry.inputs.reduce((sum, input) => sum + Math.max(0, input.count * n - have(input.itemHrid)) * (input.price || 0), 0);
+    let limitedByCoins = false;
+    if (spend(count) > coins) {
+        let low = 0;
+        let high = count;
+        while (low < high) {
+            const mid = Math.ceil((low + high) / 2);
+            if (spend(mid) <= coins) low = mid;
+            else high = mid - 1;
+        }
+        count = low;
+        limitedByCoins = true;
+    }
+    const hours = count / entry.actionsPerHour;
+    return { ...result, units, count, hours, limitedByCoins, short: minJobHours > 0 && hours < minJobHours };
+}
+
 const sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
 
 // The Skilling tab: what the character can do now, ranked by gold, and what unlocks soon.
-export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0 } = {}) {
+export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null } = {}) {
     const evaluator = (action, level) => (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
     const wanted = (action) => skill === "all" || action.type === skillType(skill);
     const available = [];
@@ -334,12 +386,14 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
             const current = evaluate(who.drinks[action.type] || []);
             const best = bestTeas(action, who, data, market, evaluate);
             const shown = teaMode === "best" ? best.result : current;
-            available.push({ ...shown, teaMode, current, best, betterTeas: !sameTeas(best.result.teas, current.teas) && best.result.goldPerDay > current.goldPerDay + 1 });
+            const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), sellCap }) : null;
+            available.push({ ...shown, teaMode, current, best, suggestion, betterTeas: !sameTeas(best.result.teas, current.teas) && best.result.goldPerDay > current.goldPerDay + 1 });
         } else if (required <= level + NEAR_LEVELS) {
             near.push(action);
         }
     }
-    available.sort((a, b) => b.valid - a.valid || b.goldPerDay - a.goldPerDay);
+    // Jobs too short to be worth the trip to the market go last.
+    available.sort((a, b) => b.valid - a.valid || !!a.suggestion?.short - !!b.suggestion?.short || b.goldPerDay - a.goldPerDay);
 
     // Fastest XP the skill earns today, for "how long until it unlocks".
     const fastestXp = {};

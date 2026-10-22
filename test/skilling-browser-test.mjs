@@ -8,7 +8,7 @@ import path from "node:path";
 import puppeteer from "puppeteer-core";
 import { WebSocketServer } from "ws";
 import { fixtureCharacter } from "./fixture-character.js";
-import { NEAR_LEVELS, RISKY_MARGIN, marketPricer, rankSkilling, skillingCharacter } from "../src/skilling.js";
+import { NEAR_LEVELS, RISKY_MARGIN, heldStock, marketPricer, rankSkilling, skillingCharacter } from "../src/skilling.js";
 import { shortCoins } from "../src/format.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -18,6 +18,12 @@ const clientData = {};
 for (const f of readdirSync(dataDir)) clientData[f.replace(".json", "")] = JSON.parse(readFileSync(path.join(dataDir, f), "utf8"));
 // The real client ships the XP table; the simulator's data does not.
 clientData.levelExperienceTable = Array.from({ length: 201 }, (_, level) => 50 * level * level);
+// The real client ships category names; the simulator's data does not.
+clientData.actionCategoryDetailMap = {};
+for (const action of Object.values(clientData.actionDetailMap)) {
+    const last = action.category.split("/").pop();
+    clientData.actionCategoryDetailMap[action.category] = { hrid: action.category, name: last.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) };
+}
 const userscript = readFileSync(path.join(root, "dist/mwi-combat-advisor.user.js"), "utf8");
 
 const character = fixtureCharacter();
@@ -44,7 +50,24 @@ marketData["/items/cotton_boots"] = { 0: { a: Math.round((bootsCost * 1.02) / 0.
 
 const items = (c) => new Map(c.characterItems.map((i) => [i.hash, i]));
 const market = (sellAt) => marketPricer((hrid) => marketData[hrid]?.[0], clientData, sellAt);
-const expectRank = (c, options) => rankSkilling(skillingCharacter(c, items(c), clientData), clientData, market(options.sellAt || "ask"), options);
+const books = new Map();
+const planFor = (c, { days = 1, minJobHours = 0 } = {}) => {
+    const have = (hrid) => heldStock(c, items(c), hrid).inventory;
+    return { stock: (a) => heldStock(c, items(c), a.outputItems?.[0]?.itemHrid), book: (a) => books.get(a.outputItems?.[0]?.itemHrid) || null, days, minJobHours, coins: have("/items/coin"), have };
+};
+const expectRank = (c, options) => rankSkilling(skillingCharacter(c, items(c), clientData), clientData, market(options.sellAt || "ask"), { plan: planFor(c, options), ...options });
+
+// The best tailoring item: 5 in the inventory, 3 on a sell order, and an order
+// book where some buy orders pay above break-even and some don't.
+const topTailoring = rankSkilling(skillingCharacter(character, items(character), clientData), clientData, market("ask"), { skill: "tailoring" }).available[0];
+const PRODUCT = topTailoring.action.outputItems[0].itemHrid;
+character.characterItems.push({ hash: "stock", itemHrid: PRODUCT, itemLocationHrid: "/item_locations/inventory", enhancementLevel: 0, count: 5 });
+character.myMarketListings = [{ id: 1, itemHrid: PRODUCT, enhancementLevel: 0, isSell: true, orderQuantity: 10, filledQuantity: 7, status: "/market_order_status/active" }];
+const askPrice = marketData[PRODUCT][0].a;
+const orderBook = { type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: PRODUCT, orderBooks: [{
+    asks: [{ price: askPrice, quantity: 40 }],
+    bids: [{ price: askPrice, quantity: 60 }, { price: Math.round(askPrice * 0.9), quantity: 30 }, { price: 1, quantity: 1000 }],
+}] } };
 const coinText = (n) => (n < 0 ? "−" : "") + shortCoins(Math.abs(n));
 
 const MOBILE = !!process.env.MOBILE;
@@ -56,6 +79,30 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
   window.localStorageUtil = { getInitClientData: () => data };
   const ws = new WebSocket("ws://" + location.host + "/fake/api.milkywayidle.com/ws");
   ws.onmessage = (e) => { window.lastType = JSON.parse(e.data).type; };
+  // The game: navigation, skill page with category tabs, action cards, action panel.
+  const production = Object.values(data.actionDetailMap).filter((a) => a.function === "/action_functions/production" || a.function === "/action_functions/gathering");
+  document.body.insertAdjacentHTML("afterbegin", '<nav id="nav"></nav><div id="skillpage"></div>');
+  document.getElementById("nav").innerHTML = '<div class="NavigationBar_navigationLinks__zz">' + ["tailoring", "foraging"].map((s) => '<div class="NavigationBar_navigationLink__abc" data-skill="' + s + '"><svg><use href="/sprites/skills.svg#' + s + '"></use></svg>' + s + '</div>').join("") + '</div>';
+  function showSkill(skill, category) {
+    const list = production.filter((a) => a.type === "/action_types/" + skill);
+    const categories = [...new Set(list.map((a) => a.category))];
+    const current = category || categories[0];
+    const page = document.getElementById("skillpage");
+    page.innerHTML = '<div>' + categories.map((c) => '<button role="tab" aria-selected="' + (c === current) + '" data-cat="' + c + '">' + data.actionCategoryDetailMap[c].name + '</button>').join("") + '</div>' +
+      list.filter((a) => a.category === current).map((a) => '<div class="SkillAction_skillAction__x" data-hrid="' + a.hrid + '"><svg><use href="/sprites/items.svg#' + (a.outputItems ? a.outputItems[0].itemHrid : a.hrid).split("/").pop() + '"></use></svg><div class="SkillAction_name__x">' + a.name + '</div></div>').join("");
+    page.querySelectorAll("[role=tab]").forEach((b) => b.onclick = () => setTimeout(() => showSkill(skill, b.dataset.cat), 50));
+    page.querySelectorAll(".SkillAction_skillAction__x").forEach((c) => c.onclick = () => setTimeout(() => openPanel(data.actionDetailMap[c.dataset.hrid]), 50));
+  }
+  document.querySelectorAll(".NavigationBar_navigationLink__abc").forEach((l) => l.onclick = () => setTimeout(() => showSkill(l.dataset.skill), 80));
+  function openPanel(action) {
+    document.querySelector(".modal")?.remove();
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    modal.innerHTML = '<div class="SkillActionDetail_regularComponent__y"><div class="SkillActionDetail_name__y">' + action.name + '</div>' +
+      '<div class="SkillActionDetail_maxActionCountInput__y"><input type="text" value="∞"></div>' +
+      '<div class="SkillActionDetail_buttonsContainer__y"><button class="start">Start</button><button class="queue">Add to Queue</button></div></div>';
+    document.body.appendChild(modal);
+  }
 </script></body></html>`;
 
 let sockets = [];
@@ -200,6 +247,41 @@ try {
     check("crates valued by their contents", crate.source === "contents" && crate.price > 1000, JSON.stringify(crate));
     const cowbell = market("ask").sell("/items/cowbell");
     check("a cowbell is a tenth of a bag (18% tax)", Math.abs(cowbell.price - (marketData["/items/bag_of_10_cowbells"][0].a * 0.82) / 10) < 1e-6, JSON.stringify(cowbell));
+
+    // How many to make: buy orders above break-even, less what you hold and have listed.
+    await select(page, "skillingSkill", "tailoring");
+    check("without an order book or limit it says how to get a suggestion", /open [^.]* on the market once/.test(await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] .mwia-skill-detail`, (n) => n.textContent)));
+    books.set(PRODUCT, { at: Date.now(), asks: orderBook.marketItemOrderBooks.orderBooks[0].asks, bids: orderBook.marketItemOrderBooks.orderBooks[0].bids });
+    for (const socket of sockets) socket.send(JSON.stringify(orderBook));
+    await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
+    await select(page, "skillingSkill", "all");
+    await select(page, "skillingSkill", "tailoring");
+    const expPlan = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
+    const planRow = (await rows(page)).find((r) => r.name === topTailoring.action.name);
+    check("suggestion from the order book, less stock and listings", expPlan.known && expPlan.profitableBids === 90 && expPlan.count === Math.ceil((90 - 8) / topTailoring.mainCount) && planRow.sub.includes(`make ${expPlan.count}`),
+        `${JSON.stringify(expPlan && { bids: expPlan.profitableBids, count: expPlan.count, breakEven: expPlan.breakEven })} / ${planRow?.sub}`);
+    check("order book survives a reload", await page.evaluate((hrid) => !!JSON.parse(localStorage.getItem("mwia-order-books") || "{}")[hrid], PRODUCT));
+
+    // Short jobs are greyed out and listed last.
+    await select(page, "skillingMinJob", "8");
+    const expShort = expectRank(character, { skill: "tailoring", minJobHours: 8 }).available;
+    const shortRows = await page.$$eval(".mwia-body section:first-of-type .mwia-skill-row", (list) => list.map((r) => ({ name: r.querySelector(".mwia-skill-name").childNodes[0].textContent.trim(), faded: r.classList.contains("mwia-faded") })));
+    const shortIndex = shortRows.findIndex((r) => r.name === topTailoring.action.name);
+    check("short job greyed out and listed last", expShort.find((e) => e.hrid === topTailoring.hrid).suggestion.short && shortRows[shortIndex]?.faded && shortIndex > 0 && expShort[shortIndex]?.hrid === topTailoring.hrid,
+        `index ${shortIndex} ${JSON.stringify(shortRows[shortIndex])}`);
+    await select(page, "skillingMinJob", "0");
+
+    // The button opens the action in the game with the count filled in.
+    await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"]`, (row) => { row.open = true; });
+    await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] [data-action="skilling-make"]`, (b) => b.scrollIntoView({ block: "end" }));
+    await page.screenshot({ path: path.join(shotDir, "skilling-5-plan.png") });
+    await page.click(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] [data-action="skilling-make"]`);
+    await page.waitForFunction(() => /^\d+$/.test(document.querySelector(".modal input")?.value || ""), { timeout: 6000 }).catch(() => null);
+    const filled = await page.evaluate(() => ({ name: document.querySelector(".modal .SkillActionDetail_name__y")?.textContent, value: document.querySelector(".modal input")?.value, hidden: document.querySelector(".mwia-panel").classList.contains("mwia-hidden") }));
+    check("make button opens the action with the count", filled.name === topTailoring.action.name && filled.value === String(expPlan.count) && filled.hidden, JSON.stringify(filled));
+    await page.screenshot({ path: path.join(shotDir, "skilling-6-opened.png") });
+    await page.evaluate(() => document.querySelector(".modal")?.remove());
+    await page.click(".mwia-launcher");
 
     // A buff update from the game shows on the next render.
     await select(page, "skillingSkill", "foraging");

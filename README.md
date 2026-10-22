@@ -35,7 +35,13 @@ buy, by simulating *your own* character.
   Best teas* ranks with those setups. ⚠ marks thin markets (no buy orders, or an ask far above the bid),
   materials nobody sells and thin margins (a price drop under 5% wipes out the profit). *Max sold/day* sets how many
   of one crafted item the market takes a day; past it the action only runs part of the day (gathered raw materials
-  are never limited). Crates and caches from rare drops are worth what they hold, a cowbell a tenth of a bag. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
+  are never limited). Crates and caches from rare drops are worth what they hold, a cowbell a tenth of a bag.
+  **How many to make:** for each crafted item a row suggests a count: what the market takes over *Make for* days
+  (your *Max sold/day*, or the buy orders that pay above break-even – the order book is read when you open the item
+  on the market and kept for a day), less what you already have in the inventory or on your own sell orders, and
+  no more than your coins buy materials for (using materials you have first). *▶ Open … with N* opens the action in
+  the game with the count filled in; you click the game's button. Jobs shorter than *Shortest job* are greyed out
+  and listed last. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the

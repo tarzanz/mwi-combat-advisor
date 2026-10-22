@@ -37,10 +37,11 @@ import { CSS } from "./style.js";
 import { coinsInput, esc, parseCoins } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
 import { renderSkilling, toggleShowAll } from "./skilling-ui.js";
+import { findActionPanel, navDiagnostics, openAction, setReactInput } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0 };
+const DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingDays: 1, skillingMinJob: 0 };
 
 const SKILL_NAMES = {
     stamina: "Stamina",
@@ -252,7 +253,7 @@ function render() {
     ui.cartItems = new Map();
     let html = "";
     if (ui.error) html += `<div class="mwia-error">${esc(ui.error)}</div>`;
-    if (ui.notice && ui.tab === "upgrades") html += `<div class="mwia-notice mwia-notice-${ui.notice.level}">${esc(ui.notice.text)}</div>`;
+    if (ui.notice && (ui.tab === "upgrades" || ui.tab === "skilling")) html += `<div class="mwia-notice mwia-notice-${ui.notice.level}">${esc(ui.notice.text)}</div>`;
     if (ui.busy) html += progressHtml();
     if (ui.tab === "overview") html += renderOverview();
     else if (ui.tab === "zones") html += renderZones();
@@ -734,6 +735,23 @@ function renderSkillingTab() {
     return `<p class="mwia-dim">Loading game data and market prices…</p>`;
 }
 
+// Opens a Skilling suggestion in the game with the count filled in; the player
+// clicks the game's own button.
+async function openWithCount(actionHrid, count) {
+    const data = getClientData();
+    const action = data?.actionDetailMap[actionHrid];
+    if (!action || !count) return;
+    ui.root.classList.add("mwia-hidden");
+    if (await openAction(ui.win, action, data)) {
+        const found = findActionPanel(action.name);
+        if (found?.input) setReactInput(found.input, count);
+        return;
+    }
+    ui.root.classList.remove("mwia-hidden");
+    ui.notice = { level: "warn", text: `Could not open ${action.name} automatically. Open it yourself and enter ${count}. (${navDiagnostics()})` };
+    render();
+}
+
 // ---------- events ----------
 
 function onClick(event) {
@@ -763,6 +781,9 @@ function onClick(event) {
         case "skilling-load":
             ui.skillingLoad = null;
             render();
+            break;
+        case "skilling-make":
+            openWithCount(target.dataset.hrid, Number(target.dataset.count));
             break;
         case "skilling-all":
             toggleShowAll();
