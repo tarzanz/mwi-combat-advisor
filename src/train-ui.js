@@ -8,7 +8,7 @@ import { onStateChange, state } from "./game-state.js";
 import { esc } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
 import { buildTrain, inventoryCounts, readPlanningTab } from "./plan-train.js";
-import { findActionPanel, openAction, setReactInput } from "./game-nav.js";
+import { findActionPanel, navDiagnostics, openAction, setReactInput } from "./game-nav.js";
 import { enableTapTips, isNarrow } from "./touch.js";
 
 const STORE_PREFIX = "mwia-train:";
@@ -58,8 +58,8 @@ function currentStop() {
     return t.train?.stops[t.train.index] || null;
 }
 
-function setNotice(kind, text) {
-    t.notice = text ? { kind, text } : null;
+function setNotice(kind, text, diag = "") {
+    t.notice = text ? { kind, text, diag } : null;
     render();
 }
 
@@ -104,7 +104,7 @@ async function goToCurrent() {
     const opened = action && (await openAction(t.win, action, data));
     if (currentStop() !== stop) return;
     if (opened) fillPanel();
-    else setNotice("warn", `Could not open ${stop.actionName} automatically. Open it yourself (${cap(stop.skill)}) and the count is filled in.`);
+    else setNotice("warn", `Could not open ${stop.actionName} automatically. Open it yourself (${cap(stop.skill)}) and the count is filled in.`, action ? navDiagnostics() : `${stop.actionHrid} not in game data`);
 }
 
 function advance(step = 1) {
@@ -201,7 +201,7 @@ function render() {
         <button class="mwia-link" data-train="end" title="End the train">✕</button>
       </div>`;
     if (headline) html += `<div class="mwia-train-now">${headline}</div>`;
-    if (t.notice) html += `<div class="mwia-notice mwia-notice-${t.notice.kind}">${esc(t.notice.text)}</div>`;
+    if (t.notice) html += `<div class="mwia-notice mwia-notice-${t.notice.kind}">${esc(t.notice.text)}${t.notice.diag ? `<div class="mwia-notice-diag">${esc(t.notice.diag)}</div>` : ""}</div>`;
     if (stop && !train.failed) {
         if (!t.collapsed) html += `<p class="mwia-dim">Click the game's <b>Add to queue</b>; the next stop opens when the game confirms it.</p>`;
         html += `<div class="mwia-train-buttons">

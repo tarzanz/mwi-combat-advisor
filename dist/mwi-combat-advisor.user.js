@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.9.0
+// @version      0.9.0.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1259,6 +1259,7 @@
 .mwia-notice-ok { border-color: #2f6b5a; background: #17302a; }
 .mwia-notice-warn { border-color: #7a6a2a; background: #2e2a17; }
 .mwia-notice-bad { border-color: #a03a4c; background: #4a1f28; }
+.mwia-notice-diag { margin-top: 6px; font: 11px/1.35 monospace; opacity: .8; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .mwia-btn { background: #4c5bd4; color: #fff; border: none; border-radius: 6px; padding: 7px 14px; font: 600 13px sans-serif; cursor: pointer; margin: 4px 0 8px; }
 .mwia-btn:disabled { opacity: .5; cursor: default; }
 .mwia-link { background: none; border: none; color: #9aa3cf; cursor: pointer; font: inherit; padding: 2px 6px; }
@@ -2391,6 +2392,10 @@
     "handleClickAction",
     "handleGoToAction"
   ];
+  var lastDiagnostics = "";
+  function navDiagnostics() {
+    return lastDiagnostics;
+  }
   var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   var clean = (text) => String(text || "").replace(/\s+/g, " ").trim();
   function visible(element) {
@@ -2398,8 +2403,35 @@
     const style = getComputedStyle(element);
     return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
   }
+  var iconHref = (use) => use.getAttribute("href") || use.getAttribute("xlink:href") || "";
   function iconIds(element) {
-    return [...element.querySelectorAll("use")].map((use) => (use.getAttribute("href") || use.getAttribute("xlink:href") || "").split("#")[1] || "");
+    return [...element.querySelectorAll("use")].map((use) => iconHref(use).split("#")[1] || "");
+  }
+  function describe(element) {
+    const classes = String(element.className?.baseVal ?? element.className ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 2);
+    return [element.tagName.toLowerCase(), ...classes].join(".");
+  }
+  function navReport(skill) {
+    const links = [...document.querySelectorAll(NAV_LINK)];
+    const parts = [`nav links: ${links.length} (${links.filter(visible).length} visible)`];
+    if (links.length) parts.push("icons: " + links.map((link) => iconIds(link).join("+") || "?").join(","));
+    const icons = [...document.querySelectorAll("use")].filter((use) => iconHref(use).endsWith("#" + skill));
+    if (icons.length) {
+      const chain = [];
+      for (let node = icons[0].parentElement; node && node !== document.body && chain.length < 6; node = node.parentElement) chain.push(describe(node));
+      parts.push(`#${skill} icons: ${icons.length}, first ${iconHref(icons[0])} in ${chain.join(" < ")}`);
+    } else parts.push(`no #${skill} icon on page`);
+    return parts;
+  }
+  function screenReport(categoryName) {
+    const cards = [...document.querySelectorAll(ACTION_CARD)].filter(visible);
+    const tabs = [...document.querySelectorAll(TABS)].filter(visible).map((tab) => clean(tab.textContent));
+    return [
+      `cards: ${cards.length}` + (cards.length ? " (" + cards.slice(0, 6).map((card) => clean(card.querySelector(ACTION_CARD_NAME)?.textContent) || "?").join(", ") + ")" : ""),
+      `tabs: ${tabs.length}` + (tabs.length ? " (" + tabs.slice(0, 10).join(", ") + ")" : ""),
+      `tab "${categoryName}": ${tabs.includes(categoryName) ? "found" : "missing"}`,
+      `panel names: ${[...document.querySelectorAll(PANEL_NAME)].filter(visible).map((name) => clean(name.textContent)).join(", ") || "none"}`
+    ];
   }
   function findActionPanel(actionName2) {
     for (const name of document.querySelectorAll(PANEL_NAME)) {
@@ -2436,7 +2468,7 @@
   function clickSkill(skill) {
     const link = [...document.querySelectorAll(NAV_LINK)].find((candidate) => iconIds(candidate).includes(skill));
     link?.click();
-    return !!link;
+    return link || null;
   }
   function callGameHandler(win2, actionHrid) {
     const fibers = [];
@@ -2446,6 +2478,7 @@
         if (/^__react(Container|Fiber|InternalInstance)\$/.test(key)) fibers.push(element[key]?.current ?? element[key]);
       }
     }
+    const roots = fibers.length;
     const visited = /* @__PURE__ */ new Set();
     while (fibers.length && visited.size < 5e4) {
       const fiber = fibers.pop();
@@ -2456,7 +2489,7 @@
         if (instance && typeof instance[handler] === "function") {
           try {
             instance[handler](actionHrid);
-            return true;
+            return `react: ${handler} called`;
           } catch {
           }
         }
@@ -2465,28 +2498,33 @@
       if (fiber.child) fibers.push(fiber.child);
       if (fiber.sibling) fibers.push(fiber.sibling);
     }
-    return false;
+    return `react: no handler (roots ${roots}, fibers ${visited.size})`;
   }
   async function openAction(win2, action, data, timeoutMs = 4e3) {
+    lastDiagnostics = "";
     if (findActionPanel(action.name)) return true;
     const itemId = action.outputItems?.[0]?.itemHrid?.split("/").pop();
     const skill = action.type.split("/").pop();
     const categoryName = data.actionCategoryDetailMap?.[action.category]?.name;
+    const report = [];
     if (!clickCard(action, itemId)) {
-      clickSkill(skill);
+      const link = clickSkill(skill);
+      report.push(...navReport(skill), link ? `clicked ${describe(link)}` : `no nav link with #${skill}`);
       const deadline2 = Date.now() + timeoutMs;
       let clicked = false;
       while (!clicked && Date.now() < deadline2) {
         await sleep(120);
         clicked = clickCard(action, itemId) || clickTab(categoryName) && (await sleep(120), clickCard(action, itemId));
       }
-      if (!clicked) callGameHandler(win2, action.hrid);
-    }
+      if (!clicked) report.push(...screenReport(categoryName), callGameHandler(win2, action.hrid));
+    } else report.push("card was on screen and clicked");
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (findActionPanel(action.name)) return true;
       await sleep(100);
     }
+    report.push(`no panel for "${action.name}"`);
+    lastDiagnostics = report.join(" \xB7 ");
     return false;
   }
 
@@ -2534,8 +2572,8 @@
   function currentStop() {
     return t.train?.stops[t.train.index] || null;
   }
-  function setNotice(kind, text) {
-    t.notice = text ? { kind, text } : null;
+  function setNotice(kind, text, diag = "") {
+    t.notice = text ? { kind, text, diag } : null;
     render2();
   }
   async function startFromPlanning() {
@@ -2572,7 +2610,7 @@
     const opened = action && await openAction(t.win, action, data);
     if (currentStop() !== stop) return;
     if (opened) fillPanel();
-    else setNotice("warn", `Could not open ${stop.actionName} automatically. Open it yourself (${cap(stop.skill)}) and the count is filled in.`);
+    else setNotice("warn", `Could not open ${stop.actionName} automatically. Open it yourself (${cap(stop.skill)}) and the count is filled in.`, action ? navDiagnostics() : `${stop.actionHrid} not in game data`);
   }
   function advance(step = 1) {
     if (!t.train) return;
@@ -2658,7 +2696,7 @@
         <button class="mwia-link" data-train="end" title="End the train">\u2715</button>
       </div>`;
     if (headline) html += `<div class="mwia-train-now">${headline}</div>`;
-    if (t.notice) html += `<div class="mwia-notice mwia-notice-${t.notice.kind}">${esc(t.notice.text)}</div>`;
+    if (t.notice) html += `<div class="mwia-notice mwia-notice-${t.notice.kind}">${esc(t.notice.text)}${t.notice.diag ? `<div class="mwia-notice-diag">${esc(t.notice.diag)}</div>` : ""}</div>`;
     if (stop && !train.failed) {
       if (!t.collapsed) html += `<p class="mwia-dim">Click the game's <b>Add to queue</b>; the next stop opens when the game confirms it.</p>`;
       html += `<div class="mwia-train-buttons">

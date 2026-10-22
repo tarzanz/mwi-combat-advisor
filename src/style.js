@@ -47,6 +47,7 @@ export const CSS = `
 .mwia-notice-ok { border-color: #2f6b5a; background: #17302a; }
 .mwia-notice-warn { border-color: #7a6a2a; background: #2e2a17; }
 .mwia-notice-bad { border-color: #a03a4c; background: #4a1f28; }
+.mwia-notice-diag { margin-top: 6px; font: 11px/1.35 monospace; opacity: .8; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .mwia-btn { background: #4c5bd4; color: #fff; border: none; border-radius: 6px; padding: 7px 14px; font: 600 13px sans-serif; cursor: pointer; margin: 4px 0 8px; }
 .mwia-btn:disabled { opacity: .5; cursor: default; }
 .mwia-link { background: none; border: none; color: #9aa3cf; cursor: pointer; font: inherit; padding: 2px 6px; }
