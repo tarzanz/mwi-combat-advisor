@@ -65,6 +65,10 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1300}
   .modal>div{background:#223;padding:20px}
   [class*=SkillAction_skillAction]{display:inline-block;border:1px solid #556;margin:4px;padding:6px;cursor:pointer}
+  /* MWITools lays a step-2 row out as a grid: icon in a narrow first column. */
+  #mwitools-planning{width:360px;font-size:13px}
+  .planning-step>summary{display:grid;grid-template-columns:56px 1fr auto;gap:8px;align-items:center}
+  .planning-step>summary .planning-policy-switch{grid-column:2/-1}
 </style></head>
 <body>
   <nav id="nav"></nav>
@@ -189,6 +193,8 @@ try {
         rows: [...document.querySelectorAll(".planning-step")].map((step) => ({
             name: step.querySelector(".planning-step-name").textContent,
             cost: step.querySelector(":scope > summary .mwia-plan-cost")?.textContent || null,
+            width: step.querySelector(":scope > summary .mwia-plan-cost")?.getBoundingClientRect().width || 0,
+            rowWidth: step.querySelector(":scope > summary").getBoundingClientRect().width,
         })),
     }));
     const totalText = (label, cost) => `${label} ${shortCoins(cost.coins)}${cost.unpriced.length ? " + ?" : ""}`;
@@ -197,6 +203,7 @@ try {
         costs.total.includes(totalText("all One step", expectedCosts.single)) && costs.total.includes(totalText("all Full chain", expectedCosts.chain)), costs.total);
     check("plan total names the item without a price", /no price: Birch Log/.test(costs.total), costs.total);
     check("every step-2 row has a cost line", costs.rows.every((row) => row.cost), JSON.stringify(costs.rows.filter((row) => !row.cost)));
+    check("cost line spans the whole row", costs.rows.every((row) => row.width >= row.rowWidth - 1), JSON.stringify(costs.rows.slice(0, 2).map((row) => [row.width, row.rowWidth])));
     const lumber = costs.rows.find((row) => row.name === "Lumber")?.cost || "";
     check("Lumber row: Buy, One step and Full chain",
         lumber.includes(totalText("Buy", lumberCosts.buy)) && lumber.includes(totalText("One step", lumberCosts.single)) && lumber.includes(totalText("Full chain", lumberCosts.chain)), lumber);
