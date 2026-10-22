@@ -18,6 +18,9 @@ const BUFF_SOURCES = [
 ];
 
 export const MARKET_TAX = 0.04;
+const COWBELL_BAG_TAX = 0.18;
+// Below this share of the revenue as profit, a small price drop wipes it out.
+export const RISKY_MARGIN = 0.05;
 export const DRINKS_PER_HOUR = 12;
 const MIN_CYCLE_SECONDS = 3;
 const DEFAULT_DRINK_SLOTS = 3;
@@ -139,11 +142,13 @@ function teaBuffs(teas, concentration, data) {
 
 // Prices: inputs and teas are bought at the cheapest ask; products sell at
 // the ask (a listing) or the best bid (instant), minus the market tax.
+// Crates and caches are worth what they hold; a cowbell a tenth of a bag.
 export function marketPricer(entryOf, data, sellAt = "ask") {
     const cache = new Map();
+    const contents = (hrid) => (data.openableLootDropMap?.[hrid] || []).reduce((sum, drop) => sum + meanCount(drop) * (drop.itemHrid === hrid ? 0 : this_.sell(drop.itemHrid).price), 0);
     const vendor = (hrid) => data.itemDetailMap[hrid]?.sellPrice || 0;
     const tradable = (hrid) => !!data.itemDetailMap[hrid]?.isTradable;
-    return {
+    const this_ = {
         buy(hrid) {
             if (hrid === "/items/coin") return 1;
             const entry = tradable(hrid) ? entryOf(hrid) : null;
@@ -154,16 +159,22 @@ export function marketPricer(entryOf, data, sellAt = "ask") {
             const entry = (tradable(hrid) && entryOf(hrid)) || {};
             const ask = entry.a > 0 ? entry.a : null;
             const bid = entry.b > 0 ? entry.b : null;
+            const tax = hrid === "/items/bag_of_10_cowbells" ? COWBELL_BAG_TAX : MARKET_TAX;
+            cache.set(hrid, { price: 0 }); // a crate that holds itself
             let result;
             if (hrid === "/items/coin") result = { price: 1, ask: 1, bid: 1, source: "coin" };
-            else if (sellAt === "ask" && ask) result = { price: ask * (1 - MARKET_TAX), ask, bid, source: "ask", note: bid ? (ask > WIDE_SPREAD * bid ? "spread" : null) : "nobids" };
-            else if (bid) result = { price: bid * (1 - MARKET_TAX), ask, bid, source: "bid", note: sellAt === "ask" ? "noasks" : null };
-            else if (ask) result = { price: ask * (1 - MARKET_TAX), ask, bid, source: "ask", note: "nobids" };
+            else if (hrid === "/items/cowbell") result = { ...this_.sell("/items/bag_of_10_cowbells"), source: "bag" };
+            else if (!ask && !bid && data.openableLootDropMap?.[hrid]) result = { price: contents(hrid), ask, bid, source: "contents" };
+            else if (sellAt === "ask" && ask) result = { price: ask * (1 - tax), ask, bid, source: "ask", note: bid ? (ask > WIDE_SPREAD * bid ? "spread" : null) : "nobids" };
+            else if (bid) result = { price: bid * (1 - tax), ask, bid, source: "bid", note: sellAt === "ask" ? "noasks" : null };
+            else if (ask) result = { price: ask * (1 - tax), ask, bid, source: "ask", note: "nobids" };
             else result = { price: vendor(hrid), ask, bid, source: "vendor", note: vendor(hrid) ? "vendor" : "unsellable" };
+            if (result.source === "bag") result.price /= 10;
             cache.set(hrid, result);
             return result;
         },
     };
+    return this_;
 }
 
 const meanCount = (drop) => (Number(drop.dropRate ?? 1) || 0) * ((Number(drop.minCount ?? 1) + Number(drop.maxCount ?? 1)) / 2);
@@ -224,12 +235,14 @@ export function evaluateAction(action, who, data, market, teas = who.drinks[acti
     const costPerAction = inputs.reduce((sum, i) => sum + i.value, 0);
     const teaPerHour = teaCosts.reduce((sum, t) => sum + t.perHour, 0);
     const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
+    const margin = revenuePerAction > 0 ? profitPerHour / (actionsPerHour * revenuePerAction) : null;
     const xpPerAction = (action.experienceGain?.value || 0) * (1 + fraction(BUFF.wisdom));
 
     const main = outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
     const warnings = [];
     if (missing.length) warnings.push({ kind: "noinput", items: missing });
     if (main && main.sell.note) warnings.push({ kind: main.sell.note, itemHrid: main.itemHrid, ask: main.sell.ask, bid: main.sell.bid });
+    if (costPerAction > 0 && profitPerHour > 0 && margin < RISKY_MARGIN) warnings.push({ kind: "margin", margin });
 
     return {
         action,
@@ -256,6 +269,8 @@ export function evaluateAction(action, who, data, market, teas = who.drinks[acti
         costPerAction,
         teaPerHour,
         profitPerHour,
+        margin,
+        mainCount: main?.count || 0,
         xpPerAction,
         xpPerHour: actionsPerHour * xpPerAction,
         valid: missing.length === 0 && !!main && main.sell.note !== "unsellable",
@@ -281,26 +296,32 @@ function teaSetups(data, type, slots, candidates) {
     return setups;
 }
 
-// The tea setup that earns the most, and what each of its teas adds.
-export function bestTeas(action, who, data, market, level) {
+// The market can only take so many of one crafted item a day: past the cap,
+// the action runs only part of the day. Raw materials sell in bulk and aren't capped.
+export function limitSales(result, sellCap) {
+    const made = result.action.function === "/action_functions/production" ? result.mainCount * result.actionsPerHour : 0;
+    const hoursPerDay = sellCap > 0 && made > 0 && made * HOURS_PER_DAY > sellCap ? sellCap / made : HOURS_PER_DAY;
+    return { ...result, hoursPerDay, capped: hoursPerDay < HOURS_PER_DAY, goldPerDay: result.profitPerHour * hoursPerDay, xpPerDay: result.xpPerHour * hoursPerDay };
+}
+
+// The tea setup that earns the most a day, and what each of its teas adds.
+export function bestTeas(action, who, data, market, evaluate) {
     const type = action.type;
     const candidates = usableTeas(data, type).filter((hrid) => market.buy(hrid) !== null || (who.drinks[type] || []).includes(hrid));
     let best = null;
     for (const teas of teaSetups(data, type, who.slots[type], candidates)) {
-        const result = evaluateAction(action, who, data, market, teas, level);
-        if (!best || result.profitPerHour > best.profitPerHour + 1e-9) best = result;
+        const result = evaluate(teas);
+        if (!best || result.goldPerDay > best.goldPerDay + 1e-9) best = result;
     }
-    const worth = best.teas.map((hrid) => {
-        const without = evaluateAction(action, who, data, market, best.teas.filter((t) => t !== hrid), level);
-        return { itemHrid: hrid, gainPerHour: best.profitPerHour - without.profitPerHour };
-    });
+    const worth = best.teas.map((hrid) => ({ itemHrid: hrid, gainPerDay: best.goldPerDay - evaluate(best.teas.filter((t) => t !== hrid)).goldPerDay }));
     return { result: best, worth };
 }
 
 const sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
 
 // The Skilling tab: what the character can do now, ranked by gold, and what unlocks soon.
-export function rankSkilling(who, data, market, { skill = "all", teaMode = "current" } = {}) {
+export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0 } = {}) {
+    const evaluator = (action, level) => (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
     const wanted = (action) => skill === "all" || action.type === skillType(skill);
     const available = [];
     const near = [];
@@ -309,15 +330,16 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         const level = who.levels[action.levelRequirement.skillHrid] ?? 1;
         const required = action.levelRequirement.level;
         if (required <= level) {
-            const current = evaluateAction(action, who, data, market);
-            const best = bestTeas(action, who, data, market);
+            const evaluate = evaluator(action, level);
+            const current = evaluate(who.drinks[action.type] || []);
+            const best = bestTeas(action, who, data, market, evaluate);
             const shown = teaMode === "best" ? best.result : current;
-            available.push({ ...shown, teaMode, current, best, betterTeas: !sameTeas(best.result.teas, current.teas) && best.result.profitPerHour > current.profitPerHour + 1 });
+            available.push({ ...shown, teaMode, current, best, betterTeas: !sameTeas(best.result.teas, current.teas) && best.result.goldPerDay > current.goldPerDay + 1 });
         } else if (required <= level + NEAR_LEVELS) {
             near.push(action);
         }
     }
-    available.sort((a, b) => b.valid - a.valid || b.profitPerHour - a.profitPerHour);
+    available.sort((a, b) => b.valid - a.valid || b.goldPerDay - a.goldPerDay);
 
     // Fastest XP the skill earns today, for "how long until it unlocks".
     const fastestXp = {};
@@ -326,14 +348,14 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     const upcoming = near.map((action) => {
         const skillHrid = action.levelRequirement.skillHrid;
         const required = action.levelRequirement.level;
-        const atUnlock = teaMode === "best" ? bestTeas(action, who, data, market, required).result : evaluateAction(action, who, data, market, undefined, required);
+        const evaluate = evaluator(action, required);
+        const atUnlock = teaMode === "best" ? bestTeas(action, who, data, market, evaluate).result : evaluate(who.drinks[action.type] || []);
         const have = who.experience[skillHrid];
         const needXp = Array.isArray(table) && have !== null && table[required] !== undefined ? Math.max(0, table[required] - have) : null;
         const hours = needXp !== null && fastestXp[skillHrid] > 0 ? needXp / fastestXp[skillHrid] : null;
         return { ...atUnlock, needLevels: required - (who.levels[skillHrid] ?? 1), needXp, hoursToUnlock: hours };
     });
-    upcoming.sort((a, b) => a.needLevels - b.needLevels || b.profitPerHour - a.profitPerHour);
+    upcoming.sort((a, b) => a.needLevels - b.needLevels || b.goldPerDay - a.goldPerDay);
     return { available, upcoming };
 }
 
-export const perDay = (perHour) => perHour * HOURS_PER_DAY;

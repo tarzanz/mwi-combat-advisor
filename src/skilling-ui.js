@@ -3,8 +3,8 @@
 
 import { getClientData, itemName, marketEntry, pricesStamp } from "./game-data.js";
 import { state } from "./game-state.js";
-import { esc, shortCoins } from "./format.js";
-import { MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, marketPricer, perDay, rankSkilling, skillingCharacter } from "./skilling.js";
+import { coinsInput, esc, shortCoins } from "./format.js";
+import { MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
 
 const SHORT_LIST = 25;
 
@@ -30,16 +30,17 @@ export function skillingSettingsHtml(s) {
       <label>Skill <select data-setting="skillingSkill">${option("all", "All skills", s.skillingSkill)}${SKILLING_SKILLS.map((k) => option(k, skillLabel(k), s.skillingSkill)).join("")}</select></label>
       <label title="Products are listed at the cheapest ask (you wait for a buyer) or sold instantly to the best bid. The 4% market tax is taken off either way.">Sell at <select data-setting="skillingSellAt">${option("ask", "Ask (list it)", s.skillingSellAt)}${option("bid", "Bid (sell now)", s.skillingSellAt)}</select></label>
       <label title="Rank with the teas you have in the skill's drink slots now, or with the setup that earns the most.">Teas <select data-setting="skillingTeas">${option("current", "My current teas", s.skillingTeas)}${option("best", "Best teas", s.skillingTeas)}</select></label>
+      <label title="How many of one crafted item the market takes a day, e.g. 500 or 2k. Past it the action only runs part of the day. Empty: no limit. Gathered raw materials are never limited.">Max sold/day <input data-setting="skillingSellCap" type="text" inputmode="decimal" size="6" placeholder="no limit" value="${Number(s.skillingSellCap) > 0 ? coinsInput(Number(s.skillingSellCap)) : ""}"></label>
     </div>`;
 }
 
 function ranking(settings) {
     const data = getClientData();
-    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas].join("|");
+    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap].join("|");
     if (view.key !== key) {
         const who = skillingCharacter(state.character, state.items, data);
         const market = marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt);
-        view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas });
+        view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0 });
         view.key = key;
     }
     return view.result;
@@ -84,6 +85,8 @@ function warningText(warning) {
             return `Thin market for ${item}: the cheapest ask (${coins(warning.ask)}) is ${dec(warning.ask / warning.bid, 1)}× the best bid (${coins(warning.bid)}).`;
         case "vendor":
             return `${item} isn't on the market; valued at the vendor price.`;
+        case "margin":
+            return `Thin margin: a ${dec(warning.margin * 100, 1)}% drop in the selling price wipes out the profit.`;
         case "unsellable":
             return `${item} can't be sold.`;
         default:
@@ -92,18 +95,18 @@ function warningText(warning) {
 }
 
 function rowHtml(entry, best, upcoming = false) {
-    const day = perDay(entry.profitPerHour);
+    const day = entry.goldPerDay;
     const sub = upcoming
         ? `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level} · in ${entry.needLevels} level${entry.needLevels === 1 ? "" : "s"}${entry.hoursToUnlock !== null ? ` · ~${hoursText(entry.hoursToUnlock)}` : ""}`
-        : `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level}`;
+        : `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level}${entry.capped ? ` · ${dec(entry.hoursPerDay, 1)} h/day (sales limit)` : ""}`;
     const warn = entry.warnings.length ? ` <span class="mwia-warn" title="${esc(entry.warnings.map(warningText).join(" "))}">⚠</span>` : "";
     const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas
-        ? `<span class="mwia-skill-hint">🍵 +${coins(perDay(entry.best.result.profitPerHour - entry.current.profitPerHour))}/day with other teas</span>`
+        ? `<span class="mwia-skill-hint">🍵 +${coins(entry.best.result.goldPerDay - entry.current.goldPerDay)}/day with other teas</span>`
         : "";
     const gold = entry.valid ? `<span class="${day < 0 ? "mwia-bad" : best ? "mwia-ok" : ""}">${coins(day)}/day</span>` : `<span class="mwia-dim">–</span>`;
     return `<details class="mwia-skill-row${best ? " mwia-best" : ""}${entry.valid && day > 0 ? "" : " mwia-faded"}">
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}</span>
-        <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(perDay(entry.xpPerHour))} XP/day</span></span></summary>
+        <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
 }
 
@@ -126,8 +129,10 @@ function detailHtml(e, upcoming) {
     if (e.teas.length) {
         lines.push(`<b>Teas:</b> ${e.teaCosts.map((t) => `${esc(itemName(t.itemHrid))} @ ${coins(t.price)}`).join(" · ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h`);
     }
-    lines.push(`<b>Gold:</b> (${coins(e.revenuePerAction)} − ${coins(e.costPerAction)}) × ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` − ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h = <b>${coins(perDay(e.profitPerHour))}/day</b>`);
-    lines.push(`<b>XP:</b> ${dec(e.xpPerAction, 1)} per action × ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h = <b>${coins(perDay(e.xpPerHour))}/day</b>`);
+    const hours = e.capped ? ` × ${dec(e.hoursPerDay, 1)} h` : " × 24";
+    lines.push(`<b>Gold:</b> (${coins(e.revenuePerAction)} − ${coins(e.costPerAction)}) × ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` − ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h${hours} = <b>${coins(e.goldPerDay)}/day</b>${e.margin !== null ? ` <span class="mwia-dim">(margin ${dec(e.margin * 100, 1)}%)</span>` : ""}`);
+    if (e.capped) lines.push(`<span class="mwia-dim">The market takes ${coins(e.mainCount * e.actionsPerHour * e.hoursPerDay)} a day (your limit), so this runs ${dec(e.hoursPerDay, 1)} h a day; fill the rest with something else.</span>`);
+    lines.push(`<b>XP:</b> ${dec(e.xpPerAction, 1)} per action × ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`);
     for (const warning of e.warnings) lines.push(`<span class="mwia-warn">⚠ ${esc(warningText(warning))}</span>`);
     if (!upcoming) lines.push(teaHtml(e));
     return lines.map((line) => `<p>${line}</p>`).join("");
@@ -140,11 +145,11 @@ function teaHtml(entry) {
         if (!best.result.teas.length) return `<b>Teas:</b> ${now} No tea earns back its cost here.`;
         return `<b>Teas:</b> ${now} That is already the best setup. ${worthText(best.worth)}`;
     }
-    return `<b>Teas:</b> ${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> → ${coins(perDay(best.result.profitPerHour))}/day
-        (<span class="mwia-ok">+${coins(perDay(best.result.profitPerHour - current.profitPerHour))}</span>). ${worthText(best.worth)}`;
+    return `<b>Teas:</b> ${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> → ${coins(best.result.goldPerDay)}/day
+        (<span class="mwia-ok">+${coins(best.result.goldPerDay - current.goldPerDay)}</span>). ${worthText(best.worth)}`;
 }
 
 function worthText(worth) {
     if (!worth.length) return "";
-    return worth.map((w) => `${esc(itemName(w.itemHrid))} earns ${coins(perDay(w.gainPerHour))}/day more than it costs.`).join(" ");
+    return worth.map((w) => `${esc(itemName(w.itemHrid))} earns ${coins(w.gainPerDay)}/day more than it costs.`).join(" ");
 }

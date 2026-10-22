@@ -32,8 +32,10 @@ buy, by simulating *your own* character.
   and teas are bought at the cheapest ask; products sell at the ask (a listing) or the best bid (*Sell at*), minus
   the 4% market tax. Filter by skill; tap a row for the whole calculation. For each action it also tries every tea
   setup that fits your slots, shows the one that earns the most and what each of its teas earns above its cost; *Teas:
-  Best teas* ranks with those setups. ⚠ marks thin markets (no buy orders, or an ask far above the bid) and
-  materials nobody sells. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
+  Best teas* ranks with those setups. ⚠ marks thin markets (no buy orders, or an ask far above the bid),
+  materials nobody sells and thin margins (a price drop under 5% wipes out the profit). *Max sold/day* sets how many
+  of one crafted item the market takes a day; past it the action only runs part of the day (gathered raw materials
+  are never limited). Crates and caches from rare drops are worth what they hold, a cowbell a tenth of a bag. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the
@@ -96,8 +98,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - Results are estimates – a few percent either way is normal.
 - The plan train relies on the class names of the MWITools planning tab and the game's action pages; it has only been
   tested against mock-ups of both.
-- Skilling: rare drops that aren't on the market (meteorite caches, artisan's crates) count as nothing, and
-  chains (gather, then process yourself) are not combined yet; each action is priced on its own.
+- Skilling: the market data has no volumes, so how much of an item really sells is up to your *Max sold/day*.
+  Chains (gather, then process yourself) are not combined yet; each action is priced on its own.
 - The phone layout has been tested at iPhone size in desktop Firefox, not on a real phone. Keep the screen on while
   an analysis runs: a phone pauses the page in the background.
 

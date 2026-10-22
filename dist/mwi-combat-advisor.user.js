@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.12.0
+// @version      0.13.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1482,6 +1482,8 @@
     "personalActionTypeBuffsMap"
   ];
   var MARKET_TAX = 0.04;
+  var COWBELL_BAG_TAX = 0.18;
+  var RISKY_MARGIN = 0.05;
   var DRINKS_PER_HOUR = 12;
   var MIN_CYCLE_SECONDS = 3;
   var DEFAULT_DRINK_SLOTS = 3;
@@ -1585,9 +1587,10 @@
   }
   function marketPricer(entryOf, data, sellAt = "ask") {
     const cache = /* @__PURE__ */ new Map();
+    const contents = (hrid) => (data.openableLootDropMap?.[hrid] || []).reduce((sum, drop) => sum + meanCount(drop) * (drop.itemHrid === hrid ? 0 : this_.sell(drop.itemHrid).price), 0);
     const vendor = (hrid) => data.itemDetailMap[hrid]?.sellPrice || 0;
     const tradable = (hrid) => !!data.itemDetailMap[hrid]?.isTradable;
-    return {
+    const this_ = {
       buy(hrid) {
         if (hrid === "/items/coin") return 1;
         const entry = tradable(hrid) ? entryOf(hrid) : null;
@@ -1598,16 +1601,22 @@
         const entry = tradable(hrid) && entryOf(hrid) || {};
         const ask = entry.a > 0 ? entry.a : null;
         const bid = entry.b > 0 ? entry.b : null;
+        const tax = hrid === "/items/bag_of_10_cowbells" ? COWBELL_BAG_TAX : MARKET_TAX;
+        cache.set(hrid, { price: 0 });
         let result;
         if (hrid === "/items/coin") result = { price: 1, ask: 1, bid: 1, source: "coin" };
-        else if (sellAt === "ask" && ask) result = { price: ask * (1 - MARKET_TAX), ask, bid, source: "ask", note: bid ? ask > WIDE_SPREAD * bid ? "spread" : null : "nobids" };
-        else if (bid) result = { price: bid * (1 - MARKET_TAX), ask, bid, source: "bid", note: sellAt === "ask" ? "noasks" : null };
-        else if (ask) result = { price: ask * (1 - MARKET_TAX), ask, bid, source: "ask", note: "nobids" };
+        else if (hrid === "/items/cowbell") result = { ...this_.sell("/items/bag_of_10_cowbells"), source: "bag" };
+        else if (!ask && !bid && data.openableLootDropMap?.[hrid]) result = { price: contents(hrid), ask, bid, source: "contents" };
+        else if (sellAt === "ask" && ask) result = { price: ask * (1 - tax), ask, bid, source: "ask", note: bid ? ask > WIDE_SPREAD * bid ? "spread" : null : "nobids" };
+        else if (bid) result = { price: bid * (1 - tax), ask, bid, source: "bid", note: sellAt === "ask" ? "noasks" : null };
+        else if (ask) result = { price: ask * (1 - tax), ask, bid, source: "ask", note: "nobids" };
         else result = { price: vendor(hrid), ask, bid, source: "vendor", note: vendor(hrid) ? "vendor" : "unsellable" };
+        if (result.source === "bag") result.price /= 10;
         cache.set(hrid, result);
         return result;
       }
     };
+    return this_;
   }
   var meanCount = (drop) => (Number(drop.dropRate ?? 1) || 0) * ((Number(drop.minCount ?? 1) + Number(drop.maxCount ?? 1)) / 2);
   function evaluateAction(action, who, data, market, teas = who.drinks[action.type] || [], level = who.levels[action.levelRequirement.skillHrid] ?? 1) {
@@ -1659,11 +1668,13 @@
     const costPerAction = inputs.reduce((sum, i) => sum + i.value, 0);
     const teaPerHour = teaCosts.reduce((sum, t2) => sum + t2.perHour, 0);
     const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
+    const margin = revenuePerAction > 0 ? profitPerHour / (actionsPerHour * revenuePerAction) : null;
     const xpPerAction = (action.experienceGain?.value || 0) * (1 + fraction(BUFF.wisdom));
     const main = outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
     const warnings = [];
     if (missing.length) warnings.push({ kind: "noinput", items: missing });
     if (main && main.sell.note) warnings.push({ kind: main.sell.note, itemHrid: main.itemHrid, ask: main.sell.ask, bid: main.sell.bid });
+    if (costPerAction > 0 && profitPerHour > 0 && margin < RISKY_MARGIN) warnings.push({ kind: "margin", margin });
     return {
       action,
       hrid: action.hrid,
@@ -1689,6 +1700,8 @@
       costPerAction,
       teaPerHour,
       profitPerHour,
+      margin,
+      mainCount: main?.count || 0,
       xpPerAction,
       xpPerHour: actionsPerHour * xpPerAction,
       valid: missing.length === 0 && !!main && main.sell.note !== "unsellable",
@@ -1711,22 +1724,25 @@
     grow(0, []);
     return setups;
   }
-  function bestTeas(action, who, data, market, level) {
+  function limitSales(result, sellCap) {
+    const made = result.action.function === "/action_functions/production" ? result.mainCount * result.actionsPerHour : 0;
+    const hoursPerDay = sellCap > 0 && made > 0 && made * HOURS_PER_DAY > sellCap ? sellCap / made : HOURS_PER_DAY;
+    return { ...result, hoursPerDay, capped: hoursPerDay < HOURS_PER_DAY, goldPerDay: result.profitPerHour * hoursPerDay, xpPerDay: result.xpPerHour * hoursPerDay };
+  }
+  function bestTeas(action, who, data, market, evaluate) {
     const type = action.type;
     const candidates = usableTeas(data, type).filter((hrid) => market.buy(hrid) !== null || (who.drinks[type] || []).includes(hrid));
     let best = null;
     for (const teas of teaSetups(data, type, who.slots[type], candidates)) {
-      const result = evaluateAction(action, who, data, market, teas, level);
-      if (!best || result.profitPerHour > best.profitPerHour + 1e-9) best = result;
+      const result = evaluate(teas);
+      if (!best || result.goldPerDay > best.goldPerDay + 1e-9) best = result;
     }
-    const worth = best.teas.map((hrid) => {
-      const without = evaluateAction(action, who, data, market, best.teas.filter((t2) => t2 !== hrid), level);
-      return { itemHrid: hrid, gainPerHour: best.profitPerHour - without.profitPerHour };
-    });
+    const worth = best.teas.map((hrid) => ({ itemHrid: hrid, gainPerDay: best.goldPerDay - evaluate(best.teas.filter((t2) => t2 !== hrid)).goldPerDay }));
     return { result: best, worth };
   }
   var sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
-  function rankSkilling(who, data, market, { skill = "all", teaMode = "current" } = {}) {
+  function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0 } = {}) {
+    const evaluator = (action, level) => (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
     const wanted = (action) => skill === "all" || action.type === skillType(skill);
     const available = [];
     const near = [];
@@ -1735,31 +1751,32 @@
       const level = who.levels[action.levelRequirement.skillHrid] ?? 1;
       const required = action.levelRequirement.level;
       if (required <= level) {
-        const current = evaluateAction(action, who, data, market);
-        const best = bestTeas(action, who, data, market);
+        const evaluate = evaluator(action, level);
+        const current = evaluate(who.drinks[action.type] || []);
+        const best = bestTeas(action, who, data, market, evaluate);
         const shown = teaMode === "best" ? best.result : current;
-        available.push({ ...shown, teaMode, current, best, betterTeas: !sameTeas(best.result.teas, current.teas) && best.result.profitPerHour > current.profitPerHour + 1 });
+        available.push({ ...shown, teaMode, current, best, betterTeas: !sameTeas(best.result.teas, current.teas) && best.result.goldPerDay > current.goldPerDay + 1 });
       } else if (required <= level + NEAR_LEVELS) {
         near.push(action);
       }
     }
-    available.sort((a, b) => b.valid - a.valid || b.profitPerHour - a.profitPerHour);
+    available.sort((a, b) => b.valid - a.valid || b.goldPerDay - a.goldPerDay);
     const fastestXp = {};
     for (const entry of available) fastestXp[entry.skill] = Math.max(fastestXp[entry.skill] || 0, entry.current.xpPerHour);
     const table = data.levelExperienceTable;
     const upcoming = near.map((action) => {
       const skillHrid = action.levelRequirement.skillHrid;
       const required = action.levelRequirement.level;
-      const atUnlock = teaMode === "best" ? bestTeas(action, who, data, market, required).result : evaluateAction(action, who, data, market, void 0, required);
+      const evaluate = evaluator(action, required);
+      const atUnlock = teaMode === "best" ? bestTeas(action, who, data, market, evaluate).result : evaluate(who.drinks[action.type] || []);
       const have = who.experience[skillHrid];
       const needXp = Array.isArray(table) && have !== null && table[required] !== void 0 ? Math.max(0, table[required] - have) : null;
       const hours = needXp !== null && fastestXp[skillHrid] > 0 ? needXp / fastestXp[skillHrid] : null;
       return { ...atUnlock, needLevels: required - (who.levels[skillHrid] ?? 1), needXp, hoursToUnlock: hours };
     });
-    upcoming.sort((a, b) => a.needLevels - b.needLevels || b.profitPerHour - a.profitPerHour);
+    upcoming.sort((a, b) => a.needLevels - b.needLevels || b.goldPerDay - a.goldPerDay);
     return { available, upcoming };
   }
-  var perDay = (perHour) => perHour * HOURS_PER_DAY;
 
   // src/skilling-ui.js
   var SHORT_LIST = 25;
@@ -1782,15 +1799,16 @@
       <label>Skill <select data-setting="skillingSkill">${option("all", "All skills", s.skillingSkill)}${SKILLING_SKILLS.map((k) => option(k, skillLabel(k), s.skillingSkill)).join("")}</select></label>
       <label title="Products are listed at the cheapest ask (you wait for a buyer) or sold instantly to the best bid. The 4% market tax is taken off either way.">Sell at <select data-setting="skillingSellAt">${option("ask", "Ask (list it)", s.skillingSellAt)}${option("bid", "Bid (sell now)", s.skillingSellAt)}</select></label>
       <label title="Rank with the teas you have in the skill's drink slots now, or with the setup that earns the most.">Teas <select data-setting="skillingTeas">${option("current", "My current teas", s.skillingTeas)}${option("best", "Best teas", s.skillingTeas)}</select></label>
+      <label title="How many of one crafted item the market takes a day, e.g. 500 or 2k. Past it the action only runs part of the day. Empty: no limit. Gathered raw materials are never limited.">Max sold/day <input data-setting="skillingSellCap" type="text" inputmode="decimal" size="6" placeholder="no limit" value="${Number(s.skillingSellCap) > 0 ? coinsInput(Number(s.skillingSellCap)) : ""}"></label>
     </div>`;
   }
   function ranking(settings) {
     const data = getClientData();
-    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas].join("|");
+    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap].join("|");
     if (view.key !== key) {
       const who = skillingCharacter(state.character, state.items, data);
       const market = marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt);
-      view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas });
+      view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0 });
       view.key = key;
     }
     return view.result;
@@ -1832,6 +1850,8 @@
         return `Thin market for ${item}: the cheapest ask (${coins(warning.ask)}) is ${dec(warning.ask / warning.bid, 1)}\xD7 the best bid (${coins(warning.bid)}).`;
       case "vendor":
         return `${item} isn't on the market; valued at the vendor price.`;
+      case "margin":
+        return `Thin margin: a ${dec(warning.margin * 100, 1)}% drop in the selling price wipes out the profit.`;
       case "unsellable":
         return `${item} can't be sold.`;
       default:
@@ -1839,14 +1859,14 @@
     }
   }
   function rowHtml(entry, best, upcoming = false) {
-    const day = perDay(entry.profitPerHour);
-    const sub = upcoming ? `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level} \xB7 in ${entry.needLevels} level${entry.needLevels === 1 ? "" : "s"}${entry.hoursToUnlock !== null ? ` \xB7 ~${hoursText(entry.hoursToUnlock)}` : ""}` : `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level}`;
+    const day = entry.goldPerDay;
+    const sub = upcoming ? `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level} \xB7 in ${entry.needLevels} level${entry.needLevels === 1 ? "" : "s"}${entry.hoursToUnlock !== null ? ` \xB7 ~${hoursText(entry.hoursToUnlock)}` : ""}` : `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level}${entry.capped ? ` \xB7 ${dec(entry.hoursPerDay, 1)} h/day (sales limit)` : ""}`;
     const warn = entry.warnings.length ? ` <span class="mwia-warn" title="${esc(entry.warnings.map(warningText).join(" "))}">\u26A0</span>` : "";
-    const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas ? `<span class="mwia-skill-hint">\u{1F375} +${coins(perDay(entry.best.result.profitPerHour - entry.current.profitPerHour))}/day with other teas</span>` : "";
+    const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas ? `<span class="mwia-skill-hint">\u{1F375} +${coins(entry.best.result.goldPerDay - entry.current.goldPerDay)}/day with other teas</span>` : "";
     const gold = entry.valid ? `<span class="${day < 0 ? "mwia-bad" : best ? "mwia-ok" : ""}">${coins(day)}/day</span>` : `<span class="mwia-dim">\u2013</span>`;
     return `<details class="mwia-skill-row${best ? " mwia-best" : ""}${entry.valid && day > 0 ? "" : " mwia-faded"}">
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}</span>
-        <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(perDay(entry.xpPerHour))} XP/day</span></span></summary>
+        <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
   }
   function detailHtml(e, upcoming) {
@@ -1867,8 +1887,10 @@
     if (e.teas.length) {
       lines.push(`<b>Teas:</b> ${e.teaCosts.map((t2) => `${esc(itemName(t2.itemHrid))} @ ${coins(t2.price)}`).join(" \xB7 ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h`);
     }
-    lines.push(`<b>Gold:</b> (${coins(e.revenuePerAction)} \u2212 ${coins(e.costPerAction)}) \xD7 ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` \u2212 ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h = <b>${coins(perDay(e.profitPerHour))}/day</b>`);
-    lines.push(`<b>XP:</b> ${dec(e.xpPerAction, 1)} per action \xD7 ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h = <b>${coins(perDay(e.xpPerHour))}/day</b>`);
+    const hours = e.capped ? ` \xD7 ${dec(e.hoursPerDay, 1)} h` : " \xD7 24";
+    lines.push(`<b>Gold:</b> (${coins(e.revenuePerAction)} \u2212 ${coins(e.costPerAction)}) \xD7 ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` \u2212 ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h${hours} = <b>${coins(e.goldPerDay)}/day</b>${e.margin !== null ? ` <span class="mwia-dim">(margin ${dec(e.margin * 100, 1)}%)</span>` : ""}`);
+    if (e.capped) lines.push(`<span class="mwia-dim">The market takes ${coins(e.mainCount * e.actionsPerHour * e.hoursPerDay)} a day (your limit), so this runs ${dec(e.hoursPerDay, 1)} h a day; fill the rest with something else.</span>`);
+    lines.push(`<b>XP:</b> ${dec(e.xpPerAction, 1)} per action \xD7 ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`);
     for (const warning of e.warnings) lines.push(`<span class="mwia-warn">\u26A0 ${esc(warningText(warning))}</span>`);
     if (!upcoming) lines.push(teaHtml(e));
     return lines.map((line) => `<p>${line}</p>`).join("");
@@ -1880,12 +1902,12 @@
       if (!best.result.teas.length) return `<b>Teas:</b> ${now} No tea earns back its cost here.`;
       return `<b>Teas:</b> ${now} That is already the best setup. ${worthText(best.worth)}`;
     }
-    return `<b>Teas:</b> ${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> \u2192 ${coins(perDay(best.result.profitPerHour))}/day
-        (<span class="mwia-ok">+${coins(perDay(best.result.profitPerHour - current.profitPerHour))}</span>). ${worthText(best.worth)}`;
+    return `<b>Teas:</b> ${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> \u2192 ${coins(best.result.goldPerDay)}/day
+        (<span class="mwia-ok">+${coins(best.result.goldPerDay - current.goldPerDay)}</span>). ${worthText(best.worth)}`;
   }
   function worthText(worth) {
     if (!worth.length) return "";
-    return worth.map((w) => `${esc(itemName(w.itemHrid))} earns ${coins(perDay(w.gainPerHour))}/day more than it costs.`).join(" ");
+    return worth.map((w) => `${esc(itemName(w.itemHrid))} earns ${coins(w.gainPerDay)}/day more than it costs.`).join(" ");
   }
 
   // src/touch.js
@@ -1996,7 +2018,7 @@
 
   // src/ui.js
   var SETTINGS_KEY = "mwia-settings";
-  var DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current" };
+  var DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0 };
   var SKILL_NAMES = {
     stamina: "Stamina",
     intelligence: "Intelligence",
@@ -2062,7 +2084,7 @@
   var dec2 = (n2, d = 1) => n2.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var pct2 = (n2) => (n2 >= 0 ? "+" : "") + dec2(n2 * 100, 1) + "%";
   var HOURS_PER_DAY2 = 24;
-  var perDay2 = (perHour) => perHour * HOURS_PER_DAY2;
+  var perDay = (perHour) => perHour * HOURS_PER_DAY2;
   function coins2(n2) {
     if (n2 === null || n2 === void 0) return "\u2013";
     const abs = Math.abs(n2);
@@ -2335,7 +2357,7 @@
     const best = pickBestZone(ui.zoneResults, ui.settings);
     const profile = currentProfile();
     const current = profile?.currentZone && ui.zoneResults.find((z) => z.zone.zoneHrid === profile.currentZone.zoneHrid && z.zone.tier === profile.currentZone.tier);
-    const summary = (r) => `<b>${int(xpValue(r, objective))} ${objectiveLabel()}</b> and <b>${coins2(perDay2(r.profit))}</b> profit/day`;
+    const summary = (r) => `<b>${int(xpValue(r, objective))} ${objectiveLabel()}</b> and <b>${coins2(perDay(r.profit))}</b> profit/day`;
     if (best) {
       html += `<div class="mwia-reco"><b>Recommendation:</b> ${zoneLabel(best.zone)} \u2013 about ${summary(best.result)}, ${deathBadge(best.result.deaths)}.`;
       if (isSpawnCapped(best.result)) {
@@ -2354,7 +2376,7 @@
       const r = z.result;
       const match = bestScore > 0 ? int(100 * score(r, goal) / bestScore) : "\u2013";
       html += `<tr class="${z === best ? "mwia-best" : ""}"><td>${zoneLabel(z.zone)}${cappedBadge(r)}</td><td class="mwia-num">${match}</td><td class="mwia-num">${int(xpValue(r, objective))}</td>
-          <td class="mwia-num">${int(r.xpTotal)}</td><td class="mwia-num">${coins2(perDay2(r.profit))}</td><td class="mwia-num">${dec2(r.killsTotal, 0)}</td><td>${deathBadge(r.deaths)}</td></tr>`;
+          <td class="mwia-num">${int(r.xpTotal)}</td><td class="mwia-num">${coins2(perDay(r.profit))}</td><td class="mwia-num">${dec2(r.killsTotal, 0)}</td><td>${deathBadge(r.deaths)}</td></tr>`;
     }
     html += `</tbody></table><p class="mwia-dim">Simulated ${int(Math.max(1, runSettings().hours / 2))} h per zone. These are estimates \u2013 differences of a few percent are noise.
       \u23F1 = you kill faster than monsters appear there.</p>`;
@@ -2368,7 +2390,7 @@
     return notes.join(" ");
   }
   function cartItems(c2) {
-    const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay2(c2.result?.consumables?.[hrid] || 0)));
+    const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c2.result?.consumables?.[hrid] || 0)));
     if (c2.kind === "abilityLevel") return [{ hrid: c2.bookHrid, quantity: c2.books }];
     if (c2.kind === "ability") return c2.cost ? [{ hrid: c2.bookHrid, quantity: 1 }] : [];
     if (c2.kind === "food" || c2.kind === "drinks") return c2.remove ? [] : [{ hrid: c2.hrid, quantity: forOneDay(c2.hrid) }];
@@ -2409,8 +2431,8 @@
     if (!result) return html;
     const base = result.base;
     const label = objectiveLabel();
-    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${int(xpValue(base, ui.settings.objective))} ${label}</b>, profit <b>${coins2(perDay2(base.profit))}/day</b>
-      (loot ${coins2(perDay2(base.loot))} \u2212 food/drinks ${coins2(perDay2(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
+    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${int(xpValue(base, ui.settings.objective))} ${label}</b>, profit <b>${coins2(perDay(base.profit))}/day</b>
+      (loot ${coins2(perDay(base.loot))} \u2212 food/drinks ${coins2(perDay(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
     if (isSpawnCapped(base)) {
       html += `<p class="mwia-reco">\u23F1 In ${zoneLabel(result.zone)} you kill monsters as fast as they appear, so upgrades that add damage hardly matter here.
           A harder zone or tier is the biggest improvement \u2013 run <b>Where to fight</b> with a higher Max tier.</p>`;
@@ -2447,17 +2469,17 @@
         if (!pick) continue;
         if (pick.remove) {
           html += `<li>Stop using <b>${esc(itemName(pick.hrid))}</b> (empty that ${kind.toLowerCase()} slot): ${gainText(pick)},
-                  saves about ${coins2(perDay2(-pick.costPerHourDelta))}/day`;
+                  saves about ${coins2(perDay(-pick.costPerHourDelta))}/day`;
         } else {
           const where = pick.replaces ? `instead of ${esc(itemName(pick.replaces))}` : "in an empty slot";
-          const money = pick.costPerHourDelta < 0 ? `saves about ${coins2(perDay2(-pick.costPerHourDelta))}/day` : `costs about ${coins2(perDay2(pick.costPerHourDelta))}/day extra`;
+          const money = pick.costPerHourDelta < 0 ? `saves about ${coins2(perDay(-pick.costPerHourDelta))}/day` : `costs about ${coins2(perDay(pick.costPerHourDelta))}/day extra`;
           html += `<li>${kind} <b>${esc(itemName(pick.hrid))}</b> ${where}: ${gainText(pick)}, ${money}
                   <span class="mwia-dim">(optional \u2013 a running cost)</span> ${cartButton(cartItems(pick), "\u{1F6D2} 1 day")}`;
         }
         if (dropsHpFood(pick)) {
           html += `<br><span class="mwia-warn">You don't need HP food in this zone, but keep some at hand \u2013 put it back before you move to a harder zone or tier.</span>`;
         }
-        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText(max)}) at ${coins2(perDay2(max.costPerHourDelta))}/day.</span>`;
+        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText(max)}) at ${coins2(perDay(max.costPerHourDelta))}/day.</span>`;
         html += `</li>`;
       }
       html += `</ol><p>Total one-time cost: <b>${coins2(plan.spent)}</b> of your ${coins2(Number(ui.settings.budget) || 0)} budget.
@@ -2467,7 +2489,7 @@
         const before = xpValue(v.base, ui.settings.objective);
         const after = xpValue(v.planned, ui.settings.objective);
         html += `<div class="mwia-reco">Everything combined (simulated): <b>${int(before)} \u2192 ${int(after)} ${label}</b> (${pct2(after / Math.max(1, before) - 1)}),
-              profit <b>${coins2(perDay2(v.base.profit))} \u2192 ${coins2(perDay2(v.planned.profit))}</b> per day (food/drinks ${coins2(perDay2(v.base.cost))} \u2192 ${coins2(perDay2(v.planned.cost))}),
+              profit <b>${coins2(perDay(v.base.profit))} \u2192 ${coins2(perDay(v.planned.profit))}</b> per day (food/drinks ${coins2(perDay(v.base.cost))} \u2192 ${coins2(perDay(v.planned.cost))}),
               deaths ${dec2(v.base.deaths, 2)} \u2192 ${dec2(v.planned.deaths, 2)} per hour.
               <br><span class="mwia-dim">Run the zone analysis again after buying \u2013 with better gear a harder zone may become the best.</span></div>`;
       }
@@ -2509,7 +2531,7 @@
   }
   function gainText(c2) {
     const gold = ui.upgradeResult.goal.gold;
-    const profit = `${signed(coins2, perDay2(c2.profitDelta))} profit/day`;
+    const profit = `${signed(coins2, perDay(c2.profitDelta))} profit/day`;
     if (gold === 0) return `${pct2(c2.deltaPct)} ${objectiveLabel()}`;
     if (gold === 1) return profit;
     return `${pct2(c2.deltaPct)} gain (${signed(int, c2.xpDelta)} ${objectiveLabel()}, ${profit})`;
@@ -2531,7 +2553,7 @@
     for (const c2 of shown) {
       const efficiency = c2.cost > 0 ? pct2(c2.delta / c2.cost * 1e6) : "\u221E";
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${slotText(c2)}</td><td>${nameHtml(c2)}</td><td>${replacesHtml(c2)}</td>
-          <td class="mwia-num">${c2.cost ? coins2(c2.cost) : "0"}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td><td class="mwia-num">${signed(coins2, perDay2(c2.profitDelta))}</td>
+          <td class="mwia-num">${c2.cost ? coins2(c2.cost) : "0"}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td><td class="mwia-num">${signed(coins2, perDay(c2.profitDelta))}</td>
           <td class="mwia-num">${pct2(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td>${upgradeNotes(c2, base)}</td><td>${cartButton(cartItems(c2))}</td></tr>`;
     }
@@ -2548,8 +2570,8 @@
       const per1000 = c2.xpDelta > 0 ? coins2(c2.costPerHourDelta / c2.xpDelta * 1e3) : c2.remove && c2.xpDelta < 0 ? `saves ${coins2(c2.costPerHourDelta / c2.xpDelta * 1e3)}` : "\u2013";
       const name = (c2.remove ? `<i>Stop using</i> ${esc(itemName(c2.hrid))}` : esc(itemName(c2.hrid))) + (dropsHpFood(c2) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c2.replaces ? esc(itemName(c2.replaces)) : "\u2013"}</td>
-          <td class="mwia-num">${c2.remove ? "\u2013" : coins2(askPrice(c2.hrid))}</td><td class="mwia-num">${coins2(perDay2(c2.costPerHourDelta))}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td>
-          <td class="mwia-num">${signed(coins2, perDay2(c2.profitDelta))}</td><td class="mwia-num">${pct2(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
+          <td class="mwia-num">${c2.remove ? "\u2013" : coins2(askPrice(c2.hrid))}</td><td class="mwia-num">${coins2(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td>
+          <td class="mwia-num">${signed(coins2, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct2(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td class="mwia-num ${c2.safe ? "" : "mwia-bad"}">${dec2(c2.result.deaths, 2)}${c2.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
           <td>${cartButton(cartItems(c2), "\u{1F6D2} 1 day")}</td></tr>`;
     }
@@ -2643,7 +2665,13 @@
   function onChange(event) {
     const key = event.target.dataset?.setting;
     if (!key) return;
-    if (key === "budget") {
+    if (key === "skillingSellCap") {
+      const text = event.target.value.trim();
+      const value = text === "" ? 0 : parseCoins(text);
+      event.target.classList.toggle("mwia-invalid", value === null);
+      if (value === null) return;
+      ui.settings.skillingSellCap = value;
+    } else if (key === "budget") {
       const value = parseCoins(event.target.value);
       event.target.classList.toggle("mwia-invalid", value === null);
       if (value === null) return;

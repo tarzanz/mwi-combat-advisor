@@ -8,7 +8,7 @@ import path from "node:path";
 import puppeteer from "puppeteer-core";
 import { WebSocketServer } from "ws";
 import { fixtureCharacter } from "./fixture-character.js";
-import { NEAR_LEVELS, marketPricer, perDay, rankSkilling, skillingCharacter } from "../src/skilling.js";
+import { NEAR_LEVELS, RISKY_MARGIN, marketPricer, rankSkilling, skillingCharacter } from "../src/skilling.js";
 import { shortCoins } from "../src/format.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -38,6 +38,9 @@ for (const item of Object.values(clientData.itemDetailMap)) {
     marketData[item.hrid] = { 0: { a: 3 * vendor, b: item.hrid === "/items/cotton_fabric" ? -1 : vendor } };
 }
 marketData["/items/gathering_tea"] = { 0: { a: -1, b: 10 } };
+// Cotton Boots sell for 2% more than their materials cost: a thin margin.
+const bootsCost = clientData.actionDetailMap["/actions/tailoring/cotton_boots"].inputItems.reduce((sum, i) => sum + i.count * marketData[i.itemHrid][0].a, 0);
+marketData["/items/cotton_boots"] = { 0: { a: Math.round((bootsCost * 1.02) / 0.96), b: Math.round(bootsCost) } };
 
 const items = (c) => new Map(c.characterItems.map((i) => [i.hash, i]));
 const market = (sellAt) => marketPricer((hrid) => marketData[hrid]?.[0], clientData, sellAt);
@@ -117,8 +120,8 @@ try {
     const expected = expectRank(character, { skill: "all", teaMode: "current" });
     const shown = await rows(page);
     check("ranked list shown", shown.length > 0, `${shown.length} rows`);
-    check("top rows match the calculation", expected.available.slice(0, 5).every((e, i) => shown[i]?.name === e.action.name && shown[i].gold === `${coinText(perDay(e.profitPerHour))}/day`),
-        JSON.stringify(shown.slice(0, 3)) + " vs " + expected.available.slice(0, 3).map((e) => `${e.action.name} ${coinText(perDay(e.profitPerHour))}`).join(", "));
+    check("top rows match the calculation", expected.available.slice(0, 5).every((e, i) => shown[i]?.name === e.action.name && shown[i].gold === `${coinText(e.goldPerDay)}/day`),
+        JSON.stringify(shown.slice(0, 3)) + " vs " + expected.available.slice(0, 3).map((e) => `${e.action.name} ${coinText(e.goldPerDay)}`).join(", "));
     check("XP per day shown", shown.every((r) => /XP\/day$/.test(r.xp)));
     const levels = Object.fromEntries(character.characterSkills.map((s) => [s.skillHrid.split("/").pop(), s.level]));
     const tooHigh = shown.filter((r) => { const [skill, level] = r.sub.toLowerCase().split(" "); return !(Number(level) <= (levels[skill] ?? 0)); });
@@ -132,8 +135,8 @@ try {
     const expForaging = expectRank(character, { skill: "foraging", teaMode: "current" });
     check("skill filter shows only that skill", foraging.length > 0 && foraging.every((r) => /^Foraging/.test(r.sub)), foraging.map((r) => r.sub).join(", "));
     const top = expForaging.available[0];
-    check("foraging numbers match (speed, efficiency, wisdom tea)", foraging[0].name === top.action.name && foraging[0].gold === `${coinText(perDay(top.profitPerHour))}/day` && foraging[0].xp === `${coinText(perDay(top.xpPerHour))} XP/day`,
-        `${JSON.stringify(foraging[0])} vs ${top.action.name} ${coinText(perDay(top.profitPerHour))} ${coinText(perDay(top.xpPerHour))}`);
+    check("foraging numbers match (speed, efficiency, wisdom tea)", foraging[0].name === top.action.name && foraging[0].gold === `${coinText(top.goldPerDay)}/day` && foraging[0].xp === `${coinText(top.xpPerDay)} XP/day`,
+        `${JSON.stringify(foraging[0])} vs ${top.action.name} ${coinText(top.goldPerDay)} ${coinText(top.xpPerDay)}`);
     check("speed and efficiency buffs counted", Math.abs(top.speed - 0.15) < 1e-9 && Math.abs(top.efficiency - top.levelEfficiency - 0.03) < 1e-9 && Math.abs(top.xpPerAction - top.action.experienceGain.value * 1.12) < 1e-9,
         `speed ${top.speed} eff ${top.efficiency} xp ${top.xpPerAction}`);
     check("tea suggestion hint", !top.betterTeas || /with other teas/.test(foraging[0].hint), foraging[0].hint);
@@ -156,7 +159,7 @@ try {
     await select(page, "skillingTeas", "best");
     const best = await rows(page);
     const expBest = expectRank(character, { skill: "foraging", teaMode: "best" });
-    check("best-teas ranking matches", best[0].gold === `${coinText(perDay(expBest.available[0].profitPerHour))}/day`, `${best[0].gold} vs ${coinText(perDay(expBest.available[0].profitPerHour))}`);
+    check("best-teas ranking matches", best[0].gold === `${coinText(expBest.available[0].goldPerDay)}/day`, `${best[0].gold} vs ${coinText(expBest.available[0].goldPerDay)}`);
     check("best teas earn at least as much", expBest.available[0].profitPerHour >= top.profitPerHour - 1e-6);
 
     // Thin market: nobody bids on Cotton Fabric.
@@ -170,8 +173,33 @@ try {
     await select(page, "skillingSellAt", "bid");
     const bid = await rows(page);
     const expBid = expectRank(character, { skill: "tailoring", teaMode: "current", sellAt: "bid" });
-    check("sell at bid matches", bid[0].gold === (expBid.available[0].valid ? `${coinText(perDay(expBid.available[0].profitPerHour))}/day` : "–"), `${bid[0].name} ${bid[0].gold} vs ${expBid.available[0].action.name}`);
+    check("sell at bid matches", bid[0].gold === (expBid.available[0].valid ? `${coinText(expBid.available[0].goldPerDay)}/day` : "–"), `${bid[0].name} ${bid[0].gold} vs ${expBid.available[0].action.name}`);
     await select(page, "skillingSellAt", "ask");
+
+    // Thin margin.
+    await select(page, "skillingSellAt", "ask");
+    const boots = (await rows(page)).find((r) => r.name === "Cotton Boots");
+    const expBoots = expectRank(character, { skill: "tailoring" }).available.find((e) => e.action.name === "Cotton Boots");
+    check("thin-margin warning", expBoots.margin > 0 && expBoots.margin < RISKY_MARGIN && /Thin margin: a [\d.]+% drop/.test(boots?.warn || ""), `${expBoots.margin} ${JSON.stringify(boots)}`);
+
+    // Sales limit: crafted items run only part of the day, gathering is never limited.
+    await page.$eval('[data-setting="skillingSellCap"]', (input) => { input.value = "100"; input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await new Promise((r) => setTimeout(r, 100));
+    const capped = await rows(page);
+    const expCapped = expectRank(character, { skill: "tailoring", sellCap: 100 });
+    check("sales limit caps crafted items", expCapped.available[0].capped && capped[0].name === expCapped.available[0].action.name && capped[0].gold === `${coinText(expCapped.available[0].goldPerDay)}/day` && /h\/day \(sales limit\)/.test(capped[0].sub),
+        `${JSON.stringify(capped[0])} vs ${expCapped.available[0].action.name} ${coinText(expCapped.available[0].goldPerDay)}`);
+    check("sales limit is saved", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-settings")).skillingSellCap === 100));
+    check("gathering is never limited", expectRank(character, { skill: "foraging", sellCap: 100 }).available.every((e) => !e.capped));
+    await page.screenshot({ path: path.join(shotDir, "skilling-4-capped.png") });
+    await page.$eval('[data-setting="skillingSellCap"]', (input) => { input.value = ""; input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Crates and caches are worth what they hold.
+    const crate = market("ask").sell("/items/small_artisans_crate");
+    check("crates valued by their contents", crate.source === "contents" && crate.price > 1000, JSON.stringify(crate));
+    const cowbell = market("ask").sell("/items/cowbell");
+    check("a cowbell is a tenth of a bag (18% tax)", Math.abs(cowbell.price - (marketData["/items/bag_of_10_cowbells"][0].a * 0.82) / 10) < 1e-6, JSON.stringify(cowbell));
 
     // A buff update from the game shows on the next render.
     await select(page, "skillingSkill", "foraging");
@@ -182,7 +210,7 @@ try {
     await select(page, "skillingSkill", "foraging");
     const updated = await rows(page);
     const expUpdated = expectRank(faster, { skill: "foraging", teaMode: "current" }).available[0];
-    check("buff update from the game is used", updated[0].gold === `${coinText(perDay(expUpdated.profitPerHour))}/day` && updated[0].gold !== foraging[0].gold, `${updated[0].gold} vs ${coinText(perDay(expUpdated.profitPerHour))}`);
+    check("buff update from the game is used", updated[0].gold === `${coinText(expUpdated.goldPerDay)}/day` && updated[0].gold !== foraging[0].gold, `${updated[0].gold} vs ${coinText(expUpdated.goldPerDay)}`);
 
     const fit = await page.evaluate(() => ({ scroll: document.querySelector(".mwia-body").scrollWidth, client: document.querySelector(".mwia-body").clientWidth }));
     check("list fits the width", fit.scroll <= fit.client + 1, JSON.stringify(fit));
