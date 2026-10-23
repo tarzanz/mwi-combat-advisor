@@ -41,7 +41,7 @@ import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactI
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingDays: 1, skillingMinJob: 0 };
+const DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingDays: 1, skillingMinJob: 0, skillingGold: 100 };
 
 const SKILL_NAMES = {
     stamina: "Stamina",
@@ -499,7 +499,10 @@ function cartButton(items, label = "🛒 Add") {
 
 async function sendToCart(id) {
     const items = ui.cartItems.get(id);
-    if (!items) return;
+    if (items) await sendItemsToCart(items);
+}
+
+async function sendItemsToCart(items) {
     try {
         const outcome = await addToCart(ui.win, items);
         const names = (list) => list.map(cartLabel).join(", ");
@@ -817,6 +820,9 @@ function onClick(event) {
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
             openWithCount(target.dataset.hrid, Number(target.dataset.count));
             break;
+        case "skilling-teas":
+            sendItemsToCart(JSON.parse(target.dataset.teas || "[]"));
+            break;
         case "skilling-market":
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
             if (openMarketplace(ui.win, target.dataset.item)) {
@@ -917,7 +923,7 @@ export function mountUI(win, workerSource) {
     enableTapTips(root);
     // Live label while dragging the XP–Gold slider; the re-rating happens on "change".
     root.addEventListener("input", (event) => {
-        if (event.target.dataset?.setting !== "goldWeight") return;
+        if (!["goldWeight", "skillingGold"].includes(event.target.dataset?.setting)) return;
         const label = event.target.closest(".mwia-focus")?.querySelector(".mwia-focus-text");
         if (label) label.textContent = focusText(Number(event.target.value));
     });

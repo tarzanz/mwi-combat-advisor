@@ -85,7 +85,7 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
     window.marketOpened = hrid + "+" + level;
     setTimeout(() => document.body.insertAdjacentHTML("beforeend", '<div class="MarketplacePanel_marketplacePanel__x" style="position:fixed;inset:0;background:#123">Marketplace</div>'), 200);
     return true;
-  } } };
+  }, ready: true, getCartItem: () => null, addToCart: (list) => { (window.cart ||= []).push(...list); return { ok: true }; } } };
   // The game: navigation, skill page with category tabs, action cards, action panel.
   const production = Object.values(data.actionDetailMap).filter((a) => a.function === "/action_functions/production" || a.function === "/action_functions/gathering");
   document.body.insertAdjacentHTML("afterbegin", '<nav id="nav"></nav><div id="skillpage"></div>');
@@ -339,6 +339,38 @@ try {
     await page.screenshot({ path: path.join(shotDir, "skilling-6-opened.png") });
     await page.evaluate(() => document.querySelector(".modal")?.remove());
     await page.click(".mwia-launcher");
+
+    // XP focus: the list ranks by XP, and the best teas follow.
+    await page.$eval('[data-setting="skillingGold"]', (input) => { input.value = "0"; input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await new Promise((r) => setTimeout(r, 100));
+    const xpRows = await rows(page);
+    const expXp = expectRank(character, { skill: "tailoring", goldWeight: 0 }).available;
+    const byXp = [...expXp].filter((e) => e.valid).sort((a, b) => b.xpPerDay - a.xpPerDay)[0];
+    check("XP focus ranks by XP", xpRows[0]?.name === expXp[0].action.name && expXp[0].hrid === byXp.hrid && /XP only/.test(await page.$eval(".mwia-focus-text", (n) => n.textContent)), `${xpRows[0]?.name} vs ${byXp.action.name}`);
+    const foragingXp = expectRank(character, { skill: "foraging", goldWeight: 0 }).available[0];
+    check("XP focus picks XP teas", foragingXp.best.result.teas.includes("/items/wisdom_tea"), foragingXp.best.result.teas.join(","));
+    await page.$eval('[data-setting="skillingGold"]', (input) => { input.value = "100"; input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await new Promise((r) => setTimeout(r, 100));
+
+    // A huge market never suggests more than the days planned for.
+    const hugeItem = topTailoring.action.outputItems[0].itemHrid;
+    const savedBook = books.get(hugeItem);
+    books.set(hugeItem, { at: Date.now(), asks: [{ price: marketData[hugeItem][0].a, quantity: 1e7 }], bids: [] });
+    const huge = expectRank({ ...character, characterItems: [...character.characterItems, { hash: "rich", itemHrid: "/items/coin", itemLocationHrid: "/item_locations/inventory", count: 1e13 }] }, { skill: "tailoring", days: 1 }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
+    check("job capped at the days planned for", huge.limitedByDays && huge.hours <= 24 + 1e-9 && huge.hours > 23, JSON.stringify({ count: huge.count, hours: huge.hours }));
+    books.set(hugeItem, savedBook);
+
+    // Buy the best teas for the job: a gathering job runs for the days planned (1 day here).
+    await select(page, "skillingSkill", "foraging");
+    const forTeas = expectRank(character, { skill: "foraging" }).available[0];
+    await page.$eval(`.mwia-skill-row[data-hrid="${forTeas.hrid}"]`, (row) => { row.open = true; });
+    await page.click(`.mwia-skill-row[data-hrid="${forTeas.hrid}"] [data-action="skilling-teas"]`);
+    await new Promise((r) => setTimeout(r, 300));
+    const cart = await page.evaluate(() => window.cart || []);
+    const perTea = Math.ceil(24 * forTeas.best.result.drinksPerHour);
+    check("buy teas puts a day of the best teas in the cart", forTeas.best.result.teas.length > 0 && forTeas.best.result.teas.every((hrid) => cart.some((c) => c.itemHrid === hrid && c.quantity === perTea)),
+        `${JSON.stringify(cart)} vs ${forTeas.best.result.teas.join(",")} × ${perTea}`);
+    check("cart result is shown", /Shopping cart: added/.test(await page.$eval(".mwia-body", (n) => n.textContent)));
 
     // A buff update from the game shows on the next render.
     await select(page, "skillingSkill", "foraging");

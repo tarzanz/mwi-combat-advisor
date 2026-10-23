@@ -304,17 +304,35 @@ export function limitSales(result, sellCap) {
     return { ...result, hoursPerDay, capped: hoursPerDay < HOURS_PER_DAY, goldPerDay: result.profitPerHour * hoursPerDay, xpPerDay: result.xpPerHour * hoursPerDay };
 }
 
-// The tea setup that earns the most a day, and what each of its teas adds.
-export function bestTeas(action, who, data, market, evaluate) {
+// The tea setup that scores best (gold a day by default), and what each of its teas adds.
+export function bestTeas(action, who, data, market, evaluate, score = (r) => r.goldPerDay) {
     const type = action.type;
     const candidates = usableTeas(data, type).filter((hrid) => market.buy(hrid) !== null || (who.drinks[type] || []).includes(hrid));
     let best = null;
     for (const teas of teaSetups(data, type, who.slots[type], candidates)) {
         const result = evaluate(teas);
-        if (!best || result.goldPerDay > best.goldPerDay + 1e-9) best = result;
+        if (!best || score(result) > score(best) + 1e-12) best = result;
     }
-    const worth = best.teas.map((hrid) => ({ itemHrid: hrid, gainPerDay: best.goldPerDay - evaluate(best.teas.filter((t) => t !== hrid)).goldPerDay }));
+    const worth = best.teas.map((hrid) => {
+        const without = evaluate(best.teas.filter((t) => t !== hrid));
+        return { itemHrid: hrid, gainPerDay: best.goldPerDay - without.goldPerDay, xpPerDay: best.xpPerDay - without.xpPerDay };
+    });
     return { result: best, worth };
+}
+
+// XP ↔ gold focus: each counts as a share of the most any action in the list gives.
+function focusScore(goldWeight, refs) {
+    return (r) => (goldWeight * r.goldPerDay) / refs.gold + ((1 - goldWeight) * r.xpPerDay) / refs.xp;
+}
+
+// Teas to buy for a job: the best setup's teas for as many hours as the job
+// takes, less what is already in the inventory.
+export function teaPurchase(entry, { hours, have = () => 0 }) {
+    const teas = entry.best.result.teas;
+    if (!teas.length || !(hours > 0)) return null;
+    const perTea = Math.ceil(hours * entry.best.result.drinksPerHour);
+    const items = teas.map((hrid) => ({ hrid, quantity: perTea - have(hrid), have: have(hrid) })).filter((item) => item.quantity > 0);
+    return { hours, perTea, items };
 }
 
 // How much of an item you already have on the way to buyers: in the inventory and on your own sell orders.
@@ -360,6 +378,7 @@ function breakEvenPrice(entry) {
 // limit, or the buy orders that pay above break-even), less what you already
 // hold or have listed, and no more than your coins buy materials for.
 export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins = Infinity, have = () => 0, minJobHours = 0, sellAt = "ask" }) {
+    // Never longer than the days planned for, however big the market looks.
     if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
@@ -371,6 +390,9 @@ export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins 
     if (!result.known) return result;
     const units = Math.max(0, demand - stock.inventory - stock.listed);
     let count = Math.ceil(units / entry.mainCount - 1e-9);
+    const longest = Math.floor(days * HOURS_PER_DAY * entry.actionsPerHour);
+    const limitedByDays = count > longest;
+    if (limitedByDays) count = longest;
     // Materials bought for n actions, using what is in the inventory first.
     const spend = (n) => entry.inputs.reduce((sum, input) => sum + Math.max(0, input.count * n - have(input.itemHrid)) * (input.price || 0), 0);
     let limitedByCoins = false;
@@ -386,16 +408,16 @@ export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins 
         limitedByCoins = true;
     }
     const hours = count / entry.actionsPerHour;
-    return { ...result, units, count, hours, limitedByCoins, short: minJobHours > 0 && hours < minJobHours };
+    return { ...result, units, count, hours, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
 }
 
 const sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
 
 // The Skilling tab: what the character can do now, ranked by gold, and what unlocks soon.
-export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null } = {}) {
+export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1 } = {}) {
     const evaluator = (action, level) => (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
     const wanted = (action) => skill === "all" || action.type === skillType(skill);
-    const available = [];
+    const doable = [];
     const near = [];
     for (const action of skillingActions(data)) {
         if (!wanted(action)) continue;
@@ -403,17 +425,33 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         const required = action.levelRequirement.level;
         if (required <= level) {
             const evaluate = evaluator(action, level);
-            const current = evaluate(who.drinks[action.type] || []);
-            const best = bestTeas(action, who, data, market, evaluate);
-            const shown = teaMode === "best" ? best.result : current;
-            const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), sellCap }) : null;
-            available.push({ ...shown, teaMode, current, best, suggestion, betterTeas: !sameTeas(best.result.teas, current.teas) && best.result.goldPerDay > current.goldPerDay + 1 });
+            doable.push({ action, evaluate, current: evaluate(who.drinks[action.type] || []) });
         } else if (required <= level + NEAR_LEVELS) {
             near.push(action);
         }
     }
+    // The focus compares each action with the most gold and XP any of them gives with your teas.
+    const refs = { gold: 1, xp: 1 };
+    for (const { current } of doable) {
+        if (!current.valid) continue;
+        refs.gold = Math.max(refs.gold, current.goldPerDay);
+        refs.xp = Math.max(refs.xp, current.xpPerDay);
+    }
+    const score = focusScore(goldWeight, refs);
+    const available = doable.map(({ action, evaluate, current }) => {
+        const best = bestTeas(action, who, data, market, evaluate, score);
+        const shown = teaMode === "best" ? best.result : current;
+        const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), sellCap }) : null;
+        const entry = { ...shown, teaMode, current, best, suggestion, score: score(shown), betterTeas: !sameTeas(best.result.teas, current.teas) && score(best.result) > score(current) + 1e-9 };
+        if (plan) {
+            // Teas for the suggested job; a gathering job runs for the days planned.
+            const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.days * HOURS_PER_DAY : 0;
+            entry.teaPlan = teaPurchase(entry, { hours, have: plan.have });
+        }
+        return entry;
+    });
     // Jobs too short to be worth the trip to the market go last.
-    available.sort((a, b) => b.valid - a.valid || !!a.suggestion?.short - !!b.suggestion?.short || b.goldPerDay - a.goldPerDay);
+    available.sort((a, b) => b.valid - a.valid || !!a.suggestion?.short - !!b.suggestion?.short || b.score - a.score);
 
     // Fastest XP the skill earns today, for "how long until it unlocks".
     const fastestXp = {};

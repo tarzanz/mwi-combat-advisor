@@ -43,7 +43,9 @@ buy, by simulating *your own* character.
   item on the market and kept for a day), less what you already have in the inventory or on your own sell orders, and
   no more than your coins buy materials for (using materials you have first). *▶ Make N* opens the action in
   the game with the count filled in; you click the game's button. Jobs shorter than *Shortest job* are greyed out
-  and listed last. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
+  and listed last; no job is longer than *Make for*. **🍵 Buy teas** puts the best teas for the job in the MWITools
+  cart (a gathering job runs for *Make for*), less what you have. The **Focus** slider ranks by gold, XP or a mix
+  (each as a share of the most any action in the list gives); the best teas follow it, so an XP focus picks Wisdom Tea. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
   also reads its order book; closing the market brings the panel back on the same row. Open rows and headings stay
   open while you switch around. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
