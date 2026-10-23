@@ -41,7 +41,8 @@ buy, by simulating *your own* character.
   on the market and kept for a day), less what you already have in the inventory or on your own sell orders, and
   no more than your coins buy materials for (using materials you have first). *▶ Open … with N* opens the action in
   the game with the count filled in; you click the game's button. Jobs shorter than *Shortest job* are greyed out
-  and listed last. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
+  and listed last. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
+  also reads its order book. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the

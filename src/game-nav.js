@@ -121,6 +121,11 @@ function clickSkill(skill) {
 // Last resort: the game's own navigation handlers on its React components.
 // Returns what happened, for the diagnostics.
 function callGameHandler(win, actionHrid) {
+    return callReactHandler(NAV_HANDLERS, [actionHrid]);
+}
+
+// Calls the first of the named methods found on the game's React components.
+function callReactHandler(names, args) {
     const fibers = [];
     const root = document.getElementById("root");
     for (const element of [root, document.querySelector('[class*="GamePage_gamePage"]')]) {
@@ -135,10 +140,10 @@ function callGameHandler(win, actionHrid) {
         if (!fiber || visited.has(fiber)) continue;
         visited.add(fiber);
         const instance = fiber.stateNode;
-        for (const handler of NAV_HANDLERS) {
+        for (const handler of names) {
             if (instance && typeof instance[handler] === "function") {
                 try {
-                    instance[handler](actionHrid);
+                    instance[handler](...args);
                     return `react: ${handler} called`;
                 } catch {
                     // try the next one
@@ -180,4 +185,16 @@ export async function openAction(win, action, data, timeoutMs = 4000) {
     report.push(`no panel for "${action.name}"`);
     lastDiagnostics = report.join(" · ");
     return false;
+}
+
+// Opens the marketplace on an item: through MWITools' public API when it is
+// installed, else the game's own "go to marketplace" handler.
+export function openMarketplace(win, itemHrid) {
+    try {
+        const api = win.MWITools?.shopping;
+        if (typeof api?.openMarketplace === "function" && api.openMarketplace(itemHrid, 0)) return true;
+    } catch {
+        // fall back to the game's handler
+    }
+    return /called/.test(callReactHandler(["handleGoToMarketplace"], [itemHrid, 0]));
 }

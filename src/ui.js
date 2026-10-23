@@ -37,7 +37,7 @@ import { CSS } from "./style.js";
 import { coinsInput, esc, parseCoins } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
 import { renderSkilling, toggleShowAll } from "./skilling-ui.js";
-import { findActionPanel, navDiagnostics, openAction, setReactInput } from "./game-nav.js";
+import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactInput } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
 const SETTINGS_KEY = "mwia-settings";
@@ -784,6 +784,13 @@ function onClick(event) {
             break;
         case "skilling-make":
             openWithCount(target.dataset.hrid, Number(target.dataset.count));
+            break;
+        case "skilling-market":
+            if (openMarketplace(ui.win, target.dataset.item)) ui.root.classList.add("mwia-hidden");
+            else {
+                ui.notice = { level: "warn", text: "Could not open the marketplace automatically. Open it yourself and pick the item." };
+                render();
+            }
             break;
         case "skilling-all":
             toggleShowAll();

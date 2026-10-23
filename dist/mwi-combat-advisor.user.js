@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.14.0
+// @version      0.14.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -2025,14 +2025,21 @@
   }
   function suggestionShort(suggestion) {
     if (!suggestion?.known) return "";
+    if (!suggestion.demand) return " \xB7 no buyers above break-even";
     if (!suggestion.count) return " \xB7 you hold enough";
     return ` \xB7 make ${suggestion.count.toLocaleString("en-US")} (${hoursText(suggestion.hours)}${suggestion.short ? ", short job" : ""})`;
   }
   function suggestionHtml(e) {
     const s = e.suggestion;
-    const product = esc(itemName(e.action.outputItems[0].itemHrid));
+    const productHrid = e.action.outputItems[0].itemHrid;
+    const product = esc(itemName(productHrid));
+    const market = `<button class="mwia-cart-btn" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${product} on the market; its buy and sell orders are read from there.">\u{1F3EA} Market</button>`;
     if (!s.known) {
-      return `<b>How many:</b> open ${product} on the market once (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion.`;
+      return `<b>How many:</b> open ${product} on the market once (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion. ${market}`;
+    }
+    if (!s.demand) {
+      return `<b>How many:</b> no buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off <span class="mwia-dim">(order book ${hoursText((Date.now() - s.bookAt) / 36e5)} old)</span>.
+            Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count. ${market}`;
     }
     const sources = [];
     if (s.fromCap !== null) sources.push(`${s.fromCap.toLocaleString("en-US")} by your <i>Max sold/day</i> \xD7 days`);
@@ -2041,9 +2048,9 @@
     let html = `<b>How many:</b> the market takes ${s.demand.toLocaleString("en-US")}: ${sources.join(" or ")}${held}.`;
     if (s.profitableBids === null) html += ` Break-even price ${coins(s.breakEven)}.`;
     if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
-    if (!s.count) return html + " You already hold enough \u2013 nothing to make.";
+    if (!s.count) return html + ` You already hold enough \u2013 nothing to make. ${market}`;
     html += ` \u2192 <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
-    html += `<br><button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">\u25B6 Open ${esc(e.action.name)} with ${s.count.toLocaleString("en-US")}</button>`;
+    html += `<br><button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">\u25B6 Open ${esc(e.action.name)} with ${s.count.toLocaleString("en-US")}</button> ${market}`;
     return html;
   }
 
@@ -2145,6 +2152,9 @@
     return link || null;
   }
   function callGameHandler(win2, actionHrid) {
+    return callReactHandler(NAV_HANDLERS, [actionHrid]);
+  }
+  function callReactHandler(names2, args) {
     const fibers = [];
     const root = document.getElementById("root");
     for (const element of [root, document.querySelector('[class*="GamePage_gamePage"]')]) {
@@ -2159,10 +2169,10 @@
       if (!fiber || visited.has(fiber)) continue;
       visited.add(fiber);
       const instance = fiber.stateNode;
-      for (const handler of NAV_HANDLERS) {
+      for (const handler of names2) {
         if (instance && typeof instance[handler] === "function") {
           try {
-            instance[handler](actionHrid);
+            instance[handler](...args);
             return `react: ${handler} called`;
           } catch {
           }
@@ -2200,6 +2210,14 @@
     report.push(`no panel for "${action.name}"`);
     lastDiagnostics = report.join(" \xB7 ");
     return false;
+  }
+  function openMarketplace(win2, itemHrid) {
+    try {
+      const api = win2.MWITools?.shopping;
+      if (typeof api?.openMarketplace === "function" && api.openMarketplace(itemHrid, 0)) return true;
+    } catch {
+    }
+    return /called/.test(callReactHandler(["handleGoToMarketplace"], [itemHrid, 0]));
   }
 
   // src/touch.js
@@ -2958,6 +2976,13 @@
         break;
       case "skilling-make":
         openWithCount(target.dataset.hrid, Number(target.dataset.count));
+        break;
+      case "skilling-market":
+        if (openMarketplace(ui.win, target.dataset.item)) ui.root.classList.add("mwia-hidden");
+        else {
+          ui.notice = { level: "warn", text: "Could not open the marketplace automatically. Open it yourself and pick the item." };
+          render();
+        }
         break;
       case "skilling-all":
         toggleShowAll();

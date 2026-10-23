@@ -79,6 +79,8 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
   window.localStorageUtil = { getInitClientData: () => data };
   const ws = new WebSocket("ws://" + location.host + "/fake/api.milkywayidle.com/ws");
   ws.onmessage = (e) => { window.lastType = JSON.parse(e.data).type; };
+  // MWITools' public API: only the market opener is used here.
+  window.MWITools = { shopping: { openMarketplace: (hrid, level) => { window.marketOpened = hrid + "+" + level; return true; } } };
   // The game: navigation, skill page with category tabs, action cards, action panel.
   const production = Object.values(data.actionDetailMap).filter((a) => a.function === "/action_functions/production" || a.function === "/action_functions/gathering");
   document.body.insertAdjacentHTML("afterbegin", '<nav id="nav"></nav><div id="skillpage"></div>');
@@ -261,6 +263,25 @@ try {
     check("suggestion from the order book, less stock and listings", expPlan.known && expPlan.profitableBids === 90 && expPlan.count === Math.ceil((90 - 8) / topTailoring.mainCount) && planRow.sub.includes(`make ${expPlan.count}`),
         `${JSON.stringify(expPlan && { bids: expPlan.profitableBids, count: expPlan.count, breakEven: expPlan.breakEven })} / ${planRow?.sub}`);
     check("order book survives a reload", await page.evaluate((hrid) => !!JSON.parse(localStorage.getItem("mwia-order-books") || "{}")[hrid], PRODUCT));
+
+    // An order book without buyers above break-even says so, instead of "you hold enough".
+    const second = expectRank(character, { skill: "tailoring" }).available.find((e) => e.suggestion && !e.suggestion.known && e.hrid !== topTailoring.hrid);
+    const secondItem = second.action.outputItems[0].itemHrid;
+    books.set(secondItem, { at: Date.now(), asks: [{ price: 999999, quantity: 5 }], bids: [{ price: 1, quantity: 50 }] });
+    for (const socket of sockets) socket.send(JSON.stringify({ type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: secondItem, orderBooks: [{ asks: [[999999, 5]], bids: [[1, 50]] }] } }));
+    await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
+    await select(page, "skillingSkill", "all");
+    await select(page, "skillingSkill", "tailoring");
+    const noBuyers = (await rows(page)).find((r) => r.name === second.action.name);
+    const noBuyersDetail = await page.$eval(`.mwia-skill-row[data-hrid="${second.hrid}"] .mwia-skill-detail`, (n) => n.textContent);
+    check("no buyers above break-even is said plainly", /no buyers above break-even/.test(noBuyers?.sub || "") && /no buy orders pay/.test(noBuyersDetail) && !/hold enough/.test(noBuyersDetail), noBuyers?.sub);
+
+    // The market button opens the item on the market (through MWITools' API here).
+    await page.$eval(`.mwia-skill-row[data-hrid="${second.hrid}"]`, (row) => { row.open = true; });
+    await page.click(`.mwia-skill-row[data-hrid="${second.hrid}"] [data-action="skilling-market"]`);
+    const opened = await page.evaluate(() => ({ market: window.marketOpened, hidden: document.querySelector(".mwia-panel").classList.contains("mwia-hidden") }));
+    check("market button opens the item on the market", opened.market === secondItem + "+0" && opened.hidden, JSON.stringify(opened));
+    await page.click(".mwia-launcher");
 
     // Short jobs are greyed out and listed last.
     await select(page, "skillingMinJob", "8");

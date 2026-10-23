@@ -171,15 +171,22 @@ function worthText(worth) {
 
 function suggestionShort(suggestion) {
     if (!suggestion?.known) return "";
+    if (!suggestion.demand) return " · no buyers above break-even";
     if (!suggestion.count) return " · you hold enough";
     return ` · make ${suggestion.count.toLocaleString("en-US")} (${hoursText(suggestion.hours)}${suggestion.short ? ", short job" : ""})`;
 }
 
 function suggestionHtml(e) {
     const s = e.suggestion;
-    const product = esc(itemName(e.action.outputItems[0].itemHrid));
+    const productHrid = e.action.outputItems[0].itemHrid;
+    const product = esc(itemName(productHrid));
+    const market = `<button class="mwia-cart-btn" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${product} on the market; its buy and sell orders are read from there.">🏪 Market</button>`;
     if (!s.known) {
-        return `<b>How many:</b> open ${product} on the market once (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion.`;
+        return `<b>How many:</b> open ${product} on the market once (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion. ${market}`;
+    }
+    if (!s.demand) {
+        return `<b>How many:</b> no buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off <span class="mwia-dim">(order book ${hoursText((Date.now() - s.bookAt) / 3600000)} old)</span>.
+            Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count. ${market}`;
     }
     const sources = [];
     if (s.fromCap !== null) sources.push(`${s.fromCap.toLocaleString("en-US")} by your <i>Max sold/day</i> × days`);
@@ -188,8 +195,8 @@ function suggestionHtml(e) {
     let html = `<b>How many:</b> the market takes ${s.demand.toLocaleString("en-US")}: ${sources.join(" or ")}${held}.`;
     if (s.profitableBids === null) html += ` Break-even price ${coins(s.breakEven)}.`;
     if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
-    if (!s.count) return html + " You already hold enough – nothing to make.";
+    if (!s.count) return html + ` You already hold enough – nothing to make. ${market}`;
     html += ` → <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
-    html += `<br><button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">▶ Open ${esc(e.action.name)} with ${s.count.toLocaleString("en-US")}</button>`;
+    html += `<br><button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">▶ Open ${esc(e.action.name)} with ${s.count.toLocaleString("en-US")}</button> ${market}`;
     return html;
 }
