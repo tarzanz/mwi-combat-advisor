@@ -340,6 +340,21 @@ try {
     await page.evaluate(() => document.querySelector(".modal")?.remove());
     await page.click(".mwia-launcher");
 
+    // Making the materials yourself: Linen Fabric from Flax you gather (Foraging 28).
+    const linenFabric = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === "/actions/tailoring/linen_fabric");
+    const flax = expectRank(character, { skill: "foraging" }).available.find((e) => e.hrid === "/actions/foraging/flax");
+    const flaxOut = flax.outputs.find((o) => o.itemHrid === "/items/flax");
+    const flaxHours = 1 / (flax.actionsPerHour * flaxOut.count);
+    const flaxCost = (flax.teaPerHour / flax.actionsPerHour - (flax.revenuePerAction - flaxOut.value)) / flaxOut.count;
+    const linenInput = linenFabric.inputs[0].count;
+    const handHours = 1 / linenFabric.actionsPerHour + linenInput * flaxHours;
+    const handGold = (linenFabric.revenuePerAction - linenInput * flaxCost - linenFabric.teaPerHour / linenFabric.actionsPerHour) / handHours;
+    check("chain gold per hour matches a hand count", linenFabric.chain && Math.abs(linenFabric.chain.profitPerHour - handGold) < 1e-6 * Math.abs(handGold) && Math.abs(linenFabric.chain.craftShare + linenFabric.chain.shares.reduce((sum, sh) => sum + sh.share, 0) - 1) < 1e-9,
+        `${linenFabric.chain?.profitPerHour} vs ${handGold}`);
+    await page.$eval('.mwia-skill-row[data-hrid="/actions/tailoring/linen_fabric"]', (row) => { row.open = true; });
+    const chainText = await page.$eval('.mwia-skill-row[data-hrid="/actions/tailoring/linen_fabric"] .mwia-skill-detail', (n) => [...n.querySelectorAll(".mwia-skill-sec")].find((d) => /Yourself/.test(d.textContent))?.textContent || "");
+    check("chain shown in the row", chainText.includes(`${coinText(linenFabric.chain.profitPerHour)}/h`) && /Of each hour: \d+% Linen Fabric · \d+% Flax/.test(chainText), chainText.slice(0, 160));
+
     // XP focus: the list ranks by XP, and the best teas follow.
     await page.$eval('[data-setting="skillingGold"]', (input) => { input.value = "0"; input.dispatchEvent(new Event("change", { bubbles: true })); });
     await new Promise((r) => setTimeout(r, 100));

@@ -45,7 +45,9 @@ buy, by simulating *your own* character.
   the game with the count filled in; you click the game's button. Jobs shorter than *Shortest job* are greyed out
   and listed last; no job is longer than *Make for*. **🍵 Buy teas** puts the best teas for the job in the MWITools
   cart (a gathering job runs for *Make for*), less what you have. The **Focus** slider ranks by gold, XP or a mix
-  (each as a share of the most any action in the list gives); the best teas follow it, so an XP focus picks Wisdom Tea. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
+  (each as a share of the most any action in the list gives); the best teas follow it, so an XP focus picks Wisdom Tea. **⛓ Yourself** compares buying the materials with making every one your levels
+  allow (gathered or crafted, each step with that skill's teas): gold per hour of the whole chain and how the hour
+  splits between the steps; a row says when it beats buying. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
   also reads its order book; closing the market brings the panel back on the same row. Open rows and headings stay
   open while you switch around. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
@@ -111,7 +113,7 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - The plan train relies on the class names of the MWITools planning tab and the game's action pages; it has only been
   tested against mock-ups of both.
 - Skilling: the market data has no volumes, so how much of an item really sells is up to your *Max sold/day*.
-  Chains (gather, then process yourself) are not combined yet; each action is priced on its own.
+  The ⛓ chain makes every material it can (by the fastest source), even where buying one of them would pay better.
 - The phone layout has been tested at iPhone size in desktop Firefox, not on a real phone. Keep the screen on while
   an analysis runs: a phone pauses the page in the background.
 

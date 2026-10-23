@@ -411,6 +411,112 @@ export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins 
     return { ...result, units, count, hours, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
 }
 
+// Making it all yourself: every material your levels let you make or gather is
+// made (by its fastest source, with that skill's teas), the rest bought. The
+// time of every step adds up, so the gold is per hour of the whole chain.
+function chainBuilder(who, data, market, teaMode) {
+    const sources = new Map();
+    for (const action of skillingActions(data)) {
+        const made = action.outputItems?.length ? action.outputItems.map((o) => o.itemHrid) : (action.dropTable || []).map((d) => d.itemHrid);
+        for (const hrid of made) {
+            if (!sources.has(hrid)) sources.set(hrid, []);
+            sources.get(hrid).push(action);
+        }
+    }
+    const runs = new Map();
+    const run = (action) => {
+        if (!runs.has(action.hrid)) {
+            const plain = (teas) => limitSales(evaluateAction(action, who, data, market, teas), 0);
+            runs.set(action.hrid, teaMode === "best" ? bestTeas(action, who, data, market, plain).result : plain(who.drinks[action.type] || []));
+        }
+        return runs.get(action.hrid);
+    };
+    const units = new Map();
+    // One unit of an item made yourself: its cost (materials, teas, less the
+    // other drops of the action) and the hours it takes, materials included.
+    const selfMade = (itemHrid, seen) => {
+        if (units.has(itemHrid)) return units.get(itemHrid);
+        if (seen.has(itemHrid)) return null;
+        let best = null;
+        for (const action of sources.get(itemHrid) || []) {
+            if ((who.levels[action.levelRequirement.skillHrid] ?? 1) < action.levelRequirement.level) continue;
+            const r = run(action);
+            const out = r.outputs.find((o) => o.itemHrid === itemHrid && o.kind === "product");
+            if (!out || out.count <= 0) continue;
+            const inner = materials(r, new Set([...seen, itemHrid]));
+            if (!inner) continue;
+            const ownHours = 1 / (r.actionsPerHour * out.count);
+            const unit = {
+                itemHrid,
+                action,
+                cost: (inner.cost + r.teaPerHour / r.actionsPerHour - (r.revenuePerAction - out.value)) / out.count,
+                ownHours,
+                hours: ownHours + inner.hours / out.count,
+                steps: inner.steps.map((step) => ({ ...step, count: step.count / out.count })),
+            };
+            if (!best || unit.hours < best.hours) best = unit;
+        }
+        units.set(itemHrid, best);
+        return best;
+    };
+    // The materials for one action: made where you can, bought otherwise.
+    const materials = (r, seen) => {
+        let cost = 0;
+        let hours = 0;
+        const steps = [];
+        for (const input of r.inputs) {
+            const made = selfMade(input.itemHrid, seen);
+            if (made) {
+                cost += made.cost * input.count;
+                hours += made.hours * input.count;
+                steps.push({ itemHrid: input.itemHrid, count: input.count, made });
+            } else if (input.price === null) {
+                return null;
+            } else {
+                cost += input.value;
+                steps.push({ itemHrid: input.itemHrid, count: input.count, price: input.price });
+            }
+        }
+        return { cost, hours, steps };
+    };
+    // Hours each made material takes, per action of the final step.
+    const timeShares = (steps, factor, out) => {
+        for (const step of steps) {
+            if (!step.made) continue;
+            const share = out.get(step.itemHrid) || { itemHrid: step.itemHrid, action: step.made.action, count: 0, hours: 0 };
+            share.count += step.count * factor;
+            share.hours += step.made.ownHours * step.count * factor;
+            out.set(step.itemHrid, share);
+            timeShares(step.made.steps, step.count * factor, out);
+        }
+        return out;
+    };
+    const boughtItems = (steps, out) => {
+        for (const step of steps) {
+            if (step.made) boughtItems(step.made.steps, out);
+            else out.add(step.itemHrid);
+        }
+        return out;
+    };
+    return (entry) => {
+        if (entry.action.function !== "/action_functions/production" || !entry.valid) return null;
+        const inner = materials(entry, new Set([entry.action.outputItems?.[0]?.itemHrid]));
+        if (!inner || !inner.steps.some((step) => step.made)) return null;
+        const craftHours = 1 / entry.actionsPerHour;
+        const hours = craftHours + inner.hours;
+        const profit = entry.revenuePerAction - inner.cost - entry.teaPerHour / entry.actionsPerHour;
+        return {
+            hoursPerAction: hours,
+            craftShare: craftHours / hours,
+            shares: [...timeShares(inner.steps, 1, new Map()).values()].map((share) => ({ ...share, share: share.hours / hours })),
+            bought: [...boughtItems(inner.steps, new Set())],
+            profitPerHour: profit / hours,
+            goldPerDay: (profit / hours) * HOURS_PER_DAY,
+            cashPerAction: inner.cost,
+        };
+    };
+}
+
 const sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
 
 // The Skilling tab: what the character can do now, ranked by gold, and what unlocks soon.
@@ -438,11 +544,12 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         refs.xp = Math.max(refs.xp, current.xpPerDay);
     }
     const score = focusScore(goldWeight, refs);
+    const chain = chainBuilder(who, data, market, teaMode);
     const available = doable.map(({ action, evaluate, current }) => {
         const best = bestTeas(action, who, data, market, evaluate, score);
         const shown = teaMode === "best" ? best.result : current;
         const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), sellCap }) : null;
-        const entry = { ...shown, teaMode, current, best, suggestion, score: score(shown), betterTeas: !sameTeas(best.result.teas, current.teas) && score(best.result) > score(current) + 1e-9 };
+        const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score(shown), betterTeas: !sameTeas(best.result.teas, current.teas) && score(best.result) > score(current) + 1e-9 };
         if (plan) {
             // Teas for the suggested job; a gathering job runs for the days planned.
             const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.days * HOURS_PER_DAY : 0;

@@ -133,9 +133,12 @@ function rowHtml(entry, best, upcoming = false) {
         ? `<span class="mwia-skill-hint">🍵 ${teaGain(entry.best.result, entry.current)} with other teas</span>`
         : "";
     const gold = entry.valid ? `<span class="${day < 0 ? "mwia-bad" : best ? "mwia-ok" : ""}">${coins(day)}/day</span>` : `<span class="mwia-dim">–</span>`;
+    const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1
+        ? `<span class="mwia-skill-hint">⛓ ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>`
+        : "";
     const faded = !entry.valid || day <= 0 || entry.suggestion?.short;
     return `<details class="mwia-skill-row${best && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
-      <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}</span>
+      <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
         <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
 }
@@ -175,11 +178,23 @@ function detailHtml(e, upcoming) {
     gold.push(`(${coins(e.revenuePerAction)} − ${coins(e.costPerAction)}) × ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` − ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h${hours} = <b>${coins(e.goldPerDay)}/day</b>`);
     if (e.capped) gold.push(`<span class="mwia-dim">The market takes ${coins(e.mainCount * e.actionsPerHour * e.hoursPerDay)} a day (your limit), so this runs ${dec(e.hoursPerDay, 1)} h a day; fill the rest with something else.</span>`);
     sections.push(section("💰 Gold", `${coins(e.profitPerHour)}/h${e.margin !== null ? ` · margin ${dec(e.margin * 100, 1)}%` : ""}`, gold));
+    if (e.chain) sections.push(section("⛓ Yourself", `${coins(e.chain.profitPerHour)}/h making the materials`, [chainHtml(e)]));
 
     sections.push(section("✨ XP", `${coins(e.xpPerHour)}/h`, [`${dec(e.xpPerAction, 1)} per action × ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`]));
     if (!upcoming && e.suggestion) sections.push(section("📦 How many", suggestionSummary(e.suggestion), [suggestionHtml(e)]));
     if (!upcoming) sections.push(section("🍵 Teas", teaSummary(e), [teaHtml(e)]));
     return buttons + warnings + sections.join("");
+}
+
+// Making the materials yourself, compared with buying them.
+function chainHtml(e) {
+    const c = e.chain;
+    const shares = [`${dec(c.craftShare * 100, 0)}% ${esc(e.action.name)}`, ...[...c.shares].sort((a, b) => b.share - a.share).map((s) => `${dec(s.share * 100, 0)}% ${esc(itemName(s.itemHrid))} <span class="mwia-dim">(${skillLabel(s.action.type.split("/").pop())}, ${count(s.count)} each)</span>`)];
+    const better = c.profitPerHour > e.profitPerHour;
+    return `Make every material your levels allow, buy the rest: <b>${coins(c.profitPerHour)}/h = ${coins(c.goldPerDay)}/day</b>
+        <span class="${better ? "mwia-ok" : "mwia-dim"}">(${better ? "+" : "−"}${coins(Math.abs(c.goldPerDay - e.goldPerDay))}/day vs buying)</span>.
+        <br>Of each hour: ${shares.join(" · ")}.${c.bought.length ? `<br>Still bought: ${esc(names(c.bought))}.` : ""}
+        <br><span class="mwia-dim">Each step uses that skill's teas; the gold is per hour of the whole chain.</span>`;
 }
 
 // ▶ Make N, 🍵 Buy teas and 🏪 Market, always in view when a row is open.

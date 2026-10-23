@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.17.0
+// @version      0.18.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1877,6 +1877,104 @@
     const hours = count2 / entry.actionsPerHour;
     return { ...result, units, count: count2, hours, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
   }
+  function chainBuilder(who, data, market, teaMode) {
+    const sources = /* @__PURE__ */ new Map();
+    for (const action of skillingActions(data)) {
+      const made = action.outputItems?.length ? action.outputItems.map((o) => o.itemHrid) : (action.dropTable || []).map((d) => d.itemHrid);
+      for (const hrid of made) {
+        if (!sources.has(hrid)) sources.set(hrid, []);
+        sources.get(hrid).push(action);
+      }
+    }
+    const runs = /* @__PURE__ */ new Map();
+    const run = (action) => {
+      if (!runs.has(action.hrid)) {
+        const plain = (teas) => limitSales(evaluateAction(action, who, data, market, teas), 0);
+        runs.set(action.hrid, teaMode === "best" ? bestTeas(action, who, data, market, plain).result : plain(who.drinks[action.type] || []));
+      }
+      return runs.get(action.hrid);
+    };
+    const units = /* @__PURE__ */ new Map();
+    const selfMade = (itemHrid, seen) => {
+      if (units.has(itemHrid)) return units.get(itemHrid);
+      if (seen.has(itemHrid)) return null;
+      let best = null;
+      for (const action of sources.get(itemHrid) || []) {
+        if ((who.levels[action.levelRequirement.skillHrid] ?? 1) < action.levelRequirement.level) continue;
+        const r = run(action);
+        const out = r.outputs.find((o) => o.itemHrid === itemHrid && o.kind === "product");
+        if (!out || out.count <= 0) continue;
+        const inner = materials(r, /* @__PURE__ */ new Set([...seen, itemHrid]));
+        if (!inner) continue;
+        const ownHours = 1 / (r.actionsPerHour * out.count);
+        const unit = {
+          itemHrid,
+          action,
+          cost: (inner.cost + r.teaPerHour / r.actionsPerHour - (r.revenuePerAction - out.value)) / out.count,
+          ownHours,
+          hours: ownHours + inner.hours / out.count,
+          steps: inner.steps.map((step) => ({ ...step, count: step.count / out.count }))
+        };
+        if (!best || unit.hours < best.hours) best = unit;
+      }
+      units.set(itemHrid, best);
+      return best;
+    };
+    const materials = (r, seen) => {
+      let cost = 0;
+      let hours = 0;
+      const steps = [];
+      for (const input of r.inputs) {
+        const made = selfMade(input.itemHrid, seen);
+        if (made) {
+          cost += made.cost * input.count;
+          hours += made.hours * input.count;
+          steps.push({ itemHrid: input.itemHrid, count: input.count, made });
+        } else if (input.price === null) {
+          return null;
+        } else {
+          cost += input.value;
+          steps.push({ itemHrid: input.itemHrid, count: input.count, price: input.price });
+        }
+      }
+      return { cost, hours, steps };
+    };
+    const timeShares = (steps, factor, out) => {
+      for (const step of steps) {
+        if (!step.made) continue;
+        const share = out.get(step.itemHrid) || { itemHrid: step.itemHrid, action: step.made.action, count: 0, hours: 0 };
+        share.count += step.count * factor;
+        share.hours += step.made.ownHours * step.count * factor;
+        out.set(step.itemHrid, share);
+        timeShares(step.made.steps, step.count * factor, out);
+      }
+      return out;
+    };
+    const boughtItems = (steps, out) => {
+      for (const step of steps) {
+        if (step.made) boughtItems(step.made.steps, out);
+        else out.add(step.itemHrid);
+      }
+      return out;
+    };
+    return (entry) => {
+      if (entry.action.function !== "/action_functions/production" || !entry.valid) return null;
+      const inner = materials(entry, /* @__PURE__ */ new Set([entry.action.outputItems?.[0]?.itemHrid]));
+      if (!inner || !inner.steps.some((step) => step.made)) return null;
+      const craftHours = 1 / entry.actionsPerHour;
+      const hours = craftHours + inner.hours;
+      const profit = entry.revenuePerAction - inner.cost - entry.teaPerHour / entry.actionsPerHour;
+      return {
+        hoursPerAction: hours,
+        craftShare: craftHours / hours,
+        shares: [...timeShares(inner.steps, 1, /* @__PURE__ */ new Map()).values()].map((share) => ({ ...share, share: share.hours / hours })),
+        bought: [...boughtItems(inner.steps, /* @__PURE__ */ new Set())],
+        profitPerHour: profit / hours,
+        goldPerDay: profit / hours * HOURS_PER_DAY,
+        cashPerAction: inner.cost
+      };
+    };
+  }
   var sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
   function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1 } = {}) {
     const evaluator = (action, level) => (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
@@ -1901,11 +1999,12 @@
       refs.xp = Math.max(refs.xp, current.xpPerDay);
     }
     const score2 = focusScore(goldWeight, refs);
+    const chain = chainBuilder(who, data, market, teaMode);
     const available = doable.map(({ action, evaluate, current }) => {
       const best = bestTeas(action, who, data, market, evaluate, score2);
       const shown = teaMode === "best" ? best.result : current;
       const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), sellCap }) : null;
-      const entry = { ...shown, teaMode, current, best, suggestion, score: score2(shown), betterTeas: !sameTeas(best.result.teas, current.teas) && score2(best.result) > score2(current) + 1e-9 };
+      const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score2(shown), betterTeas: !sameTeas(best.result.teas, current.teas) && score2(best.result) > score2(current) + 1e-9 };
       if (plan) {
         const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.days * HOURS_PER_DAY : 0;
         entry.teaPlan = teaPurchase(entry, { hours, have: plan.have });
@@ -2041,9 +2140,10 @@
     const warn = entry.warnings.length ? ` <span class="mwia-warn" title="${esc(entry.warnings.map(warningText).join(" "))}">\u26A0</span>` : "";
     const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas ? `<span class="mwia-skill-hint">\u{1F375} ${teaGain(entry.best.result, entry.current)} with other teas</span>` : "";
     const gold = entry.valid ? `<span class="${day < 0 ? "mwia-bad" : best ? "mwia-ok" : ""}">${coins(day)}/day</span>` : `<span class="mwia-dim">\u2013</span>`;
+    const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1 ? `<span class="mwia-skill-hint">\u26D3 ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>` : "";
     const faded = !entry.valid || day <= 0 || entry.suggestion?.short;
     return `<details class="mwia-skill-row${best && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
-      <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}</span>
+      <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
         <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
   }
@@ -2078,10 +2178,20 @@
     gold.push(`(${coins(e.revenuePerAction)} \u2212 ${coins(e.costPerAction)}) \xD7 ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` \u2212 ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h${hours} = <b>${coins(e.goldPerDay)}/day</b>`);
     if (e.capped) gold.push(`<span class="mwia-dim">The market takes ${coins(e.mainCount * e.actionsPerHour * e.hoursPerDay)} a day (your limit), so this runs ${dec(e.hoursPerDay, 1)} h a day; fill the rest with something else.</span>`);
     sections.push(section("\u{1F4B0} Gold", `${coins(e.profitPerHour)}/h${e.margin !== null ? ` \xB7 margin ${dec(e.margin * 100, 1)}%` : ""}`, gold));
+    if (e.chain) sections.push(section("\u26D3 Yourself", `${coins(e.chain.profitPerHour)}/h making the materials`, [chainHtml(e)]));
     sections.push(section("\u2728 XP", `${coins(e.xpPerHour)}/h`, [`${dec(e.xpPerAction, 1)} per action \xD7 ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`]));
     if (!upcoming && e.suggestion) sections.push(section("\u{1F4E6} How many", suggestionSummary(e.suggestion), [suggestionHtml(e)]));
     if (!upcoming) sections.push(section("\u{1F375} Teas", teaSummary(e), [teaHtml(e)]));
     return buttons + warnings + sections.join("");
+  }
+  function chainHtml(e) {
+    const c2 = e.chain;
+    const shares = [`${dec(c2.craftShare * 100, 0)}% ${esc(e.action.name)}`, ...[...c2.shares].sort((a, b) => b.share - a.share).map((s) => `${dec(s.share * 100, 0)}% ${esc(itemName(s.itemHrid))} <span class="mwia-dim">(${skillLabel(s.action.type.split("/").pop())}, ${count(s.count)} each)</span>`)];
+    const better = c2.profitPerHour > e.profitPerHour;
+    return `Make every material your levels allow, buy the rest: <b>${coins(c2.profitPerHour)}/h = ${coins(c2.goldPerDay)}/day</b>
+        <span class="${better ? "mwia-ok" : "mwia-dim"}">(${better ? "+" : "\u2212"}${coins(Math.abs(c2.goldPerDay - e.goldPerDay))}/day vs buying)</span>.
+        <br>Of each hour: ${shares.join(" \xB7 ")}.${c2.bought.length ? `<br>Still bought: ${esc(names(c2.bought))}.` : ""}
+        <br><span class="mwia-dim">Each step uses that skill's teas; the gold is per hour of the whole chain.</span>`;
   }
   function actionButtons(e) {
     const crafted = e.action.function === "/action_functions/production";
