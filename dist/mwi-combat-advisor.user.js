@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.15.0
+// @version      0.16.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1810,10 +1810,23 @@
       if (item.itemHrid === itemHrid && item.itemLocationHrid === INVENTORY2 && !item.enhancementLevel) inventory += item.count || 0;
     }
     let listed = 0;
+    const listings = [];
     for (const listing of character.myMarketListings || []) {
-      if (listing.itemHrid === itemHrid && listing.isSell && !listing.enhancementLevel) listed += Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0));
+      if (listing.itemHrid !== itemHrid || !listing.isSell || listing.enhancementLevel) continue;
+      const quantity = Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0));
+      listed += quantity;
+      listings.push({ price: Number(listing.price) || 0, quantity });
     }
-    return { inventory, listed };
+    return { inventory, listed, listings };
+  }
+  var ASK_WINDOW = 0.05;
+  function othersNearLowestAsk(book, stock) {
+    if (!book?.asks.length) return { quantity: 0, lowest: null };
+    const lowest = Math.min(...book.asks.map((o) => o.price));
+    const top = lowest * (1 + ASK_WINDOW);
+    const near = book.asks.filter((o) => o.price <= top).reduce((sum, o) => sum + o.quantity, 0);
+    const mine = (stock.listings || []).filter((l) => l.price > 0 && l.price <= top).reduce((sum, l) => sum + l.quantity, 0);
+    return { quantity: Math.max(0, near - mine), lowest };
   }
   function breakEvenPrice(entry) {
     const main = entry.outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0];
@@ -1821,13 +1834,14 @@
     const others = entry.revenuePerAction - main.value;
     return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others) / main.count / (1 - MARKET_TAX);
   }
-  function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins: coins3 = Infinity, have = () => 0, minJobHours = 0 }) {
+  function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins: coins3 = Infinity, have = () => 0, minJobHours = 0, sellAt = "ask" }) {
     if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
+    const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
     const fromCap = sellCap > 0 ? sellCap * days : null;
-    const demand = Math.max(fromCap ?? 0, profitableBids ?? 0);
-    const result = { breakEven, profitableBids, fromCap, bookAt: book?.at ?? null, stock, demand, known: fromCap !== null || profitableBids !== null };
+    const demand = Math.max(fromCap ?? 0, profitableBids ?? 0, asks?.quantity ?? 0);
+    const result = { breakEven, profitableBids, nearAsks: asks?.quantity ?? null, lowestAsk: asks?.lowest ?? null, fromCap, bookAt: book?.at ?? null, stock, demand, known: fromCap !== null || profitableBids !== null };
     if (!result.known) return result;
     const units = Math.max(0, demand - stock.inventory - stock.listed);
     let count2 = Math.ceil(units / entry.mainCount - 1e-9);
@@ -1927,7 +1941,8 @@
         days: Number(settings.skillingDays) || 1,
         minJobHours: Number(settings.skillingMinJob) || 0,
         coins: have("/items/coin"),
-        have
+        have,
+        sellAt: settings.skillingSellAt
       };
       view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan });
       view.key = key;
@@ -2058,7 +2073,7 @@
   }
   function suggestionSummary(s) {
     if (!s.known) return "open it on the market";
-    if (!s.demand) return "no buyers above break-even";
+    if (!s.demand) return s.nearAsks === null ? "no buyers above break-even" : "no buyers or sellers to go by";
     if (!s.count) return "you hold enough";
     return `make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}${s.short ? ", short job" : ""})`;
   }
@@ -2070,13 +2085,15 @@
       return `Open ${product} on the market once with \u{1F3EA} Market (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion.`;
     }
     if (!s.demand) {
-      return `No buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off${bookAge}. Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count.`;
+      const sellers = s.nearAsks === null ? "" : " and nobody else lists it";
+      return `No buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off${sellers}${bookAge}. Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count.`;
     }
     const sources = [];
     if (s.fromCap !== null) sources.push(`${s.fromCap.toLocaleString("en-US")} by your <i>Max sold/day</i> \xD7 days`);
     if (s.profitableBids !== null) sources.push(`${s.profitableBids.toLocaleString("en-US")} in buy orders at \u2265 ${coins(s.breakEven)}${bookAge}`);
+    if (s.nearAsks) sources.push(`${s.nearAsks.toLocaleString("en-US")} listed by others within ${dec(ASK_WINDOW * 100, 0)}% of the lowest ask (${coins(s.lowestAsk)})`);
     const held = s.stock.inventory || s.stock.listed ? ` \u2212 ${(s.stock.inventory + s.stock.listed).toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)` : "";
-    let html = `The market takes ${s.demand.toLocaleString("en-US")}: ${sources.join(" or ")}${held}.`;
+    let html = `The market takes ${s.demand.toLocaleString("en-US")}${sources.length > 1 ? ", the most of" : ":"} ${sources.join(" \xB7 ")}${held}.`;
     if (s.profitableBids === null) html += ` Break-even price ${coins(s.breakEven)}.`;
     if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
     if (!s.count) return html + " You already hold enough \u2013 nothing to make.";

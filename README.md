@@ -38,8 +38,9 @@ buy, by simulating *your own* character.
   of one crafted item the market takes a day; past it the action only runs part of the day (gathered raw materials
   are never limited). Crates and caches from rare drops are worth what they hold, a cowbell a tenth of a bag.
   **How many to make:** for each crafted item a row suggests a count: what the market takes over *Make for* days
-  (your *Max sold/day*, or the buy orders that pay above break-even – the order book is read when you open the item
-  on the market and kept for a day), less what you already have in the inventory or on your own sell orders, and
+  (the most of: your *Max sold/day*, the buy orders that pay above break-even, and – when you sell at the ask – what
+  others have listed within 5% of the lowest ask, your own orders taken out; the order book is read when you open the
+  item on the market and kept for a day), less what you already have in the inventory or on your own sell orders, and
   no more than your coins buy materials for (using materials you have first). *▶ Make N* opens the action in
   the game with the count filled in; you click the game's button. Jobs shorter than *Shortest job* are greyed out
   and listed last. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which

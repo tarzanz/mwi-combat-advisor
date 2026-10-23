@@ -51,9 +51,9 @@ marketData["/items/cotton_boots"] = { 0: { a: Math.round((bootsCost * 1.02) / 0.
 const items = (c) => new Map(c.characterItems.map((i) => [i.hash, i]));
 const market = (sellAt) => marketPricer((hrid) => marketData[hrid]?.[0], clientData, sellAt);
 const books = new Map();
-const planFor = (c, { days = 1, minJobHours = 0 } = {}) => {
+const planFor = (c, { days = 1, minJobHours = 0, sellAt = "ask" } = {}) => {
     const have = (hrid) => heldStock(c, items(c), hrid).inventory;
-    return { stock: (a) => heldStock(c, items(c), a.outputItems?.[0]?.itemHrid), book: (a) => books.get(a.outputItems?.[0]?.itemHrid) || null, days, minJobHours, coins: have("/items/coin"), have };
+    return { stock: (a) => heldStock(c, items(c), a.outputItems?.[0]?.itemHrid), book: (a) => books.get(a.outputItems?.[0]?.itemHrid) || null, days, minJobHours, coins: have("/items/coin"), have, sellAt };
 };
 const expectRank = (c, options) => rankSkilling(skillingCharacter(c, items(c), clientData), clientData, market(options.sellAt || "ask"), { plan: planFor(c, options), ...options });
 
@@ -269,14 +269,14 @@ try {
     // An order book without buyers above break-even says so, instead of "you hold enough".
     const second = expectRank(character, { skill: "tailoring" }).available.find((e) => e.suggestion && !e.suggestion.known && e.hrid !== topTailoring.hrid);
     const secondItem = second.action.outputItems[0].itemHrid;
-    books.set(secondItem, { at: Date.now(), asks: [{ price: 999999, quantity: 5 }], bids: [{ price: 1, quantity: 50 }] });
-    for (const socket of sockets) socket.send(JSON.stringify({ type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: secondItem, orderBooks: [{ asks: [[999999, 5]], bids: [[1, 50]] }] } }));
+    books.set(secondItem, { at: Date.now(), asks: [], bids: [{ price: 1, quantity: 50 }] });
+    for (const socket of sockets) socket.send(JSON.stringify({ type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: secondItem, orderBooks: [{ asks: [], bids: [[1, 50]] }] } }));
     await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
     await select(page, "skillingSkill", "all");
     await select(page, "skillingSkill", "tailoring");
     const noBuyers = (await rows(page)).find((r) => r.name === second.action.name);
     const noBuyersDetail = await page.$eval(`.mwia-skill-row[data-hrid="${second.hrid}"] .mwia-skill-detail`, (n) => n.textContent);
-    check("no buyers above break-even is said plainly", /no buyers above break-even/.test(noBuyers?.sub || "") && /no buy orders pay/i.test(noBuyersDetail) && !/hold enough/.test(noBuyersDetail), noBuyers?.sub);
+    check("no buyers above break-even is said plainly", /no buyers or sellers to go by/.test(noBuyers?.sub || "") && /no buy orders pay/i.test(noBuyersDetail) && !/hold enough/.test(noBuyersDetail), noBuyers?.sub);
 
     // The market button opens the item on the market (through MWITools' API here).
     await page.$eval(`.mwia-skill-row[data-hrid="${second.hrid}"]`, (row) => { row.open = true; });
@@ -284,6 +284,21 @@ try {
     const opened = await page.evaluate(() => ({ market: window.marketOpened, hidden: document.querySelector(".mwia-panel").classList.contains("mwia-hidden") }));
     check("market button opens the item on the market", opened.market === secondItem + "+0" && opened.hidden, JSON.stringify(opened));
     await page.click(".mwia-launcher");
+
+    // Selling at the ask: as many as others list near the lowest ask (your own orders taken out).
+    const third = expectRank(character, { skill: "tailoring" }).available.find((e) => e.suggestion && !e.suggestion.known && e.hrid !== topTailoring.hrid && e.hrid !== second.hrid);
+    const thirdItem = third.action.outputItems[0].itemHrid;
+    const low = marketData[thirdItem][0].a;
+    const thirdAsks = [{ price: low, quantity: 40 }, { price: Math.floor(low * 1.03), quantity: 20 }, { price: low * 2, quantity: 500 }];
+    books.set(thirdItem, { at: Date.now(), asks: thirdAsks, bids: [] });
+    for (const socket of sockets) socket.send(JSON.stringify({ type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: thirdItem, orderBooks: [{ asks: thirdAsks, bids: [] }] } }));
+    await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
+    await select(page, "skillingSkill", "all");
+    await select(page, "skillingSkill", "tailoring");
+    const expAsks = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === third.hrid).suggestion;
+    const asksRow = (await rows(page)).find((r) => r.name === third.action.name);
+    check("suggestion from sellers near the lowest ask", expAsks.nearAsks === 60 && expAsks.count === Math.ceil((60 - expAsks.stock.inventory - expAsks.stock.listed) / third.mainCount) && asksRow?.sub.includes(`make ${expAsks.count}`), `${JSON.stringify({ near: expAsks.nearAsks, count: expAsks.count })} / ${asksRow?.sub}`);
+    check("sellers near the ask don't count when selling at the bid", (expectRank(character, { skill: "tailoring", sellAt: "bid" }).available.find((e) => e.hrid === third.hrid)?.suggestion?.nearAsks ?? null) === null);
 
     // Short jobs are greyed out and listed last.
     await select(page, "skillingMinJob", "8");

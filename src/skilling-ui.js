@@ -4,7 +4,7 @@
 import { getClientData, itemName, marketEntry, pricesStamp } from "./game-data.js";
 import { state } from "./game-state.js";
 import { coinsInput, esc, shortCoins } from "./format.js";
-import { MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, heldStock, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
+import { ASK_WINDOW, MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, heldStock, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
 
 const SHORT_LIST = 25;
 const PLAN_DAYS = [0.5, 1, 2, 3, 7];
@@ -52,6 +52,7 @@ function ranking(settings) {
             minJobHours: Number(settings.skillingMinJob) || 0,
             coins: have("/items/coin"),
             have,
+            sellAt: settings.skillingSellAt,
         };
         view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan });
         view.key = key;
@@ -203,7 +204,7 @@ function suggestionShort(suggestion) {
 
 function suggestionSummary(s) {
     if (!s.known) return "open it on the market";
-    if (!s.demand) return "no buyers above break-even";
+    if (!s.demand) return s.nearAsks === null ? "no buyers above break-even" : "no buyers or sellers to go by";
     if (!s.count) return "you hold enough";
     return `make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}${s.short ? ", short job" : ""})`;
 }
@@ -216,13 +217,15 @@ function suggestionHtml(e) {
         return `Open ${product} on the market once with 🏪 Market (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion.`;
     }
     if (!s.demand) {
-        return `No buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off${bookAge}. Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count.`;
+        const sellers = s.nearAsks === null ? "" : " and nobody else lists it";
+        return `No buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off${sellers}${bookAge}. Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count.`;
     }
     const sources = [];
     if (s.fromCap !== null) sources.push(`${s.fromCap.toLocaleString("en-US")} by your <i>Max sold/day</i> × days`);
     if (s.profitableBids !== null) sources.push(`${s.profitableBids.toLocaleString("en-US")} in buy orders at ≥ ${coins(s.breakEven)}${bookAge}`);
+    if (s.nearAsks) sources.push(`${s.nearAsks.toLocaleString("en-US")} listed by others within ${dec(ASK_WINDOW * 100, 0)}% of the lowest ask (${coins(s.lowestAsk)})`);
     const held = s.stock.inventory || s.stock.listed ? ` − ${(s.stock.inventory + s.stock.listed).toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)` : "";
-    let html = `The market takes ${s.demand.toLocaleString("en-US")}: ${sources.join(" or ")}${held}.`;
+    let html = `The market takes ${s.demand.toLocaleString("en-US")}${sources.length > 1 ? ", the most of" : ":"} ${sources.join(" · ")}${held}.`;
     if (s.profitableBids === null) html += ` Break-even price ${coins(s.breakEven)}.`;
     if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
     if (!s.count) return html + " You already hold enough – nothing to make.";

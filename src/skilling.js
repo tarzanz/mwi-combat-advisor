@@ -324,10 +324,28 @@ export function heldStock(character, items, itemHrid) {
         if (item.itemHrid === itemHrid && item.itemLocationHrid === INVENTORY && !item.enhancementLevel) inventory += item.count || 0;
     }
     let listed = 0;
+    const listings = [];
     for (const listing of character.myMarketListings || []) {
-        if (listing.itemHrid === itemHrid && listing.isSell && !listing.enhancementLevel) listed += Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0));
+        if (listing.itemHrid !== itemHrid || !listing.isSell || listing.enhancementLevel) continue;
+        const quantity = Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0));
+        listed += quantity;
+        listings.push({ price: Number(listing.price) || 0, quantity });
     }
-    return { inventory, listed };
+    return { inventory, listed, listings };
+}
+
+// Sell orders this close to the lowest ask count as the market's current size.
+export const ASK_WINDOW = 0.05;
+
+// What others have listed within ASK_WINDOW of the lowest ask. The order book
+// holds your own sell orders too; those are taken out.
+function othersNearLowestAsk(book, stock) {
+    if (!book?.asks.length) return { quantity: 0, lowest: null };
+    const lowest = Math.min(...book.asks.map((o) => o.price));
+    const top = lowest * (1 + ASK_WINDOW);
+    const near = book.asks.filter((o) => o.price <= top).reduce((sum, o) => sum + o.quantity, 0);
+    const mine = (stock.listings || []).filter((l) => l.price > 0 && l.price <= top).reduce((sum, l) => sum + l.quantity, 0);
+    return { quantity: Math.max(0, near - mine), lowest };
 }
 
 // The selling price (before tax) where an item stops paying for its materials and teas.
@@ -341,13 +359,15 @@ function breakEvenPrice(entry) {
 // How many to make: what the market takes over the planned days (your sales
 // limit, or the buy orders that pay above break-even), less what you already
 // hold or have listed, and no more than your coins buy materials for.
-export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins = Infinity, have = () => 0, minJobHours = 0 }) {
+export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins = Infinity, have = () => 0, minJobHours = 0, sellAt = "ask" }) {
     if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
+    // Listing at the ask: as many as others are selling at about that price.
+    const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
     const fromCap = sellCap > 0 ? sellCap * days : null;
-    const demand = Math.max(fromCap ?? 0, profitableBids ?? 0);
-    const result = { breakEven, profitableBids, fromCap, bookAt: book?.at ?? null, stock, demand, known: fromCap !== null || profitableBids !== null };
+    const demand = Math.max(fromCap ?? 0, profitableBids ?? 0, asks?.quantity ?? 0);
+    const result = { breakEven, profitableBids, nearAsks: asks?.quantity ?? null, lowestAsk: asks?.lowest ?? null, fromCap, bookAt: book?.at ?? null, stock, demand, known: fromCap !== null || profitableBids !== null };
     if (!result.known) return result;
     const units = Math.max(0, demand - stock.inventory - stock.listed);
     let count = Math.ceil(units / entry.mainCount - 1e-9);
