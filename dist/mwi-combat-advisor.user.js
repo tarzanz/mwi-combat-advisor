@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.16.0
+// @version      0.16.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1904,7 +1904,7 @@
   var SHORT_LIST = 25;
   var PLAN_DAYS = [0.5, 1, 2, 3, 7];
   var MIN_JOB_HOURS = [0, 0.5, 1, 2, 4, 8];
-  var view = { key: "", result: null, showAll: false };
+  var view = { key: "", result: null, showAll: false, open: /* @__PURE__ */ new Set() };
   var dec = (n2, d = 1) => n2.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
   var count = (n2) => n2 >= 100 ? dec(n2, 0) : n2 >= 1 ? dec(n2, 2) : n2.toPrecision(2);
@@ -1948,6 +1948,12 @@
       view.key = key;
     }
     return view.result;
+  }
+  function rememberToggle(event) {
+    const key = event.target.dataset?.open;
+    if (!key) return;
+    if (event.target.open) view.open.add(key);
+    else view.open.delete(key);
   }
   function toggleShowAll() {
     view.showAll = !view.showAll;
@@ -2001,13 +2007,16 @@
     const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas ? `<span class="mwia-skill-hint">\u{1F375} +${coins(entry.best.result.goldPerDay - entry.current.goldPerDay)}/day with other teas</span>` : "";
     const gold = entry.valid ? `<span class="${day < 0 ? "mwia-bad" : best ? "mwia-ok" : ""}">${coins(day)}/day</span>` : `<span class="mwia-dim">\u2013</span>`;
     const faded = !entry.valid || day <= 0 || entry.suggestion?.short;
-    return `<details class="mwia-skill-row${best && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}">
+    return `<details class="mwia-skill-row${best && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}</span>
         <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
   }
   function detailHtml(e, upcoming) {
-    const section = (title, summary, body) => `<details class="mwia-skill-sec"><summary><b>${title}</b> ${summary}</summary>${body.map((line) => `<p>${line}</p>`).join("")}</details>`;
+    const section = (title, summary, body) => {
+      const key = `${e.hrid}|${title}`;
+      return `<details class="mwia-skill-sec" data-open="${esc(key)}"${view.open.has(key) ? " open" : ""}><summary><b>${title}</b> ${summary}</summary>${body.map((line) => `<p>${line}</p>`).join("")}</details>`;
+    };
     const sections = [];
     const buttons = upcoming ? "" : actionButtons(e);
     const warnings = e.warnings.map((warning) => `<p class="mwia-warn">\u26A0 ${esc(warningText(warning))}</p>`).join("");
@@ -2420,9 +2429,16 @@
     notice: null,
     cartItems: /* @__PURE__ */ new Map(),
     // button id -> items for the MWITools cart (rebuilt on every render)
-    skillingLoad: null
+    skillingLoad: null,
     // { loading, error } while the Skilling tab fetches game data and prices
+    returnRow: null,
+    // Skilling row to scroll back to when the panel opens again
+    marketWatch: null
+    // timer waiting for the marketplace to close
   };
+  var MARKET_PANEL = '[class*="MarketplacePanel_marketplacePanel"]';
+  var MARKET_SHOW_MS = 8e3;
+  var MARKET_POLL_MS = 300;
   function loadSettings() {
     try {
       return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
@@ -2977,6 +2993,27 @@
     }
     return `<p class="mwia-dim">Loading game data and market prices\u2026</p>`;
   }
+  function returnAfterMarket() {
+    clearInterval(ui.marketWatch);
+    const started = Date.now();
+    let seen = false;
+    ui.marketWatch = setInterval(() => {
+      if (!ui.root.classList.contains("mwia-hidden")) return clearInterval(ui.marketWatch);
+      const open = [...document.querySelectorAll(MARKET_PANEL)].some(visible);
+      if (open) seen = true;
+      else if (seen) {
+        clearInterval(ui.marketWatch);
+        showPanel();
+      } else if (Date.now() - started > MARKET_SHOW_MS) clearInterval(ui.marketWatch);
+    }, MARKET_POLL_MS);
+  }
+  function showPanel() {
+    ui.root.classList.remove("mwia-hidden");
+    render();
+    const row = ui.returnRow && ui.tab === "skilling" ? [...ui.root.querySelectorAll(".mwia-skill-row")].find((r) => r.dataset.hrid === ui.returnRow) : null;
+    row?.scrollIntoView({ block: "start" });
+    ui.returnRow = null;
+  }
   async function openWithCount(actionHrid, count2) {
     const data = getClientData();
     const action = data?.actionDetailMap[actionHrid];
@@ -3021,11 +3058,15 @@
         render();
         break;
       case "skilling-make":
+        ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
         openWithCount(target.dataset.hrid, Number(target.dataset.count));
         break;
       case "skilling-market":
-        if (openMarketplace(ui.win, target.dataset.item)) ui.root.classList.add("mwia-hidden");
-        else {
+        ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
+        if (openMarketplace(ui.win, target.dataset.item)) {
+          ui.root.classList.add("mwia-hidden");
+          returnAfterMarket();
+        } else {
           ui.notice = { level: "warn", text: "Could not open the marketplace automatically. Open it yourself and pick the item." };
           render();
         }
@@ -3109,6 +3150,7 @@
     ui.root = root;
     root.addEventListener("click", onClick);
     root.addEventListener("change", onChange);
+    root.addEventListener("toggle", rememberToggle, true);
     enableTapTips(root);
     root.addEventListener("input", (event) => {
       if (event.target.dataset?.setting !== "goldWeight") return;
@@ -3117,17 +3159,18 @@
     });
     button.addEventListener("click", async () => {
       const opening = root.classList.contains("mwia-hidden");
-      root.classList.toggle("mwia-hidden");
-      if (opening) {
-        if (!getClientData()) {
-          try {
-            await loadClientData(win2);
-          } catch (error) {
-            ui.error = error.message;
-          }
-        }
-        render();
+      if (!opening) {
+        root.classList.add("mwia-hidden");
+        return;
       }
+      if (!getClientData()) {
+        try {
+          await loadClientData(win2);
+        } catch (error) {
+          ui.error = error.message;
+        }
+      }
+      showPanel();
     });
     onStateChange(() => {
       if (!root.classList.contains("mwia-hidden") && !ui.busy) {

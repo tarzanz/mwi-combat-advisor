@@ -80,7 +80,12 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
   const ws = new WebSocket("ws://" + location.host + "/fake/api.milkywayidle.com/ws");
   ws.onmessage = (e) => { window.lastType = JSON.parse(e.data).type; };
   // MWITools' public API: only the market opener is used here.
-  window.MWITools = { shopping: { openMarketplace: (hrid, level) => { window.marketOpened = hrid + "+" + level; return true; } } };
+  // Opening the market shows the game's marketplace panel; the test closes it again.
+  window.MWITools = { shopping: { openMarketplace: (hrid, level) => {
+    window.marketOpened = hrid + "+" + level;
+    setTimeout(() => document.body.insertAdjacentHTML("beforeend", '<div class="MarketplacePanel_marketplacePanel__x" style="position:fixed;inset:0;background:#123">Marketplace</div>'), 200);
+    return true;
+  } } };
   // The game: navigation, skill page with category tabs, action cards, action panel.
   const production = Object.values(data.actionDetailMap).filter((a) => a.function === "/action_functions/production" || a.function === "/action_functions/gathering");
   document.body.insertAdjacentHTML("afterbegin", '<nav id="nav"></nav><div id="skillpage"></div>');
@@ -283,7 +288,19 @@ try {
     await page.click(`.mwia-skill-row[data-hrid="${second.hrid}"] [data-action="skilling-market"]`);
     const opened = await page.evaluate(() => ({ market: window.marketOpened, hidden: document.querySelector(".mwia-panel").classList.contains("mwia-hidden") }));
     check("market button opens the item on the market", opened.market === secondItem + "+0" && opened.hidden, JSON.stringify(opened));
-    await page.click(".mwia-launcher");
+    // Closing the market brings the panel back on the same row, still open.
+    await page.waitForSelector('[class*="MarketplacePanel_marketplacePanel"]');
+    await new Promise((r) => setTimeout(r, 700));
+    check("panel stays hidden while the market is open", await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden")));
+    await page.evaluate(() => document.querySelector('[class*="MarketplacePanel_marketplacePanel"]').remove());
+    await page.waitForFunction(() => !document.querySelector(".mwia-panel").classList.contains("mwia-hidden"), { timeout: 3000 }).catch(() => null);
+    const back = await page.evaluate((hrid) => {
+        const row = [...document.querySelectorAll(".mwia-skill-row")].find((r) => r.dataset.hrid === hrid);
+        const body = document.querySelector(".mwia-body").getBoundingClientRect();
+        const box = row?.getBoundingClientRect();
+        return { shown: !document.querySelector(".mwia-panel").classList.contains("mwia-hidden"), open: !!row?.open, inView: !!box && box.top >= body.top - 1 && box.top < body.bottom };
+    }, second.hrid);
+    check("closing the market brings the panel back on the same open row", back.shown && back.open && back.inView, JSON.stringify(back));
 
     // Selling at the ask: as many as others list near the lowest ask (your own orders taken out).
     const third = expectRank(character, { skill: "tailoring" }).available.find((e) => e.suggestion && !e.suggestion.known && e.hrid !== topTailoring.hrid && e.hrid !== second.hrid);

@@ -36,8 +36,8 @@ import { SimPool } from "./pool.js";
 import { CSS } from "./style.js";
 import { coinsInput, esc, parseCoins } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
-import { renderSkilling, toggleShowAll } from "./skilling-ui.js";
-import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactInput } from "./game-nav.js";
+import { rememberToggle, renderSkilling, toggleShowAll } from "./skilling-ui.js";
+import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
 const SETTINGS_KEY = "mwia-settings";
@@ -88,7 +88,13 @@ const ui = {
     notice: null,
     cartItems: new Map(), // button id -> items for the MWITools cart (rebuilt on every render)
     skillingLoad: null, // { loading, error } while the Skilling tab fetches game data and prices
+    returnRow: null, // Skilling row to scroll back to when the panel opens again
+    marketWatch: null, // timer waiting for the marketplace to close
 };
+
+const MARKET_PANEL = '[class*="MarketplacePanel_marketplacePanel"]';
+const MARKET_SHOW_MS = 8000;
+const MARKET_POLL_MS = 300;
 
 function loadSettings() {
     try {
@@ -735,6 +741,31 @@ function renderSkillingTab() {
     return `<p class="mwia-dim">Loading game data and market prices…</p>`;
 }
 
+// The panel comes back by itself when the marketplace it opened is closed,
+// scrolled to the row the player came from.
+function returnAfterMarket() {
+    clearInterval(ui.marketWatch);
+    const started = Date.now();
+    let seen = false;
+    ui.marketWatch = setInterval(() => {
+        if (!ui.root.classList.contains("mwia-hidden")) return clearInterval(ui.marketWatch);
+        const open = [...document.querySelectorAll(MARKET_PANEL)].some(visible);
+        if (open) seen = true;
+        else if (seen) {
+            clearInterval(ui.marketWatch);
+            showPanel();
+        } else if (Date.now() - started > MARKET_SHOW_MS) clearInterval(ui.marketWatch);
+    }, MARKET_POLL_MS);
+}
+
+function showPanel() {
+    ui.root.classList.remove("mwia-hidden");
+    render();
+    const row = ui.returnRow && ui.tab === "skilling" ? [...ui.root.querySelectorAll(".mwia-skill-row")].find((r) => r.dataset.hrid === ui.returnRow) : null;
+    row?.scrollIntoView({ block: "start" });
+    ui.returnRow = null;
+}
+
 // Opens a Skilling suggestion in the game with the count filled in; the player
 // clicks the game's own button.
 async function openWithCount(actionHrid, count) {
@@ -783,11 +814,15 @@ function onClick(event) {
             render();
             break;
         case "skilling-make":
+            ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
             openWithCount(target.dataset.hrid, Number(target.dataset.count));
             break;
         case "skilling-market":
-            if (openMarketplace(ui.win, target.dataset.item)) ui.root.classList.add("mwia-hidden");
-            else {
+            ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
+            if (openMarketplace(ui.win, target.dataset.item)) {
+                ui.root.classList.add("mwia-hidden");
+                returnAfterMarket();
+            } else {
                 ui.notice = { level: "warn", text: "Could not open the marketplace automatically. Open it yourself and pick the item." };
                 render();
             }
@@ -878,6 +913,7 @@ export function mountUI(win, workerSource) {
 
     root.addEventListener("click", onClick);
     root.addEventListener("change", onChange);
+    root.addEventListener("toggle", rememberToggle, true);
     enableTapTips(root);
     // Live label while dragging the XP–Gold slider; the re-rating happens on "change".
     root.addEventListener("input", (event) => {
@@ -887,17 +923,18 @@ export function mountUI(win, workerSource) {
     });
     button.addEventListener("click", async () => {
         const opening = root.classList.contains("mwia-hidden");
-        root.classList.toggle("mwia-hidden");
-        if (opening) {
-            if (!getClientData()) {
-                try {
-                    await loadClientData(win);
-                } catch (error) {
-                    ui.error = error.message;
-                }
-            }
-            render();
+        if (!opening) {
+            root.classList.add("mwia-hidden");
+            return;
         }
+        if (!getClientData()) {
+            try {
+                await loadClientData(win);
+            } catch (error) {
+                ui.error = error.message;
+            }
+        }
+        showPanel();
     });
     onStateChange(() => {
         if (!root.classList.contains("mwia-hidden") && !ui.busy) {

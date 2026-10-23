@@ -10,7 +10,8 @@ const SHORT_LIST = 25;
 const PLAN_DAYS = [0.5, 1, 2, 3, 7];
 const MIN_JOB_HOURS = [0, 0.5, 1, 2, 4, 8];
 
-const view = { key: "", result: null, showAll: false };
+// open: the rows and headings the player has opened, kept across re-renders.
+const view = { key: "", result: null, showAll: false, open: new Set() };
 
 const dec = (n, d = 1) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
@@ -58,6 +59,14 @@ function ranking(settings) {
         view.key = key;
     }
     return view.result;
+}
+
+// Remembers which rows and headings are open (toggle events don't bubble: listen in the capture phase).
+export function rememberToggle(event) {
+    const key = event.target.dataset?.open;
+    if (!key) return;
+    if (event.target.open) view.open.add(key);
+    else view.open.delete(key);
 }
 
 export function toggleShowAll() {
@@ -119,7 +128,7 @@ function rowHtml(entry, best, upcoming = false) {
         : "";
     const gold = entry.valid ? `<span class="${day < 0 ? "mwia-bad" : best ? "mwia-ok" : ""}">${coins(day)}/day</span>` : `<span class="mwia-dim">–</span>`;
     const faded = !entry.valid || day <= 0 || entry.suggestion?.short;
-    return `<details class="mwia-skill-row${best && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}">
+    return `<details class="mwia-skill-row${best && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}</span>
         <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
@@ -128,7 +137,10 @@ function rowHtml(entry, best, upcoming = false) {
 // The detail of a row: action buttons and warnings up top, then one line per
 // topic that opens to show how it was worked out.
 function detailHtml(e, upcoming) {
-    const section = (title, summary, body) => `<details class="mwia-skill-sec"><summary><b>${title}</b> ${summary}</summary>${body.map((line) => `<p>${line}</p>`).join("")}</details>`;
+    const section = (title, summary, body) => {
+        const key = `${e.hrid}|${title}`;
+        return `<details class="mwia-skill-sec" data-open="${esc(key)}"${view.open.has(key) ? " open" : ""}><summary><b>${title}</b> ${summary}</summary>${body.map((line) => `<p>${line}</p>`).join("")}</details>`;
+    };
     const sections = [];
     const buttons = upcoming ? "" : actionButtons(e);
     const warnings = e.warnings.map((warning) => `<p class="mwia-warn">⚠ ${esc(warningText(warning))}</p>`).join("");
