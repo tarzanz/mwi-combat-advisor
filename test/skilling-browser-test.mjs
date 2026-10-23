@@ -195,6 +195,8 @@ try {
     await page.click(".mwia-skill-row summary");
     const detail = await page.$eval(".mwia-skill-row[open] .mwia-skill-detail", (n) => n.textContent);
     check("tap shows the calculation", /actions\/h/.test(detail) && /Each action gives/.test(detail) && /Wisdom Tea/.test(detail) && /\+15\.0% speed/.test(detail), detail.slice(0, 200));
+    const layout = await page.$eval(".mwia-skill-row[open] .mwia-skill-detail", (n) => ({ sections: [...n.querySelectorAll(".mwia-skill-sec")].map((d) => d.querySelector("summary").textContent.trim()), open: n.querySelectorAll(".mwia-skill-sec[open]").length }));
+    check("detail is short headings that open", layout.sections.length >= 4 && layout.open === 0 && /^⏱ Speed \d+ actions\/h$/.test(layout.sections[0]) && layout.sections.some((t) => /^🍵 Teas/.test(t)), JSON.stringify(layout));
     check("tap shows the tea advice", /Your teas: Wisdom Tea/.test(detail) && (/Best:/.test(detail) || /already the best/.test(detail)));
     await page.screenshot({ path: path.join(shotDir, "skilling-2-foraging.png") });
 
@@ -274,7 +276,7 @@ try {
     await select(page, "skillingSkill", "tailoring");
     const noBuyers = (await rows(page)).find((r) => r.name === second.action.name);
     const noBuyersDetail = await page.$eval(`.mwia-skill-row[data-hrid="${second.hrid}"] .mwia-skill-detail`, (n) => n.textContent);
-    check("no buyers above break-even is said plainly", /no buyers above break-even/.test(noBuyers?.sub || "") && /no buy orders pay/.test(noBuyersDetail) && !/hold enough/.test(noBuyersDetail), noBuyers?.sub);
+    check("no buyers above break-even is said plainly", /no buyers above break-even/.test(noBuyers?.sub || "") && /no buy orders pay/i.test(noBuyersDetail) && !/hold enough/.test(noBuyersDetail), noBuyers?.sub);
 
     // The market button opens the item on the market (through MWITools' API here).
     await page.$eval(`.mwia-skill-row[data-hrid="${second.hrid}"]`, (row) => { row.open = true; });
@@ -295,6 +297,8 @@ try {
     // The button opens the action in the game with the count filled in.
     await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"]`, (row) => { row.open = true; });
     await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] [data-action="skilling-make"]`, (b) => b.scrollIntoView({ block: "end" }));
+    const buttonVisible = await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] .mwia-skill-buttons`, (n) => n.getBoundingClientRect().height > 0).catch(() => false);
+    check("make and market buttons are at the top of the opened row", buttonVisible);
     await page.screenshot({ path: path.join(shotDir, "skilling-5-plan.png") });
     await page.click(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] [data-action="skilling-make"]`);
     await page.waitForFunction(() => /^\d+$/.test(document.querySelector(".modal input")?.value || ""), { timeout: 6000 }).catch(() => null);

@@ -116,6 +116,15 @@ export const CSS = `
 .mwia-skill-nums .mwia-dim { font-size: 11px; }
 .mwia-skill-detail { padding: 2px 8px 8px 20px; font-size: 12px; color: #c3c9e8; overflow-wrap: anywhere; }
 .mwia-skill-detail p { margin: 4px 0; }
+.mwia-skill-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.mwia-skill-buttons .mwia-btn { margin: 0; }
+.mwia-btn-quiet { background: #2a3150; border: 1px solid #3c4677; }
+.mwia-skill-sec { border-top: 1px solid #232a48; }
+.mwia-skill-sec > summary { padding: 5px 0; cursor: pointer; list-style: none; }
+.mwia-skill-sec > summary::-webkit-details-marker { display: none; }
+.mwia-skill-sec > summary::before { content: "▸ "; color: #5b6bb0; }
+.mwia-skill-sec[open] > summary::before { content: "▾ "; }
+.mwia-skill-sec > p { margin: 2px 0 6px 14px; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
 .mwia-tip-pop {

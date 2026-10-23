@@ -30,7 +30,8 @@ buy, by simulating *your own* character.
   teas in each skill's drink slots: efficiency from levels above the requirement and from buffs, action speed (3 s
   floor), quantity, Artisan, Processing and Wisdom Tea, 12 drinks an hour (more with a Guzzling Pouch). Materials
   and teas are bought at the cheapest ask; products sell at the ask (a listing) or the best bid (*Sell at*), minus
-  the 4% market tax. Filter by skill; tap a row for the whole calculation. For each action it also tries every tea
+  the 4% market tax. Filter by skill; tap a row for its buttons and short headings (speed, gold, XP, how many, teas) that
+  open to the whole calculation. For each action it also tries every tea
   setup that fits your slots, shows the one that earns the most and what each of its teas earns above its cost; *Teas:
   Best teas* ranks with those setups. ⚠ marks thin markets (no buy orders, or an ask far above the bid),
   materials nobody sells and thin margins (a price drop under 5% wipes out the profit). *Max sold/day* sets how many
@@ -39,7 +40,7 @@ buy, by simulating *your own* character.
   **How many to make:** for each crafted item a row suggests a count: what the market takes over *Make for* days
   (your *Max sold/day*, or the buy orders that pay above break-even – the order book is read when you open the item
   on the market and kept for a day), less what you already have in the inventory or on your own sell orders, and
-  no more than your coins buy materials for (using materials you have first). *▶ Open … with N* opens the action in
+  no more than your coins buy materials for (using materials you have first). *▶ Make N* opens the action in
   the game with the count filled in; you click the game's button. Jobs shorter than *Shortest job* are greyed out
   and listed last. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
   also reads its order book. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there

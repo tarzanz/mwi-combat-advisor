@@ -124,43 +124,70 @@ function rowHtml(entry, best, upcoming = false) {
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
 }
 
+// The detail of a row: action buttons and warnings up top, then one line per
+// topic that opens to show how it was worked out.
 function detailHtml(e, upcoming) {
-    const lines = [];
+    const section = (title, summary, body) => `<details class="mwia-skill-sec"><summary><b>${title}</b> ${summary}</summary>${body.map((line) => `<p>${line}</p>`).join("")}</details>`;
+    const sections = [];
+    const buttons = upcoming ? "" : actionButtons(e);
+    const warnings = e.warnings.map((warning) => `<p class="mwia-warn">⚠ ${esc(warningText(warning))}</p>`).join("");
+
     const speed = e.speed ? ` → ${dec(e.cycleSeconds, 2)} s with ${pct(e.speed)} speed${e.cycleSeconds <= 3 + 1e-9 ? " (3 s is the floor)" : ""}` : "";
     const buffEfficiency = e.efficiency - e.levelEfficiency;
-    lines.push(`<b>Time:</b> ${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} needed${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) → <b>${dec(e.actionsPerHour, 0)} actions/h</b>.`);
+    sections.push(section("⏱ Speed", `${dec(e.actionsPerHour, 0)} actions/h`, [
+        `${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} needed${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) → <b>${dec(e.actionsPerHour, 0)} actions/h</b>.`,
+    ]));
 
+    const gold = [];
     const outputs = e.outputs.filter((o) => o.value > 0 || o.kind === "product").map((o) => {
         const how = o.sell.source === "ask" || o.sell.source === "bid" ? ` <span class="mwia-dim">(${o.sell.source} −${dec(MARKET_TAX * 100, 0)}%)</span>` : o.sell.source === "vendor" || o.sell.source === "contents" ? ` <span class="mwia-dim">(${o.sell.source})</span>` : "";
         return `${count(o.count)} × ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}${how}`;
     });
     const boosts = [e.quantity && `quantity ${pct(e.quantity)}`, e.processing && `processing ${pct(e.processing)}`].filter(Boolean).join(", ");
-    lines.push(`<b>Each action gives</b>${boosts ? ` (${boosts})` : ""}: ${outputs.join(" · ")} = ${coins(e.revenuePerAction)}`);
+    gold.push(`<b>Each action gives</b>${boosts ? ` (${boosts})` : ""}: ${outputs.join(" · ")} = ${coins(e.revenuePerAction)}`);
     if (e.inputs.length) {
         const inputs = e.inputs.map((i) => `${count(i.count)} × ${esc(itemName(i.itemHrid))} @ ${i.price === null ? "–" : coins(i.price)}`);
-        lines.push(`<b>Each action uses</b>${e.artisan ? ` (artisan ${pct(-e.artisan)})` : ""}: ${inputs.join(" · ")} = ${coins(e.costPerAction)}`);
+        gold.push(`<b>Each action uses</b>${e.artisan ? ` (artisan ${pct(-e.artisan)})` : ""}: ${inputs.join(" · ")} = ${coins(e.costPerAction)}`);
     }
     if (e.teas.length) {
-        lines.push(`<b>Teas:</b> ${e.teaCosts.map((t) => `${esc(itemName(t.itemHrid))} @ ${coins(t.price)}`).join(" · ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h`);
+        gold.push(`<b>Teas:</b> ${e.teaCosts.map((t) => `${esc(itemName(t.itemHrid))} @ ${coins(t.price)}`).join(" · ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h`);
     }
     const hours = e.capped ? ` × ${dec(e.hoursPerDay, 1)} h` : " × 24";
-    lines.push(`<b>Gold:</b> (${coins(e.revenuePerAction)} − ${coins(e.costPerAction)}) × ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` − ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h${hours} = <b>${coins(e.goldPerDay)}/day</b>${e.margin !== null ? ` <span class="mwia-dim">(margin ${dec(e.margin * 100, 1)}%)</span>` : ""}`);
-    if (e.capped) lines.push(`<span class="mwia-dim">The market takes ${coins(e.mainCount * e.actionsPerHour * e.hoursPerDay)} a day (your limit), so this runs ${dec(e.hoursPerDay, 1)} h a day; fill the rest with something else.</span>`);
-    lines.push(`<b>XP:</b> ${dec(e.xpPerAction, 1)} per action × ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`);
-    for (const warning of e.warnings) lines.push(`<span class="mwia-warn">⚠ ${esc(warningText(warning))}</span>`);
-    if (!upcoming && e.suggestion) lines.push(suggestionHtml(e));
-    if (!upcoming) lines.push(teaHtml(e));
-    return lines.map((line) => `<p>${line}</p>`).join("");
+    gold.push(`(${coins(e.revenuePerAction)} − ${coins(e.costPerAction)}) × ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` − ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h${hours} = <b>${coins(e.goldPerDay)}/day</b>`);
+    if (e.capped) gold.push(`<span class="mwia-dim">The market takes ${coins(e.mainCount * e.actionsPerHour * e.hoursPerDay)} a day (your limit), so this runs ${dec(e.hoursPerDay, 1)} h a day; fill the rest with something else.</span>`);
+    sections.push(section("💰 Gold", `${coins(e.profitPerHour)}/h${e.margin !== null ? ` · margin ${dec(e.margin * 100, 1)}%` : ""}`, gold));
+
+    sections.push(section("✨ XP", `${coins(e.xpPerHour)}/h`, [`${dec(e.xpPerAction, 1)} per action × ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`]));
+    if (!upcoming && e.suggestion) sections.push(section("📦 How many", suggestionSummary(e.suggestion), [suggestionHtml(e)]));
+    if (!upcoming) sections.push(section("🍵 Teas", teaSummary(e), [teaHtml(e)]));
+    return buttons + warnings + sections.join("");
+}
+
+// ▶ Make N and 🏪 Market, always in view when a crafted row is open.
+function actionButtons(e) {
+    if (e.action.function !== "/action_functions/production") return "";
+    const productHrid = e.action.outputItems[0].itemHrid;
+    const s = e.suggestion;
+    const make = s?.count ? `<button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">▶ Make ${s.count.toLocaleString("en-US")}</button>` : "";
+    const market = `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${esc(itemName(productHrid))} on the market; its buy and sell orders are read from there.">🏪 Market</button>`;
+    return `<div class="mwia-skill-buttons">${make}${market}</div>`;
+}
+
+function teaSummary(entry) {
+    const { best } = entry;
+    if (entry.betterTeas) return `best: ${esc(names(best.result.teas)) || "none"} <span class="mwia-ok">+${coins(best.result.goldPerDay - entry.current.goldPerDay)}/day</span>`;
+    if (!best.result.teas.length) return "none pays off";
+    return "yours are the best";
 }
 
 function teaHtml(entry) {
     const { current, best } = entry;
     const now = current.teas.length ? `Your teas: ${esc(names(current.teas))}.` : "You have no teas in this skill.";
     if (!entry.betterTeas) {
-        if (!best.result.teas.length) return `<b>Teas:</b> ${now} No tea earns back its cost here.`;
-        return `<b>Teas:</b> ${now} That is already the best setup. ${worthText(best.worth)}`;
+        if (!best.result.teas.length) return `${now} No tea earns back its cost here.`;
+        return `${now} That is already the best setup. ${worthText(best.worth)}`;
     }
-    return `<b>Teas:</b> ${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> → ${coins(best.result.goldPerDay)}/day
+    return `${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> → ${coins(best.result.goldPerDay)}/day
         (<span class="mwia-ok">+${coins(best.result.goldPerDay - current.goldPerDay)}</span>). ${worthText(best.worth)}`;
 }
 
@@ -171,32 +198,33 @@ function worthText(worth) {
 
 function suggestionShort(suggestion) {
     if (!suggestion?.known) return "";
-    if (!suggestion.demand) return " · no buyers above break-even";
-    if (!suggestion.count) return " · you hold enough";
-    return ` · make ${suggestion.count.toLocaleString("en-US")} (${hoursText(suggestion.hours)}${suggestion.short ? ", short job" : ""})`;
+    return " · " + suggestionSummary(suggestion);
+}
+
+function suggestionSummary(s) {
+    if (!s.known) return "open it on the market";
+    if (!s.demand) return "no buyers above break-even";
+    if (!s.count) return "you hold enough";
+    return `make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}${s.short ? ", short job" : ""})`;
 }
 
 function suggestionHtml(e) {
     const s = e.suggestion;
-    const productHrid = e.action.outputItems[0].itemHrid;
-    const product = esc(itemName(productHrid));
-    const market = `<button class="mwia-cart-btn" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${product} on the market; its buy and sell orders are read from there.">🏪 Market</button>`;
+    const product = esc(itemName(e.action.outputItems[0].itemHrid));
+    const bookAge = s.bookAt ? ` <span class="mwia-dim">(order book ${hoursText((Date.now() - s.bookAt) / 3600000)} old)</span>` : "";
     if (!s.known) {
-        return `<b>How many:</b> open ${product} on the market once (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion. ${market}`;
+        return `Open ${product} on the market once with 🏪 Market (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion.`;
     }
     if (!s.demand) {
-        return `<b>How many:</b> no buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off <span class="mwia-dim">(order book ${hoursText((Date.now() - s.bookAt) / 3600000)} old)</span>.
-            Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count. ${market}`;
+        return `No buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off${bookAge}. Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count.`;
     }
     const sources = [];
     if (s.fromCap !== null) sources.push(`${s.fromCap.toLocaleString("en-US")} by your <i>Max sold/day</i> × days`);
-    if (s.profitableBids !== null) sources.push(`${s.profitableBids.toLocaleString("en-US")} in buy orders at ≥ ${coins(s.breakEven)} <span class="mwia-dim">(order book ${hoursText((Date.now() - s.bookAt) / 3600000)} old)</span>`);
+    if (s.profitableBids !== null) sources.push(`${s.profitableBids.toLocaleString("en-US")} in buy orders at ≥ ${coins(s.breakEven)}${bookAge}`);
     const held = s.stock.inventory || s.stock.listed ? ` − ${(s.stock.inventory + s.stock.listed).toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)` : "";
-    let html = `<b>How many:</b> the market takes ${s.demand.toLocaleString("en-US")}: ${sources.join(" or ")}${held}.`;
+    let html = `The market takes ${s.demand.toLocaleString("en-US")}: ${sources.join(" or ")}${held}.`;
     if (s.profitableBids === null) html += ` Break-even price ${coins(s.breakEven)}.`;
     if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
-    if (!s.count) return html + ` You already hold enough – nothing to make. ${market}`;
-    html += ` → <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
-    html += `<br><button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">▶ Open ${esc(e.action.name)} with ${s.count.toLocaleString("en-US")}</button> ${market}`;
-    return html;
+    if (!s.count) return html + " You already hold enough – nothing to make.";
+    return html + ` → <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
 }

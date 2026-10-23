@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.14.1
+// @version      0.15.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1399,6 +1399,15 @@
 .mwia-skill-nums .mwia-dim { font-size: 11px; }
 .mwia-skill-detail { padding: 2px 8px 8px 20px; font-size: 12px; color: #c3c9e8; overflow-wrap: anywhere; }
 .mwia-skill-detail p { margin: 4px 0; }
+.mwia-skill-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.mwia-skill-buttons .mwia-btn { margin: 0; }
+.mwia-btn-quiet { background: #2a3150; border: 1px solid #3c4677; }
+.mwia-skill-sec { border-top: 1px solid #232a48; }
+.mwia-skill-sec > summary { padding: 5px 0; cursor: pointer; list-style: none; }
+.mwia-skill-sec > summary::-webkit-details-marker { display: none; }
+.mwia-skill-sec > summary::before { content: "\u25B8 "; color: #5b6bb0; }
+.mwia-skill-sec[open] > summary::before { content: "\u25BE "; }
+.mwia-skill-sec > p { margin: 2px 0 6px 14px; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
 .mwia-tip-pop {
@@ -1983,40 +1992,60 @@
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
   }
   function detailHtml(e, upcoming) {
-    const lines = [];
+    const section = (title, summary, body) => `<details class="mwia-skill-sec"><summary><b>${title}</b> ${summary}</summary>${body.map((line) => `<p>${line}</p>`).join("")}</details>`;
+    const sections = [];
+    const buttons = upcoming ? "" : actionButtons(e);
+    const warnings = e.warnings.map((warning) => `<p class="mwia-warn">\u26A0 ${esc(warningText(warning))}</p>`).join("");
     const speed = e.speed ? ` \u2192 ${dec(e.cycleSeconds, 2)} s with ${pct(e.speed)} speed${e.cycleSeconds <= 3 + 1e-9 ? " (3 s is the floor)" : ""}` : "";
     const buffEfficiency = e.efficiency - e.levelEfficiency;
-    lines.push(`<b>Time:</b> ${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} needed${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) \u2192 <b>${dec(e.actionsPerHour, 0)} actions/h</b>.`);
+    sections.push(section("\u23F1 Speed", `${dec(e.actionsPerHour, 0)} actions/h`, [
+      `${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} needed${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) \u2192 <b>${dec(e.actionsPerHour, 0)} actions/h</b>.`
+    ]));
+    const gold = [];
     const outputs = e.outputs.filter((o) => o.value > 0 || o.kind === "product").map((o) => {
       const how = o.sell.source === "ask" || o.sell.source === "bid" ? ` <span class="mwia-dim">(${o.sell.source} \u2212${dec(MARKET_TAX * 100, 0)}%)</span>` : o.sell.source === "vendor" || o.sell.source === "contents" ? ` <span class="mwia-dim">(${o.sell.source})</span>` : "";
       return `${count(o.count)} \xD7 ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}${how}`;
     });
     const boosts = [e.quantity && `quantity ${pct(e.quantity)}`, e.processing && `processing ${pct(e.processing)}`].filter(Boolean).join(", ");
-    lines.push(`<b>Each action gives</b>${boosts ? ` (${boosts})` : ""}: ${outputs.join(" \xB7 ")} = ${coins(e.revenuePerAction)}`);
+    gold.push(`<b>Each action gives</b>${boosts ? ` (${boosts})` : ""}: ${outputs.join(" \xB7 ")} = ${coins(e.revenuePerAction)}`);
     if (e.inputs.length) {
       const inputs = e.inputs.map((i) => `${count(i.count)} \xD7 ${esc(itemName(i.itemHrid))} @ ${i.price === null ? "\u2013" : coins(i.price)}`);
-      lines.push(`<b>Each action uses</b>${e.artisan ? ` (artisan ${pct(-e.artisan)})` : ""}: ${inputs.join(" \xB7 ")} = ${coins(e.costPerAction)}`);
+      gold.push(`<b>Each action uses</b>${e.artisan ? ` (artisan ${pct(-e.artisan)})` : ""}: ${inputs.join(" \xB7 ")} = ${coins(e.costPerAction)}`);
     }
     if (e.teas.length) {
-      lines.push(`<b>Teas:</b> ${e.teaCosts.map((t2) => `${esc(itemName(t2.itemHrid))} @ ${coins(t2.price)}`).join(" \xB7 ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h`);
+      gold.push(`<b>Teas:</b> ${e.teaCosts.map((t2) => `${esc(itemName(t2.itemHrid))} @ ${coins(t2.price)}`).join(" \xB7 ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h`);
     }
     const hours = e.capped ? ` \xD7 ${dec(e.hoursPerDay, 1)} h` : " \xD7 24";
-    lines.push(`<b>Gold:</b> (${coins(e.revenuePerAction)} \u2212 ${coins(e.costPerAction)}) \xD7 ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` \u2212 ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h${hours} = <b>${coins(e.goldPerDay)}/day</b>${e.margin !== null ? ` <span class="mwia-dim">(margin ${dec(e.margin * 100, 1)}%)</span>` : ""}`);
-    if (e.capped) lines.push(`<span class="mwia-dim">The market takes ${coins(e.mainCount * e.actionsPerHour * e.hoursPerDay)} a day (your limit), so this runs ${dec(e.hoursPerDay, 1)} h a day; fill the rest with something else.</span>`);
-    lines.push(`<b>XP:</b> ${dec(e.xpPerAction, 1)} per action \xD7 ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`);
-    for (const warning of e.warnings) lines.push(`<span class="mwia-warn">\u26A0 ${esc(warningText(warning))}</span>`);
-    if (!upcoming && e.suggestion) lines.push(suggestionHtml(e));
-    if (!upcoming) lines.push(teaHtml(e));
-    return lines.map((line) => `<p>${line}</p>`).join("");
+    gold.push(`(${coins(e.revenuePerAction)} \u2212 ${coins(e.costPerAction)}) \xD7 ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` \u2212 ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h${hours} = <b>${coins(e.goldPerDay)}/day</b>`);
+    if (e.capped) gold.push(`<span class="mwia-dim">The market takes ${coins(e.mainCount * e.actionsPerHour * e.hoursPerDay)} a day (your limit), so this runs ${dec(e.hoursPerDay, 1)} h a day; fill the rest with something else.</span>`);
+    sections.push(section("\u{1F4B0} Gold", `${coins(e.profitPerHour)}/h${e.margin !== null ? ` \xB7 margin ${dec(e.margin * 100, 1)}%` : ""}`, gold));
+    sections.push(section("\u2728 XP", `${coins(e.xpPerHour)}/h`, [`${dec(e.xpPerAction, 1)} per action \xD7 ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`]));
+    if (!upcoming && e.suggestion) sections.push(section("\u{1F4E6} How many", suggestionSummary(e.suggestion), [suggestionHtml(e)]));
+    if (!upcoming) sections.push(section("\u{1F375} Teas", teaSummary(e), [teaHtml(e)]));
+    return buttons + warnings + sections.join("");
+  }
+  function actionButtons(e) {
+    if (e.action.function !== "/action_functions/production") return "";
+    const productHrid = e.action.outputItems[0].itemHrid;
+    const s = e.suggestion;
+    const make = s?.count ? `<button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">\u25B6 Make ${s.count.toLocaleString("en-US")}</button>` : "";
+    const market = `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${esc(itemName(productHrid))} on the market; its buy and sell orders are read from there.">\u{1F3EA} Market</button>`;
+    return `<div class="mwia-skill-buttons">${make}${market}</div>`;
+  }
+  function teaSummary(entry) {
+    const { best } = entry;
+    if (entry.betterTeas) return `best: ${esc(names(best.result.teas)) || "none"} <span class="mwia-ok">+${coins(best.result.goldPerDay - entry.current.goldPerDay)}/day</span>`;
+    if (!best.result.teas.length) return "none pays off";
+    return "yours are the best";
   }
   function teaHtml(entry) {
     const { current, best } = entry;
     const now = current.teas.length ? `Your teas: ${esc(names(current.teas))}.` : "You have no teas in this skill.";
     if (!entry.betterTeas) {
-      if (!best.result.teas.length) return `<b>Teas:</b> ${now} No tea earns back its cost here.`;
-      return `<b>Teas:</b> ${now} That is already the best setup. ${worthText(best.worth)}`;
+      if (!best.result.teas.length) return `${now} No tea earns back its cost here.`;
+      return `${now} That is already the best setup. ${worthText(best.worth)}`;
     }
-    return `<b>Teas:</b> ${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> \u2192 ${coins(best.result.goldPerDay)}/day
+    return `${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> \u2192 ${coins(best.result.goldPerDay)}/day
         (<span class="mwia-ok">+${coins(best.result.goldPerDay - current.goldPerDay)}</span>). ${worthText(best.worth)}`;
   }
   function worthText(worth) {
@@ -2025,33 +2054,33 @@
   }
   function suggestionShort(suggestion) {
     if (!suggestion?.known) return "";
-    if (!suggestion.demand) return " \xB7 no buyers above break-even";
-    if (!suggestion.count) return " \xB7 you hold enough";
-    return ` \xB7 make ${suggestion.count.toLocaleString("en-US")} (${hoursText(suggestion.hours)}${suggestion.short ? ", short job" : ""})`;
+    return " \xB7 " + suggestionSummary(suggestion);
+  }
+  function suggestionSummary(s) {
+    if (!s.known) return "open it on the market";
+    if (!s.demand) return "no buyers above break-even";
+    if (!s.count) return "you hold enough";
+    return `make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}${s.short ? ", short job" : ""})`;
   }
   function suggestionHtml(e) {
     const s = e.suggestion;
-    const productHrid = e.action.outputItems[0].itemHrid;
-    const product = esc(itemName(productHrid));
-    const market = `<button class="mwia-cart-btn" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${product} on the market; its buy and sell orders are read from there.">\u{1F3EA} Market</button>`;
+    const product = esc(itemName(e.action.outputItems[0].itemHrid));
+    const bookAge = s.bookAt ? ` <span class="mwia-dim">(order book ${hoursText((Date.now() - s.bookAt) / 36e5)} old)</span>` : "";
     if (!s.known) {
-      return `<b>How many:</b> open ${product} on the market once (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion. ${market}`;
+      return `Open ${product} on the market once with \u{1F3EA} Market (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion.`;
     }
     if (!s.demand) {
-      return `<b>How many:</b> no buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off <span class="mwia-dim">(order book ${hoursText((Date.now() - s.bookAt) / 36e5)} old)</span>.
-            Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count. ${market}`;
+      return `No buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off${bookAge}. Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count.`;
     }
     const sources = [];
     if (s.fromCap !== null) sources.push(`${s.fromCap.toLocaleString("en-US")} by your <i>Max sold/day</i> \xD7 days`);
-    if (s.profitableBids !== null) sources.push(`${s.profitableBids.toLocaleString("en-US")} in buy orders at \u2265 ${coins(s.breakEven)} <span class="mwia-dim">(order book ${hoursText((Date.now() - s.bookAt) / 36e5)} old)</span>`);
+    if (s.profitableBids !== null) sources.push(`${s.profitableBids.toLocaleString("en-US")} in buy orders at \u2265 ${coins(s.breakEven)}${bookAge}`);
     const held = s.stock.inventory || s.stock.listed ? ` \u2212 ${(s.stock.inventory + s.stock.listed).toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)` : "";
-    let html = `<b>How many:</b> the market takes ${s.demand.toLocaleString("en-US")}: ${sources.join(" or ")}${held}.`;
+    let html = `The market takes ${s.demand.toLocaleString("en-US")}: ${sources.join(" or ")}${held}.`;
     if (s.profitableBids === null) html += ` Break-even price ${coins(s.breakEven)}.`;
     if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
-    if (!s.count) return html + ` You already hold enough \u2013 nothing to make. ${market}`;
-    html += ` \u2192 <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
-    html += `<br><button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">\u25B6 Open ${esc(e.action.name)} with ${s.count.toLocaleString("en-US")}</button> ${market}`;
-    return html;
+    if (!s.count) return html + " You already hold enough \u2013 nothing to make.";
+    return html + ` \u2192 <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
   }
 
   // src/game-nav.js
