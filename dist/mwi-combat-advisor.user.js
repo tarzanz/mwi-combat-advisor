@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.19.0
+// @version      0.19.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1877,7 +1877,14 @@
       limitedByCoins = true;
     }
     const hours = count2 / entry.actionsPerHour;
-    return { ...result, units, count: count2, hours, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
+    const batch = {
+      materials: count2 * entry.costPerAction,
+      toBuy: spend(count2),
+      revenue: count2 * entry.revenuePerAction,
+      teas: entry.teaPerHour * hours
+    };
+    batch.profit = batch.revenue - batch.materials - batch.teas;
+    return { ...result, units, count: count2, hours, batch, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
   }
   function chainBuilder(who, data, market, teaMode) {
     const sources = /* @__PURE__ */ new Map();
@@ -2339,7 +2346,7 @@
     if (!s.known) return "open it on the market";
     if (!s.demand) return s.nearAsks === null ? "no buyers above break-even" : "no buyers or sellers to go by";
     if (!s.count) return "you hold enough";
-    return `make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}${s.short ? ", short job" : ""})`;
+    return `make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}${s.short ? ", short job" : ""}) \xB7 ${coins(s.batch.materials)} in, ${s.batch.profit >= 0 ? "+" : "\u2212"}${coins(Math.abs(s.batch.profit))}`;
   }
   function suggestionHtml(e) {
     const s = e.suggestion;
@@ -2362,7 +2369,13 @@
     if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
     if (s.limitedByDays && !s.limitedByCoins) html += ` Capped at ${s.days} day${s.days === 1 ? "" : "s"} of crafting (<i>Make for</i>).`;
     if (!s.count) return html + " You already hold enough \u2013 nothing to make.";
-    return html + ` \u2192 <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
+    html += ` \u2192 <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
+    const b = s.batch;
+    const owned = b.materials - b.toBuy;
+    html += `<br><b>This batch:</b> materials ${coins(b.materials)}${owned > 1 ? ` (you buy ${coins(b.toBuy)}; ${coins(owned)} worth is already in your inventory)` : ""}${b.teas > 1 ? `, teas ${coins(b.teas)}` : ""}.
+        It sells for ${coins(b.revenue)} after tax \u2192 <b class="${b.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${b.profit >= 0 ? "+" : "\u2212"}${coins(Math.abs(b.profit))}</b>.
+        <span class="mwia-dim">The coins come back as the items sell, so a slow seller ties them up for a while.</span>`;
+    return html;
   }
   var INVENTORY3 = "/item_locations/inventory";
   function upgradeRanking(settings) {

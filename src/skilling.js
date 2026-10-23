@@ -408,7 +408,16 @@ export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins 
         limitedByCoins = true;
     }
     const hours = count / entry.actionsPerHour;
-    return { ...result, units, count, hours, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
+    // The batch: what its materials are worth, the part you still have to buy,
+    // and its profit once it sells (teas for its hours included).
+    const batch = {
+        materials: count * entry.costPerAction,
+        toBuy: spend(count),
+        revenue: count * entry.revenuePerAction,
+        teas: entry.teaPerHour * hours,
+    };
+    batch.profit = batch.revenue - batch.materials - batch.teas;
+    return { ...result, units, count, hours, batch, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
 }
 
 // Making it all yourself: every material your levels let you make or gather is

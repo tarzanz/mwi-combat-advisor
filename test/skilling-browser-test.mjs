@@ -271,6 +271,9 @@ try {
     const planRow = (await rows(page)).find((r) => r.name === topTailoring.action.name);
     check("suggestion from the order book, less stock and listings", expPlan.known && expPlan.profitableBids === 90 && expPlan.count === Math.ceil((90 - 8) / topTailoring.mainCount) && planRow.sub.includes(`make ${expPlan.count}`),
         `${JSON.stringify(expPlan && { bids: expPlan.profitableBids, count: expPlan.count, breakEven: expPlan.breakEven })} / ${planRow?.sub}`);
+    const batch = expPlan.batch;
+    check("batch cost and profit add up", Math.abs(batch.materials - expPlan.count * topTailoring.costPerAction) < 1e-6 && Math.abs(batch.profit - (batch.revenue - batch.materials - batch.teas)) < 1e-6 && planRow.sub.includes(`${coinText(batch.materials)} in, +${coinText(batch.profit)}`),
+        `${planRow.sub} vs ${coinText(batch.materials)} / ${coinText(batch.profit)}`);
     check("order book survives a reload", await page.evaluate((hrid) => !!JSON.parse(localStorage.getItem("mwia-order-books") || "{}")[hrid], PRODUCT));
 
     // An order book without buyers above break-even says so, instead of "you hold enough".

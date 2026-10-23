@@ -41,7 +41,8 @@ buy, by simulating *your own* character.
   (the most of: your *Max sold/day*, the buy orders that pay above break-even, and – when you sell at the ask – what
   others have listed within 5% of the lowest ask, your own orders taken out; the order book is read when you open the
   item on the market and kept for a day), less what you already have in the inventory or on your own sell orders, and
-  no more than your coins buy materials for (using materials you have first). *▶ Make N* opens the action in
+  no more than your coins buy materials for (using materials you have first). The row and *📦 How many* show what the batch's materials cost (and how much of it
+  you still have to buy) and its profit once it sells. *▶ Make N* opens the action in
   the game with the count filled in; you click the game's button. Jobs shorter than *Shortest job* are greyed out
   and listed last; no job is longer than *Make for*. **🍵 Buy teas** puts the best teas for the job in the MWITools
   cart (a gathering job runs for *Make for*), less what you have. The **Focus** slider ranks by gold, XP or a mix
