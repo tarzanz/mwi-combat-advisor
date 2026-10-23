@@ -1,17 +1,18 @@
 // The Skilling tab: gathering and crafting ranked by gold per day, with the
 // calculation behind every number one tap away.
 
-import { getClientData, itemName, marketEntry, pricesStamp } from "./game-data.js";
+import { getClientData, itemName, marketEntry, marketListings, pricesStamp } from "./game-data.js";
 import { state } from "./game-state.js";
 import { coinsInput, esc, shortCoins } from "./format.js";
 import { ASK_WINDOW, MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, heldStock, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
+import { UPGRADES_SHOWN, rankUpgrades } from "./skilling-upgrades.js";
 
 const SHORT_LIST = 25;
 const PLAN_DAYS = [0.5, 1, 2, 3, 7];
 const MIN_JOB_HOURS = [0, 0.5, 1, 2, 4, 8];
 
 // open: the rows and headings the player has opened, kept across re-renders.
-const view = { key: "", result: null, showAll: false, open: new Set() };
+const view = { key: "", result: null, upgradesKey: "", upgrades: null, showAll: false, open: new Set() };
 
 const dec = (n, d = 1) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
@@ -94,6 +95,7 @@ export function renderSkilling(settings) {
         html += `<button class="mwia-link" data-action="skilling-all">${view.showAll ? "Show fewer" : `Show all ${available.length}`}</button>`;
     }
     html += `</section>`;
+    html += upgradesHtml(settings);
     if (upcoming.length) {
         html += `<section><h3>Unlocks soon</h3><p class="mwia-dim">Within ${NEAR_LEVELS} levels, worked out at the level it unlocks. The time assumes you train the skill with its fastest XP action you have now.</p>
           <div class="mwia-skill-list">${upcoming.map((entry) => rowHtml(entry, false, true)).join("")}</div></section>`;
@@ -205,7 +207,7 @@ function actionButtons(e) {
     const make = crafted && s?.count ? `<button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">▶ Make ${s.count.toLocaleString("en-US")}</button>` : "";
     const plan = e.teaPlan;
     const teas = plan?.items.length
-        ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-teas" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart: ${esc(plan.items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">🍵 Buy teas</button>`
+        ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart: ${esc(plan.items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">🍵 Buy teas</button>`
         : "";
     const market = crafted ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${esc(itemName(productHrid))} on the market; its buy and sell orders are read from there.">🏪 Market</button>` : "";
     return make || teas || market ? `<div class="mwia-skill-buttons">${make}${teas}${market}</div>` : "";
@@ -282,4 +284,68 @@ function suggestionHtml(e) {
     if (s.limitedByDays && !s.limitedByCoins) html += ` Capped at ${s.days} day${s.days === 1 ? "" : "s"} of crafting (<i>Make for</i>).`;
     if (!s.count) return html + " You already hold enough – nothing to make.";
     return html + ` → <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
+}
+
+// ---------- upgrades that pay back ----------
+
+const INVENTORY = "/item_locations/inventory";
+
+function upgradeRanking(settings) {
+    const skill = settings.skillingSkill;
+    const key = [state.updatedAt, pricesStamp(), skill, settings.skillingSellAt, settings.skillingSellCap].join("|");
+    if (view.upgradesKey !== key) {
+        const data = getClientData();
+        const equipped = {};
+        const owned = {};
+        for (const item of state.items.values()) {
+            if (!item.itemHrid) continue;
+            if (item.itemLocationHrid === INVENTORY) (owned[item.itemHrid] ||= []).push(item.enhancementLevel || 0);
+            else equipped[item.itemLocationHrid] = { itemHrid: item.itemHrid, enhancementLevel: item.enhancementLevel || 0 };
+        }
+        const houseLevels = {};
+        for (const [hrid, room] of Object.entries(state.character.characterHouseRoomMap || {})) houseLevels[hrid] = room.level || 0;
+        view.upgrades = rankUpgrades(skillingCharacter(state.character, state.items, data), data, marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt), skill, {
+            equipped,
+            owned,
+            listings: (hrid) => marketListings(hrid),
+            houseLevels,
+            sellCap: Number(settings.skillingSellCap) || 0,
+            gameEquipmentBuffs: state.character.equipmentActionTypeBuffsMap || null,
+        });
+        view.upgradesKey = key;
+    }
+    return view.upgrades;
+}
+
+function upgradesHtml(settings) {
+    if (settings.skillingSkill === "all") {
+        return `<section><h3>Upgrades that pay back</h3><p class="mwia-dim">Pick a skill above to see which tools, clothes, jewellery and house rooms pay for themselves.</p></section>`;
+    }
+    const { base, upgrades, check } = upgradeRanking(settings);
+    let html = `<section><h3>Upgrades that pay back</h3>`;
+    if (!base) return html + `<p class="mwia-dim">Nothing in this skill earns gold at your level yet.</p></section>`;
+    html += `<p class="mwia-dim">Each tried in place of what you wear now, measured on the skill's best action (now ${esc(base.action.name)}, ${coins(base.goldPerDay)}/day). Payback = price ÷ extra gold a day.</p>`;
+    if (check && !check.matches) {
+        html += `<div class="mwia-notice mwia-notice-warn">Your gear's action speed here is ${pct(check.game)} by the game but ${pct(check.mine)} by the item stats, so these numbers may be a little off.</div>`;
+    }
+    if (!upgrades.length) return html + `<p class="mwia-dim">Nothing for sale would earn more here.</p></section>`;
+    html += `<div class="mwia-upgrade-list">${upgrades.slice(0, UPGRADES_SHOWN).map(upgradeRowHtml).join("")}</div></section>`;
+    return html;
+}
+
+function upgradeRowHtml(u) {
+    const payback = u.paybackDays === null ? "price unknown" : u.paybackDays === 0 ? "free – you own it" : `pays back in ${hoursText(u.paybackDays * 24)}`;
+    const gain = `+${coins(u.gainPerDay)}/day${u.xpPerDay > 1 ? `, +${coins(u.xpPerDay)} XP/day` : ""}`;
+    if (u.kind === "house") {
+        const cart = u.materials.filter((m) => m.itemHrid !== "/items/coin").map((m) => ({ hrid: m.itemHrid, quantity: m.count }));
+        const coinsNeeded = u.materials.find((m) => m.itemHrid === "/items/coin")?.count || 0;
+        return `<div class="mwia-upgrade"><div><b>🏠 ${esc(u.name)} → level ${u.level}</b> <span class="mwia-dim">${u.price === null ? "" : coins(u.price)}</span>
+            <small>${gain} · ${payback}${coinsNeeded ? ` · incl. ${coins(coinsNeeded)} coins` : ""}</small></div>
+            ${cart.length ? `<button class="mwia-cart-btn" data-action="skilling-cart" data-teas="${esc(JSON.stringify(cart))}" title="Adds the materials to the MWITools cart">🛒 Materials</button>` : ""}</div>`;
+    }
+    const name = `${esc(itemName(u.itemHrid))}${u.enhancementLevel ? ` <span class="mwia-enh">+${u.enhancementLevel}</span>` : ""}`;
+    const replaces = u.replaces ? `replaces ${esc(itemName(u.replaces.itemHrid))}${u.replaces.enhancementLevel ? ` +${u.replaces.enhancementLevel}` : ""}` : "empty slot";
+    const cart = u.owned ? "" : `<button class="mwia-cart-btn" data-action="skilling-cart" data-teas="${esc(JSON.stringify([{ hrid: u.itemHrid, quantity: 1, enhancementLevel: u.enhancementLevel }]))}" title="Adds it to the MWITools cart">🛒 Add</button>`;
+    return `<div class="mwia-upgrade"><div><b>${name}</b> <span class="mwia-dim">${u.owned ? "you own it" : coins(u.price)}</span>
+        <small>${gain} · ${payback} · ${replaces}</small></div>${cart}</div>`;
 }

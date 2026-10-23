@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.18.0
+// @version      0.19.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1402,6 +1402,8 @@
 .mwia-skill-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
 .mwia-skill-buttons .mwia-btn { margin: 0; }
 .mwia-btn-quiet { background: #2a3150; border: 1px solid #3c4677; }
+.mwia-upgrade { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid #262d4d; }
+.mwia-upgrade small { display: block; color: #8189b0; font-size: 11px; }
 .mwia-skill-sec { border-top: 1px solid #232a48; }
 .mwia-skill-sec > summary { padding: 5px 0; cursor: pointer; list-style: none; }
 .mwia-skill-sec > summary::-webkit-details-marker { display: none; }
@@ -2029,11 +2031,107 @@
     return { available, upcoming };
   }
 
+  // src/skilling-upgrades.js
+  var MAX_HOUSE_LEVEL = 8;
+  var UPGRADES_SHOWN = 10;
+  var GATHERING_SKILLS = /* @__PURE__ */ new Set(["milking", "foraging", "woodcutting"]);
+  function itemSkillBuffs(itemHrid, enhancementLevel, skill, data) {
+    const detail = data.itemDetailMap[itemHrid]?.equipmentDetail;
+    const stats = detail?.noncombatStats || {};
+    const bonuses = detail?.noncombatEnhancementBonuses || {};
+    const multiplier = data.enhancementLevelTotalBonusMultiplierTable?.[enhancementLevel || 0] || 0;
+    const value = (stat) => (stats[stat] || 0) + (bonuses[stat] || 0) * multiplier;
+    const buffs = [];
+    const add = (typeHrid, amount) => amount && buffs.push({ typeHrid, flatBoost: amount, ratioBoost: 0 });
+    add("/buff_types/action_speed", value(skill + "Speed") + value("skillingSpeed"));
+    add("/buff_types/efficiency", value(skill + "Efficiency") + value("skillingEfficiency"));
+    add("/buff_types/wisdom", value(skill + "Experience") + value("skillingExperience"));
+    add("/buff_types/rare_find", value(skill + "RareFind") + value("skillingRareFind"));
+    if (GATHERING_SKILLS.has(skill)) add("/buff_types/gathering", value("gatheringQuantity"));
+    return { buffs, concentration: value("drinkConcentration") };
+  }
+  var negate = (buffs) => buffs.map((b) => ({ ...b, flatBoost: -b.flatBoost }));
+  var location = (itemHrid, data) => "/item_locations/" + (data.itemDetailMap[itemHrid]?.equipmentDetail?.type || "").split("/").pop();
+  function bestDay(actions, who, data, market, sellCap) {
+    let best = null;
+    for (const action of actions) {
+      const r = limitSales(evaluateAction(action, who, data, market), sellCap);
+      if (r.valid && (!best || r.goldPerDay > best.goldPerDay)) best = r;
+    }
+    return best;
+  }
+  function rankUpgrades(who, data, market, skill, { equipped, owned, listings, houseLevels, sellCap = 0, gameEquipmentBuffs = null }) {
+    const type = skillType(skill);
+    const actions = skillingActions(data).filter((a) => a.type === type && (who.levels[a.levelRequirement.skillHrid] ?? 1) >= a.levelRequirement.level);
+    const base = bestDay(actions, who, data, market, sellCap);
+    if (!base) return { base: null, upgrades: [], check: null };
+    const withBuffs = (extra, concentration = 0) => ({
+      ...who,
+      buffs: { ...who.buffs || {}, [type]: [...who.buffs?.[type] || [], ...extra] },
+      concentration: who.concentration + concentration
+    });
+    const meets = (itemHrid) => (data.itemDetailMap[itemHrid]?.equipmentDetail?.levelRequirements || []).every((req) => (who.levels[req.skillHrid] ?? 0) >= req.level);
+    const upgrades = [];
+    for (const item of Object.values(data.itemDetailMap)) {
+      const detail = item.equipmentDetail;
+      if (!detail?.noncombatStats || !meets(item.hrid)) continue;
+      if (!itemSkillBuffs(item.hrid, 0, skill, data).buffs.length && !detail.noncombatStats.drinkConcentration) continue;
+      const slot = location(item.hrid, data);
+      const current = equipped[slot] || null;
+      const old = current ? itemSkillBuffs(current.itemHrid, current.enhancementLevel, skill, data) : { buffs: [], concentration: 0 };
+      const offers = [...(owned[item.hrid] || []).map((level2) => ({ enhancementLevel: level2, price: 0, owned: true })), ...listings(item.hrid) || []];
+      const seen = /* @__PURE__ */ new Set();
+      for (const offer of offers) {
+        const key = offer.enhancementLevel;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (current && current.itemHrid === item.hrid && current.enhancementLevel >= offer.enhancementLevel) continue;
+        const next = itemSkillBuffs(item.hrid, offer.enhancementLevel, skill, data);
+        const after = bestDay(actions, withBuffs([...negate(old.buffs), ...next.buffs], next.concentration - old.concentration), data, market, sellCap);
+        const gain = after.goldPerDay - base.goldPerDay;
+        if (gain <= 1) continue;
+        upgrades.push({
+          kind: "item",
+          itemHrid: item.hrid,
+          enhancementLevel: offer.enhancementLevel,
+          owned: !!offer.owned,
+          price: offer.price,
+          replaces: current,
+          gainPerDay: gain,
+          xpPerDay: after.xpPerDay - base.xpPerDay,
+          paybackDays: offer.price / gain,
+          bestAction: after.action
+        });
+      }
+    }
+    const room = Object.values(data.houseRoomDetailMap || {}).find((r) => r.skillHrid === "/skills/" + skill);
+    const level = room ? houseLevels[room.hrid] || 0 : MAX_HOUSE_LEVEL;
+    if (room && level < MAX_HOUSE_LEVEL) {
+      const step = [...room.actionBuffs || [], ...room.globalBuffs || []].map((b) => ({ typeHrid: b.typeHrid, flatBoost: level === 0 ? b.flatBoost : b.flatBoostLevelBonus, ratioBoost: 0 }));
+      const after = bestDay(actions, withBuffs(step), data, market, sellCap);
+      const costs = room.upgradeCostsMap?.[String(level + 1)] || [];
+      const priced = costs.map((c2) => ({ itemHrid: c2.itemHrid, count: c2.count, price: market.buy(c2.itemHrid) }));
+      const price = priced.some((c2) => c2.price === null) ? null : priced.reduce((sum, c2) => sum + c2.count * c2.price, 0);
+      const gain = after.goldPerDay - base.goldPerDay;
+      if (gain > 1) {
+        upgrades.push({ kind: "house", roomHrid: room.hrid, name: room.name, level: level + 1, price, materials: priced, gainPerDay: gain, xpPerDay: after.xpPerDay - base.xpPerDay, paybackDays: price === null ? null : price / gain, bestAction: after.action });
+      }
+    }
+    upgrades.sort((a, b) => (a.paybackDays ?? Infinity) - (b.paybackDays ?? Infinity));
+    let check = null;
+    if (gameEquipmentBuffs) {
+      const game = (gameEquipmentBuffs[type] || []).filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((sum, b) => sum + (b.flatBoost || 0) + (b.ratioBoost || 0), 0);
+      const mine = Object.values(equipped).reduce((sum, e) => sum + itemSkillBuffs(e.itemHrid, e.enhancementLevel, skill, data).buffs.filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((s, b) => s + b.flatBoost, 0), 0);
+      check = { game, mine, matches: Math.abs(game - mine) < 5e-3 };
+    }
+    return { base, upgrades, check };
+  }
+
   // src/skilling-ui.js
   var SHORT_LIST = 25;
   var PLAN_DAYS = [0.5, 1, 2, 3, 7];
   var MIN_JOB_HOURS = [0, 0.5, 1, 2, 4, 8];
-  var view = { key: "", result: null, showAll: false, open: /* @__PURE__ */ new Set() };
+  var view = { key: "", result: null, upgradesKey: "", upgrades: null, showAll: false, open: /* @__PURE__ */ new Set() };
   var dec = (n2, d = 1) => n2.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
   var count = (n2) => n2 >= 100 ? dec(n2, 0) : n2 >= 1 ? dec(n2, 2) : n2.toPrecision(2);
@@ -2107,6 +2205,7 @@
       html += `<button class="mwia-link" data-action="skilling-all">${view.showAll ? "Show fewer" : `Show all ${available.length}`}</button>`;
     }
     html += `</section>`;
+    html += upgradesHtml(settings);
     if (upcoming.length) {
       html += `<section><h3>Unlocks soon</h3><p class="mwia-dim">Within ${NEAR_LEVELS} levels, worked out at the level it unlocks. The time assumes you train the skill with its fastest XP action you have now.</p>
           <div class="mwia-skill-list">${upcoming.map((entry) => rowHtml(entry, false, true)).join("")}</div></section>`;
@@ -2199,7 +2298,7 @@
     const s = e.suggestion;
     const make = crafted && s?.count ? `<button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">\u25B6 Make ${s.count.toLocaleString("en-US")}</button>` : "";
     const plan = e.teaPlan;
-    const teas = plan?.items.length ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-teas" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart: ${esc(plan.items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">\u{1F375} Buy teas</button>` : "";
+    const teas = plan?.items.length ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart: ${esc(plan.items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">\u{1F375} Buy teas</button>` : "";
     const market = crafted ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${esc(itemName(productHrid))} on the market; its buy and sell orders are read from there.">\u{1F3EA} Market</button>` : "";
     return make || teas || market ? `<div class="mwia-skill-buttons">${make}${teas}${market}</div>` : "";
   }
@@ -2264,6 +2363,65 @@
     if (s.limitedByDays && !s.limitedByCoins) html += ` Capped at ${s.days} day${s.days === 1 ? "" : "s"} of crafting (<i>Make for</i>).`;
     if (!s.count) return html + " You already hold enough \u2013 nothing to make.";
     return html + ` \u2192 <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
+  }
+  var INVENTORY3 = "/item_locations/inventory";
+  function upgradeRanking(settings) {
+    var _a;
+    const skill = settings.skillingSkill;
+    const key = [state.updatedAt, pricesStamp(), skill, settings.skillingSellAt, settings.skillingSellCap].join("|");
+    if (view.upgradesKey !== key) {
+      const data = getClientData();
+      const equipped = {};
+      const owned = {};
+      for (const item of state.items.values()) {
+        if (!item.itemHrid) continue;
+        if (item.itemLocationHrid === INVENTORY3) (owned[_a = item.itemHrid] || (owned[_a] = [])).push(item.enhancementLevel || 0);
+        else equipped[item.itemLocationHrid] = { itemHrid: item.itemHrid, enhancementLevel: item.enhancementLevel || 0 };
+      }
+      const houseLevels = {};
+      for (const [hrid, room] of Object.entries(state.character.characterHouseRoomMap || {})) houseLevels[hrid] = room.level || 0;
+      view.upgrades = rankUpgrades(skillingCharacter(state.character, state.items, data), data, marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt), skill, {
+        equipped,
+        owned,
+        listings: (hrid) => marketListings(hrid),
+        houseLevels,
+        sellCap: Number(settings.skillingSellCap) || 0,
+        gameEquipmentBuffs: state.character.equipmentActionTypeBuffsMap || null
+      });
+      view.upgradesKey = key;
+    }
+    return view.upgrades;
+  }
+  function upgradesHtml(settings) {
+    if (settings.skillingSkill === "all") {
+      return `<section><h3>Upgrades that pay back</h3><p class="mwia-dim">Pick a skill above to see which tools, clothes, jewellery and house rooms pay for themselves.</p></section>`;
+    }
+    const { base, upgrades, check } = upgradeRanking(settings);
+    let html = `<section><h3>Upgrades that pay back</h3>`;
+    if (!base) return html + `<p class="mwia-dim">Nothing in this skill earns gold at your level yet.</p></section>`;
+    html += `<p class="mwia-dim">Each tried in place of what you wear now, measured on the skill's best action (now ${esc(base.action.name)}, ${coins(base.goldPerDay)}/day). Payback = price \xF7 extra gold a day.</p>`;
+    if (check && !check.matches) {
+      html += `<div class="mwia-notice mwia-notice-warn">Your gear's action speed here is ${pct(check.game)} by the game but ${pct(check.mine)} by the item stats, so these numbers may be a little off.</div>`;
+    }
+    if (!upgrades.length) return html + `<p class="mwia-dim">Nothing for sale would earn more here.</p></section>`;
+    html += `<div class="mwia-upgrade-list">${upgrades.slice(0, UPGRADES_SHOWN).map(upgradeRowHtml).join("")}</div></section>`;
+    return html;
+  }
+  function upgradeRowHtml(u) {
+    const payback = u.paybackDays === null ? "price unknown" : u.paybackDays === 0 ? "free \u2013 you own it" : `pays back in ${hoursText(u.paybackDays * 24)}`;
+    const gain = `+${coins(u.gainPerDay)}/day${u.xpPerDay > 1 ? `, +${coins(u.xpPerDay)} XP/day` : ""}`;
+    if (u.kind === "house") {
+      const cart2 = u.materials.filter((m) => m.itemHrid !== "/items/coin").map((m) => ({ hrid: m.itemHrid, quantity: m.count }));
+      const coinsNeeded = u.materials.find((m) => m.itemHrid === "/items/coin")?.count || 0;
+      return `<div class="mwia-upgrade"><div><b>\u{1F3E0} ${esc(u.name)} \u2192 level ${u.level}</b> <span class="mwia-dim">${u.price === null ? "" : coins(u.price)}</span>
+            <small>${gain} \xB7 ${payback}${coinsNeeded ? ` \xB7 incl. ${coins(coinsNeeded)} coins` : ""}</small></div>
+            ${cart2.length ? `<button class="mwia-cart-btn" data-action="skilling-cart" data-teas="${esc(JSON.stringify(cart2))}" title="Adds the materials to the MWITools cart">\u{1F6D2} Materials</button>` : ""}</div>`;
+    }
+    const name = `${esc(itemName(u.itemHrid))}${u.enhancementLevel ? ` <span class="mwia-enh">+${u.enhancementLevel}</span>` : ""}`;
+    const replaces = u.replaces ? `replaces ${esc(itemName(u.replaces.itemHrid))}${u.replaces.enhancementLevel ? ` +${u.replaces.enhancementLevel}` : ""}` : "empty slot";
+    const cart = u.owned ? "" : `<button class="mwia-cart-btn" data-action="skilling-cart" data-teas="${esc(JSON.stringify([{ hrid: u.itemHrid, quantity: 1, enhancementLevel: u.enhancementLevel }]))}" title="Adds it to the MWITools cart">\u{1F6D2} Add</button>`;
+    return `<div class="mwia-upgrade"><div><b>${name}</b> <span class="mwia-dim">${u.owned ? "you own it" : coins(u.price)}</span>
+        <small>${gain} \xB7 ${payback} \xB7 ${replaces}</small></div>${cart}</div>`;
   }
 
   // src/game-nav.js
@@ -3220,7 +3378,7 @@
         ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
         openWithCount(target.dataset.hrid, Number(target.dataset.count));
         break;
-      case "skilling-teas":
+      case "skilling-cart":
         sendItemsToCart(JSON.parse(target.dataset.teas || "[]"));
         break;
       case "skilling-market":
@@ -3342,7 +3500,7 @@
   }
 
   // src/plan-train.js
-  var INVENTORY3 = "/item_locations/inventory";
+  var INVENTORY4 = "/item_locations/inventory";
   var PRODUCE = /* @__PURE__ */ new Set(["chain", "single", "mixed"]);
   function itemFromIcon(element) {
     for (const use of element?.querySelectorAll("use") || []) {
@@ -3384,7 +3542,7 @@
   function inventoryCounts(items) {
     const counts = /* @__PURE__ */ new Map();
     for (const item of items.values ? items.values() : items) {
-      if (item.itemLocationHrid !== INVENTORY3 || (item.enhancementLevel || 0) !== 0) continue;
+      if (item.itemLocationHrid !== INVENTORY4 || (item.enhancementLevel || 0) !== 0) continue;
       counts.set(item.itemHrid, (counts.get(item.itemHrid) || 0) + item.count);
     }
     return counts;

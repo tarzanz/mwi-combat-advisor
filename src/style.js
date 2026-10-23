@@ -119,6 +119,8 @@ export const CSS = `
 .mwia-skill-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
 .mwia-skill-buttons .mwia-btn { margin: 0; }
 .mwia-btn-quiet { background: #2a3150; border: 1px solid #3c4677; }
+.mwia-upgrade { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid #262d4d; }
+.mwia-upgrade small { display: block; color: #8189b0; font-size: 11px; }
 .mwia-skill-sec { border-top: 1px solid #232a48; }
 .mwia-skill-sec > summary { padding: 5px 0; cursor: pointer; list-style: none; }
 .mwia-skill-sec > summary::-webkit-details-marker { display: none; }

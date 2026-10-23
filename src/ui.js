@@ -820,7 +820,7 @@ function onClick(event) {
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
             openWithCount(target.dataset.hrid, Number(target.dataset.count));
             break;
-        case "skilling-teas":
+        case "skilling-cart":
             sendItemsToCart(JSON.parse(target.dataset.teas || "[]"));
             break;
         case "skilling-market":

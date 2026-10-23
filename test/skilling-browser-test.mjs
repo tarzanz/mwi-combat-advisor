@@ -9,6 +9,7 @@ import puppeteer from "puppeteer-core";
 import { WebSocketServer } from "ws";
 import { fixtureCharacter } from "./fixture-character.js";
 import { NEAR_LEVELS, RISKY_MARGIN, heldStock, marketPricer, rankSkilling, skillingCharacter } from "../src/skilling.js";
+import { rankUpgrades } from "../src/skilling-upgrades.js";
 import { shortCoins } from "../src/format.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -145,14 +146,15 @@ const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") 
 const executablePath = process.env.BROWSER_PATH || "/usr/bin/firefox";
 const firefox = /firefox/.test(executablePath);
 const browser = await puppeteer.launch({ browser: firefox ? "firefox" : "chrome", executablePath, headless: true, args: firefox ? [] : ["--no-sandbox"] });
-const rows = (page, section = 0) => page.$$eval(".mwia-body section", (sections, i) => [...(sections[i]?.querySelectorAll(".mwia-skill-row") || [])].map((row) => ({
+// Rows of the section with this heading ("Best now", "Unlocks soon").
+const rows = (page, heading = "Best now") => page.$$eval(".mwia-body section", (sections, title) => [...(sections.find((s) => s.querySelector("h3")?.textContent === title)?.querySelectorAll(".mwia-skill-row") || [])].map((row) => ({
     name: row.querySelector(".mwia-skill-name").childNodes[0].textContent.trim(),
     sub: row.querySelector(".mwia-skill-name small").textContent,
     gold: row.querySelector(".mwia-skill-nums b").textContent,
     xp: row.querySelector(".mwia-skill-nums .mwia-dim").textContent,
     hint: row.querySelector(".mwia-skill-hint")?.textContent || "",
     warn: row.querySelector(".mwia-warn")?.title || "",
-})), section);
+})), heading);
 const select = async (page, setting, value) => {
     await page.select(`[data-setting="${setting}"]`, value);
     await new Promise((r) => setTimeout(r, 100));
@@ -206,7 +208,7 @@ try {
     await page.screenshot({ path: path.join(shotDir, "skilling-2-foraging.png") });
 
     // Unlocks soon, with the time it takes.
-    const near = await rows(page, 1);
+    const near = await rows(page, "Unlocks soon");
     const expNear = expForaging.upcoming;
     check("near-unlock list within reach", near.length === expNear.length && near.length > 0 && expNear.every((e) => e.needLevels <= NEAR_LEVELS), `${near.length} vs ${expNear.length}`);
     check("near-unlock shows time to level", /in \d+ levels? · ~[\d.]+ (min|h|days)/.test(near[0]?.sub || ""), near[0]?.sub);
@@ -379,13 +381,35 @@ try {
     await select(page, "skillingSkill", "foraging");
     const forTeas = expectRank(character, { skill: "foraging" }).available[0];
     await page.$eval(`.mwia-skill-row[data-hrid="${forTeas.hrid}"]`, (row) => { row.open = true; });
-    await page.click(`.mwia-skill-row[data-hrid="${forTeas.hrid}"] [data-action="skilling-teas"]`);
+    await page.click(`.mwia-skill-row[data-hrid="${forTeas.hrid}"] [data-action="skilling-cart"]`);
     await new Promise((r) => setTimeout(r, 300));
     const cart = await page.evaluate(() => window.cart || []);
     const perTea = Math.ceil(24 * forTeas.best.result.drinksPerHour);
     check("buy teas puts a day of the best teas in the cart", forTeas.best.result.teas.length > 0 && forTeas.best.result.teas.every((hrid) => cart.some((c) => c.itemHrid === hrid && c.quantity === perTea)),
         `${JSON.stringify(cart)} vs ${forTeas.best.result.teas.join(",")} × ${perTea}`);
     check("cart result is shown", /Shopping cart: added/.test(await page.$eval(".mwia-body", (n) => n.textContent)));
+
+    // Upgrades that pay back, for one skill.
+    await select(page, "skillingSkill", "tailoring");
+    const equippedNow = {};
+    for (const i of character.characterItems) if (i.itemLocationHrid !== "/item_locations/inventory") equippedNow[i.itemLocationHrid] = { itemHrid: i.itemHrid, enhancementLevel: i.enhancementLevel || 0 };
+    const ownedNow = {};
+    for (const i of character.characterItems) if (i.itemLocationHrid === "/item_locations/inventory") (ownedNow[i.itemHrid] ||= []).push(i.enhancementLevel || 0);
+    const expUpgrades = rankUpgrades(skillingCharacter(character, items(character), clientData), clientData, market("ask"), "tailoring", {
+        equipped: equippedNow, owned: ownedNow, houseLevels: {}, gameEquipmentBuffs: character.equipmentActionTypeBuffsMap,
+        listings: (hrid) => Object.entries(marketData[hrid] || {}).filter(([, e]) => e.a > 0).map(([level, e]) => ({ enhancementLevel: Number(level), price: e.a })).sort((a, b) => a.price - b.price),
+    });
+    const upgradeRows = await page.$$eval(".mwia-upgrade", (list) => list.map((n) => n.textContent.replace(/\s+/g, " ").trim()));
+    const firstUpgrade = expUpgrades.upgrades[0];
+    check("upgrades listed by payback", upgradeRows.length > 0 && upgradeRows[0].startsWith(clientData.itemDetailMap[firstUpgrade.itemHrid]?.name || firstUpgrade.name) && upgradeRows[0].includes(`+${coinText(firstUpgrade.gainPerDay)}/day`),
+        `${upgradeRows[0]} vs ${firstUpgrade.itemHrid || firstUpgrade.name} +${coinText(firstUpgrade.gainPerDay)}`);
+    check("house room among the upgrades", expUpgrades.upgrades.some((u) => u.kind === "house" && u.name === "Sewing Parlor") && upgradeRows.some((t) => /Sewing Parlor → level 1/.test(t)));
+    await page.click(".mwia-upgrade [data-action=\"skilling-cart\"]");
+    await new Promise((r) => setTimeout(r, 300));
+    check("upgrade goes to the cart", (await page.evaluate(() => window.cart || [])).some((c) => c.itemHrid === firstUpgrade.itemHrid && c.quantity === 1));
+    await select(page, "skillingSkill", "foraging");
+    check("gear speed mismatch with the game is pointed out", /action speed here is \+15\.0% by the game but \+0\.0%/.test(await page.$eval(".mwia-body", (n) => n.textContent)));
+    await page.screenshot({ path: path.join(shotDir, "skilling-7-upgrades.png") });
 
     // A buff update from the game shows on the next render.
     await select(page, "skillingSkill", "foraging");

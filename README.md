@@ -47,7 +47,11 @@ buy, by simulating *your own* character.
   cart (a gathering job runs for *Make for*), less what you have. The **Focus** slider ranks by gold, XP or a mix
   (each as a share of the most any action in the list gives); the best teas follow it, so an XP focus picks Wisdom Tea. **⛓ Yourself** compares buying the materials with making every one your levels
   allow (gathered or crafted, each step with that skill's teas): gold per hour of the whole chain and how the hour
-  splits between the steps; a row says when it beats buying. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
+  splits between the steps; a row says when it beats buying. **Upgrades that pay back** (pick a skill): every tool,
+  skilling top/bottoms, necklace, earrings, ring, charm, cape and pouch your levels allow – also +N copies for sale and
+  ones in your inventory – tried in place of what you wear, plus the skill's house room one level up; ranked by days
+  until the price is earned back on the skill's best action, with 🛒 buttons for the MWITools cart. If the item stats
+  don't add up to the action speed the game reports for your gear, it says so. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
   also reads its order book; closing the market brings the panel back on the same row. Open rows and headings stay
   open while you switch around. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
