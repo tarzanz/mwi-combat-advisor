@@ -73,6 +73,13 @@ buy, by simulating *your own* character.
   *Calculate Step 3* the same for the whole plan: your current choices, all Buy, all One step, all Full chain. Lowest
   ask prices; what is in your inventory is not bought again (each row on its own, the plan total shared). Coins for
   a house upgrade and Artisan Tea are not counted.
+- **Price history** – while the game is open the script saves every item's ask and bid every 30 minutes (one point
+  per hour for two weeks, then one per day for a year; in the browser's IndexedDB, on that device only). In the game's
+  marketplace a box under the open item shows the price now against its usual price – the median of the last 7 and 30
+  days, so one odd listing hardly moves it – with ±%, a trend arrow (this week's median against last week's) and a
+  chart of ask and bid for 30 days or a year (plus 90-day and 1-year medians). The Skilling tab warns when a product
+  sells more than 10% above or below its usual price, or a material costs more than 10% above it. Until an item has
+  12 hours over 2 days of data the box says it is still collecting.
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the **⚔ Advisor** button can be
   dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact
@@ -131,6 +138,8 @@ npm test -- engine/data path/to/marketplace.json          # analysis logic in No
 node test/browser-test.mjs path/to/marketplace.json /tmp [mwitools.user.js]  # full userscript in headless Firefox
 node test/train-browser-test.mjs /tmp                     # plan train against a mock planning tab and game
 node test/skilling-browser-test.mjs /tmp                  # Skilling tab against a mock game and market
+node test/price-history-test.mjs                          # price-history maths in Node
+node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # in Chromium instead of Firefox
 ```

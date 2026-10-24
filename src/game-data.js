@@ -51,6 +51,13 @@ export function engineTables() {
     return tables;
 }
 
+const priceListeners = new Set();
+
+// Called with (marketData, timestamp) every time a fresh price file arrives.
+export function onPricesLoaded(listener) {
+    priceListeners.add(listener);
+}
+
 export async function loadPrices(force = false) {
     if (prices && !force && Date.now() - pricesFetchedAt < PRICE_TTL_MS) return prices;
     const response = await fetch("/game_data/marketplace.json", { cache: "no-store" });
@@ -58,6 +65,13 @@ export async function loadPrices(force = false) {
     const json = await response.json();
     prices = json.marketData || {};
     pricesFetchedAt = Date.now();
+    for (const listener of priceListeners) {
+        try {
+            listener(prices, json.timestamp);
+        } catch (error) {
+            console.error("[Combat Advisor]", error);
+        }
+    }
     return prices;
 }
 

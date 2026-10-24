@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.19.1
+// @version      0.20.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -333,6 +333,10 @@
     for (const table of ENGINE_TABLES) tables[table] = clientData[table];
     return tables;
   }
+  var priceListeners = /* @__PURE__ */ new Set();
+  function onPricesLoaded(listener) {
+    priceListeners.add(listener);
+  }
   async function loadPrices(force = false) {
     if (prices && !force && Date.now() - pricesFetchedAt < PRICE_TTL_MS) return prices;
     const response = await fetch("/game_data/marketplace.json", { cache: "no-store" });
@@ -340,6 +344,13 @@
     const json = await response.json();
     prices = json.marketData || {};
     pricesFetchedAt = Date.now();
+    for (const listener of priceListeners) {
+      try {
+        listener(prices, json.timestamp);
+      } catch (error) {
+        console.error("[Combat Advisor]", error);
+      }
+    }
     return prices;
   }
   function pricesAge() {
@@ -414,7 +425,7 @@
     let d = 1 - (a + b) * x / (a + 1);
     if (Math.abs(d) < tiny) d = tiny;
     d = 1 / d;
-    let h = d;
+    let h2 = d;
     for (let m = 1; m <= 200; m++) {
       const m2 = 2 * m;
       let aa = m * (b - m) * x / ((a + m2 - 1) * (a + m2));
@@ -423,7 +434,7 @@
       c2 = 1 + aa / c2;
       if (Math.abs(c2) < tiny) c2 = tiny;
       d = 1 / d;
-      h *= d * c2;
+      h2 *= d * c2;
       aa = -(a + m) * (a + b + m) * x / ((a + m2) * (a + m2 + 1));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
@@ -431,10 +442,10 @@
       if (Math.abs(c2) < tiny) c2 = tiny;
       d = 1 / d;
       const delta = d * c2;
-      h *= delta;
+      h2 *= delta;
       if (Math.abs(delta - 1) < 3e-12) break;
     }
-    return h;
+    return h2;
   }
   function incompleteBeta(x, a, b) {
     if (x <= 0) return 0;
@@ -954,7 +965,7 @@
     const count2 = kind === "food" ? slots.food : slots.drinks;
     const current = (kind === "food" ? profile.food : profile.drinks).slice(0, count2);
     while (current.length < count2) current.push(null);
-    const empty = current.findIndex((h) => !h);
+    const empty = current.findIndex((h2) => !h2);
     const placements = empty !== -1 ? [empty] : current.map((_, i) => i);
     const candidates = [];
     for (const hrid of combatConsumables(kind)) {
@@ -1239,12 +1250,12 @@
     // Runs all jobs; onProgress(done, total) is called as they finish.
     async runAll(jobs, onProgress) {
       this.cancelled = false;
-      let done = 0;
+      let done2 = 0;
       return Promise.all(
         jobs.map(
           (job) => this.run(job).then((result) => {
-            done++;
-            onProgress?.(done, jobs.length);
+            done2++;
+            onProgress?.(done2, jobs.length);
             return result;
           })
         )
@@ -1410,6 +1421,27 @@
 .mwia-skill-sec > summary::before { content: "\u25B8 "; color: #5b6bb0; }
 .mwia-skill-sec[open] > summary::before { content: "\u25BE "; }
 .mwia-skill-sec > p { margin: 2px 0 6px 14px; }
+.mwia-history { box-sizing: border-box; width: 100%; flex-basis: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-history-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
+.mwia-history-head span, .mwia-history-note, .mwia-history-scale { color: #8189b0; font-size: 11px; }
+.mwia-history-table { border-collapse: collapse; width: 100%; margin: 4px 0; font-variant-numeric: tabular-nums; }
+.mwia-history-table th, .mwia-history-table td { padding: 1px 4px; text-align: right; font-weight: 400; white-space: nowrap; }
+.mwia-history-table th:first-child { text-align: left; color: #9aa3cf; }
+.mwia-history-table tr:first-child th { color: #8189b0; font-size: 11px; }
+.mwia-history-high { color: #ff9b7b; }
+.mwia-history-low { color: #7ee2b0; }
+.mwia-history-chart { display: block; width: 100%; height: 64px; }
+.mwia-history-chart polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+polyline.mwia-history-ask { stroke: #f2a65b; }
+polyline.mwia-history-bid { stroke: #7ee2b0; }
+.mwia-history-scale { display: flex; justify-content: space-between; }
+.mwia-history-ranges { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.mwia-history-ranges button { background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 2px 8px; font: 11px sans-serif; cursor: pointer; }
+.mwia-history-ranges button.mwia-active { background: #4c5bd4; }
+.mwia-history-ranges span { margin-left: auto; color: #8189b0; font-size: 11px; }
+.mwia-history-ranges i { display: inline-block; width: 10px; height: 2px; margin: 0 3px 3px 6px; vertical-align: middle; }
+i.mwia-history-ask { background: #f2a65b; }
+i.mwia-history-bid { background: #7ee2b0; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
 .mwia-tip-pop {
@@ -2134,6 +2166,234 @@
     return { base, upgrades, check };
   }
 
+  // src/price-history.js
+  var DB_NAME = "mwia-price-history";
+  var HOURLY = "hourly";
+  var DAILY = "daily";
+  var META = "meta";
+  var HOURLY_DAYS = 14;
+  var DAILY_DAYS = 366;
+  var HOUR_MS = 3600 * 1e3;
+  var COLLECT_EVERY_MS = 30 * 60 * 1e3;
+  var USUAL_BAND = 0.1;
+  var TREND_BAND = 0.05;
+  var MIN_HOURS = 12;
+  var MIN_DAYS = 2;
+  function median(pairs) {
+    const list = pairs.filter(([v, w]) => Number.isFinite(v) && w > 0).sort((x, y) => x[0] - y[0]);
+    const total = list.reduce((sum, [, w]) => sum + w, 0);
+    if (!total) return null;
+    let seen = 0;
+    for (let i = 0; i < list.length; i++) {
+      seen += list[i][1];
+      if (seen * 2 > total) return list[i][0];
+      if (seen * 2 === total) return (list[i][0] + list[i + 1][0]) / 2;
+    }
+    return list[list.length - 1][0];
+  }
+  function dayStats(values) {
+    const finite = values.filter(Number.isFinite);
+    if (!finite.length) return [NaN, NaN, NaN, 0];
+    return [median(finite.map((v) => [v, 1])), Math.min(...finite), Math.max(...finite), finite.length];
+  }
+  function rollUpDays(hourlyRecords, itemCount) {
+    const byDay = /* @__PURE__ */ new Map();
+    for (const record of hourlyRecords) {
+      const day = Math.floor(record.hour / 24);
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push(record);
+    }
+    return [...byDay].map(([day, records]) => {
+      const out = { day, a: new Float32Array(itemCount), b: new Float32Array(itemCount), aLow: new Float32Array(itemCount), aHigh: new Float32Array(itemCount), bLow: new Float32Array(itemCount), bHigh: new Float32Array(itemCount), n: new Uint8Array(itemCount) };
+      for (let i = 0; i < itemCount; i++) {
+        const [aMed, aLow, aHigh, an] = dayStats(records.map((r) => i < r.a.length ? r.a[i] : NaN));
+        const [bMed, bLow, bHigh, bn] = dayStats(records.map((r) => i < r.b.length ? r.b[i] : NaN));
+        out.a[i] = aMed;
+        out.aLow[i] = aLow;
+        out.aHigh[i] = aHigh;
+        out.b[i] = bMed;
+        out.bLow[i] = bLow;
+        out.bHigh[i] = bHigh;
+        out.n[i] = Math.max(an, bn);
+      }
+      return out;
+    });
+  }
+  var at = (array, i) => array && i < array.length ? array[i] : NaN;
+  function summarize2(i, hours, days, nowHour) {
+    const side = (key) => {
+      const week = [];
+      const before = [];
+      const month = [];
+      for (const r of hours) {
+        const v = at(r[key], i);
+        if (!Number.isFinite(v)) continue;
+        const age = nowHour - r.hour;
+        if (age < 7 * 24) week.push([v, 1]);
+        else if (age < 14 * 24) before.push([v, 1]);
+        if (age < 30 * 24) month.push([v, 1]);
+      }
+      for (const d of days) {
+        const v = at(d[key], i);
+        if (Number.isFinite(v) && nowHour - (d.day * 24 + 12) < 30 * 24) month.push([v, at(d.n, i) || 1]);
+      }
+      const week7 = median(week);
+      const previous = before.length >= MIN_HOURS ? median(before) : null;
+      return { med7: week7, med30: median(month), trend: week7 && previous ? week7 / previous - 1 : null };
+    };
+    let first = Infinity;
+    let hours7 = 0;
+    for (const r of hours) {
+      if (!Number.isFinite(at(r.a, i)) && !Number.isFinite(at(r.b, i))) continue;
+      first = Math.min(first, r.hour);
+      if (nowHour - r.hour < 7 * 24) hours7++;
+    }
+    for (const d of days) if (at(d.n, i)) first = Math.min(first, d.day * 24);
+    const spanDays = Number.isFinite(first) ? (nowHour - first) / 24 : 0;
+    return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS };
+  }
+  function versusUsual(price, usual) {
+    if (!(price > 0) || !(usual > 0)) return null;
+    const diff = price / usual - 1;
+    return { diff, label: diff > USUAL_BAND ? "above" : diff < -USUAL_BAND ? "below" : "near" };
+  }
+  var trendArrow = (trend) => trend === null ? "" : trend > TREND_BAND ? "\u2191" : trend < -TREND_BAND ? "\u2193" : "\u2192";
+  var store2 = {
+    db: null,
+    ready: null,
+    items: [],
+    index: /* @__PURE__ */ new Map(),
+    hours: [],
+    // hourly records, oldest first
+    days: [],
+    // daily records of the last 30 days, oldest first
+    allDays: null,
+    // every daily record, loaded on demand
+    last: null,
+    version: 0,
+    // bumps on every new snapshot
+    summaries: /* @__PURE__ */ new Map()
+  };
+  var request = (req) => new Promise((resolve2, reject) => {
+    req.onsuccess = () => resolve2(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  var done = (tx) => new Promise((resolve2, reject) => {
+    tx.oncomplete = resolve2;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  function openDb() {
+    return new Promise((resolve2, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        db.createObjectStore(HOURLY, { keyPath: "hour" });
+        db.createObjectStore(DAILY, { keyPath: "day" });
+        db.createObjectStore(META);
+      };
+      req.onsuccess = () => resolve2(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  function loadHistory() {
+    store2.ready || (store2.ready = (async () => {
+      store2.db = await openDb();
+      const tx = store2.db.transaction([HOURLY, META], "readonly");
+      const [items, last, hours] = await Promise.all([request(tx.objectStore(META).get("items")), request(tx.objectStore(META).get("last")), request(tx.objectStore(HOURLY).getAll())]);
+      const newest = hours.length ? hours[hours.length - 1].hour : 0;
+      store2.days = await request(store2.db.transaction(DAILY, "readonly").objectStore(DAILY).getAll(IDBKeyRange.lowerBound(Math.floor(newest / 24) - 31)));
+      store2.items = items || [];
+      store2.items.forEach((hrid, i) => store2.index.set(hrid, i));
+      store2.last = last ?? null;
+      store2.hours = hours;
+      store2.version++;
+    })());
+    return store2.ready;
+  }
+  async function recordSnapshot(marketData, timestamp) {
+    await loadHistory();
+    if (timestamp && timestamp === store2.last) return false;
+    const hour = Math.floor(Date.now() / HOUR_MS);
+    for (const hrid of Object.keys(marketData)) {
+      if (!store2.index.has(hrid)) {
+        store2.index.set(hrid, store2.items.length);
+        store2.items.push(hrid);
+      }
+    }
+    const count2 = store2.items.length;
+    const record = { hour, a: new Float32Array(count2).fill(NaN), b: new Float32Array(count2).fill(NaN) };
+    for (const [hrid, levels] of Object.entries(marketData)) {
+      const entry = levels?.["0"];
+      if (!entry) continue;
+      const i = store2.index.get(hrid);
+      if (entry.a > 0) record.a[i] = entry.a;
+      if (entry.b > 0) record.b[i] = entry.b;
+    }
+    store2.hours = store2.hours.filter((r) => r.hour !== hour);
+    store2.hours.push(record);
+    store2.hours.sort((x, y) => x.hour - y.hour);
+    const newest = store2.hours[store2.hours.length - 1].hour;
+    const cutoffDay = Math.floor((newest - HOURLY_DAYS * 24) / 24);
+    const old = store2.hours.filter((r) => Math.floor(r.hour / 24) < cutoffDay);
+    const rolled = old.length ? rollUpDays(old, count2) : [];
+    store2.hours = store2.hours.filter((r) => Math.floor(r.hour / 24) >= cutoffDay);
+    store2.days = [...store2.days, ...rolled].filter((d) => d.day >= Math.floor(newest / 24) - 31).sort((x, y) => x.day - y.day);
+    if (store2.allDays) store2.allDays = [...store2.allDays, ...rolled].sort((x, y) => x.day - y.day);
+    const tx = store2.db.transaction([HOURLY, DAILY, META], "readwrite");
+    tx.objectStore(HOURLY).put(record);
+    for (const r of old) tx.objectStore(HOURLY).delete(r.hour);
+    for (const d of rolled) tx.objectStore(DAILY).put(d);
+    tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor(newest / 24) - DAILY_DAYS, true));
+    tx.objectStore(META).put(store2.items, "items");
+    tx.objectStore(META).put(timestamp ?? null, "last");
+    await done(tx);
+    store2.last = timestamp ?? null;
+    store2.version++;
+    store2.summaries.clear();
+    return true;
+  }
+  var historyVersion = () => store2.version;
+  function priceSummary(itemHrid) {
+    if (!store2.hours.length) return null;
+    const i = store2.index.get(itemHrid);
+    if (i === void 0) return null;
+    if (!store2.summaries.has(itemHrid)) {
+      store2.summaries.set(itemHrid, summarize2(i, store2.hours, store2.days, store2.hours[store2.hours.length - 1].hour));
+    }
+    return store2.summaries.get(itemHrid);
+  }
+  async function loadAllDays() {
+    await loadHistory();
+    if (!store2.allDays) {
+      const tx = store2.db.transaction(DAILY, "readonly");
+      store2.allDays = await request(tx.objectStore(DAILY).getAll());
+    }
+    return store2.allDays;
+  }
+  async function priceSeries(itemHrid, range) {
+    await loadHistory();
+    const i = store2.index.get(itemHrid);
+    if (i === void 0 || !store2.hours.length) return [];
+    const newest = store2.hours[store2.hours.length - 1].hour;
+    const days = range > 31 ? await loadAllDays() : store2.days;
+    const points = [];
+    for (const d of days) {
+      const t2 = d.day * 24 + 12;
+      if (newest - t2 <= range * 24) points.push({ t: t2, a: at(d.a, i), b: at(d.b, i) });
+    }
+    for (const r of store2.hours) if (newest - r.hour <= range * 24) points.push({ t: r.hour, a: at(r.a, i), b: at(r.b, i) });
+    return points.filter((p) => Number.isFinite(p.a) || Number.isFinite(p.b)).sort((x, y) => x.t - y.t);
+  }
+  async function longMedians(itemHrid) {
+    const i = store2.index.get(itemHrid);
+    if (i === void 0) return null;
+    const days = await loadAllDays();
+    const newestDay = days.length ? days[days.length - 1].day : 0;
+    const pick = (key, span) => median(days.filter((d) => newestDay - d.day < span).map((d) => [at(d[key], i), at(d.n, i) || 1]));
+    return { a90: pick("a", 90), b90: pick("b", 90), a365: pick("a", 365), b365: pick("b", 365), days: days.filter((d) => at(d.n, i)).length };
+  }
+
   // src/skilling-ui.js
   var SHORT_LIST = 25;
   var PLAN_DAYS = [0.5, 1, 2, 3, 7];
@@ -2161,7 +2421,7 @@
       <label title="Rank with the teas you have in the skill's drink slots now, or with the setup that earns the most.">Teas <select data-setting="skillingTeas">${option("current", "My current teas", s.skillingTeas)}${option("best", "Best teas", s.skillingTeas)}</select></label>
       <label title="How many of one crafted item the market takes a day, e.g. 500 or 2k. Past it the action only runs part of the day. Empty: no limit. Gathered raw materials are never limited.">Max sold/day <input data-setting="skillingSellCap" type="text" inputmode="decimal" size="6" placeholder="no limit" value="${Number(s.skillingSellCap) > 0 ? coinsInput(Number(s.skillingSellCap)) : ""}"></label>
       <label title="How many days of sales the suggested amount should cover.">Make for <select data-setting="skillingDays">${PLAN_DAYS.map((d) => option(String(d), `${d} day${d === 1 ? "" : "s"}`, String(s.skillingDays))).join("")}</select></label>
-      <label title="Suggested jobs shorter than this are greyed out and listed last: not worth a trip to the market.">Shortest job <select data-setting="skillingMinJob">${MIN_JOB_HOURS.map((h) => option(String(h), h ? hoursText(h) : "any", String(s.skillingMinJob))).join("")}</select></label>
+      <label title="Suggested jobs shorter than this are greyed out and listed last: not worth a trip to the market.">Shortest job <select data-setting="skillingMinJob">${MIN_JOB_HOURS.map((h2) => option(String(h2), h2 ? hoursText(h2) : "any", String(s.skillingMinJob))).join("")}</select></label>
       <label class="mwia-focus" title="Rank by gold per day, XP per day, or a mix. Each counts as a share of the most any action in the list gives. The best teas follow the same focus.">
         Focus: <span class="mwia-focus-text">${focusLabel(goldShare(s))}</span>
         <span class="mwia-focus-row">XP <input type="range" min="0" max="100" step="10" value="${goldShare(s)}" data-setting="skillingGold"> Gold</span></label>
@@ -2169,7 +2429,7 @@
   }
   function ranking(settings) {
     const data = getClientData();
-    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, settings.skillingDays, settings.skillingMinJob, goldShare(settings)].join("|");
+    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, settings.skillingDays, settings.skillingMinJob, goldShare(settings), historyVersion()].join("|");
     if (view.key !== key) {
       const who = skillingCharacter(state.character, state.items, data);
       const market = marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt);
@@ -2184,9 +2444,26 @@
         sellAt: settings.skillingSellAt
       };
       view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
+      for (const entry of [...view.result.available, ...view.result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
       view.key = key;
     }
     return view.result;
+  }
+  function priceWarnings(entry) {
+    const warnings = [];
+    const main = entry.outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0];
+    if (main && (main.sell.source === "ask" || main.sell.source === "bid")) {
+      const summary = priceSummary(main.itemHrid);
+      const side = main.sell.source === "ask" ? "a" : "b";
+      const versus = summary?.enough ? versusUsual(main.sell[main.sell.source], summary[side].med7) : null;
+      if (versus && versus.label !== "near") warnings.push({ kind: versus.label === "above" ? "pricehigh" : "pricelow", itemHrid: main.itemHrid, diff: versus.diff, usual: summary[side].med7 });
+    }
+    for (const input of entry.inputs) {
+      const summary = priceSummary(input.itemHrid);
+      const versus = summary?.enough ? versusUsual(input.price, summary.a.med7) : null;
+      if (versus?.label === "above") warnings.push({ kind: "inputhigh", itemHrid: input.itemHrid, diff: versus.diff, usual: summary.a.med7 });
+    }
+    return warnings;
   }
   function rememberToggle(event) {
     const key = event.target.dataset?.open;
@@ -2232,6 +2509,12 @@
         return `Thin market for ${item}: the cheapest ask (${coins(warning.ask)}) is ${dec(warning.ask / warning.bid, 1)}\xD7 the best bid (${coins(warning.bid)}).`;
       case "vendor":
         return `${item} isn't on the market; valued at the vendor price.`;
+      case "pricehigh":
+        return `${item} sells ${Math.round(warning.diff * 100)}% above its usual price (7-day median ${coins(warning.usual)}): it may drop back.`;
+      case "pricelow":
+        return `${item} sells ${Math.round(-warning.diff * 100)}% below its usual price (7-day median ${coins(warning.usual)}): waiting may pay.`;
+      case "inputhigh":
+        return `${item} costs ${Math.round(warning.diff * 100)}% more than usual (7-day median ${coins(warning.usual)}).`;
       case "margin":
         return `Thin margin: a ${dec(warning.margin * 100, 1)}% drop in the selling price wipes out the profit.`;
       case "unsellable":
@@ -2603,6 +2886,122 @@
     return /called/.test(callReactHandler(["handleGoToMarketplace"], [itemHrid, 0]));
   }
 
+  // src/price-history-ui.js
+  var CURRENT_ITEM = '[class*="MarketplacePanel_currentItem"]';
+  var FIRST_COLLECT_MS = 15 * 1e3;
+  var SCAN_MS = 400;
+  var RANGES = [30, 365];
+  var h = { win: null, scanTimer: null, scanning: false, range: 30, listeners: /* @__PURE__ */ new Set() };
+  var pct2 = (fraction) => `${fraction >= 0 ? "+" : "\u2212"}${Math.abs(fraction * 100).toFixed(0)}%`;
+  function onHistoryChange(listener) {
+    h.listeners.add(listener);
+  }
+  function startPriceHistory(win2) {
+    h.win = win2;
+    onPricesLoaded((marketData, timestamp) => {
+      recordSnapshot(marketData, timestamp).then((added) => {
+        if (!added) return;
+        scheduleScan(true);
+        for (const listener of h.listeners) listener();
+      }).catch((error) => console.warn("[Combat Advisor] price history", error));
+    });
+    loadHistory().catch((error) => console.warn("[Combat Advisor] price history", error));
+    const collect = () => loadPrices(true).catch(() => {
+    });
+    setTimeout(collect, FIRST_COLLECT_MS);
+    setInterval(collect, COLLECT_EVERY_MS);
+    new MutationObserver(() => scheduleScan()).observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("click", onClick, true);
+  }
+  function scheduleScan(force = false) {
+    if (force) document.querySelectorAll(".mwia-history").forEach((box) => box.dataset.version = "");
+    if (h.scanTimer) return;
+    h.scanTimer = setTimeout(async () => {
+      h.scanTimer = null;
+      if (h.scanning) return scheduleScan();
+      h.scanning = true;
+      try {
+        await scan();
+      } finally {
+        h.scanning = false;
+      }
+    }, SCAN_MS);
+  }
+  function currentItem() {
+    const node = [...document.querySelectorAll(CURRENT_ITEM)].find(visible);
+    const href = node?.querySelector("svg use")?.getAttribute("href") || node?.querySelector("svg use")?.getAttribute("xlink:href") || "";
+    const id = href.split("#")[1];
+    return node && id ? { node, itemHrid: "/items/" + id } : null;
+  }
+  async function scan() {
+    const current = currentItem();
+    document.querySelectorAll(".mwia-history").forEach((box2) => {
+      if (!current || box2.dataset.item !== current.itemHrid || !document.contains(box2)) box2.remove();
+    });
+    if (!current) return;
+    let box = document.querySelector(".mwia-history");
+    const key = `${current.itemHrid}|${h.range}`;
+    if (box && box.dataset.version === key) return;
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "mwia-history";
+      current.node.insertAdjacentElement("afterend", box);
+    }
+    box.dataset.item = current.itemHrid;
+    box.dataset.version = key;
+    box.innerHTML = await historyHtml(current.itemHrid);
+  }
+  function onClick(event) {
+    const button = event.target.closest?.(".mwia-history [data-range]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    h.range = Number(button.dataset.range);
+    scheduleScan(true);
+  }
+  async function historyHtml(itemHrid) {
+    await loadHistory();
+    const summary = priceSummary(itemHrid);
+    const entry = marketEntry(itemHrid);
+    const head = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price</b> <span>${text}</span></div>`;
+    if (!summary || !summary.enough) {
+      const have = summary ? `${summary.hours7} h over ${summary.spanDays.toFixed(1)} days so far` : "nothing yet";
+      return head(`collecting: ${have}`) + `<div class="mwia-history-note">A fair comparison needs at least ${MIN_HOURS} hours over ${MIN_DAYS} days. Prices are saved every 30 minutes while the game is open, on this device.</div>`;
+    }
+    const row = (label, now, side) => {
+      const versus = versusUsual(now, side.med7);
+      const cls = !versus ? "" : versus.label === "above" ? "mwia-history-high" : versus.label === "below" ? "mwia-history-low" : "";
+      return `<tr><th>${label}</th><td>${now > 0 ? shortCoins(now) : "\u2013"}</td>
+            <td>${side.med7 ? shortCoins(side.med7) : "\u2013"} <span class="${cls}">${versus ? `${pct2(versus.diff)} ${versus.label === "near" ? "usual" : versus.label}` : ""}</span></td>
+            <td>${side.med30 ? shortCoins(side.med30) : "\u2013"}</td><td>${trendArrow(side.trend)}</td></tr>`;
+    };
+    const askNow = entry?.a > 0 ? entry.a : null;
+    const bidNow = entry?.b > 0 ? entry.b : null;
+    const points = await priceSeries(itemHrid, h.range);
+    const long = h.range > 31 ? await longMedians(itemHrid) : null;
+    const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "\u2013"}, bid ${long.b90 ? shortCoins(long.b90) : "\u2013"} \xB7 1 year: ask ${long.a365 ? shortCoins(long.a365) : "\u2013"}, bid ${long.b365 ? shortCoins(long.b365) : "\u2013"} (${long.days} days of data)</div>` : "";
+    return head(`${summary.hours7} h in the last week \xB7 ${summary.spanDays.toFixed(0)} days of data`) + `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
+          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` + longLine;
+  }
+  function chartSvg(points) {
+    if (points.length < 2) return "";
+    const W = 300;
+    const H = 64;
+    const values = points.flatMap((p) => [p.a, p.b]).filter(Number.isFinite);
+    const low = Math.min(...values);
+    const high = Math.max(...values);
+    const t0 = points[0].t;
+    const span = Math.max(1, points[points.length - 1].t - t0);
+    const x = (t2) => (t2 - t0) / span * (W - 4) + 2;
+    const y = (v) => high === low ? H / 2 : H - 4 - (v - low) / (high - low) * (H - 8);
+    const line = (key, cls) => {
+      const path = points.filter((p) => Number.isFinite(p[key])).map((p) => `${x(p.t).toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
+      return path ? `<polyline class="${cls}" points="${path}"/>` : "";
+    };
+    return `<svg class="mwia-history-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${line("b", "mwia-history-bid")}${line("a", "mwia-history-ask")}</svg>
+        <div class="mwia-history-scale"><span>${esc(shortCoins(low))}</span><span>${esc(shortCoins(high))}</span></div>`;
+  }
+
   // src/touch.js
   var isTouch = () => !!window.matchMedia?.("(hover: none)").matches;
   var isNarrow = () => !!window.matchMedia?.(NARROW).matches;
@@ -2782,7 +3181,7 @@
   }
   var int = (n2) => Math.round(n2).toLocaleString("en-US");
   var dec2 = (n2, d = 1) => n2.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-  var pct2 = (n2) => (n2 >= 0 ? "+" : "") + dec2(n2 * 100, 1) + "%";
+  var pct3 = (n2) => (n2 >= 0 ? "+" : "") + dec2(n2 * 100, 1) + "%";
   var HOURS_PER_DAY2 = 24;
   var perDay = (perHour) => perHour * HOURS_PER_DAY2;
   function coins2(n2) {
@@ -2848,8 +3247,8 @@
     }
   }
   function progress(label) {
-    return (done, total) => {
-      ui.progress = { done, total, label };
+    return (done2, total) => {
+      ui.progress = { done: done2, total, label };
       renderProgress();
     };
   }
@@ -3190,7 +3589,7 @@
         const v = ui.verified;
         const before = xpValue(v.base, ui.settings.objective);
         const after = xpValue(v.planned, ui.settings.objective);
-        html += `<div class="mwia-reco">Everything combined (simulated): <b>${int(before)} \u2192 ${int(after)} ${label}</b> (${pct2(after / Math.max(1, before) - 1)}),
+        html += `<div class="mwia-reco">Everything combined (simulated): <b>${int(before)} \u2192 ${int(after)} ${label}</b> (${pct3(after / Math.max(1, before) - 1)}),
               profit <b>${coins2(perDay(v.base.profit))} \u2192 ${coins2(perDay(v.planned.profit))}</b> per day (food/drinks ${coins2(perDay(v.base.cost))} \u2192 ${coins2(perDay(v.planned.cost))}),
               deaths ${dec2(v.base.deaths, 2)} \u2192 ${dec2(v.planned.deaths, 2)} per hour.
               <br><span class="mwia-dim">Run the zone analysis again after buying \u2013 with better gear a harder zone may become the best.</span></div>`;
@@ -3229,14 +3628,14 @@
     const heals = (hrid) => (items[hrid]?.consumableDetail?.hitpointRestore || 0) > 0;
     const before = currentProfile()?.food || [];
     const after = c2.profile?.food || [];
-    return before.some((h) => h && heals(h)) && !after.some((h) => h && heals(h));
+    return before.some((h2) => h2 && heals(h2)) && !after.some((h2) => h2 && heals(h2));
   }
   function gainText(c2) {
     const gold = ui.upgradeResult.goal.gold;
     const profit = `${signed(coins2, perDay(c2.profitDelta))} profit/day`;
-    if (gold === 0) return `${pct2(c2.deltaPct)} ${objectiveLabel()}`;
+    if (gold === 0) return `${pct3(c2.deltaPct)} ${objectiveLabel()}`;
     if (gold === 1) return profit;
-    return `${pct2(c2.deltaPct)} gain (${signed(int, c2.xpDelta)} ${objectiveLabel()}, ${profit})`;
+    return `${pct3(c2.deltaPct)} gain (${signed(int, c2.xpDelta)} ${objectiveLabel()}, ${profit})`;
   }
   function confidenceCell(c2) {
     const value = Math.round(c2.confidence * 100);
@@ -3253,10 +3652,10 @@
       <th class="mwia-num">+${objectiveLabel()}</th><th class="mwia-num">+Profit/day</th><th class="mwia-num" title="${GAIN_TITLE}">Gain</th>
       <th class="mwia-num">Gain per 1M</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th><th></th></tr></thead><tbody>`;
     for (const c2 of shown) {
-      const efficiency = c2.cost > 0 ? pct2(c2.delta / c2.cost * 1e6) : "\u221E";
+      const efficiency = c2.cost > 0 ? pct3(c2.delta / c2.cost * 1e6) : "\u221E";
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${slotText(c2)}</td><td>${nameHtml(c2)}</td><td>${replacesHtml(c2)}</td>
           <td class="mwia-num">${c2.cost ? coins2(c2.cost) : "0"}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td><td class="mwia-num">${signed(coins2, perDay(c2.profitDelta))}</td>
-          <td class="mwia-num">${pct2(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
+          <td class="mwia-num">${pct3(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td>${upgradeNotes(c2, base)}</td><td>${cartButton(cartItems(c2))}</td></tr>`;
     }
     return html + `</tbody></table>`;
@@ -3273,7 +3672,7 @@
       const name = (c2.remove ? `<i>Stop using</i> ${esc(itemName(c2.hrid))}` : esc(itemName(c2.hrid))) + (dropsHpFood(c2) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c2.replaces ? esc(itemName(c2.replaces)) : "\u2013"}</td>
           <td class="mwia-num">${c2.remove ? "\u2013" : coins2(askPrice(c2.hrid))}</td><td class="mwia-num">${coins2(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td>
-          <td class="mwia-num">${signed(coins2, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct2(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
+          <td class="mwia-num">${signed(coins2, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct3(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td class="mwia-num ${c2.safe ? "" : "mwia-bad"}">${dec2(c2.result.deaths, 2)}${c2.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
           <td>${cartButton(cartItems(c2), "\u{1F6D2} 1 day")}</td></tr>`;
     }
@@ -3358,7 +3757,7 @@
     ui.notice = { level: "warn", text: `Could not open ${action.name} automatically. Open it yourself and enter ${count2}. (${navDiagnostics()})` };
     render();
   }
-  function onClick(event) {
+  function onClick2(event) {
     const target = event.target.closest("[data-action],[data-tab]");
     if (!target || !ui.root.contains(target)) return;
     if (target.dataset.tab) {
@@ -3481,7 +3880,7 @@
       <div class="mwia-body"></div>`;
     document.body.appendChild(root);
     ui.root = root;
-    root.addEventListener("click", onClick);
+    root.addEventListener("click", onClick2);
     root.addEventListener("change", onChange);
     root.addEventListener("toggle", rememberToggle, true);
     enableTapTips(root);
@@ -3504,6 +3903,9 @@
         }
       }
       showPanel();
+    });
+    onHistoryChange(() => {
+      if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "skilling") render();
     });
     onStateChange(() => {
       if (!root.classList.contains("mwia-hidden") && !ui.busy) {
@@ -3752,13 +4154,13 @@
   }
   function itemCosts(hrid, count2, data, { owned, price }) {
     const actions = productionActions(data);
-    const name = (h) => data.itemDetailMap[h]?.name || h.split("/").pop();
+    const name = (h2) => data.itemDetailMap[h2]?.name || h2.split("/").pop();
     const run = (produced) => boughtCost(resolve(/* @__PURE__ */ new Map([[hrid, count2]]), produced, actions, owned, name).rows, price);
     const craftable = actions.has(hrid);
     return {
       buy: run(() => false),
-      single: craftable ? run((h) => h === hrid) : null,
-      chain: craftable ? run((h) => actions.has(h)) : null
+      single: craftable ? run((h2) => h2 === hrid) : null,
+      chain: craftable ? run((h2) => actions.has(h2)) : null
     };
   }
 
@@ -3987,10 +4389,10 @@
     const item = t.train?.gather?.find((candidate) => candidate.itemHrid === itemHrid);
     if (!item) return;
     item.on = !item.on;
-    const done = new Set(t.train.stops.slice(0, t.train.index).map((stop) => stop.actionHrid));
+    const done2 = new Set(t.train.stops.slice(0, t.train.index).map((stop) => stop.actionHrid));
     const all = trainStops(t.train);
-    const passed = all.filter((stop) => done.has(stop.actionHrid));
-    t.train.stops = [...passed, ...all.filter((stop) => !done.has(stop.actionHrid))];
+    const passed = all.filter((stop) => done2.has(stop.actionHrid));
+    t.train.stops = [...passed, ...all.filter((stop) => !done2.has(stop.actionHrid))];
     t.train.index = passed.length;
     t.notice = null;
     save();
@@ -4033,7 +4435,7 @@
     }, NOT_QUEUED_AFTER_MS);
   }
   function onGameMessage(type, data) {
-    scheduleScan();
+    scheduleScan2();
     if (type === "init_character_data") {
       t.seenActionIds = /* @__PURE__ */ new Set();
       restore();
@@ -4063,8 +4465,8 @@
     t.root.classList.toggle("mwia-train-low", t.low);
     if (!train) return;
     const stop = currentStop();
-    const done = train.index >= train.stops.length && !train.failed;
-    const headline = done ? "All stops queued" : stop ? `${train.index + 1}/${train.stops.length} \xB7 ${esc(stop.actionName)} \xD7${n(stop.count)}` : "";
+    const done2 = train.index >= train.stops.length && !train.failed;
+    const headline = done2 ? "All stops queued" : stop ? `${train.index + 1}/${train.stops.length} \xB7 ${esc(stop.actionName)} \xD7${n(stop.count)}` : "";
     let html = `<div class="mwia-train-head">
         <button class="mwia-link" data-train="toggle" title="Show or hide the stops">${t.collapsed ? "\u25B8" : "\u25BE"}</button>
         <b>\u{1F682} ${esc(train.title)}</b>
@@ -4082,7 +4484,7 @@
           </div>`;
     }
     if (!t.collapsed && !train.failed) {
-      if (done) {
+      if (done2) {
         html += `<p>Everything is in the queue. When it has finished, ${/→/.test(train.title) ? "upgrade the house room" : "the goal items are ready"}.</p>`;
       }
       html += `<ol class="mwia-train-stops">${train.stops.map((s, i) => `<li class="${i < train.index ? "mwia-train-done" : i === train.index ? "mwia-train-current" : ""}">
@@ -4107,7 +4509,7 @@
     }
     t.root.innerHTML = html;
   }
-  async function onClick2(event) {
+  async function onClick3(event) {
     const button = event.target.closest("[data-train]");
     if (!button) return;
     const action = button.dataset.train;
@@ -4163,7 +4565,7 @@
     }
   }
   var scanQueued = false;
-  function scheduleScan() {
+  function scheduleScan2() {
     if (scanQueued) return;
     scanQueued = true;
     requestAnimationFrame(() => {
@@ -4177,7 +4579,7 @@
     t.win = win2;
     t.root = document.createElement("div");
     t.root.className = "mwia-train mwia-hidden";
-    t.root.addEventListener("click", onClick2);
+    t.root.addEventListener("click", onClick3);
     enableTapTips(t.root);
     document.body.appendChild(t.root);
     try {
@@ -4189,8 +4591,8 @@
     rememberQueuedActions();
     render2();
     onStateChange(onGameMessage);
-    new MutationObserver(scheduleScan).observe(document.body, { childList: true, subtree: true });
-    scheduleScan();
+    new MutationObserver(scheduleScan2).observe(document.body, { childList: true, subtree: true });
+    scheduleScan2();
   }
 
   // src/main.js
@@ -4204,6 +4606,7 @@
   function mount() {
     mountUI(win, worker_source_default);
     mountPlanTrain(win);
+    startPriceHistory(win);
   }
 })();
 

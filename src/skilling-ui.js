@@ -6,6 +6,7 @@ import { state } from "./game-state.js";
 import { coinsInput, esc, shortCoins } from "./format.js";
 import { ASK_WINDOW, MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, heldStock, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
 import { UPGRADES_SHOWN, rankUpgrades } from "./skilling-upgrades.js";
+import { historyVersion, priceSummary, versusUsual } from "./price-history.js";
 
 const SHORT_LIST = 25;
 const PLAN_DAYS = [0.5, 1, 2, 3, 7];
@@ -48,7 +49,7 @@ export function skillingSettingsHtml(s) {
 
 function ranking(settings) {
     const data = getClientData();
-    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, settings.skillingDays, settings.skillingMinJob, goldShare(settings)].join("|");
+    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, settings.skillingDays, settings.skillingMinJob, goldShare(settings), historyVersion()].join("|");
     if (view.key !== key) {
         const who = skillingCharacter(state.character, state.items, data);
         const market = marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt);
@@ -63,9 +64,29 @@ function ranking(settings) {
             sellAt: settings.skillingSellAt,
         };
         view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
+        for (const entry of [...view.result.available, ...view.result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
         view.key = key;
     }
     return view.result;
+}
+
+// Prices far from their usual level (once enough history is collected): the
+// product you sell, and materials you buy.
+function priceWarnings(entry) {
+    const warnings = [];
+    const main = entry.outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0];
+    if (main && (main.sell.source === "ask" || main.sell.source === "bid")) {
+        const summary = priceSummary(main.itemHrid);
+        const side = main.sell.source === "ask" ? "a" : "b";
+        const versus = summary?.enough ? versusUsual(main.sell[main.sell.source], summary[side].med7) : null;
+        if (versus && versus.label !== "near") warnings.push({ kind: versus.label === "above" ? "pricehigh" : "pricelow", itemHrid: main.itemHrid, diff: versus.diff, usual: summary[side].med7 });
+    }
+    for (const input of entry.inputs) {
+        const summary = priceSummary(input.itemHrid);
+        const versus = summary?.enough ? versusUsual(input.price, summary.a.med7) : null;
+        if (versus?.label === "above") warnings.push({ kind: "inputhigh", itemHrid: input.itemHrid, diff: versus.diff, usual: summary.a.med7 });
+    }
+    return warnings;
 }
 
 // Remembers which rows and headings are open (toggle events don't bubble: listen in the capture phase).
@@ -116,6 +137,12 @@ function warningText(warning) {
             return `Thin market for ${item}: the cheapest ask (${coins(warning.ask)}) is ${dec(warning.ask / warning.bid, 1)}× the best bid (${coins(warning.bid)}).`;
         case "vendor":
             return `${item} isn't on the market; valued at the vendor price.`;
+        case "pricehigh":
+            return `${item} sells ${Math.round(warning.diff * 100)}% above its usual price (7-day median ${coins(warning.usual)}): it may drop back.`;
+        case "pricelow":
+            return `${item} sells ${Math.round(-warning.diff * 100)}% below its usual price (7-day median ${coins(warning.usual)}): waiting may pay.`;
+        case "inputhigh":
+            return `${item} costs ${Math.round(warning.diff * 100)}% more than usual (7-day median ${coins(warning.usual)}).`;
         case "margin":
             return `Thin margin: a ${dec(warning.margin * 100, 1)}% drop in the selling price wipes out the profit.`;
         case "unsellable":

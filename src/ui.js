@@ -37,6 +37,7 @@ import { CSS } from "./style.js";
 import { coinsInput, esc, parseCoins } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
 import { rememberToggle, renderSkilling, toggleShowAll } from "./skilling-ui.js";
+import { onHistoryChange } from "./price-history-ui.js";
 import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
@@ -941,6 +942,10 @@ export function mountUI(win, workerSource) {
             }
         }
         showPanel();
+    });
+    // New price history can change the Skilling tab's price warnings.
+    onHistoryChange(() => {
+        if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "skilling") render();
     });
     onStateChange(() => {
         if (!root.classList.contains("mwia-hidden") && !ui.busy) {
