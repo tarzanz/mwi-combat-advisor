@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.20.0
+// @version      0.20.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1421,7 +1421,7 @@
 .mwia-skill-sec > summary::before { content: "\u25B8 "; color: #5b6bb0; }
 .mwia-skill-sec[open] > summary::before { content: "\u25BE "; }
 .mwia-skill-sec > p { margin: 2px 0 6px 14px; }
-.mwia-history { box-sizing: border-box; width: 100%; flex-basis: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-history { box-sizing: border-box; width: 100%; flex-basis: 100%; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-history-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
 .mwia-history-head span, .mwia-history-note, .mwia-history-scale { color: #8189b0; font-size: 11px; }
 .mwia-history-table { border-collapse: collapse; width: 100%; margin: 4px 0; font-variant-numeric: tabular-nums; }
@@ -2933,6 +2933,13 @@ i.mwia-history-bid { background: #7ee2b0; }
     const id = href.split("#")[1];
     return node && id ? { node, itemHrid: "/items/" + id } : null;
   }
+  function fullWidthRow(node) {
+    const panel = node.closest('[class*="MarketplacePanel_marketplacePanel"]') || document.body;
+    const width = panel.getBoundingClientRect().width;
+    let row = node;
+    while (row.parentElement && row.parentElement !== panel && row.getBoundingClientRect().width < 0.8 * width) row = row.parentElement;
+    return row;
+  }
   async function scan() {
     const current = currentItem();
     document.querySelectorAll(".mwia-history").forEach((box2) => {
@@ -2945,7 +2952,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!box) {
       box = document.createElement("div");
       box.className = "mwia-history";
-      current.node.insertAdjacentElement("afterend", box);
+      fullWidthRow(current.node).insertAdjacentElement("beforebegin", box);
     }
     box.dataset.item = current.itemHrid;
     box.dataset.version = key;
@@ -2965,8 +2972,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     const entry = marketEntry(itemHrid);
     const head = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price</b> <span>${text}</span></div>`;
     if (!summary || !summary.enough) {
-      const have = summary ? `${summary.hours7} h over ${summary.spanDays.toFixed(1)} days so far` : "nothing yet";
-      return head(`collecting: ${have}`) + `<div class="mwia-history-note">A fair comparison needs at least ${MIN_HOURS} hours over ${MIN_DAYS} days. Prices are saved every 30 minutes while the game is open, on this device.</div>`;
+      const have = summary ? `${summary.hours7} of ${MIN_HOURS} h, ${summary.spanDays.toFixed(1)} of ${MIN_DAYS} days` : "nothing yet";
+      return head(`collecting: ${have}`) + `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
     }
     const row = (label, now, side) => {
       const versus = versusUsual(now, side.med7);

@@ -62,6 +62,16 @@ function currentItem() {
     return node && id ? { node, itemHrid: "/items/" + id } : null;
 }
 
+// The item's icon sits in a row with the buy/sell buttons; the box goes above
+// the first ancestor that spans (nearly) the whole marketplace, so it gets the full width.
+function fullWidthRow(node) {
+    const panel = node.closest('[class*="MarketplacePanel_marketplacePanel"]') || document.body;
+    const width = panel.getBoundingClientRect().width;
+    let row = node;
+    while (row.parentElement && row.parentElement !== panel && row.getBoundingClientRect().width < 0.8 * width) row = row.parentElement;
+    return row;
+}
+
 async function scan() {
     const current = currentItem();
     document.querySelectorAll(".mwia-history").forEach((box) => {
@@ -74,7 +84,7 @@ async function scan() {
     if (!box) {
         box = document.createElement("div");
         box.className = "mwia-history";
-        current.node.insertAdjacentElement("afterend", box);
+        fullWidthRow(current.node).insertAdjacentElement("beforebegin", box);
     }
     box.dataset.item = current.itemHrid;
     box.dataset.version = key;
@@ -96,8 +106,8 @@ async function historyHtml(itemHrid) {
     const entry = marketEntry(itemHrid);
     const head = (text) => `<div class="mwia-history-head"><b>📈 Usual price</b> <span>${text}</span></div>`;
     if (!summary || !summary.enough) {
-        const have = summary ? `${summary.hours7} h over ${summary.spanDays.toFixed(1)} days so far` : "nothing yet";
-        return head(`collecting: ${have}`) + `<div class="mwia-history-note">A fair comparison needs at least ${MIN_HOURS} hours over ${MIN_DAYS} days. Prices are saved every 30 minutes while the game is open, on this device.</div>`;
+        const have = summary ? `${summary.hours7} of ${MIN_HOURS} h, ${summary.spanDays.toFixed(1)} of ${MIN_DAYS} days` : "nothing yet";
+        return head(`collecting: ${have}`) + `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
     }
     const row = (label, now, side) => {
         const versus = versusUsual(now, side.med7);

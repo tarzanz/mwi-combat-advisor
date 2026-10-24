@@ -125,12 +125,21 @@ try {
     // The marketplace: the open item's usual price, trend and chart.
     await page.click(".mwia-header [data-action=close]");
     await page.evaluate(() => {
-        document.getElementById("market").innerHTML = '<div class="MarketplacePanel_marketplacePanel__x"><div class="MarketplacePanel_currentItem__x"><svg><use href="/sprites/items.svg#linen_boots"></use></svg> Linen Boots</div><div class="MarketplacePanel_orderBook__x">order book</div></div>';
+        // Like the game: the item icon sits between the sell and buy buttons in one row.
+        document.getElementById("market").innerHTML = '<div class="MarketplacePanel_marketplacePanel__x" style="width:360px"><div>Tradable range: 1200 – 1470</div>' +
+            '<div class="MarketplacePanel_orderBooksContainer__x"><div class="row" style="display:flex;justify-content:space-between;align-items:center"><button>+ New Sell Listing</button>' +
+            '<div class="MarketplacePanel_currentItem__x" style="width:60px"><svg width="40" height="40"><use href="/sprites/items.svg#linen_boots"></use></svg>2084</div><button>+ New Buy Listing</button></div>' +
+            '<div class="MarketplacePanel_orderBook__x">order book</div></div></div>';
     });
     await page.waitForSelector(".mwia-history", { timeout: 4000 }).catch(() => null);
     await page.waitForFunction(() => /Ask/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     const box = await page.$$eval(".mwia-history tr", (trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.replace(/\s+/g, " ").trim()).join(" | ")).join("\n")).catch(() => "");
     check("marketplace shows the usual price", box.includes(`Ask | ${shortCoins(askNow)} | ${shortCoins(usualAsk)} +30% above | ${shortCoins(usualAsk)} | →`) && box.includes(`Bid | ${shortCoins(usualBid)} | ${shortCoins(usualBid)} +0% usual`), box);
+    const placed = await page.evaluate(() => {
+        const box = document.querySelector(".mwia-history");
+        return { width: box.getBoundingClientRect().width, inRow: !!box.closest(".row"), beforeRow: box.nextElementSibling?.classList.contains("row") || box.nextElementSibling?.querySelector?.(".row") !== null };
+    });
+    check("box sits above the button row, full width", placed.width >= 340 && !placed.inRow && placed.beforeRow, JSON.stringify(placed));
     check("marketplace chart drawn", await page.$$eval(".mwia-history polyline", (lines) => lines.length === 2));
     await page.screenshot({ path: path.join(shotDir, "history-1-market.png") });
     await page.click('.mwia-history [data-range="365"]');
@@ -143,7 +152,7 @@ try {
     });
     await page.waitForFunction(() => /collecting/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     const collecting = await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "");
-    check("an item with little history says it is collecting", /collecting: 1 h over 0\.0 days so far/.test(collecting), collecting.slice(0, 120));
+    check("an item with little history says it is collecting", /collecting: 1 of 12 h, 0\.0 of 2 days/.test(collecting), collecting.slice(0, 120));
 
     // Closing the market removes the box.
     await page.evaluate(() => (document.getElementById("market").innerHTML = ""));

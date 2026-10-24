@@ -127,7 +127,7 @@ export const CSS = `
 .mwia-skill-sec > summary::before { content: "▸ "; color: #5b6bb0; }
 .mwia-skill-sec[open] > summary::before { content: "▾ "; }
 .mwia-skill-sec > p { margin: 2px 0 6px 14px; }
-.mwia-history { box-sizing: border-box; width: 100%; flex-basis: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-history { box-sizing: border-box; width: 100%; flex-basis: 100%; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-history-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
 .mwia-history-head span, .mwia-history-note, .mwia-history-scale { color: #8189b0; font-size: 11px; }
 .mwia-history-table { border-collapse: collapse; width: 100%; margin: 4px 0; font-variant-numeric: tabular-nums; }
