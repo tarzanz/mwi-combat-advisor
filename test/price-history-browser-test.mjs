@@ -126,8 +126,8 @@ try {
     await page.click(".mwia-header [data-action=close]");
     await page.evaluate(() => {
         // Like the game: the item icon sits between the sell and buy buttons in one row.
-        document.getElementById("market").innerHTML = '<div class="MarketplacePanel_marketplacePanel__x" style="width:360px"><div>Tradable range: 1200 – 1470</div>' +
-            '<div class="MarketplacePanel_orderBooksContainer__x"><div class="row" style="display:flex;justify-content:space-between;align-items:center"><button>+ New Sell Listing</button>' +
+        document.getElementById("market").innerHTML = '<div class="MarketplacePanel_marketplacePanel__x" style="width:360px;height:700px;display:flex;flex-direction:column">' +
+            '<div class="MarketplacePanel_orderBooksContainer__x"><div>Tradable range: 1200 – 1470</div><div class="row" style="display:flex;justify-content:space-between;align-items:center;width:60%;margin:auto"><button>+ New Sell Listing</button>' +
             '<div class="MarketplacePanel_currentItem__x" style="width:60px"><svg width="40" height="40"><use href="/sprites/items.svg#linen_boots"></use></svg>2084</div><button>+ New Buy Listing</button></div>' +
             '<div class="MarketplacePanel_orderBook__x">order book</div></div></div>';
     });
@@ -137,9 +137,10 @@ try {
     check("marketplace shows the usual price", box.includes(`Ask | ${shortCoins(askNow)} | ${shortCoins(usualAsk)} +30% above | ${shortCoins(usualAsk)} | →`) && box.includes(`Bid | ${shortCoins(usualBid)} | ${shortCoins(usualBid)} +0% usual`), box);
     const placed = await page.evaluate(() => {
         const box = document.querySelector(".mwia-history");
-        return { width: box.getBoundingClientRect().width, inRow: !!box.closest(".row"), beforeRow: box.nextElementSibling?.classList.contains("row") || box.nextElementSibling?.querySelector?.(".row") !== null };
+        return { width: box.getBoundingClientRect().width, height: box.getBoundingClientRect().height, inRow: !!box.closest(".row"), beforeRow: !!box.nextElementSibling?.querySelector(".row") };
     });
     check("box sits above the button row, full width", placed.width >= 340 && !placed.inRow && placed.beforeRow, JSON.stringify(placed));
+    check("box is only as tall as its content in a column layout", placed.height < 260, JSON.stringify(placed));
     check("marketplace chart drawn", await page.$$eval(".mwia-history polyline", (lines) => lines.length === 2));
     await page.screenshot({ path: path.join(shotDir, "history-1-market.png") });
     await page.click('.mwia-history [data-range="365"]');
