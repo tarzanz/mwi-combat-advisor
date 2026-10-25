@@ -388,7 +388,25 @@ function breakEvenPrice(entry) {
 // How many to make: what the market takes over the planned days (your sales
 // limit, or the buy orders that pay above break-even), less what you already
 // hold or have listed, and no more than your coins buy materials for.
-export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins = Infinity, have = () => 0, minJobHours = 0, sellAt = "ask" }) {
+// A product's price swinging more than this a day makes the batch smaller:
+// the price may fall before it all sells.
+export const CALM_SWING = 0.05;
+const MIN_SWING_SHARE = 0.4;
+// Above its usual price on a swinging market: half the batch, sold while it lasts.
+const HIGH_PRICE_SHARE = 0.5;
+const PRICE_BAND = 0.1;
+
+// How much of the batch to make given the price's swing and where it is now
+// (price: { swing, diff } – the selling side's typical swing and now vs usual).
+export function swingShare(price) {
+    if (!price || !(price.swing > 0)) return null;
+    const bySwing = Math.min(1, Math.max(MIN_SWING_SHARE, 1 - 2 * (price.swing - CALM_SWING)));
+    const high = price.diff !== null && price.diff > PRICE_BAND && price.swing > CALM_SWING;
+    const low = price.diff !== null && price.diff < -PRICE_BAND;
+    return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
+}
+
+export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins = Infinity, have = () => 0, minJobHours = 0, sellAt = "ask", price = null }) {
     // Never longer than the days planned for, however big the market looks.
     if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
@@ -401,6 +419,8 @@ export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins 
     if (!result.known) return result;
     const units = Math.max(0, demand - stock.inventory - stock.listed);
     let count = Math.ceil(units / entry.mainCount - 1e-9);
+    const swing = swingShare(price);
+    if (swing && swing.share < 1) count = Math.ceil(count * swing.share);
     const longest = Math.floor(days * HOURS_PER_DAY * entry.actionsPerHour);
     const limitedByDays = count > longest;
     if (limitedByDays) count = longest;
@@ -428,7 +448,7 @@ export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins 
         teas: entry.teaPerHour * hours,
     };
     batch.profit = batch.revenue - batch.materials - batch.teas;
-    return { ...result, units, count, hours, batch, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
+    return { ...result, units, count, hours, batch, swing, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
 }
 
 // Making it all yourself: every material your levels let you make or gather is
@@ -568,7 +588,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     const available = doable.map(({ action, evaluate, current }) => {
         const best = bestTeas(action, who, data, market, evaluate, score);
         const shown = teaMode === "best" ? best.result : current;
-        const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), sellCap }) : null;
+        const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), price: plan.price?.(shown.action) ?? null, sellCap }) : null;
         const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score(shown), teaSlots: who.slots[action.type], pouch: who.pouch, betterTeas: !sameTeas(best.result.teas, current.teas) && score(best.result) > score(current) + 1e-9 };
         if (plan) {
             // Teas for the suggested job; a gathering job runs for the days planned.

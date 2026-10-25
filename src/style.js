@@ -144,10 +144,13 @@ polyline.mwia-history-bid { stroke: #7ee2b0; }
 .mwia-history-ranges { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .mwia-history-ranges button { background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 2px 8px; font: 11px sans-serif; cursor: pointer; }
 .mwia-history-ranges button.mwia-active { background: #4c5bd4; }
+.mwia-history-export { flex-wrap: wrap; margin-top: 6px; }
+.mwia-history-export span { order: 3; margin-left: 0 !important; flex-basis: 100%; }
 .mwia-history-ranges span { margin-left: auto; color: #8189b0; font-size: 11px; }
 .mwia-history-ranges i { display: inline-block; width: 10px; height: 2px; margin: 0 3px 3px 6px; vertical-align: middle; }
 i.mwia-history-ask { background: #f2a65b; }
 i.mwia-history-bid { background: #7ee2b0; }
+.mwia-history-head .mwia-history-prelim { color: #ffd479; font-weight: 600; }
 .mwia-guide-box, .mwia-tool-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-guide-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
 .mwia-guide-head span, .mwia-guide-list li span, .mwia-guide-status { color: #8189b0; font-size: 11px; }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.22.0
+// @version      0.23.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1438,10 +1438,13 @@ polyline.mwia-history-bid { stroke: #7ee2b0; }
 .mwia-history-ranges { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .mwia-history-ranges button { background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 2px 8px; font: 11px sans-serif; cursor: pointer; }
 .mwia-history-ranges button.mwia-active { background: #4c5bd4; }
+.mwia-history-export { flex-wrap: wrap; margin-top: 6px; }
+.mwia-history-export span { order: 3; margin-left: 0 !important; flex-basis: 100%; }
 .mwia-history-ranges span { margin-left: auto; color: #8189b0; font-size: 11px; }
 .mwia-history-ranges i { display: inline-block; width: 10px; height: 2px; margin: 0 3px 3px 6px; vertical-align: middle; }
 i.mwia-history-ask { background: #f2a65b; }
 i.mwia-history-bid { background: #7ee2b0; }
+.mwia-history-head .mwia-history-prelim { color: #ffd479; font-weight: 600; }
 .mwia-guide-box, .mwia-tool-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-guide-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
 .mwia-guide-head span, .mwia-guide-list li span, .mwia-guide-status { color: #8189b0; font-size: 11px; }
@@ -1904,7 +1907,18 @@ i.mwia-history-bid { background: #7ee2b0; }
     const others = entry.revenuePerAction - main.value;
     return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others) / main.count / (1 - MARKET_TAX);
   }
-  function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins: coins5 = Infinity, have: have2 = () => 0, minJobHours = 0, sellAt = "ask" }) {
+  var CALM_SWING = 0.05;
+  var MIN_SWING_SHARE = 0.4;
+  var HIGH_PRICE_SHARE = 0.5;
+  var PRICE_BAND = 0.1;
+  function swingShare(price) {
+    if (!price || !(price.swing > 0)) return null;
+    const bySwing = Math.min(1, Math.max(MIN_SWING_SHARE, 1 - 2 * (price.swing - CALM_SWING)));
+    const high = price.diff !== null && price.diff > PRICE_BAND && price.swing > CALM_SWING;
+    const low = price.diff !== null && price.diff < -PRICE_BAND;
+    return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
+  }
+  function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins: coins5 = Infinity, have: have2 = () => 0, minJobHours = 0, sellAt = "ask", price = null }) {
     if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
@@ -1915,6 +1929,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!result.known) return result;
     const units = Math.max(0, demand - stock.inventory - stock.listed);
     let count2 = Math.ceil(units / entry.mainCount - 1e-9);
+    const swing = swingShare(price);
+    if (swing && swing.share < 1) count2 = Math.ceil(count2 * swing.share);
     const longest = Math.floor(days * HOURS_PER_DAY * entry.actionsPerHour);
     const limitedByDays = count2 > longest;
     if (limitedByDays) count2 = longest;
@@ -1939,7 +1955,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       teas: entry.teaPerHour * hours
     };
     batch.profit = batch.revenue - batch.materials - batch.teas;
-    return { ...result, units, count: count2, hours, batch, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
+    return { ...result, units, count: count2, hours, batch, swing, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
   }
   function chainBuilder(who, data, market, teaMode) {
     const sources = /* @__PURE__ */ new Map();
@@ -2067,7 +2083,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const available = doable.map(({ action, evaluate, current }) => {
       const best = bestTeas(action, who, data, market, evaluate, score2);
       const shown = teaMode === "best" ? best.result : current;
-      const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), sellCap }) : null;
+      const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), price: plan.price?.(shown.action) ?? null, sellCap }) : null;
       const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score2(shown), teaSlots: who.slots[action.type], pouch: who.pouch, betterTeas: !sameTeas(best.result.teas, current.teas) && score2(best.result) > score2(current) + 1e-9 };
       if (plan) {
         const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.days * HOURS_PER_DAY : 0;
@@ -2332,7 +2348,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       }
       const week7 = median(week);
       const previous = before.length >= MIN_HOURS ? median(before) : null;
-      return { med7: week7, med30: median(month), trend: week7 && previous ? week7 / previous - 1 : null };
+      const swing = week7 ? median(week.map(([v, w]) => [Math.abs(v / week7 - 1), w])) : null;
+      return { med7: week7, med30: median(month), trend: week7 && previous ? week7 / previous - 1 : null, swing };
     };
     let first = Infinity;
     let hours7 = 0;
@@ -2344,6 +2361,36 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const d of days) if (at(d.n, i)) first = Math.min(first, d.day * 24);
     const spanDays = Number.isFinite(first) ? (nowHour - first) / 24 : 0;
     return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS };
+  }
+  function historyCsv(items, hours, days, exportedAt = /* @__PURE__ */ new Date()) {
+    const num = (v) => Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "";
+    const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
+    const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
+    const id = (hrid) => hrid.replace(/^\/items\//, "");
+    const lines = [
+      `# MWI Combat Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on one device.`,
+      "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
+      `# section hour: an item's row appears when its ask or bid changed since its previous row (in between it stayed the same).`,
+      `# Hours with data: ${hours.map((r) => hourText(r.hour)).join(",")}`,
+      `# section day (older than ${HOURLY_DAYS} days): the day's median ask and bid, their low and high, and how many hours had data.`,
+      "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours"
+    ];
+    const previous = /* @__PURE__ */ new Map();
+    for (const r of hours) {
+      items.forEach((hrid, i) => {
+        const pair = num(at(r.a, i)) + "," + num(at(r.b, i));
+        if (previous.get(i) === pair || !previous.has(i) && pair === ",") return;
+        previous.set(i, pair);
+        lines.push(`hour,${hourText(r.hour)},${id(hrid)},${pair}`);
+      });
+    }
+    for (const d of days) {
+      items.forEach((hrid, i) => {
+        if (!at(d.n, i)) return;
+        lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num(at(list, i))).join(",")},${at(d.n, i)}`);
+      });
+    }
+    return { csv: lines.join("\n") + "\n", items: items.length, hours: hours.length, days: days.length };
   }
   function versusUsual(price, usual) {
     if (!(price > 0) || !(usual > 0)) return null;
@@ -2486,6 +2533,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     const pick = (key, span) => median(days.filter((d) => newestDay - d.day < span).map((d) => [at(d[key], i), at(d.n, i) || 1]));
     return { a90: pick("a", 90), b90: pick("b", 90), a365: pick("a", 365), b365: pick("b", 365), days: days.filter((d) => at(d.n, i)).length };
   }
+  async function exportHistory() {
+    await loadHistory();
+    const days = await loadAllDays();
+    return historyCsv(store2.items, store2.hours, days);
+  }
 
   // src/skilling-ui.js
   var SHORT_LIST = 25;
@@ -2549,12 +2601,21 @@ i.mwia-history-bid { background: #7ee2b0; }
         minJobHours: Number(settings.skillingMinJob) || 0,
         coins: have2("/items/coin"),
         have: have2,
-        sellAt: settings.skillingSellAt
+        sellAt: settings.skillingSellAt,
+        price: (action) => priceNow(action.outputItems?.[0]?.itemHrid, settings.skillingSellAt)
       };
       const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
       for (const entry of [...result.available, ...result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
       return result;
     }
+  }
+  function priceNow(itemHrid, sellAt) {
+    const summary = itemHrid ? priceSummary(itemHrid) : null;
+    if (!summary?.enough) return null;
+    const side = sellAt === "bid" ? "b" : "a";
+    const now = marketEntry(itemHrid)?.[side];
+    const usual = summary[side].med7;
+    return { swing: summary[side].swing, diff: now > 0 && usual > 0 ? now / usual - 1 : null };
   }
   function priceWarnings(entry) {
     const warnings = [];
@@ -2564,6 +2625,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       const side = main.sell.source === "ask" ? "a" : "b";
       const versus = summary?.enough ? versusUsual(main.sell[main.sell.source], summary[side].med7) : null;
       if (versus && versus.label !== "near") warnings.push({ kind: versus.label === "above" ? "pricehigh" : "pricelow", itemHrid: main.itemHrid, diff: versus.diff, usual: summary[side].med7 });
+      const swing = summary?.enough ? summary[side].swing : null;
+      if (swing > CALM_SWING && entry.margin > 0 && entry.margin < swing) warnings.push({ kind: "swing", itemHrid: main.itemHrid, swing, margin: entry.margin });
     }
     for (const input of entry.inputs) {
       const summary = priceSummary(input.itemHrid);
@@ -2622,6 +2685,8 @@ i.mwia-history-bid { background: #7ee2b0; }
         return `${item} sells ${Math.round(-warning.diff * 100)}% below its usual price (7-day median ${coins(warning.usual)}): waiting may pay.`;
       case "inputhigh":
         return `${item} costs ${Math.round(warning.diff * 100)}% more than usual (7-day median ${coins(warning.usual)}).`;
+      case "swing":
+        return `${item}'s price usually swings \xB1${Math.round(warning.swing * 100)}% \u2013 more than the ${dec(warning.margin * 100, 1)}% margin.`;
       case "margin":
         return `Thin margin: a ${dec(warning.margin * 100, 1)}% drop in the selling price wipes out the profit.`;
       case "unsellable":
@@ -2760,6 +2825,14 @@ i.mwia-history-bid { background: #7ee2b0; }
     const held = s.stock.inventory || s.stock.listed ? ` \u2212 ${(s.stock.inventory + s.stock.listed).toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)` : "";
     let html = `The market takes ${s.demand.toLocaleString("en-US")}${sources.length > 1 ? ", the most of" : ":"} ${sources.join(" \xB7 ")}${held}.`;
     if (s.profitableBids === null) html += ` Break-even price ${coins(s.breakEven)}.`;
+    const sw = s.swing;
+    if (sw && sw.share < 1) {
+      const why = [];
+      if (sw.bySwing < 1) why.push(`its price usually swings \xB1${Math.round(sw.swing * 100)}%`);
+      if (sw.high) why.push(`it is ${Math.round(sw.diff * 100)}% above its usual price now \u2013 sell it while it lasts`);
+      html += ` Made ${Math.round(sw.share * 100)}% of that: ${why.join(", and ")}.`;
+    }
+    if (sw?.low) html += ` <span class="mwia-warn">It sells ${Math.round(-sw.diff * 100)}% below its usual price now \u2013 waiting, or making something else, may pay.</span>`;
     if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
     if (s.limitedByDays && !s.limitedByCoins) html += ` Capped at ${s.days} day${s.days === 1 ? "" : "s"} of crafting (<i>Make for</i>).`;
     if (!s.count) return html + " You already hold enough \u2013 nothing to make.";
@@ -3016,7 +3089,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   var FIRST_COLLECT_MS = 15 * 1e3;
   var SCAN_MS = 400;
   var RANGES = [30, 365];
-  var h = { win: null, scanTimer: null, scanning: false, range: 30, listeners: /* @__PURE__ */ new Set() };
+  var PRELIMINARY_HOURS = 2;
+  var h = { win: null, scanTimer: null, scanning: false, range: 30, listeners: /* @__PURE__ */ new Set(), exported: null, status: "" };
   var pct2 = (fraction) => `${fraction >= 0 ? "+" : "\u2212"}${Math.abs(fraction * 100).toFixed(0)}%`;
   function onHistoryChange(listener) {
     h.listeners.add(listener);
@@ -3072,7 +3146,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     });
     if (!current) return;
     let box = document.querySelector(".mwia-history");
-    const key = `${current.itemHrid}|${h.range}`;
+    const key = `${current.itemHrid}|${h.range}|${h.exported ? "ready" : ""}|${h.status}`;
     if (box && box.dataset.version === key) return;
     if (!box) {
       box = document.createElement("div");
@@ -3081,9 +3155,52 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     box.dataset.item = current.itemHrid;
     box.dataset.version = key;
-    box.innerHTML = await historyHtml(current.itemHrid);
+    box.innerHTML = await historyHtml(current.itemHrid) + exportHtml();
+  }
+  function exportHtml() {
+    const e = h.exported;
+    const buttons = e ? `<span>${e.items} items \xB7 ${e.hours} hours \xB7 ${e.days} days \xB7 ${(e.csv.length / 1024).toFixed(0)} kB</span>
+           <button data-history-export="download">\u2B07 Download CSV</button><button data-history-export="copy">\u{1F4CB} Copy</button>` : `<button data-history-export="prepare">\u2B07 Export all prices</button>`;
+    return `<div class="mwia-history-ranges mwia-history-export">${buttons}</div>${h.status ? `<div class="mwia-history-note">${esc(h.status)}</div>` : ""}`;
+  }
+  async function onExport(kind) {
+    if (kind === "prepare") {
+      h.status = "Preparing\u2026";
+      scheduleScan(true);
+      try {
+        h.exported = await exportHistory();
+        h.status = "";
+      } catch (error) {
+        h.status = "Export failed: " + error.message;
+      }
+    } else if (kind === "download" && h.exported) {
+      const url = URL.createObjectURL(new Blob([h.exported.csv], { type: "text/csv" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `mwi-prices-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 6e4);
+      h.status = "Downloaded \u2013 on an iPhone it is in the Files app (Downloads).";
+    } else if (kind === "copy" && h.exported) {
+      try {
+        await navigator.clipboard.writeText(h.exported.csv);
+        h.status = "Copied \u2013 paste it where you want it.";
+      } catch (error) {
+        h.status = "Could not copy (" + error.message + "); use Download instead.";
+      }
+    }
+    scheduleScan(true);
   }
   function onClick(event) {
+    const exportButton = event.target.closest?.(".mwia-history [data-history-export]");
+    if (exportButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      onExport(exportButton.dataset.historyExport);
+      return;
+    }
     const button = event.target.closest?.(".mwia-history [data-range]");
     if (!button) return;
     event.preventDefault();
@@ -3096,9 +3213,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const summary = priceSummary(itemHrid);
     const entry = marketEntry(itemHrid);
     const head2 = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price</b> <span>${text}</span></div>`;
-    if (!summary || !summary.enough) {
-      const have2 = summary ? `${summary.hours7} of ${MIN_HOURS} h, ${summary.spanDays.toFixed(1)} of ${MIN_DAYS} days` : "nothing yet";
-      return head2(`collecting: ${have2}`) + `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+    const saved = `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+    if (!summary || summary.hours7 < PRELIMINARY_HOURS) {
+      return head2(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + saved;
     }
     const row = (label, now, side) => {
       const versus = versusUsual(now, side.med7);
@@ -3112,8 +3229,24 @@ i.mwia-history-bid { background: #7ee2b0; }
     const points = await priceSeries(itemHrid, h.range);
     const long = h.range > 31 ? await longMedians(itemHrid) : null;
     const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "\u2013"}, bid ${long.b90 ? shortCoins(long.b90) : "\u2013"} \xB7 1 year: ask ${long.a365 ? shortCoins(long.a365) : "\u2013"}, bid ${long.b365 ? shortCoins(long.b365) : "\u2013"} (${long.days} days of data)</div>` : "";
-    return head2(`${summary.hours7} h in the last week \xB7 ${summary.spanDays.toFixed(0)} days of data`) + `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
-          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` + longLine;
+    const preliminary = !summary.enough;
+    return (preliminary ? head2(`<b class="mwia-history-prelim">preliminary</b> \xB7 ${progressText(summary)}`) : head2(`${summary.hours7} h in the last week \xB7 ${summary.spanDays.toFixed(0)} days of data`)) + `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
+          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` + longLine + (preliminary ? `<div class="mwia-history-note">Preliminary: only ${summary.hours7} h over ${summary.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>` + saved : "");
+  }
+  function progressText(summary) {
+    const hoursLeft = Math.max(0, MIN_HOURS - summary.hours7);
+    const daysLeft = Math.max(0, MIN_DAYS - summary.spanDays);
+    const parts = [
+      hoursLeft ? `${summary.hours7} of ${MIN_HOURS} h` : `${MIN_HOURS} h \u2713`,
+      daysLeft ? `${summary.spanDays.toFixed(1)} of ${MIN_DAYS} days` : `${MIN_DAYS} days \u2713`
+    ];
+    if (daysLeft) {
+      const wait = daysLeft * 24;
+      parts.push(`ready in about ${wait < 20 ? Math.max(1, Math.round(wait)) + " h" : Math.round(daysLeft * 10) / 10 + " day" + (daysLeft > 1.05 ? "s" : "")}${hoursLeft ? ` and ${hoursLeft} more h with the game open` : ""}`);
+    } else if (hoursLeft) {
+      parts.push(`${hoursLeft} more h with the game open`);
+    }
+    return parts.join(" \xB7 ");
   }
   function chartSvg(points) {
     if (points.length < 2) return "";

@@ -95,7 +95,9 @@ export function summarize(i, hours, days, nowHour) {
         }
         const week7 = median(week);
         const previous = before.length >= MIN_HOURS ? median(before) : null;
-        return { med7: week7, med30: median(month), trend: week7 && previous ? week7 / previous - 1 : null };
+        // Typical swing: half the week's prices lie within ± this share of the median.
+        const swing = week7 ? median(week.map(([v, w]) => [Math.abs(v / week7 - 1), w])) : null;
+        return { med7: week7, med30: median(month), trend: week7 && previous ? week7 / previous - 1 : null, swing };
     };
     let first = Infinity;
     let hours7 = 0;
@@ -107,6 +109,40 @@ export function summarize(i, hours, days, nowHour) {
     for (const d of days) if (at(d.n, i)) first = Math.min(first, d.day * 24);
     const spanDays = Number.isFinite(first) ? (nowHour - first) / 24 : 0;
     return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS };
+}
+
+// Every stored price as CSV, to read in a spreadsheet or hand to an AI. Hourly
+// rows only where an item's ask or bid changed since its previous row, so the
+// file stays small; the hours that have data are listed in the header.
+export function historyCsv(items, hours, days, exportedAt = new Date()) {
+    const num = (v) => (Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "");
+    const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
+    const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
+    const id = (hrid) => hrid.replace(/^\/items\//, "");
+    const lines = [
+        `# MWI Combat Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on one device.`,
+        "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
+        `# section hour: an item's row appears when its ask or bid changed since its previous row (in between it stayed the same).`,
+        `# Hours with data: ${hours.map((r) => hourText(r.hour)).join(",")}`,
+        `# section day (older than ${HOURLY_DAYS} days): the day's median ask and bid, their low and high, and how many hours had data.`,
+        "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours",
+    ];
+    const previous = new Map();
+    for (const r of hours) {
+        items.forEach((hrid, i) => {
+            const pair = num(at(r.a, i)) + "," + num(at(r.b, i));
+            if (previous.get(i) === pair || (!previous.has(i) && pair === ",")) return;
+            previous.set(i, pair);
+            lines.push(`hour,${hourText(r.hour)},${id(hrid)},${pair}`);
+        });
+    }
+    for (const d of days) {
+        items.forEach((hrid, i) => {
+            if (!at(d.n, i)) return;
+            lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num(at(list, i))).join(",")},${at(d.n, i)}`);
+        });
+    }
+    return { csv: lines.join("\n") + "\n", items: items.length, hours: hours.length, days: days.length };
 }
 
 // How a price compares with the usual one.
@@ -272,4 +308,11 @@ export async function longMedians(itemHrid) {
     const newestDay = days.length ? days[days.length - 1].day : 0;
     const pick = (key, span) => median(days.filter((d) => newestDay - d.day < span).map((d) => [at(d[key], i), at(d.n, i) || 1]));
     return { a90: pick("a", 90), b90: pick("b", 90), a365: pick("a", 365), b365: pick("b", 365), days: days.filter((d) => at(d.n, i)).length };
+}
+
+// The whole history as CSV (see historyCsv).
+export async function exportHistory() {
+    await loadHistory();
+    const days = await loadAllDays();
+    return historyCsv(store.items, store.hours, days);
 }

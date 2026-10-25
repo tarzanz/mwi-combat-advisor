@@ -4,7 +4,7 @@
 import { getClientData, itemName, marketEntry, marketListings, pricesStamp } from "./game-data.js";
 import { state } from "./game-state.js";
 import { coinsInput, esc, shortCoins } from "./format.js";
-import { ASK_WINDOW, MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, heldStock, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
+import { ASK_WINDOW, CALM_SWING, MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, heldStock, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
 import { UPGRADES_SHOWN, rankUpgrades } from "./skilling-upgrades.js";
 import { historyVersion, priceSummary, versusUsual } from "./price-history.js";
 
@@ -82,11 +82,22 @@ function computeRanking(settings) {
             coins: have("/items/coin"),
             have,
             sellAt: settings.skillingSellAt,
+            price: (action) => priceNow(action.outputItems?.[0]?.itemHrid, settings.skillingSellAt),
         };
         const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
         for (const entry of [...result.available, ...result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
         return result;
     }
+}
+
+// The selling side's typical swing and where its price is now against the usual one (once there is enough history).
+function priceNow(itemHrid, sellAt) {
+    const summary = itemHrid ? priceSummary(itemHrid) : null;
+    if (!summary?.enough) return null;
+    const side = sellAt === "bid" ? "b" : "a";
+    const now = marketEntry(itemHrid)?.[side];
+    const usual = summary[side].med7;
+    return { swing: summary[side].swing, diff: now > 0 && usual > 0 ? now / usual - 1 : null };
 }
 
 // Prices far from their usual level (once enough history is collected): the
@@ -99,6 +110,9 @@ function priceWarnings(entry) {
         const side = main.sell.source === "ask" ? "a" : "b";
         const versus = summary?.enough ? versusUsual(main.sell[main.sell.source], summary[side].med7) : null;
         if (versus && versus.label !== "near") warnings.push({ kind: versus.label === "above" ? "pricehigh" : "pricelow", itemHrid: main.itemHrid, diff: versus.diff, usual: summary[side].med7 });
+        // A margin smaller than the price's normal swing can vanish on an ordinary day.
+        const swing = summary?.enough ? summary[side].swing : null;
+        if (swing > CALM_SWING && entry.margin > 0 && entry.margin < swing) warnings.push({ kind: "swing", itemHrid: main.itemHrid, swing, margin: entry.margin });
     }
     for (const input of entry.inputs) {
         const summary = priceSummary(input.itemHrid);
@@ -162,6 +176,8 @@ function warningText(warning) {
             return `${item} sells ${Math.round(-warning.diff * 100)}% below its usual price (7-day median ${coins(warning.usual)}): waiting may pay.`;
         case "inputhigh":
             return `${item} costs ${Math.round(warning.diff * 100)}% more than usual (7-day median ${coins(warning.usual)}).`;
+        case "swing":
+            return `${item}'s price usually swings ±${Math.round(warning.swing * 100)}% – more than the ${dec(warning.margin * 100, 1)}% margin.`;
         case "margin":
             return `Thin margin: a ${dec(warning.margin * 100, 1)}% drop in the selling price wipes out the profit.`;
         case "unsellable":
@@ -332,6 +348,14 @@ function suggestionHtml(e) {
     const held = s.stock.inventory || s.stock.listed ? ` − ${(s.stock.inventory + s.stock.listed).toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)` : "";
     let html = `The market takes ${s.demand.toLocaleString("en-US")}${sources.length > 1 ? ", the most of" : ":"} ${sources.join(" · ")}${held}.`;
     if (s.profitableBids === null) html += ` Break-even price ${coins(s.breakEven)}.`;
+    const sw = s.swing;
+    if (sw && sw.share < 1) {
+        const why = [];
+        if (sw.bySwing < 1) why.push(`its price usually swings ±${Math.round(sw.swing * 100)}%`);
+        if (sw.high) why.push(`it is ${Math.round(sw.diff * 100)}% above its usual price now – sell it while it lasts`);
+        html += ` Made ${Math.round(sw.share * 100)}% of that: ${why.join(", and ")}.`;
+    }
+    if (sw?.low) html += ` <span class="mwia-warn">It sells ${Math.round(-sw.diff * 100)}% below its usual price now – waiting, or making something else, may pay.</span>`;
     if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
     if (s.limitedByDays && !s.limitedByCoins) html += ` Capped at ${s.days} day${s.days === 1 ? "" : "s"} of crafting (<i>Make for</i>).`;
     if (!s.count) return html + " You already hold enough – nothing to make.";

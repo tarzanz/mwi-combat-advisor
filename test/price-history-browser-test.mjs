@@ -91,11 +91,12 @@ try {
         const tx = db.transaction(["hourly", "meta"], "readwrite");
         const nowHour = Math.floor(Date.now() / 3600000) - 1;
         let n = 0;
-        for (let age = 10 * 24; age >= 0; age -= 2) {
-            tx.objectStore("hourly").put({ hour: nowHour - age, a: new Float32Array([usualAsk]), b: new Float32Array([usualBid]) });
+        // Linen Gloves: only the last 18 hours, every hour – enough hours, too few days.
+        for (let age = 10 * 24; age >= 0; age -= age < 18 ? 1 : 2) {
+            tx.objectStore("hourly").put({ hour: nowHour - age, a: new Float32Array([usualAsk, age < 18 ? 500 : NaN]), b: new Float32Array([usualBid, age < 18 ? 400 : NaN]) });
             n++;
         }
-        tx.objectStore("meta").put([item], "items");
+        tx.objectStore("meta").put([item, "/items/linen_gloves"], "items");
         await new Promise((r) => (tx.oncomplete = r));
         db.close();
         return n;
@@ -143,9 +144,28 @@ try {
     check("box is only as tall as its content in a column layout", placed.height < 260, JSON.stringify(placed));
     check("marketplace chart drawn", await page.$$eval(".mwia-history polyline", (lines) => lines.length === 2));
     await page.screenshot({ path: path.join(shotDir, "history-1-market.png") });
+    // Export: prepare, then copy the CSV.
+    await browser.defaultBrowserContext().overridePermissions(url, ["clipboard-read", "clipboard-write", "clipboard-sanitized-write"]).catch(() => null);
+    await page.click('.mwia-history [data-history-export="prepare"]');
+    await page.waitForSelector('.mwia-history [data-history-export="copy"]', { timeout: 4000 }).catch(() => null);
+    const ready = await page.$eval(".mwia-history-export", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
+    check("export prepared", /\d+ items · \d+ hours · 0 days · \d+ kB/.test(ready), ready);
+    await page.click('.mwia-history [data-history-export="copy"]');
+    await page.waitForFunction(() => /Copied|Could not copy/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 3000 }).catch(() => null);
+    const copied = await page.evaluate(() => navigator.clipboard.readText().catch((e) => "error " + e.message));
+    check("export copies the CSV", copied.startsWith("# MWI Combat Advisor price history") && copied.includes(`,linen_boots,${usualAsk},${usualBid}`) && /\nhour,\d{4}-\d\d-\d\dT\d\d,linen_gloves,500,400\n/.test(copied), copied.slice(0, 200));
     await page.click('.mwia-history [data-range="365"]');
     await new Promise((r) => setTimeout(r, 600));
     check("1-year view", await page.$eval('.mwia-history [data-range="365"]', (b) => b.classList.contains("mwia-active")));
+
+    // An item with enough hours but not two days shows preliminary numbers.
+    await page.evaluate(() => {
+        document.querySelector('[class*="MarketplacePanel_currentItem"]').innerHTML = '<svg><use href="/sprites/items.svg#linen_gloves"></use></svg> Linen Gloves';
+    });
+    await page.waitForFunction(() => /preliminary/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
+    const prelim = await page.$eval(".mwia-history", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
+    check("enough hours but too few days: preliminary numbers", /preliminary · 12 h ✓ · 0\.7 of 2 days · ready in about 1\.3 days/.test(prelim) && /Ask1,728 500 \+246% above/.test(prelim) && /Preliminary: only \d+ h over 0\.\d days/.test(prelim), prelim.slice(0, 300));
+    await page.screenshot({ path: path.join(shotDir, "history-2-preliminary.png") });
 
     // Another item without history says it is still collecting.
     await page.evaluate(() => {
@@ -153,7 +173,7 @@ try {
     });
     await page.waitForFunction(() => /collecting/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     const collecting = await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "");
-    check("an item with little history says it is collecting", /collecting: 1 of 12 h, 0\.0 of 2 days/.test(collecting), collecting.slice(0, 120));
+    check("an item with little history says it is collecting", /collecting: 1 of 12 h · 0\.0 of 2 days · ready in about 2 days and 11 more h with the game open/.test(collecting), collecting.slice(0, 120));
 
     // Closing the market removes the box.
     await page.evaluate(() => (document.getElementById("market").innerHTML = ""));

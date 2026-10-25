@@ -89,7 +89,14 @@ buy, by simulating *your own* character.
   days, so one odd listing hardly moves it – with ±%, a trend arrow (this week's median against last week's) and a
   chart of ask and bid for 30 days or a year (plus 90-day and 1-year medians). The Skilling tab warns when a product
   sells more than 10% above or below its usual price, or a material costs more than 10% above it. Until an item has
-  12 hours over 2 days of data the box says it is still collecting.
+  12 hours over 2 days of data the box says how far it has come and roughly when it is ready; from 2 hours on it
+  already shows its numbers, marked *preliminary* (the Skilling tab warns only once both are reached). Prices that
+  swing are taken into account in *How many*: when a product's price usually swings more than ±5% (half the week's
+  prices lie within that share of the median) the batch gets smaller – down to 40% – since the price may fall before
+  it all sells; when it is also more than 10% above its usual price now the batch is halved again, to sell while it
+  lasts; more than 10% below says waiting may pay. A ⚠ warns when the margin is smaller than the price's usual swing.
+  **⬇ Export all prices** in the box prepares every stored price as one CSV (hourly rows only where an item's price
+  changed, daily rows with low/high), then **Download CSV** or **📋 Copy** – to read in a spreadsheet or hand to an AI.
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the **⚔ Advisor** button can be
   dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact

@@ -1,7 +1,8 @@
 // Checks the price-history maths without a browser: medians, daily roll-up,
 // the usual price and trend of an item, and how a price compares with it.
 // Usage: node test/price-history-test.mjs
-import { median, rollUpDays, summarize, versusUsual, trendArrow, MIN_HOURS } from "../src/price-history.js";
+import { historyCsv, median, rollUpDays, summarize, versusUsual, trendArrow, MIN_HOURS } from "../src/price-history.js";
+import { swingShare } from "../src/skilling.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
@@ -43,6 +44,35 @@ check("30-day median weighs a daily point by its hours", summarize(0, monthHours
 
 const above = versusUsual(1300, 1000);
 check("above / below / near the usual price", above.label === "above" && Math.abs(above.diff - 0.3) < 1e-9 && versusUsual(850, 1000).label === "below" && versusUsual(1050, 1000).label === "near" && versusUsual(0, 1000) === null);
+
+// Swing: half the week's prices within ± this share of the median.
+const swingHours = [900, 1000, 1000, 1100, 1000, 800, 1200].map((ask, k) => ({ hour: now - k, a: new Float32Array([ask]), b: new Float32Array([NaN]) }));
+check("typical swing of the week's prices", Math.abs(summarize(0, swingHours, [], now).a.swing - 0.1) < 1e-9 && s.b.swing === 0, String(summarize(0, swingHours, [], now).a.swing));
+
+// How much of the batch a swinging price leaves.
+check("a calm price keeps the whole batch", swingShare({ swing: 0.03, diff: 0 }).share === 1 && swingShare(null) === null);
+check("a swinging price makes the batch smaller", Math.abs(swingShare({ swing: 0.15, diff: 0 }).share - 0.8) < 1e-9 && swingShare({ swing: 0.6, diff: 0 }).share === 0.4);
+const high = swingShare({ swing: 0.15, diff: 0.2 });
+check("high now on a swinging market halves it again", high.high && Math.abs(high.share - 0.4) < 1e-9 && !swingShare({ swing: 0.03, diff: 0.2 }).high);
+check("low now is pointed out, not cut", swingShare({ swing: 0.03, diff: -0.2 }).low && swingShare({ swing: 0.03, diff: -0.2 }).share === 1);
+
+// CSV export: hourly rows only where a price changed; daily rows with low/high/hours.
+const csvHours = [
+    { hour: 480000, a: new Float32Array([10, NaN]), b: new Float32Array([8, NaN]) },
+    { hour: 480001, a: new Float32Array([10, 5]), b: new Float32Array([8, NaN]) },
+    { hour: 480002, a: new Float32Array([11, 5]), b: new Float32Array([8, NaN]) },
+];
+const csvDays = [{ day: 19990, a: new Float32Array([9, NaN]), b: new Float32Array([7, NaN]), aLow: new Float32Array([8, NaN]), aHigh: new Float32Array([12, NaN]), bLow: new Float32Array([6, NaN]), bHigh: new Float32Array([7.5, NaN]), n: new Uint8Array([20, 0]) }];
+const out = historyCsv(["/items/a", "/items/b"], csvHours, csvDays, new Date(0));
+const rows = out.csv.trim().split("\n").filter((l) => !l.startsWith("#"));
+const hour = (h) => new Date(h * 3600000).toISOString().slice(0, 13);
+check("CSV export", JSON.stringify(rows) === JSON.stringify([
+    "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours",
+    `hour,${hour(480000)},a,10,8`,
+    `hour,${hour(480001)},b,5,`,
+    `hour,${hour(480002)},a,11,8`,
+    `day,${new Date(19990 * 86400000).toISOString().slice(0, 10)},a,9,7,8,12,6,7.5,20`,
+]) && out.csv.includes(`# Hours with data: ${hour(480000)},${hour(480001)},${hour(480002)}`), JSON.stringify(rows));
 
 console.log(failures ? `${failures} check(s) failed` : "All checks passed");
 process.exit(failures ? 1 : 0);
