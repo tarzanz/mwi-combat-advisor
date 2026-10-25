@@ -40,6 +40,7 @@ import { addToCart } from "./mwitools-cart.js";
 import { rememberToggle, renderSkilling, toggleShowAll } from "./skilling-ui.js";
 import { onHistoryChange } from "./price-history-ui.js";
 import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js";
+import { startToolNotice } from "./tool-notice.js";
 import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
@@ -931,14 +932,16 @@ export function mountUI(win, workerSource) {
       </nav>
       <div class="mwia-body"></div>`;
     document.body.appendChild(root);
-    startConsumableGuide({
+    const gameDeps = {
         settings: () => ui.settings,
         prepare: async () => {
             await loadClientData(ui.win);
             await loadPrices();
         },
         addToCart: (items) => addToCart(ui.win, items),
-    });
+    };
+    startConsumableGuide(gameDeps);
+    startToolNotice(gameDeps);
     ui.root = root;
 
     root.addEventListener("click", onClick);

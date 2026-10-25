@@ -3,7 +3,7 @@
 // tried in place of what you wear now, and measured by how much more the
 // skill's best action earns a day; payback = price / extra gold a day.
 
-import { bestTeas, drinkSlots, evaluateAction, limitSales, skillType, skillingActions } from "./skilling.js";
+import { SKILLING_SKILLS, bestTeas, drinkSlots, evaluateAction, limitSales, skillType, skillingActions } from "./skilling.js";
 
 const MAX_HOUSE_LEVEL = 8;
 export const UPGRADES_SHOWN = 10;
@@ -49,6 +49,19 @@ function bestDayWithTeas(actions, who, data, market, sellCap) {
         if (r.valid && (!best || r.goldPerDay > best.goldPerDay)) best = r;
     }
     return best;
+}
+
+// What wearing one item instead of another (or nothing) changes on the skill's
+// best action: gold and XP a day, with the teas you have now.
+export function swapGain(who, data, market, skill, current, itemHrid, enhancementLevel = 0, sellCap = 0) {
+    const type = skillType(skill);
+    const actions = skillingActions(data).filter((a) => a.type === type && (who.levels[a.levelRequirement.skillHrid] ?? 1) >= a.levelRequirement.level);
+    const base = bestDay(actions, who, data, market, sellCap);
+    if (!base) return null;
+    const old = current ? itemSkillBuffs(current.itemHrid, current.enhancementLevel, skill, data) : { buffs: [], concentration: 0 };
+    const next = itemSkillBuffs(itemHrid, enhancementLevel, skill, data);
+    const after = bestDay(actions, { ...who, buffs: { ...(who.buffs || {}), [type]: [...(who.buffs?.[type] || []), ...negate(old.buffs), ...next.buffs] }, concentration: who.concentration + next.concentration - old.concentration }, data, market, sellCap);
+    return { gainPerDay: after.goldPerDay - base.goldPerDay, xpPerDay: after.xpPerDay - base.xpPerDay, bestAction: after.action };
 }
 
 // equipped: location -> { itemHrid, enhancementLevel }; owned: itemHrid -> [enhancement levels in the inventory];
@@ -137,4 +150,46 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
         check = { game, mine, matches: Math.abs(game - mine) < 0.005 };
     }
     return { base, upgrades, check };
+}
+
+// Tools whose next tier your skill level now allows: for every tool slot, the
+// highest-tier tool you can use, when it is above the one you wear. Gold and XP
+// a day for the gathering and production skills; price from the cheapest ask.
+// equipped: location -> { itemHrid, enhancementLevel }; owned: itemHrid -> [levels].
+export function toolTiers(who, data, market, { equipped, owned, sellCap = 0 }) {
+    const tiers = new Map(); // tool type -> [{ itemHrid, skillHrid, level }]
+    for (const item of Object.values(data.itemDetailMap)) {
+        const detail = item.equipmentDetail;
+        const req = detail?.levelRequirements?.[0];
+        if (!detail || !/_tool$/.test(detail.type) || !req) continue;
+        if (!tiers.has(detail.type)) tiers.set(detail.type, []);
+        tiers.get(detail.type).push({ itemHrid: item.hrid, skillHrid: req.skillHrid, level: req.level });
+    }
+    const notices = [];
+    for (const [type, tools] of tiers) {
+        const slot = location(tools[0].itemHrid, data);
+        const current = equipped[slot] || null;
+        const meets = (tool) => (data.itemDetailMap[tool.itemHrid].equipmentDetail.levelRequirements || []).every((r) => (who.levels[r.skillHrid] ?? 0) >= r.level);
+        const best = tools.filter(meets).sort((a, b) => b.level - a.level)[0];
+        const wearing = current ? tools.find((tool) => tool.itemHrid === current.itemHrid) : null;
+        if (!best || (wearing && wearing.level >= best.level)) continue;
+        const skill = best.skillHrid.split("/").pop();
+        const gain = SKILLING_SKILLS.includes(skill) ? swapGain(who, data, market, skill, current, best.itemHrid, 0, sellCap) : null;
+        const isOwned = !!owned[best.itemHrid]?.length;
+        const price = isOwned ? 0 : market.buy(best.itemHrid);
+        notices.push({
+            type,
+            skill,
+            skillLevel: who.levels[best.skillHrid] ?? 0,
+            current,
+            itemHrid: best.itemHrid,
+            level: best.level,
+            owned: isOwned,
+            price,
+            gainPerDay: gain?.gainPerDay ?? null,
+            xpPerDay: gain?.xpPerDay ?? null,
+            paybackDays: gain && gain.gainPerDay > 1 && price !== null ? price / gain.gainPerDay : null,
+        });
+    }
+    return notices.sort((a, b) => a.skill.localeCompare(b.skill));
 }

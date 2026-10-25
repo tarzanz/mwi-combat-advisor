@@ -62,6 +62,10 @@ buy, by simulating *your own* character.
   advisor's settings and focus, how many you have and a 🛒 button for the teas the job needs. For a combat zone it
   shows the drinks and food from your latest *Analyze upgrades* for that zone (kept per zone, also after a reload)
   and buys what you lack for a day.
+- **Better tools on the Equipment page** – under the slots a box lists every tool slot where your skill level now
+  allows a higher tier than the tool you wear (or an empty slot): the tool, its price, what it adds a day on the
+  skill's best action and when it pays back (gathering and production skills), with a 🛒 button each and one for
+  all. A tool already in your inventory just says to equip it.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the
   plan's goals (house level / item quantity) and the Full chain / One step / Buy choice of every step-2 row, works out

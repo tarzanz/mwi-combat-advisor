@@ -9,7 +9,7 @@ import puppeteer from "puppeteer-core";
 import { WebSocketServer } from "ws";
 import { fixtureCharacter } from "./fixture-character.js";
 import { NEAR_LEVELS, RISKY_MARGIN, heldStock, marketPricer, rankSkilling, skillingCharacter } from "../src/skilling.js";
-import { rankUpgrades } from "../src/skilling-upgrades.js";
+import { rankUpgrades, toolTiers } from "../src/skilling-upgrades.js";
 import { shortCoins } from "../src/format.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -33,6 +33,9 @@ character.characterSkills.push({ skillHrid: "/skills/tailoring", level: 20, expe
 // A Large Pouch: two drink slots in every skill. Total level 800 is enough for a Giant Pouch (3 slots).
 character.characterItems.push({ hash: "pouch", itemHrid: "/items/large_pouch", itemLocationHrid: "/item_locations/pouch", count: 1, enhancementLevel: 0 });
 character.characterSkills.push({ skillHrid: "/skills/total_level", level: 800 });
+// Tools: a Cheese Needle worn (Tailoring 20 allows an Azure Needle), Azure Shears in the inventory.
+character.characterItems.push({ hash: "needle", itemHrid: "/items/cheese_needle", itemLocationHrid: "/item_locations/tailoring_tool", count: 1, enhancementLevel: 0 });
+character.characterItems.push({ hash: "shears", itemHrid: "/items/azure_shears", itemLocationHrid: "/item_locations/inventory", count: 1, enhancementLevel: 0 });
 const FORAGING = "/action_types/foraging";
 character.actionTypeDrinkSlotsMap = { ...character.actionTypeDrinkSlotsMap, [FORAGING]: [{ itemHrid: "/items/wisdom_tea" }, null, null] };
 character.equipmentActionTypeBuffsMap = { [FORAGING]: [{ typeHrid: "/buff_types/action_speed", flatBoost: 0.15, ratioBoost: 0 }] };
@@ -485,6 +488,35 @@ try {
     const fit = await page.evaluate(() => ({ scroll: document.querySelector(".mwia-body").scrollWidth, client: document.querySelector(".mwia-body").clientWidth }));
     check("list fits the width", fit.scroll <= fit.client + 1, JSON.stringify(fit));
     await page.screenshot({ path: path.join(shotDir, "skilling-3-updated.png") });
+    // The game's Equipment page: a notice under the slots for tools a skill level now allows.
+    await page.evaluate(() => {
+        document.querySelector(".mwia-panel").classList.add("mwia-hidden");
+        const icons = Array.from({ length: 12 }, (_, i) => '<div class="slot"><svg><use href="/sprites/items.svg#x' + i + '"></use></svg></div>').join("");
+        document.body.insertAdjacentHTML("beforeend", '<div id="equipment" style="display:grid;grid-template-columns:repeat(5,60px)"><div class="head"><button>View Stats</button></div>' + icons + '</div>');
+    });
+    await page.waitForSelector("#equipment > .mwia-tool-box", { timeout: 6000 }).catch(() => null);
+    const equippedTools = {};
+    const ownedTools = {};
+    for (const i of character.characterItems) {
+        if (i.itemLocationHrid === "/item_locations/inventory") (ownedTools[i.itemHrid] ||= []).push(i.enhancementLevel || 0);
+        else equippedTools[i.itemLocationHrid] = { itemHrid: i.itemHrid, enhancementLevel: i.enhancementLevel || 0 };
+    }
+    const expTools = toolTiers(skillingCharacter(character, items(character), clientData), clientData, market("ask"), { equipped: equippedTools, owned: ownedTools });
+    const toolRows = await page.$$eval("#equipment .mwia-tool-list li", (list) => list.map((li) => li.textContent.replace(/\s+/g, " ").trim()));
+    const needle = expTools.find((n) => n.itemHrid === "/items/azure_needle");
+    check("equipment page lists tools a level now allows", toolRows.length === expTools.length && toolRows.some((r) => r.startsWith("Tailoring lvl 20: Cheese Needle → Azure Needle (lvl 20) · " + coinText(needle.price)))
+        && toolRows.some((r) => /^Foraging lvl 28: Azure Shears \(lvl 20\) · in your inventory – equip it/.test(r)) && !expTools.some((n) => n.type === "/equipment_types/tailoring_tool" && n.itemHrid !== "/items/azure_needle"),
+        toolRows.join(" | "));
+    check("a tool's gain is worked out on the skill", needle.gainPerDay > 0 && toolRows.some((r) => r.includes(`+${coinText(needle.gainPerDay)}/day, pays back in`)), String(needle.gainPerDay));
+    await page.evaluate(() => (window.cart = []));
+    await page.evaluate(() => [...document.querySelectorAll("#equipment .mwia-tool-list li")].find((li) => /Azure Needle/.test(li.textContent)).querySelector("button").click());
+    await page.waitForFunction(() => /Cart: added Azure Needle/.test(document.querySelector(".mwia-tool-box")?.textContent || ""), { timeout: 3000 }).catch(() => null);
+    check("a tool goes to the cart", JSON.stringify(await page.evaluate(() => window.cart)) === JSON.stringify([{ itemHrid: "/items/azure_needle", enhancementLevel: 0, quantity: 1, source: "manual" }]));
+    await page.$eval("#equipment", (n) => n.scrollIntoView()).catch(() => null);
+    await page.screenshot({ path: path.join(shotDir, "skilling-9-tools.png") });
+    await page.evaluate(() => document.getElementById("equipment").remove());
+    await new Promise((r) => setTimeout(r, 600));
+    check("the tool notice goes with the page", !(await page.$(".mwia-tool-box")));
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
     await browser.close();
