@@ -45,7 +45,7 @@ import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactI
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { objective: "total", goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingDays: 1, skillingMinJob: 0, skillingGold: 100 };
+const DEFAULT_SETTINGS = { goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingDays: 1, skillingMinJob: 0, skillingGold: 100 };
 
 const SKILL_NAMES = {
     stamina: "Stamina",
@@ -153,9 +153,7 @@ function deathBadge(deaths) {
 const signed = (text, n) => (n >= 0 ? "+" : "−") + text(Math.abs(n));
 const focusText = (gold) => (gold === 0 ? "XP only" : gold === 100 ? "Gold only" : `${100 - gold}% XP · ${gold}% gold`);
 
-function objectiveLabel() {
-    return ui.settings.objective === "magic" ? "Magic XP/h" : "Combat XP/h";
-}
+const XP_LABEL = "Combat XP/h";
 
 // ---------- data ----------
 
@@ -208,7 +206,7 @@ function progress(label) {
 
 function runSettings() {
     const accuracy = ACCURACY[ui.settings.accuracy] || ACCURACY.normal;
-    return { ...accuracy, objective: ui.settings.objective, budget: Number(ui.settings.budget) || 0, maxTier: Number(ui.settings.maxTier) || 0 };
+    return { ...accuracy, budget: Number(ui.settings.budget) || 0, maxTier: Number(ui.settings.maxTier) || 0 };
 }
 
 async function doZones() {
@@ -313,11 +311,6 @@ function renderProgress() {
 function settingsHtml(fields) {
     const s = ui.settings;
     const parts = [];
-    if (fields.includes("objective")) {
-        parts.push(`<label title="Which combat XP counts: all combat skills together, or only Magic. The Focus slider sets how XP weighs against gold.">XP that counts <select data-setting="objective">
-            <option value="total" ${s.objective === "total" ? "selected" : ""}>All combat skills</option>
-            <option value="magic" ${s.objective === "magic" ? "selected" : ""}>Magic only</option></select></label>`);
-    }
     if (fields.includes("focus")) {
         const gold = Math.round((Number(s.goldWeight) || 0) * 100);
         parts.push(`<label class="mwia-focus" title="What to optimise for: XP per hour, gold (loot minus food/drink cost) per hour, or a mix. Changing it re-ranks instantly – no new simulation needed.">
@@ -436,7 +429,7 @@ function overviewTips(profile, slots, data) {
         tips.push({ level: "warn", html: `${badArmor.map(esc).join(", ")} lower(s) your magic accuracy. Mage clothing (cotton/linen/…) is usually better – check <b>Upgrades</b>.` });
     }
     if (!profile.equipment.charm) {
-        tips.push({ level: "info", html: "No charm. A <b>Magic Charm</b> sends 70% of your combat XP to Magic (otherwise it's split across five skills). Pick <i>XP that counts: Magic only</i> if that's your priority." });
+        tips.push({ level: "info", html: "No charm. A <b>Magic Charm</b> sends 70% of your combat XP to Magic (otherwise it's split across five skills) – wear one if Magic is your priority." });
     }
     if (!tips.length) tips.push({ level: "ok", html: "No obvious gaps. Run the zone and upgrade analyses to fine-tune." });
     return tips;
@@ -448,17 +441,16 @@ const cappedBadge = (r) => (isSpawnCapped(r) ? ` <span class="mwia-warn" title="
 function renderZones() {
     let html = `<p>Simulates your current setup against every combat zone and shows where you get the most XP or gold per hour
       <b>${ui.settings.acceptRareDeaths ? "while dying rarely at most" : "without dying"}</b>.</p>
-      ${settingsHtml(["focus", "objective", "risk", "accuracy", "maxTier"])}
+      ${settingsHtml(["focus", "risk", "accuracy", "maxTier"])}
       <button class="mwia-btn" data-action="zones" ${ui.busy ? "disabled" : ""}>Run zone analysis</button>`;
     if (!ui.zoneResults) return html;
 
-    const objective = ui.settings.objective;
     const goal = zoneGoal(ui.zoneResults, ui.settings);
     const best = pickBestZone(ui.zoneResults, ui.settings);
     const profile = currentProfile();
     const current =
         profile?.currentZone && ui.zoneResults.find((z) => z.zone.zoneHrid === profile.currentZone.zoneHrid && z.zone.tier === profile.currentZone.tier);
-    const summary = (r) => `<b>${int(xpValue(r, objective))} ${objectiveLabel()}</b> and <b>${coins(perDay(r.profit))}</b> profit/day`;
+    const summary = (r) => `<b>${int(xpValue(r))} ${XP_LABEL}</b> and <b>${coins(perDay(r.profit))}</b> profit/day`;
     if (best) {
         html += `<div class="mwia-reco"><b>Recommendation:</b> ${zoneLabel(best.zone)} – about ${summary(best.result)}, ${deathBadge(best.result.deaths)}.`;
         if (isSpawnCapped(best.result)) {
@@ -471,13 +463,13 @@ function renderZones() {
     const bestScore = best ? score(best.result, goal) : 1;
     const rows = [...ui.zoneResults].sort((a, b) => score(b.result, goal) - score(a.result, goal));
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Zone</th><th class="mwia-num" title="How well the zone fits your focus; 100 = the recommended zone">Match</th>
-      <th class="mwia-num">${objectiveLabel()}</th><th class="mwia-num">All XP/h</th><th class="mwia-num" title="Value of drops (bid price) minus food/drink cost, per day">Profit/day</th>
+      <th class="mwia-num">${XP_LABEL}</th><th class="mwia-num" title="Value of drops (bid price) minus food/drink cost, per day">Profit/day</th>
       <th class="mwia-num">Kills/h</th><th>Risk</th></tr></thead><tbody>`;
     for (const z of rows.slice(0, 40)) {
         const r = z.result;
         const match = bestScore > 0 ? int((100 * score(r, goal)) / bestScore) : "–";
-        html += `<tr class="${z === best ? "mwia-best" : ""}"><td>${zoneLabel(z.zone)}${cappedBadge(r)}</td><td class="mwia-num">${match}</td><td class="mwia-num">${int(xpValue(r, objective))}</td>
-          <td class="mwia-num">${int(r.xpTotal)}</td><td class="mwia-num">${coins(perDay(r.profit))}</td><td class="mwia-num">${dec(r.killsTotal, 0)}</td><td>${deathBadge(r.deaths)}</td></tr>`;
+        html += `<tr class="${z === best ? "mwia-best" : ""}"><td>${zoneLabel(z.zone)}${cappedBadge(r)}</td><td class="mwia-num">${match}</td><td class="mwia-num">${int(xpValue(r))}</td>
+          <td class="mwia-num">${coins(perDay(r.profit))}</td><td class="mwia-num">${dec(r.killsTotal, 0)}</td><td>${deathBadge(r.deaths)}</td></tr>`;
     }
     html += `</tbody></table><p class="mwia-dim">Simulated ${int(Math.max(1, runSettings().hours / 2))} h per zone. These are estimates – differences of a few percent are noise.
       ⏱ = you kill faster than monsters appear there.</p>`;
@@ -538,13 +530,13 @@ async function sendItemsToCart(items) {
 function renderUpgrades() {
     let html = `<p>Tests one change at a time (gear incl. enhanced +N copies, new abilities, levelling abilities with extra books, drinks, food) in the chosen zone
       and measures how much it improves your focus – XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
-      ${settingsHtml(["focus", "zone", "budget", "spending", "objective", "risk", "accuracy"])}
+      ${settingsHtml(["focus", "zone", "budget", "spending", "risk", "accuracy"])}
       <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>`;
     const result = ui.upgradeResult;
     if (!result) return html;
     const base = result.base;
-    const label = objectiveLabel();
-    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${int(xpValue(base, ui.settings.objective))} ${label}</b>, profit <b>${coins(perDay(base.profit))}/day</b>
+    const label = XP_LABEL;
+    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${int(xpValue(base))} ${label}</b>, profit <b>${coins(perDay(base.profit))}/day</b>
       (loot ${coins(perDay(base.loot))} − food/drinks ${coins(perDay(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
     if (isSpawnCapped(base)) {
         html += `<p class="mwia-reco">⏱ In ${zoneLabel(result.zone)} you kill monsters as fast as they appear, so upgrades that add damage hardly matter here.
@@ -600,8 +592,8 @@ function renderUpgrades() {
           ${cartButton(plan.picks.flatMap(cartItems), "🛒 Add all purchases to cart")}</p>`;
         if (ui.verified) {
             const v = ui.verified;
-            const before = xpValue(v.base, ui.settings.objective);
-            const after = xpValue(v.planned, ui.settings.objective);
+            const before = xpValue(v.base);
+            const after = xpValue(v.planned);
             html += `<div class="mwia-reco">Everything combined (simulated): <b>${int(before)} → ${int(after)} ${label}</b> (${pct(after / Math.max(1, before) - 1)}),
               profit <b>${coins(perDay(v.base.profit))} → ${coins(perDay(v.planned.profit))}</b> per day (food/drinks ${coins(perDay(v.base.cost))} → ${coins(perDay(v.planned.cost))}),
               deaths ${dec(v.base.deaths, 2)} → ${dec(v.planned.deaths, 2)} per hour.
@@ -655,9 +647,9 @@ function dropsHpFood(c) {
 function gainText(c) {
     const gold = ui.upgradeResult.goal.gold;
     const profit = `${signed(coins, perDay(c.profitDelta))} profit/day`;
-    if (gold === 0) return `${pct(c.deltaPct)} ${objectiveLabel()}`;
+    if (gold === 0) return `${pct(c.deltaPct)} ${XP_LABEL}`;
     if (gold === 1) return profit;
-    return `${pct(c.deltaPct)} gain (${signed(int, c.xpDelta)} ${objectiveLabel()}, ${profit})`;
+    return `${pct(c.deltaPct)} gain (${signed(int, c.xpDelta)} ${XP_LABEL}, ${profit})`;
 }
 
 function confidenceCell(c) {
@@ -675,7 +667,7 @@ function upgradeTable(title, list, base, slotText, nameHtml, replacesHtml, nameH
     let html = `<h3>${title}</h3>`;
     if (!shown.length) return html + `<p class="mwia-dim">Nothing within budget improved your focus.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Slot</th><th>${nameHeader}</th><th>Replaces</th><th class="mwia-num">Price</th>
-      <th class="mwia-num">+${objectiveLabel()}</th><th class="mwia-num">+Profit/day</th><th class="mwia-num" title="${GAIN_TITLE}">Gain</th>
+      <th class="mwia-num">+${XP_LABEL}</th><th class="mwia-num">+Profit/day</th><th class="mwia-num" title="${GAIN_TITLE}">Gain</th>
       <th class="mwia-num">Gain per 1M</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th><th></th></tr></thead><tbody>`;
     for (const c of shown) {
         const efficiency = c.cost > 0 ? pct((c.delta / c.cost) * 1e6) : "∞";
@@ -692,7 +684,7 @@ function consumableTable(title, list, base) {
     let html = `<h3>${title}</h3>`;
     if (!shown.length) return html + `<p class="mwia-dim">No ${title.toLowerCase()} noticeably improved your focus.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>${title === "Food" ? "Food" : "Drink"}</th><th>Replaces</th><th class="mwia-num">Unit price</th>
-      <th class="mwia-num">Extra cost/day</th><th class="mwia-num">+${objectiveLabel()}</th><th class="mwia-num" title="Includes the extra food/drink cost">+Profit/day</th>
+      <th class="mwia-num">Extra cost/day</th><th class="mwia-num">+${XP_LABEL}</th><th class="mwia-num" title="Includes the extra food/drink cost">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num">Deaths/h</th><th class="mwia-num" title="Extra cost per 1000 extra XP">Cost per 1000 XP</th><th></th></tr></thead><tbody>`;
     for (const c of shown) {
         const per1000 =
@@ -891,8 +883,8 @@ function onChange(event) {
         return;
     }
     // Re-rating and re-planning are cheap; only the combined check needs a new analysis.
-    if (["budget", "spending", "goldWeight", "objective", "acceptRareDeaths"].includes(key) && !ui.busy) {
-        if (["goldWeight", "objective", "acceptRareDeaths"].includes(key)) rerateUpgrades();
+    if (["budget", "spending", "goldWeight", "acceptRareDeaths"].includes(key) && !ui.busy) {
+        if (["goldWeight", "acceptRareDeaths"].includes(key)) rerateUpgrades();
         else if (ui.upgradeResult) {
             ui.plan = buildPlan(ui.upgradeResult, Number(ui.settings.budget) || 0, ui.settings.spending);
             ui.verified = null;

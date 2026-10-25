@@ -59,13 +59,12 @@ const NON_MAGIC_STATS = new Set([
 
 const MIN_GOLD_REF = 1000; // coins/h; keeps tiny loot values from blowing up the scale
 
-export function xpValue(result, objective) {
-    return objective === "magic" ? result.xp.magic || 0 : result.xpTotal;
+export function xpValue(result) {
+    return result.xpTotal;
 }
 
 export function makeGoal(settings, reference) {
     return {
-        objective: settings.objective,
         gold: Math.min(1, Math.max(0, Number(settings.goldWeight) || 0)),
         xpRef: Math.max(1, reference.xp),
         goldRef: Math.max(MIN_GOLD_REF, reference.gold),
@@ -73,7 +72,7 @@ export function makeGoal(settings, reference) {
 }
 
 export function score(result, goal) {
-    return ((1 - goal.gold) * xpValue(result, goal.objective)) / goal.xpRef + (goal.gold * result.profit) / goal.goldRef;
+    return ((1 - goal.gold) * xpValue(result)) / goal.xpRef + (goal.gold * result.profit) / goal.goldRef;
 }
 
 // Deaths per hour you accept. A death costs 150 s of waiting, which is already part
@@ -91,7 +90,7 @@ export function zoneGoal(zoneResults, settings) {
     const safe = zoneResults.filter((z) => acceptable(z.result, settings));
     const pool = safe.length ? safe : zoneResults;
     return makeGoal(settings, {
-        xp: Math.max(...pool.map((z) => xpValue(z.result, settings.objective))),
+        xp: Math.max(...pool.map((z) => xpValue(z.result))),
         gold: Math.max(...pool.map((z) => z.result.loot)),
     });
 }
@@ -486,7 +485,7 @@ export async function refineUncertain(pool, raw, settings, onProgress) {
 // an analysis instantly without simulating again.
 export function rateUpgrades(raw, settings) {
     const { base } = raw;
-    const goal = makeGoal(settings, { xp: xpValue(base, settings.objective), gold: base.loot });
+    const goal = makeGoal(settings, { xp: xpValue(base), gold: base.loot });
     const baseScore = score(base, goal);
     const baseScores = raw.baseRuns.map((r) => score(r, goal));
 
@@ -502,7 +501,7 @@ export function rateUpgrades(raw, settings) {
             deltaPct: delta, // scores are already fractions of the reference
             confidence,
             significant: confidence >= CONFIDENCE_LEVEL,
-            xpDelta: xpValue(c.result, settings.objective) - xpValue(base, settings.objective),
+            xpDelta: xpValue(c.result) - xpValue(base),
             profitDelta: c.result.profit - base.profit,
             // A change that makes you die noticeably more often is never recommended, whatever the
             // gain – unless you accept rare deaths and it stays within that limit.

@@ -43,9 +43,9 @@ const dto = toDTO(profile, data);
 check("dto has default triggers", dto.food[0].triggers.length > 0 && dto.abilities[1].triggers.length > 0);
 check("current zone", profile.currentZone?.zoneHrid === "/actions/combat/fly");
 
-const settings = { hours: 2, seeds: 4, objective: "total", goldWeight: 0, budget: 2_000_000, maxTier: 1 };
+const settings = { hours: 2, seeds: 4, goldWeight: 0, budget: 2_000_000, maxTier: 1 };
 const analyzeUpgrades = async (...args) => rateUpgrades(await analyzeRaw(...args), settings);
-const score = (r) => xpValue(r, "total");
+const score = (r) => xpValue(r);
 let t0 = performance.now();
 const zones = await analyzeZones(pool, profile, settings);
 log(`zones: ${zones.length} sims in ${(performance.now() - t0).toFixed(0)} ms`);
@@ -133,7 +133,7 @@ check("re-rating does not change the simulations", mixed.base === raw.base && mi
     const p3 = buildProfile(c3, new Map(c3.characterItems.map((i) => ["h:" + i.hash, i])), data);
     p3.totalLevel = 260;
     const raw3 = await analyzeRaw(pool, p3, best.zone, settings);
-    const gold3 = rateUpgrades(raw3, { ...settings, objective: "magic", goldWeight: 0.7 });
+    const gold3 = rateUpgrades(raw3, { ...settings, goldWeight: 0.7 });
     const plan3 = buildPlan(gold3, settings.budget);
     const pouchDowngrades = gold3.gear.filter((c) => c.slot === "pouch" && slotCounts(c.profile, data).drinks < 2);
     check("scenario 3: no pouch with fewer slots is suggested", pouchDowngrades.length === 0, pouchDowngrades.map((c) => c.hrid).join(", "));
@@ -150,7 +150,7 @@ check("re-rating does not change the simulations", mixed.base === raw.base && mi
 const LUCK = [0.003, -0.002, 0.001, -0.002];
 const synth = (fields) => ({ significant: true, safe: true, confidence: 0.99, costPerHourDelta: 0, ...fields,
     runs: LUCK.map((l, seed) => ({ seed, xp: {}, xpTotal: 1 + fields.delta + l, profit: 0 })) });
-const synthGoal = { objective: "total", gold: 0, xpRef: 1, goldRef: 1 };
+const synthGoal = { gold: 0, xpRef: 1, goldRef: 1 };
 
 // Regression (real report): Fireball 19→20 gave +0.8% (below the 1% minimum) and made the plan skip
 // the whole slot, although 19→21 gave +1.4% at the best value. Numbers from that analysis.
