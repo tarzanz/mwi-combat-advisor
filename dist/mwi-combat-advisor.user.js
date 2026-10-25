@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.23.2
+// @version      0.23.3
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -3921,9 +3921,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const s = ui.settings;
     const parts = [];
     if (fields.includes("objective")) {
-      parts.push(`<label>Goal <select data-setting="objective">
-            <option value="total" ${s.objective === "total" ? "selected" : ""}>All combat XP</option>
-            <option value="magic" ${s.objective === "magic" ? "selected" : ""}>Magic XP only</option></select></label>`);
+      parts.push(`<label title="Which combat XP counts: all combat skills together, or only Magic. The Focus slider sets how XP weighs against gold.">XP that counts <select data-setting="objective">
+            <option value="total" ${s.objective === "total" ? "selected" : ""}>All combat skills</option>
+            <option value="magic" ${s.objective === "magic" ? "selected" : ""}>Magic only</option></select></label>`);
     }
     if (fields.includes("focus")) {
       const gold = Math.round((Number(s.goldWeight) || 0) * 100);
@@ -4025,7 +4025,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       tips.push({ level: "warn", html: `${badArmor.map(esc).join(", ")} lower(s) your magic accuracy. Mage clothing (cotton/linen/\u2026) is usually better \u2013 check <b>Upgrades</b>.` });
     }
     if (!profile.equipment.charm) {
-      tips.push({ level: "info", html: "No charm. A <b>Magic Charm</b> sends 70% of your combat XP to Magic (otherwise it's split across five skills). Pick the goal <i>Magic XP only</i> if that's your priority." });
+      tips.push({ level: "info", html: "No charm. A <b>Magic Charm</b> sends 70% of your combat XP to Magic (otherwise it's split across five skills). Pick <i>XP that counts: Magic only</i> if that's your priority." });
     }
     if (!tips.length) tips.push({ level: "ok", html: "No obvious gaps. Run the zone and upgrade analyses to fine-tune." });
     return tips;
