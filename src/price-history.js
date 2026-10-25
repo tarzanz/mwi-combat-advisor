@@ -108,7 +108,39 @@ export function summarize(i, hours, days, nowHour) {
     }
     for (const d of days) if (at(d.n, i)) first = Math.min(first, d.day * 24);
     const spanDays = Number.isFinite(first) ? (nowHour - first) / 24 : 0;
-    return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS };
+    return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS, liquidity: liquidity(i, hours, nowHour) };
+}
+
+// How lively the week's market was, from prices alone (the market file has no
+// quantities): the share of hours with both a buyer and a seller, the median
+// spread between them, and how often the lowest ask moved from one hour with
+// data to the next – a sign that things sell and get relisted.
+function liquidity(i, hours, nowHour) {
+    let observed = 0;
+    let both = 0;
+    let pairs = 0;
+    let moves = 0;
+    let lastAsk = NaN;
+    const spreads = [];
+    for (const r of hours) {
+        if (nowHour - r.hour >= 7 * 24) continue;
+        const a = at(r.a, i);
+        const b = at(r.b, i);
+        if (!Number.isFinite(a) && !Number.isFinite(b)) continue;
+        observed++;
+        if (Number.isFinite(a) && Number.isFinite(b)) {
+            both++;
+            spreads.push([Math.max(0, a - b) / a, 1]);
+        }
+        if (Number.isFinite(a)) {
+            if (Number.isFinite(lastAsk)) {
+                pairs++;
+                if (a !== lastAsk) moves++;
+            }
+            lastAsk = a;
+        }
+    }
+    return { hours: observed, both: observed ? both / observed : 0, spread: median(spreads), activity: pairs ? moves / pairs : 0 };
 }
 
 // Every stored price as CSV, to read in a spreadsheet or hand to an AI. Hourly

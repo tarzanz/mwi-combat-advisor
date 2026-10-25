@@ -26,7 +26,7 @@ const MIN_CYCLE_SECONDS = 3;
 export const NEAR_LEVELS = 10;
 const HOURS_PER_DAY = 24;
 // A product whose cheapest seller asks this many times the best bid is hard to sell at the ask.
-const WIDE_SPREAD = 1.5;
+export const WIDE_SPREAD = 1.5;
 
 const INVENTORY = "/item_locations/inventory";
 const POUCH = "/item_locations/pouch";
@@ -154,7 +154,11 @@ function teaBuffs(teas, concentration, data) {
 // Prices: inputs and teas are bought at the cheapest ask; products sell at
 // the ask (a listing) or the best bid (instant), minus the market tax.
 // Crates and caches are worth what they hold; a cowbell a tenth of a bag.
-export function marketPricer(entryOf, data, sellAt = "ask") {
+// usualAsk(hrid): the item's 7-day median ask, or null without enough history.
+// Listing at the ask is never valued above it: a lone listing far above the
+// usual price (a troll order at 999B) would otherwise look like a fortune.
+// Without history, an ask far above the best bid is valued at WIDE_SPREAD × the bid.
+export function marketPricer(entryOf, data, sellAt = "ask", usualAsk = () => null) {
     const cache = new Map();
     const contents = (hrid) => (data.openableLootDropMap?.[hrid] || []).reduce((sum, drop) => sum + meanCount(drop) * (drop.itemHrid === hrid ? 0 : this_.sell(drop.itemHrid).price), 0);
     const vendor = (hrid) => data.itemDetailMap[hrid]?.sellPrice || 0;
@@ -176,7 +180,11 @@ export function marketPricer(entryOf, data, sellAt = "ask") {
             if (hrid === "/items/coin") result = { price: 1, ask: 1, bid: 1, source: "coin" };
             else if (hrid === "/items/cowbell") result = { ...this_.sell("/items/bag_of_10_cowbells"), source: "bag" };
             else if (!ask && !bid && data.openableLootDropMap?.[hrid]) result = { price: contents(hrid), ask, bid, source: "contents" };
-            else if (sellAt === "ask" && ask) result = { price: ask * (1 - tax), ask, bid, source: "ask", note: bid ? (ask > WIDE_SPREAD * bid ? "spread" : null) : "nobids" };
+            else if (sellAt === "ask" && ask) {
+                const usual = usualAsk(hrid);
+                const ceiling = usual > 0 ? usual : bid ? WIDE_SPREAD * bid : Infinity;
+                result = { price: Math.min(ask, ceiling) * (1 - tax), ask, bid, source: "ask", capped: ask > ceiling ? (usual > 0 ? "usual" : "spread") : null, note: bid ? (ask > WIDE_SPREAD * bid ? "spread" : null) : "nobids" };
+            }
             else if (bid) result = { price: bid * (1 - tax), ask, bid, source: "bid", note: sellAt === "ask" ? "noasks" : null };
             else if (ask) result = { price: ask * (1 - tax), ask, bid, source: "ask", note: "nobids" };
             else result = { price: vendor(hrid), ask, bid, source: "vendor", note: vendor(hrid) ? "vendor" : "unsellable" };
@@ -385,9 +393,37 @@ function breakEvenPrice(entry) {
     return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others) / main.count / (1 - MARKET_TAX);
 }
 
-// How many to make: what the market takes over the planned days (your sales
-// limit, or the buy orders that pay above break-even), less what you already
-// hold or have listed, and no more than your coins buy materials for.
+// A product's market, rated from the week's prices: "stable" (nearly always a
+// buyer and a seller, a tight spread, a calm price that moves often), "ok", or
+// "thin" (anything else, and too little history to tell).
+export const LIQUIDITY = {
+    stable: { both: 0.9, spread: 0.05, swing: 0.03, activity: 0.3 },
+    ok: { both: 0.75, spread: 0.15, swing: 0.08, activity: 0 },
+};
+const LIQUIDITY_HOURS = 12;
+
+export function liquidityRating(summary) {
+    const l = summary?.liquidity;
+    const swing = summary?.a?.swing;
+    if (!l || l.hours < LIQUIDITY_HOURS || l.spread === null || swing === null) return { rating: "thin", known: false, ...l, swing: swing ?? null };
+    const meets = (t) => l.both >= t.both && l.spread <= t.spread && swing <= t.swing && l.activity >= t.activity;
+    return { rating: meets(LIQUIDITY.stable) ? "stable" : meets(LIQUIDITY.ok) ? "ok" : "thin", known: true, ...l, swing };
+}
+
+// Away: a defensive job of about 8 hours, a small share of the coins unless the
+// market is stable and liquid, and thin margins left out. Active: short jobs,
+// more of the coins, thin margins shown.
+export const PLAN_MODES = {
+    away: { hours: 8, coinShare: { stable: 0.6, ok: 0.3, thin: 0.1 }, hideThinMargins: true },
+    active: { hours: 1, coinShare: { stable: 0.8, ok: 0.5, thin: 0.2 }, hideThinMargins: false },
+};
+
+// A margin under RISKY_MARGIN, or smaller than the price's usual swing, can vanish on an ordinary day.
+export function thinMargin(entry, swing = null) {
+    if (!(entry.costPerAction > 0) || entry.margin === null || !(entry.profitPerHour > 0)) return false;
+    return entry.margin < RISKY_MARGIN || (swing > CALM_SWING && entry.margin < swing);
+}
+
 // A product's price swinging more than this a day makes the batch smaller:
 // the price may fall before it all sells.
 export const CALM_SWING = 0.05;
@@ -406,49 +442,73 @@ export function swingShare(price) {
     return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
 }
 
-export function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins = Infinity, have = () => 0, minJobHours = 0, sellAt = "ask", price = null }) {
-    // Never longer than the days planned for, however big the market looks.
+// How many to make, without opening the market: the planned hours of crafting,
+// less what you already hold or have listed, smaller on a swinging price, and
+// no more than the share of your coins the market's rating allows for materials.
+// An order book seen on the market is shown alongside, but doesn't set the count.
+// fill: the job's share of the planned hours – what the ranking goes by.
+export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null }) {
     if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
-    // Listing at the ask: as many as others are selling at about that price.
     const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
-    const fromCap = sellCap > 0 ? sellCap * days : null;
-    const demand = Math.max(fromCap ?? 0, profitableBids ?? 0, asks?.quantity ?? 0);
-    const result = { breakEven, profitableBids, nearAsks: asks?.quantity ?? null, lowestAsk: asks?.lowest ?? null, fromCap, bookAt: book?.at ?? null, stock, demand, known: fromCap !== null || profitableBids !== null };
-    if (!result.known) return result;
-    const units = Math.max(0, demand - stock.inventory - stock.listed);
-    let count = Math.ceil(units / entry.mainCount - 1e-9);
+    const rating = liquidity || { rating: "thin", known: false };
+    const planned = Math.max(1, Math.floor(hours * entry.actionsPerHour));
+    // Your own daily sales limit caps it too.
+    const capUnits = sellCap > 0 ? sellCap : Infinity;
+    const plannedUnits = Math.min(planned * entry.mainCount, capUnits);
+    const held = stock.inventory + stock.listed;
+    let count = Math.max(0, Math.ceil((plannedUnits - held) / entry.mainCount - 1e-9));
     const swing = swingShare(price);
     if (swing && swing.share < 1) count = Math.ceil(count * swing.share);
-    const longest = Math.floor(days * HOURS_PER_DAY * entry.actionsPerHour);
-    const limitedByDays = count > longest;
-    if (limitedByDays) count = longest;
     // Materials bought for n actions, using what is in the inventory first.
     const spend = (n) => entry.inputs.reduce((sum, input) => sum + Math.max(0, input.count * n - have(input.itemHrid)) * (input.price || 0), 0);
+    const share = coinShare[rating.rating] ?? coinShare.thin;
+    const budget = coins * share;
     let limitedByCoins = false;
-    if (spend(count) > coins) {
+    if (spend(count) > budget) {
         let low = 0;
         let high = count;
         while (low < high) {
             const mid = Math.ceil((low + high) / 2);
-            if (spend(mid) <= coins) low = mid;
+            if (spend(mid) <= budget) low = mid;
             else high = mid - 1;
         }
         count = low;
         limitedByCoins = true;
     }
-    const hours = count / entry.actionsPerHour;
+    const jobHours = count / entry.actionsPerHour;
     // The batch: what its materials are worth, the part you still have to buy,
     // and its profit once it sells (teas for its hours included).
     const batch = {
         materials: count * entry.costPerAction,
         toBuy: spend(count),
         revenue: count * entry.revenuePerAction,
-        teas: entry.teaPerHour * hours,
+        teas: entry.teaPerHour * jobHours,
     };
     batch.profit = batch.revenue - batch.materials - batch.teas;
-    return { ...result, units, count, hours, batch, swing, limitedByCoins, limitedByDays, days, short: minJobHours > 0 && hours < minJobHours };
+    return {
+        known: true,
+        breakEven,
+        profitableBids,
+        nearAsks: asks?.quantity ?? null,
+        lowestAsk: asks?.lowest ?? null,
+        bookAt: book?.at ?? null,
+        stock,
+        held,
+        plannedHours: hours,
+        plannedUnits,
+        cappedBySales: plannedUnits < planned * entry.mainCount,
+        liquidity: rating,
+        coinShare: share,
+        budget,
+        count,
+        hours: jobHours,
+        fill: Math.min(1, jobHours / hours),
+        batch,
+        swing,
+        limitedByCoins,
+    };
 }
 
 // Making it all yourself: every material your levels let you make or gather is
@@ -566,8 +626,9 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     const doable = [];
     const near = [];
     for (const action of skillingActions(data)) {
-        if (!wanted(action)) continue;
-        const level = who.levels[action.levelRequirement.skillHrid] ?? 1;
+        // A skill the character has no entry for isn't one it can train.
+        if (!wanted(action) || who.levels[action.levelRequirement.skillHrid] === undefined) continue;
+        const level = who.levels[action.levelRequirement.skillHrid];
         const required = action.levelRequirement.level;
         if (required <= level) {
             const evaluate = evaluator(action, level);
@@ -598,17 +659,34 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         const teaScore = focusScore(goldWeight, skillRefs[action.type]);
         const best = bestTeas(action, who, data, market, evaluate, teaScore);
         const shown = teaMode === "best" ? best.result : current;
-        const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), price: plan.price?.(shown.action) ?? null, sellCap }) : null;
-        const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score(shown), teaSlots: who.slots[action.type], pouch: who.pouch, betterTeas: !sameTeas(best.result.teas, current.teas) && teaScore(best.result) > teaScore(current) + 1e-9 };
+        const price = plan?.price?.(shown.action) ?? null;
+        const liquidity = plan?.liquidity?.(shown.action) ?? null;
+        const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), price, liquidity, sellCap }) : null;
+        // Ranked by what the planned hours give: a job your coins or your stock
+        // keep short earns for only part of them.
+        const fill = suggestion ? suggestion.fill : 1;
+        const entry = {
+            ...shown,
+            teaMode,
+            current,
+            best,
+            suggestion,
+            chain: chain(shown),
+            score: score({ goldPerDay: shown.goldPerDay * fill, xpPerDay: shown.xpPerDay * fill }),
+            thinMargin: !!plan?.hideThinMargins && thinMargin(shown, price?.swing ?? null),
+            teaSlots: who.slots[action.type],
+            pouch: who.pouch,
+            betterTeas: !sameTeas(best.result.teas, current.teas) && teaScore(best.result) > teaScore(current) + 1e-9,
+        };
         if (plan) {
-            // Teas for the suggested job; a gathering job runs for the days planned.
-            const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.days * HOURS_PER_DAY : 0;
+            // Teas for the suggested job; a gathering job runs for the hours planned.
+            const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.hours : 0;
             entry.teaPlan = teaPurchase(entry, { hours, have: plan.have });
         }
         return entry;
     });
-    // Jobs too short to be worth the trip to the market go last.
-    available.sort((a, b) => b.valid - a.valid || !!a.suggestion?.short - !!b.suggestion?.short || b.score - a.score);
+    // Thin margins (when the plan leaves them out) go last, after everything else that pays.
+    available.sort((a, b) => b.valid - a.valid || a.thinMargin - b.thinMargin || b.score - a.score);
 
     // Fastest XP the skill earns today, for "how long until it unlocks".
     const fastestXp = {};

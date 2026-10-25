@@ -45,7 +45,7 @@ import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactI
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingDays: 1, skillingMinJob: 0, skillingGold: 100 };
+const DEFAULT_SETTINGS = { goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingMode: "away", skillingGold: 100 };
 
 const SKILL_NAMES = {
     stamina: "Stamina",

@@ -29,6 +29,14 @@ check("an item without prices has nothing", empty.a.med7 === null && !empty.enou
 const thin = summarize(0, hours.slice(-3), [], now);
 check("a few hours are not enough", !thin.enough && thin.hours7 < MIN_HOURS);
 
+// Liquidity from prices alone: both sides, spread and how often the ask moves.
+check("liquidity: steady ask, always both sides", s.liquidity.both === 1 && Math.abs(s.liquidity.spread - 0.2) < 1e-6 && s.liquidity.activity === 0 && s.liquidity.hours === 56, JSON.stringify(s.liquidity));
+const lively = [];
+for (let h = 0; h < 20; h++) lively.push({ hour: now - 19 + h, a: new Float32Array([h % 2 ? 100 : 101]), b: new Float32Array([h < 15 ? 98 : NaN]) });
+const l = summarize(0, lively, [], now).liquidity;
+check("liquidity: a moving ask and a missing buyer", l.hours === 20 && l.both === 0.75 && l.activity === 1 && l.spread > 0.02 && l.spread < 0.03, JSON.stringify(l));
+check("liquidity: no prices, no rating", summarize(1, hours, [], now).liquidity.hours === 0);
+
 // Roll-up: two days of hourly points -> two daily points with median, low, high, count.
 const twoDays = [];
 for (let hr = 24 * 100; hr < 24 * 102; hr++) twoDays.push({ hour: hr, a: new Float32Array([hr % 24 === 5 ? 5000 : 100]), b: new Float32Array([NaN]) });

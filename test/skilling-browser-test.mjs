@@ -8,7 +8,7 @@ import path from "node:path";
 import puppeteer from "puppeteer-core";
 import { WebSocketServer } from "ws";
 import { fixtureCharacter } from "./fixture-character.js";
-import { NEAR_LEVELS, RISKY_MARGIN, heldStock, marketPricer, rankSkilling, skillingCharacter } from "../src/skilling.js";
+import { NEAR_LEVELS, PLAN_MODES, RISKY_MARGIN, heldStock, liquidityRating, marketPricer, rankSkilling, skillingCharacter } from "../src/skilling.js";
 import { rankUpgrades, toolTiers } from "../src/skilling-upgrades.js";
 import { shortCoins } from "../src/format.js";
 
@@ -43,12 +43,13 @@ character.houseActionTypeBuffsMap = { [FORAGING]: [{ typeHrid: "/buff_types/effi
 // The game's own copy of the tea buffs; the tab adds teas itself, so these must not count twice.
 character.consumableActionTypeBuffsMap = { [FORAGING]: [{ typeHrid: "/buff_types/wisdom", flatBoost: 0.12, ratioBoost: 0 }] };
 
-// Market: every item at three times its vendor price, best bid at the vendor price.
+// Market: every item at three times its vendor price, best bid at 2.5 times (a
+// spread within WIDE_SPREAD, so listings are valued at the ask).
 // Nobody bids on Cotton Fabric; nobody sells Gathering Tea.
 const marketData = {};
 for (const item of Object.values(clientData.itemDetailMap)) {
     const vendor = item.sellPrice || 1;
-    marketData[item.hrid] = { 0: { a: 3 * vendor, b: item.hrid === "/items/cotton_fabric" ? -1 : vendor } };
+    marketData[item.hrid] = { 0: { a: 3 * vendor, b: item.hrid === "/items/cotton_fabric" ? -1 : 2.5 * vendor } };
 }
 marketData["/items/gathering_tea"] = { 0: { a: -1, b: 10 } };
 // Cheap Efficiency and Tailoring Tea: a third tea slot pays for itself.
@@ -62,9 +63,10 @@ marketData["/items/cotton_boots"] = { 0: { a: Math.round((bootsCost * 1.02) / 0.
 const items = (c) => new Map(c.characterItems.map((i) => [i.hash, i]));
 const market = (sellAt) => marketPricer((hrid) => marketData[hrid]?.[0], clientData, sellAt);
 const books = new Map();
-const planFor = (c, { days = 1, minJobHours = 0, sellAt = "ask" } = {}) => {
+// No price history in the test browser: every market is rated thin.
+const planFor = (c, { mode = "away", sellAt = "ask" } = {}) => {
     const have = (hrid) => heldStock(c, items(c), hrid).inventory;
-    return { stock: (a) => heldStock(c, items(c), a.outputItems?.[0]?.itemHrid), book: (a) => books.get(a.outputItems?.[0]?.itemHrid) || null, days, minJobHours, coins: have("/items/coin"), have, sellAt };
+    return { ...PLAN_MODES[mode], stock: (a) => heldStock(c, items(c), a.outputItems?.[0]?.itemHrid), book: (a) => books.get(a.outputItems?.[0]?.itemHrid) || null, coins: have("/items/coin"), have, sellAt, liquidity: () => liquidityRating(null) };
 };
 const expectRank = (c, options) => rankSkilling(skillingCharacter(c, items(c), clientData), clientData, market(options.sellAt || "ask"), { plan: planFor(c, options), ...options });
 
@@ -244,9 +246,11 @@ try {
     check("sell at bid matches", bid[0].gold === (expBid.available[0].valid ? `${coinText(expBid.available[0].goldPerDay)}/day` : "–"), `${bid[0].name} ${bid[0].gold} vs ${expBid.available[0].action.name}`);
     await select(page, "skillingSellAt", "ask");
 
-    // Thin margin.
+    // Thin margin (shown in active mode; away leaves it out).
     await select(page, "skillingSellAt", "ask");
+    await select(page, "skillingMode", "active");
     const boots = (await rows(page)).find((r) => r.name === "Cotton Boots");
+    await select(page, "skillingMode", "away");
     const expBoots = expectRank(character, { skill: "tailoring" }).available.find((e) => e.action.name === "Cotton Boots");
     check("thin-margin warning", expBoots.margin > 0 && expBoots.margin < RISKY_MARGIN && /Thin margin: a [\d.]+% drop/.test(boots?.warn || ""), `${expBoots.margin} ${JSON.stringify(boots)}`);
 
@@ -269,36 +273,36 @@ try {
     const cowbell = market("ask").sell("/items/cowbell");
     check("a cowbell is a tenth of a bag (18% tax)", Math.abs(cowbell.price - (marketData["/items/bag_of_10_cowbells"][0].a * 0.82) / 10) < 1e-6, JSON.stringify(cowbell));
 
-    // How many to make: buy orders above break-even, less what you hold and have listed.
+    // How many to make, without the market: an 8 h job less what you hold and have
+    // listed, within 10% of the coins (a thin market: no history here).
     await select(page, "skillingSkill", "tailoring");
-    check("without an order book or limit it says how to get a suggestion", /open [^.]* on the market once/.test(await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] .mwia-skill-detail`, (n) => n.textContent)));
+    const expPlan = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
+    const planRow = (await rows(page)).find((r) => r.name === topTailoring.action.name);
+    check("suggestion without the market, less stock and listings", expPlan.known && expPlan.held === 8 && expPlan.liquidity.rating === "thin" && expPlan.count > 0 && planRow?.sub.includes(`🔴 thin market · make ${expPlan.count.toLocaleString("en-US")}`),
+        `${JSON.stringify(expPlan && { held: expPlan.held, count: expPlan.count, coins: expPlan.limitedByCoins })} / ${planRow?.sub}`);
+    check("a thin market gets 10% of the coins", expPlan.limitedByCoins && expPlan.batch.toBuy <= 500000 * 0.1 + 1e-6 && expPlan.coinShare === 0.1, JSON.stringify({ toBuy: expPlan.batch.toBuy, share: expPlan.coinShare }));
+    const batch = expPlan.batch;
+    check("batch cost and profit add up", Math.abs(batch.materials - expPlan.count * topTailoring.costPerAction) < 1e-6 && Math.abs(batch.profit - (batch.revenue - batch.materials - batch.teas)) < 1e-6 && planRow.sub.includes(`${coinText(batch.materials)} in, +${coinText(batch.profit)}`),
+        `${planRow.sub} vs ${coinText(batch.materials)} / ${coinText(batch.profit)}`);
+    const rich = { ...character, characterItems: [...character.characterItems, { hash: "rich", itemHrid: "/items/coin", itemLocationHrid: "/item_locations/inventory", count: 1e13 }] };
+    const richPlan = expectRank(rich, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
+    check("with coins to spare: the planned 8 h less your stock", !richPlan.limitedByCoins && richPlan.count === Math.ceil((Math.floor(8 * topTailoring.actionsPerHour) * topTailoring.mainCount - 8) / topTailoring.mainCount - 1e-9) && richPlan.hours <= 8 + 1e-9,
+        JSON.stringify({ count: richPlan.count, hours: richPlan.hours }));
+
+    // An order book seen on the market is shown, but doesn't change the count.
     books.set(PRODUCT, { at: Date.now(), asks: orderBook.marketItemOrderBooks.orderBooks[0].asks, bids: orderBook.marketItemOrderBooks.orderBooks[0].bids });
     for (const socket of sockets) socket.send(JSON.stringify(orderBook));
     await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
     await select(page, "skillingSkill", "all");
     await select(page, "skillingSkill", "tailoring");
-    const expPlan = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
-    const planRow = (await rows(page)).find((r) => r.name === topTailoring.action.name);
-    check("suggestion from the order book, less stock and listings", expPlan.known && expPlan.profitableBids === 90 && expPlan.count === Math.ceil((90 - 8) / topTailoring.mainCount) && planRow.sub.includes(`make ${expPlan.count}`),
-        `${JSON.stringify(expPlan && { bids: expPlan.profitableBids, count: expPlan.count, breakEven: expPlan.breakEven })} / ${planRow?.sub}`);
-    const batch = expPlan.batch;
-    check("batch cost and profit add up", Math.abs(batch.materials - expPlan.count * topTailoring.costPerAction) < 1e-6 && Math.abs(batch.profit - (batch.revenue - batch.materials - batch.teas)) < 1e-6 && planRow.sub.includes(`${coinText(batch.materials)} in, +${coinText(batch.profit)}`),
-        `${planRow.sub} vs ${coinText(batch.materials)} / ${coinText(batch.profit)}`);
+    const withBook = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
+    const bookDetail = await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] .mwia-skill-detail`, (n) => n.textContent);
+    check("order book shown, count unchanged", withBook.count === expPlan.count && withBook.profitableBids === 90 && /On the market .* ago: 90 in buy orders/.test(bookDetail) && /thin market: under 12 hours of prices/.test(bookDetail), bookDetail.slice(0, 300));
     check("order book survives a reload", await page.evaluate((hrid) => !!JSON.parse(localStorage.getItem("mwia-order-books") || "{}")[hrid], PRODUCT));
 
-    // An order book without buyers above break-even says so, instead of "you hold enough".
-    const second = expectRank(character, { skill: "tailoring" }).available.find((e) => e.suggestion && !e.suggestion.known && e.hrid !== topTailoring.hrid);
-    const secondItem = second.action.outputItems[0].itemHrid;
-    books.set(secondItem, { at: Date.now(), asks: [], bids: [{ price: 1, quantity: 50 }] });
-    for (const socket of sockets) socket.send(JSON.stringify({ type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: secondItem, orderBooks: [{ asks: [], bids: [[1, 50]] }] } }));
-    await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
-    await select(page, "skillingSkill", "all");
-    await select(page, "skillingSkill", "tailoring");
-    const noBuyers = (await rows(page)).find((r) => r.name === second.action.name);
-    const noBuyersDetail = await page.$eval(`.mwia-skill-row[data-hrid="${second.hrid}"] .mwia-skill-detail`, (n) => n.textContent);
-    check("no buyers above break-even is said plainly", /no buyers or sellers to go by/.test(noBuyers?.sub || "") && /no buy orders pay/i.test(noBuyersDetail) && !/hold enough/.test(noBuyersDetail), noBuyers?.sub);
-
     // The market button opens the item on the market (through MWITools' API here).
+    const second = expectRank(character, { skill: "tailoring" }).available.find((e) => e.suggestion && e.hrid !== topTailoring.hrid);
+    const secondItem = second.action.outputItems[0].itemHrid;
     await page.$eval(`.mwia-skill-row[data-hrid="${second.hrid}"]`, (row) => { row.open = true; });
     await page.click(`.mwia-skill-row[data-hrid="${second.hrid}"] [data-action="skilling-market"]`);
     const opened = await page.evaluate(() => ({ market: window.marketOpened, hidden: document.querySelector(".mwia-panel").classList.contains("mwia-hidden") }));
@@ -317,29 +321,20 @@ try {
     }, second.hrid);
     check("closing the market brings the panel back on the same open row", back.shown && back.open && back.inView, JSON.stringify(back));
 
-    // Selling at the ask: as many as others list near the lowest ask (your own orders taken out).
-    const third = expectRank(character, { skill: "tailoring" }).available.find((e) => e.suggestion && !e.suggestion.known && e.hrid !== topTailoring.hrid && e.hrid !== second.hrid);
-    const thirdItem = third.action.outputItems[0].itemHrid;
-    const low = marketData[thirdItem][0].a;
-    const thirdAsks = [{ price: low, quantity: 40 }, { price: Math.floor(low * 1.03), quantity: 20 }, { price: low * 2, quantity: 500 }];
-    books.set(thirdItem, { at: Date.now(), asks: thirdAsks, bids: [] });
-    for (const socket of sockets) socket.send(JSON.stringify({ type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: thirdItem, orderBooks: [{ asks: thirdAsks, bids: [] }] } }));
-    await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
-    await select(page, "skillingSkill", "all");
-    await select(page, "skillingSkill", "tailoring");
-    const expAsks = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === third.hrid).suggestion;
-    const asksRow = (await rows(page)).find((r) => r.name === third.action.name);
-    check("suggestion from sellers near the lowest ask", expAsks.nearAsks === 60 && expAsks.count === Math.ceil((60 - expAsks.stock.inventory - expAsks.stock.listed) / third.mainCount) && asksRow?.sub.includes(`make ${expAsks.count}`), `${JSON.stringify({ near: expAsks.nearAsks, count: expAsks.count })} / ${asksRow?.sub}`);
-    check("sellers near the ask don't count when selling at the bid", (expectRank(character, { skill: "tailoring", sellAt: "bid" }).available.find((e) => e.hrid === third.hrid)?.suggestion?.nearAsks ?? null) === null);
-
-    // Short jobs are greyed out and listed last.
-    await select(page, "skillingMinJob", "8");
-    const expShort = expectRank(character, { skill: "tailoring", minJobHours: 8 }).available;
-    const shortRows = await page.$$eval(".mwia-body section:first-of-type .mwia-skill-row", (list) => list.map((r) => ({ name: r.querySelector(".mwia-skill-name").childNodes[0].textContent.trim(), faded: r.classList.contains("mwia-faded") })));
-    const shortIndex = shortRows.findIndex((r) => r.name === topTailoring.action.name);
-    check("short job greyed out and listed last", expShort.find((e) => e.hrid === topTailoring.hrid).suggestion.short && shortRows[shortIndex]?.faded && shortIndex > 0 && expShort[shortIndex]?.hrid === topTailoring.hrid,
-        `index ${shortIndex} ${JSON.stringify(shortRows[shortIndex])}`);
-    await select(page, "skillingMinJob", "0");
+    // Active: 1 h jobs, 20% of the coins on a thin market, thin margins shown.
+    await select(page, "skillingMode", "active");
+    const expActive = expectRank(character, { skill: "tailoring", mode: "active" }).available;
+    const activeRows = await rows(page);
+    const activeTop = expActive.find((e) => e.hrid === topTailoring.hrid).suggestion;
+    check("active mode plans 1 h jobs", activeTop.plannedHours === 1 && activeTop.coinShare === 0.2 && activeRows.find((r) => r.name === topTailoring.action.name)?.sub.includes(`make ${activeTop.count.toLocaleString("en-US")}`), JSON.stringify({ count: activeTop.count }));
+    check("active mode shows thin margins", activeRows.some((r) => r.name === "Cotton Boots") && expActive.every((e) => !e.thinMargin));
+    check("plan mode is saved", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-settings")).skillingMode === "active"));
+    await select(page, "skillingMode", "away");
+    const awayRows = await rows(page);
+    const awayExp = expectRank(character, { skill: "tailoring" }).available;
+    check("away mode leaves thin margins out of the list", !awayRows.some((r) => r.name === "Cotton Boots") && awayExp.find((e) => e.action.name === "Cotton Boots").thinMargin && awayRows.every((r, i) => r.name === awayExp.filter((e) => !e.thinMargin)[i].action.name),
+        awayRows.map((r) => r.name).join(", "));
+    check("show all mentions the thin margins", /\(\d+ with a thin margin\)/.test(await page.$eval('[data-action="skilling-all"]', (n) => n.textContent).catch(() => "")));
 
     // The button opens the action in the game with the count filled in.
     await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"]`, (row) => { row.open = true; });
@@ -423,22 +418,14 @@ try {
     await page.$eval('[data-setting="skillingGold"]', (input) => { input.value = "100"; input.dispatchEvent(new Event("change", { bubbles: true })); });
     await new Promise((r) => setTimeout(r, 100));
 
-    // A huge market never suggests more than the days planned for.
-    const hugeItem = topTailoring.action.outputItems[0].itemHrid;
-    const savedBook = books.get(hugeItem);
-    books.set(hugeItem, { at: Date.now(), asks: [{ price: marketData[hugeItem][0].a, quantity: 1e7 }], bids: [] });
-    const huge = expectRank({ ...character, characterItems: [...character.characterItems, { hash: "rich", itemHrid: "/items/coin", itemLocationHrid: "/item_locations/inventory", count: 1e13 }] }, { skill: "tailoring", days: 1 }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
-    check("job capped at the days planned for", huge.limitedByDays && huge.hours <= 24 + 1e-9 && huge.hours > 23, JSON.stringify({ count: huge.count, hours: huge.hours }));
-    books.set(hugeItem, savedBook);
-
-    // Buy the best teas for the job: a gathering job runs for the days planned (1 day here).
+    // Buy the best teas for the job: a gathering job runs for the hours planned (8 h away).
     await select(page, "skillingSkill", "foraging");
     const forTeas = expectRank(character, { skill: "foraging" }).available[0];
     await page.$eval(`.mwia-skill-row[data-hrid="${forTeas.hrid}"]`, (row) => { row.open = true; });
     await page.click(`.mwia-skill-row[data-hrid="${forTeas.hrid}"] [data-action="skilling-cart"]`);
     await new Promise((r) => setTimeout(r, 300));
     const cart = await page.evaluate(() => window.cart || []);
-    const perTea = Math.ceil(24 * forTeas.best.result.drinksPerHour);
+    const perTea = Math.ceil(PLAN_MODES.away.hours * forTeas.best.result.drinksPerHour);
     check("buy teas puts a day of the best teas in the cart", forTeas.best.result.teas.length > 0 && forTeas.best.result.teas.every((hrid) => cart.some((c) => c.itemHrid === hrid && c.quantity === perTea)),
         `${JSON.stringify(cart)} vs ${forTeas.best.result.teas.join(",")} × ${perTea}`);
     check("cart result is shown", /Shopping cart: added/.test(await page.$eval(".mwia-body", (n) => n.textContent)));

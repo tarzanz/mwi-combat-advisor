@@ -4,13 +4,12 @@
 import { getClientData, itemName, marketEntry, marketListings, pricesStamp } from "./game-data.js";
 import { state } from "./game-state.js";
 import { coinsInput, esc, shortCoins } from "./format.js";
-import { ASK_WINDOW, CALM_SWING, MARKET_TAX, NEAR_LEVELS, SKILLING_SKILLS, heldStock, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
+import { ASK_WINDOW, CALM_SWING, LIQUIDITY, MARKET_TAX, NEAR_LEVELS, PLAN_MODES, SKILLING_SKILLS, WIDE_SPREAD, heldStock, liquidityRating, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
 import { UPGRADES_SHOWN, rankUpgrades } from "./skilling-upgrades.js";
-import { historyVersion, priceSummary, versusUsual } from "./price-history.js";
+import { MIN_HOURS, historyVersion, priceSummary, versusUsual } from "./price-history.js";
 
 const SHORT_LIST = 25;
-const PLAN_DAYS = [0.5, 1, 2, 3, 7];
-const MIN_JOB_HOURS = [0, 0.5, 1, 2, 4, 8];
+const RATING = { stable: "🟢 stable market", ok: "🟡 ok market", thin: "🔴 thin market" };
 
 // open: the rows and headings the player has opened, kept across re-renders.
 const view = { upgradesKey: "", upgrades: null, showAll: false, open: new Set() };
@@ -23,6 +22,7 @@ const skillLabel = (skill) => skill.charAt(0).toUpperCase() + skill.slice(1);
 const skillOf = (entry) => entry.skill.split("/").pop();
 const names = (teas) => teas.map(itemName).join(", ");
 
+const planMode = (s) => (s.skillingMode === "active" ? "active" : "away");
 const goldShare = (s) => (s.skillingGold === undefined || s.skillingGold === "" ? 100 : Number(s.skillingGold));
 const focusLabel = (gold) => (gold === 0 ? "XP only" : gold === 100 ? "Gold only" : `${100 - gold}% XP · ${gold}% gold`);
 
@@ -39,8 +39,7 @@ export function skillingSettingsHtml(s) {
       <label title="Products are listed at the cheapest ask (you wait for a buyer) or sold instantly to the best bid. The 4% market tax is taken off either way.">Sell at <select data-setting="skillingSellAt">${option("ask", "Ask (list it)", s.skillingSellAt)}${option("bid", "Bid (sell now)", s.skillingSellAt)}</select></label>
       <label title="Rank with the teas you have in the skill's drink slots now, or with the setup that earns the most.">Teas <select data-setting="skillingTeas">${option("current", "My current teas", s.skillingTeas)}${option("best", "Best teas", s.skillingTeas)}</select></label>
       <label title="How many of one crafted item the market takes a day, e.g. 500 or 2k. Past it the action only runs part of the day. Empty: no limit. Gathered raw materials are never limited.">Max sold/day <input data-setting="skillingSellCap" type="text" inputmode="decimal" size="6" placeholder="no limit" value="${Number(s.skillingSellCap) > 0 ? coinsInput(Number(s.skillingSellCap)) : ""}"></label>
-      <label title="How many days of sales the suggested amount should cover.">Make for <select data-setting="skillingDays">${PLAN_DAYS.map((d) => option(String(d), `${d} day${d === 1 ? "" : "s"}`, String(s.skillingDays))).join("")}</select></label>
-      <label title="Suggested jobs shorter than this are greyed out and listed last: not worth a trip to the market.">Shortest job <select data-setting="skillingMinJob">${MIN_JOB_HOURS.map((h) => option(String(h), h ? hoursText(h) : "any", String(s.skillingMinJob))).join("")}</select></label>
+      <label title="Away: a careful job of about ${PLAN_MODES.away.hours} h, little of your coins unless the market is stable, thin margins left out. Active: ${PLAN_MODES.active.hours} h jobs, more of your coins, thin margins shown.">Plan <select data-setting="skillingMode">${option("away", `Away (${PLAN_MODES.away.hours} h)`, planMode(s))}${option("active", `Active (${PLAN_MODES.active.hours} h)`, planMode(s))}</select></label>
       <label class="mwia-focus" title="Rank by gold per day, XP per day, or a mix. Each counts as a share of the most any action in the list gives. The best teas follow the same focus.">
         Focus: <span class="mwia-focus-text">${focusLabel(goldShare(s))}</span>
         <span class="mwia-focus-row">XP <input type="range" min="0" max="100" step="10" value="${goldShare(s)}" data-setting="skillingGold"> Gold</span></label>
@@ -52,7 +51,7 @@ const rankings = new Map();
 const KEPT_RANKINGS = 3;
 
 function ranking(settings) {
-    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, settings.skillingDays, settings.skillingMinJob, goldShare(settings), historyVersion()].join("|");
+    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, planMode(settings), goldShare(settings), historyVersion()].join("|");
     if (!rankings.has(key)) {
         rankings.set(key, computeRanking(settings));
         while (rankings.size > KEPT_RANKINGS) rankings.delete(rankings.keys().next().value);
@@ -73,22 +72,32 @@ function computeRanking(settings) {
     const data = getClientData();
     {
         const who = skillingCharacter(state.character, state.items, data);
-        const market = marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt);
+        const market = skillingMarket(settings.skillingSellAt);
         const have = (hrid) => heldStock(state.character, state.items, hrid).inventory;
         const plan = {
             stock: (action) => heldStock(state.character, state.items, action.outputItems?.[0]?.itemHrid),
             book: (action) => state.orderBooks.get(action.outputItems?.[0]?.itemHrid) || null,
-            days: Number(settings.skillingDays) || 1,
-            minJobHours: Number(settings.skillingMinJob) || 0,
+            ...PLAN_MODES[planMode(settings)],
             coins: have("/items/coin"),
             have,
             sellAt: settings.skillingSellAt,
             price: (action) => priceNow(action.outputItems?.[0]?.itemHrid, settings.skillingSellAt),
+            liquidity: (action) => liquidityRating(action.outputItems?.[0]?.itemHrid ? priceSummary(action.outputItems[0].itemHrid) : null),
         };
         const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
         for (const entry of [...result.available, ...result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
         return result;
     }
+}
+
+// Prices for the skilling advice: a listing is never valued above the item's
+// usual (7-day median) ask once there are MIN_HOURS of history.
+export function skillingMarket(sellAt) {
+    const usualAsk = (hrid) => {
+        const summary = priceSummary(hrid);
+        return summary && summary.hours7 >= MIN_HOURS ? summary.a.med7 : null;
+    };
+    return marketPricer((hrid) => marketEntry(hrid), getClientData(), sellAt, usualAsk);
 }
 
 // The selling side's typical swing and where its price is now against the usual one (once there is enough history).
@@ -142,12 +151,16 @@ export function renderSkilling(settings) {
     if (available[0] && !available[0].buffsKnown) {
         html += `<div class="mwia-notice mwia-notice-warn">The game hasn't sent your buffs (house, equipment, community) yet, so only levels and teas are counted. Reload the page to fix it.</div>`;
     }
-    const shown = view.showAll ? available : available.slice(0, SHORT_LIST);
-    html += `<section><h3>Best now</h3>`;
+    const listed = available.filter((entry) => !entry.thinMargin);
+    const thin = available.length - listed.length;
+    const shown = view.showAll ? available : listed.slice(0, SHORT_LIST);
+    const mode = PLAN_MODES[planMode(settings)];
+    html += `<section><h3>Best now</h3><p class="mwia-dim">Ranked by what a ${mode.hours} h job gives: the amount is what your coins, your stock and the market allow – no need to open the market.</p>`;
     if (!available.length) html += `<p class="mwia-dim">Nothing to do in this skill at your level.</p>`;
-    html += `<div class="mwia-skill-list">${shown.map((entry, i) => rowHtml(entry, i === 0 && entry.valid && entry.profitPerHour > 0)).join("")}</div>`;
-    if (available.length > SHORT_LIST) {
-        html += `<button class="mwia-link" data-action="skilling-all">${view.showAll ? "Show fewer" : `Show all ${available.length}`}</button>`;
+    html += `<div class="mwia-skill-list">${shown.map((entry, i) => rowHtml(entry, i === 0 && entry.valid && entry.profitPerHour > 0 && !entry.thinMargin)).join("")}</div>`;
+    if (available.length > shown.length || view.showAll) {
+        const hidden = thin ? ` (${thin} with a thin margin)` : "";
+        html += `<button class="mwia-link" data-action="skilling-all">${view.showAll ? "Show fewer" : `Show all ${available.length}${hidden}`}</button>`;
     }
     html += `</section>`;
     html += upgradesHtml(settings);
@@ -201,7 +214,7 @@ function rowHtml(entry, best, upcoming = false) {
     const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1
         ? `<span class="mwia-skill-hint">⛓ ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>`
         : "";
-    const faded = !entry.valid || day <= 0 || entry.suggestion?.short;
+    const faded = !entry.valid || day <= 0 || entry.suggestion?.count === 0 || entry.thinMargin;
     return `<details class="mwia-skill-row${best && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
         <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
@@ -227,7 +240,8 @@ function detailHtml(e, upcoming) {
 
     const gold = [];
     const outputs = e.outputs.filter((o) => o.value > 0 || o.kind === "product").map((o) => {
-        const how = o.sell.source === "ask" || o.sell.source === "bid" ? ` <span class="mwia-dim">(${o.sell.source} −${dec(MARKET_TAX * 100, 0)}%)</span>` : o.sell.source === "vendor" || o.sell.source === "contents" ? ` <span class="mwia-dim">(${o.sell.source})</span>` : "";
+        const capped = o.sell.capped === "usual" ? `usual ask; ${coins(o.sell.ask)} now` : o.sell.capped === "spread" ? `${dec(WIDE_SPREAD, 1)}× bid; ask ${coins(o.sell.ask)}` : o.sell.source;
+        const how = o.sell.source === "ask" || o.sell.source === "bid" ? ` <span class="mwia-dim">(${capped} −${dec(MARKET_TAX * 100, 0)}%)</span>` : o.sell.source === "vendor" || o.sell.source === "contents" ? ` <span class="mwia-dim">(${o.sell.source})</span>` : "";
         return `${count(o.count)} × ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}${how}`;
     });
     const boosts = [e.quantity && `quantity ${pct(e.quantity)}`, e.processing && `processing ${pct(e.processing)}`].filter(Boolean).join(", ");
@@ -272,7 +286,7 @@ function actionButtons(e) {
     const teas = plan?.items.length
         ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart: ${esc(plan.items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">🍵 Buy teas</button>`
         : "";
-    const market = crafted ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${esc(itemName(productHrid))} on the market; its buy and sell orders are read from there.">🏪 Market</button>` : "";
+    const market = crafted ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${esc(itemName(productHrid))} on the market. Not needed for the advice; the orders you see there are shown under How many.">🏪 Market</button>` : "";
     return make || teas || market ? `<div class="mwia-skill-buttons">${make}${teas}${market}</div>` : "";
 }
 
@@ -325,48 +339,56 @@ function suggestionShort(suggestion) {
 }
 
 function suggestionSummary(s) {
-    if (!s.known) return "open it on the market";
-    if (!s.demand) return s.nearAsks === null ? "no buyers above break-even" : "no buyers or sellers to go by";
-    if (!s.count) return "you hold enough";
-    return `make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}${s.short ? ", short job" : ""}) · ${coins(s.batch.materials)} in, ${s.batch.profit >= 0 ? "+" : "−"}${coins(Math.abs(s.batch.profit))}`;
+    const rating = RATING[s.liquidity.rating];
+    if (!s.count) return `${rating} · ${s.held ? "you hold enough" : "your coins don't stretch to one"}`;
+    return `${rating} · make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}) · ${coins(s.batch.materials)} in, ${s.batch.profit >= 0 ? "+" : "−"}${coins(Math.abs(s.batch.profit))}`;
+}
+
+// What the market's rating rests on.
+function liquidityText(l) {
+    const share = (x) => `${Math.round(x * 100)}%`;
+    if (!l.known) return `${RATING.thin}: under ${MIN_HOURS} hours of prices for it yet${l.hours ? ` (${l.hours})` : ""}, so it is treated as thin.`;
+    const parts = [
+        `a buyer and a seller in ${share(l.both)} of the hours`,
+        `spread ${dec(l.spread * 100, 1)}%`,
+        `price swings ±${dec(l.swing * 100, 1)}%`,
+        `the lowest ask moved in ${share(l.activity)} of the hours`,
+    ];
+    const s = LIQUIDITY.stable;
+    return `${RATING[l.rating]} over the last ${l.hours} hours of prices: ${parts.join(", ")}. <span class="mwia-dim">Stable needs ≥ ${share(s.both)}, ≤ ${share(s.spread)}, ≤ ±${share(s.swing)} and ≥ ${share(s.activity)}. Prices only – the market file has no quantities, so a calm item that sells a few a day can still look stable.</span>`;
 }
 
 function suggestionHtml(e) {
     const s = e.suggestion;
     const product = esc(itemName(e.action.outputItems[0].itemHrid));
-    const bookAge = s.bookAt ? ` <span class="mwia-dim">(order book ${hoursText((Date.now() - s.bookAt) / 3600000)} old)</span>` : "";
-    if (!s.known) {
-        return `Open ${product} on the market once with 🏪 Market (its buy orders are read from there), or set <i>Max sold/day</i>, to get a suggestion.`;
-    }
-    if (!s.demand) {
-        const sellers = s.nearAsks === null ? "" : " and nobody else lists it";
-        return `No buy orders pay ${coins(s.breakEven)} or more, the price where it stops paying off${sellers}${bookAge}. Selling at the ask still works, but how many sell is unknown: set <i>Max sold/day</i> for a count.`;
-    }
-    const sources = [];
-    if (s.fromCap !== null) sources.push(`${s.fromCap.toLocaleString("en-US")} by your <i>Max sold/day</i> × days`);
-    if (s.profitableBids !== null) sources.push(`${s.profitableBids.toLocaleString("en-US")} in buy orders at ≥ ${coins(s.breakEven)}${bookAge}`);
-    if (s.nearAsks) sources.push(`${s.nearAsks.toLocaleString("en-US")} listed by others within ${dec(ASK_WINDOW * 100, 0)}% of the lowest ask (${coins(s.lowestAsk)})`);
-    const held = s.stock.inventory || s.stock.listed ? ` − ${(s.stock.inventory + s.stock.listed).toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)` : "";
-    let html = `The market takes ${s.demand.toLocaleString("en-US")}${sources.length > 1 ? ", the most of" : ":"} ${sources.join(" · ")}${held}.`;
-    if (s.profitableBids === null) html += ` Break-even price ${coins(s.breakEven)}.`;
+    const lines = [liquidityText(s.liquidity)];
+    let plan = `A ${hoursText(s.plannedHours)} job is ${s.plannedUnits.toLocaleString("en-US")} ${product}${s.cappedBySales ? " (your <i>Max sold/day</i>)" : ""}`;
+    if (s.held) plan += ` − ${s.held.toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)`;
+    lines.push(plan + ".");
     const sw = s.swing;
     if (sw && sw.share < 1) {
         const why = [];
         if (sw.bySwing < 1) why.push(`its price usually swings ±${Math.round(sw.swing * 100)}%`);
         if (sw.high) why.push(`it is ${Math.round(sw.diff * 100)}% above its usual price now – sell it while it lasts`);
-        html += ` Made ${Math.round(sw.share * 100)}% of that: ${why.join(", and ")}.`;
+        lines.push(`Made ${Math.round(sw.share * 100)}% of that: ${why.join(", and ")}.`);
     }
-    if (sw?.low) html += ` <span class="mwia-warn">It sells ${Math.round(-sw.diff * 100)}% below its usual price now – waiting, or making something else, may pay.</span>`;
-    if (s.limitedByCoins) html += ` <span class="mwia-warn">Your coins only buy materials for ${s.count.toLocaleString("en-US")}.</span>`;
-    if (s.limitedByDays && !s.limitedByCoins) html += ` Capped at ${s.days} day${s.days === 1 ? "" : "s"} of crafting (<i>Make for</i>).`;
-    if (!s.count) return html + " You already hold enough – nothing to make.";
-    html += ` → <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}${s.short ? ", shorter than your shortest job" : ""}).`;
+    if (sw?.low) lines.push(`<span class="mwia-warn">It sells ${Math.round(-sw.diff * 100)}% below its usual price now – waiting, or making something else, may pay.</span>`);
+    const budget = `${Math.round(s.coinShare * 100)}% of your coins (${coins(s.budget)}) for a ${s.liquidity.rating} market`;
+    if (s.limitedByCoins) lines.push(`<span class="mwia-warn">Materials capped at ${budget}.</span>`);
+    else lines.push(`<span class="mwia-dim">Materials may take up to ${budget}.</span>`);
+    if (s.bookAt) {
+        const age = hoursText((Date.now() - s.bookAt) / 3600000);
+        const seen = [s.profitableBids !== null && `${s.profitableBids.toLocaleString("en-US")} in buy orders at ≥ ${coins(s.breakEven)} (break-even)`, s.nearAsks !== null && `${s.nearAsks.toLocaleString("en-US")} listed by others within ${dec(ASK_WINDOW * 100, 0)}% of the lowest ask`].filter(Boolean);
+        if (seen.length) lines.push(`<span class="mwia-dim">On the market ${age} ago: ${seen.join(" · ")}.</span>`);
+    }
+    if (!s.count) return lines.join("<br>") + (s.held ? " You already hold enough – nothing to make." : " Not enough coins for one.");
+    lines.push(`→ <b>make ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}).`);
     const b = s.batch;
     const owned = b.materials - b.toBuy;
-    html += `<br><b>This batch:</b> materials ${coins(b.materials)}${owned > 1 ? ` (you buy ${coins(b.toBuy)}; ${coins(owned)} worth is already in your inventory)` : ""}${b.teas > 1 ? `, teas ${coins(b.teas)}` : ""}.
+    lines.push(`<b>This batch:</b> materials ${coins(b.materials)}${owned > 1 ? ` (you buy ${coins(b.toBuy)}; ${coins(owned)} worth is already in your inventory)` : ""}${b.teas > 1 ? `, teas ${coins(b.teas)}` : ""}.
         It sells for ${coins(b.revenue)} after tax → <b class="${b.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${b.profit >= 0 ? "+" : "−"}${coins(Math.abs(b.profit))}</b>.
-        <span class="mwia-dim">The coins come back as the items sell, so a slow seller ties them up for a while.</span>`;
-    return html;
+        <span class="mwia-dim">The coins come back as the items sell, so a slow seller ties them up for a while.</span>`);
+    return lines.join("<br>");
 }
 
 // ---------- upgrades that pay back ----------
@@ -387,7 +409,7 @@ function upgradeRanking(settings) {
         }
         const houseLevels = {};
         for (const [hrid, room] of Object.entries(state.character.characterHouseRoomMap || {})) houseLevels[hrid] = room.level || 0;
-        view.upgrades = rankUpgrades(skillingCharacter(state.character, state.items, data), data, marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt), skill, {
+        view.upgrades = rankUpgrades(skillingCharacter(state.character, state.items, data), data, skillingMarket(settings.skillingSellAt), skill, {
             equipped,
             owned,
             listings: (hrid) => marketListings(hrid),

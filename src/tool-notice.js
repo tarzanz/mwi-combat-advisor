@@ -1,11 +1,12 @@
 // A notice under the game's Equipment page: tools whose next tier your skill
 // level now allows, with the price, what they add a day and a cart button.
 
-import { getClientData, itemName, marketEntry, pricesStamp } from "./game-data.js";
+import { getClientData, itemName, pricesStamp } from "./game-data.js";
 import { onStateChange, state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
 import { visible } from "./game-nav.js";
-import { marketPricer, skillingCharacter } from "./skilling.js";
+import { skillingCharacter } from "./skilling.js";
+import { skillingMarket } from "./skilling-ui.js";
 import { toolTiers } from "./skilling-upgrades.js";
 
 const SCAN_MS = 400;
@@ -64,7 +65,7 @@ function notices() {
             else equipped[item.itemLocationHrid] = { itemHrid: item.itemHrid, enhancementLevel: item.enhancementLevel || 0 };
         }
         const who = skillingCharacter(state.character, state.items, data);
-        const market = marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt);
+        const market = skillingMarket(settings.skillingSellAt);
         t.notices = toolTiers(who, data, market, { equipped, owned, sellCap: Number(settings.skillingSellCap) || 0 });
         t.key = key;
     }

@@ -30,22 +30,29 @@ buy, by simulating *your own* character.
   teas in each skill's drink slots: efficiency from levels above the requirement and from buffs, action speed (3 s
   floor), quantity, Artisan, Processing and Wisdom Tea, 12 drinks an hour (more with a Guzzling Pouch). Materials
   and teas are bought at the cheapest ask; products sell at the ask (a listing) or the best bid (*Sell at*), minus
-  the 4% market tax. Filter by skill; tap a row for its buttons and short headings (speed, gold, XP, how many, teas) that
+  the 4% market tax. A listing is never valued above the item's usual (7-day median) ask once 12 hours of prices are
+  collected, nor – before that – above 1.5× the best bid, so a troll order at 999B can't top the list. Filter by skill; tap a row for its buttons and short headings (speed, gold, XP, how many, teas) that
   open to the whole calculation. For each action it also tries every tea
   setup that fits your slots (one, plus what your pouch adds – the same as in combat), shows the one that earns the most and what each of its teas earns above its cost; *Teas:
   Best teas* ranks with those setups. ⚠ marks thin markets (no buy orders, or an ask far above the bid),
   materials nobody sells and thin margins (a price drop under 5% wipes out the profit). *Max sold/day* sets how many
   of one crafted item the market takes a day; past it the action only runs part of the day (gathered raw materials
   are never limited). Crates and caches from rare drops are worth what they hold, a cowbell a tenth of a bag.
-  **How many to make:** for each crafted item a row suggests a count: what the market takes over *Make for* days
-  (the most of: your *Max sold/day*, the buy orders that pay above break-even, and – when you sell at the ask – what
-  others have listed within 5% of the lowest ask, your own orders taken out; the order book is read when you open the
-  item on the market and kept for a day), less what you already have in the inventory or on your own sell orders, and
-  no more than your coins buy materials for (using materials you have first). The row and *📦 How many* show what the batch's materials cost (and how much of it
-  you still have to buy) and its profit once it sells. *▶ Make N* opens the action in
-  the game with the count filled in; you click the game's button. Jobs shorter than *Shortest job* are greyed out
-  and listed last; no job is longer than *Make for*. **🍵 Buy teas** puts the best teas for the job in the MWITools
-  cart (a gathering job runs for *Make for*), less what you have. The **Focus** slider ranks by gold, XP or a mix
+  **Plan** sets the job: *Away (8 h)* is careful – materials take at most 60% of your coins on a 🟢 stable market,
+  30% on a 🟡 ok one and 10% on a 🔴 thin one, and margins under 5% or under the price's usual swing are left out of
+  the list (*Show all* still has them); *Active (1 h)* plans short jobs with 80/50/20% of the coins and shows thin
+  margins with a ⚠. The market's rating comes from the last 7 days of collected prices (at least 12 hours): stable
+  when there was both a buyer and a seller in ≥ 90% of the hours, the spread was ≤ 5%, the price swung ≤ ±3% and the
+  lowest ask moved in ≥ 30% of the hours (a sign that it sells and gets relisted); ok with ≥ 75%, ≤ 15% and ≤ ±8%;
+  thin otherwise, or with too little history. **How many to make:** for each crafted item a row suggests a count
+  without opening the market: the planned hours of crafting, less what you already have in the inventory or on your
+  own sell orders (and within your *Max sold/day*), smaller on a swinging price, and no more than the rating's share
+  of your coins buys materials for (using materials you have first). The list is ranked by what the planned hours
+  give, so a job your coins or your stock keep short ranks lower, and an item you already hold a whole job of goes
+  last. The row and *📦 How many* show the rating, what the batch's materials cost (and how much of it you still have
+  to buy) and its profit once it sells; an order book you saw on the market is shown there too, but doesn't set the
+  count. *▶ Make N* opens the action in the game with the count filled in; you click the game's button. **🍵 Buy teas** puts the best teas for the job in the MWITools
+  cart (a gathering job runs for the planned hours), less what you have. The **Focus** slider ranks by gold, XP or a mix
   (each as a share of the most any action in the list can give with its best teas – not with the teas in your slots,
   so following the advice doesn't change it); the best teas follow it, picked within the action's own skill so they are
   the same whichever skill the list shows, so an XP focus picks Wisdom Tea. **⛓ Yourself** compares buying the materials with making every one your levels
@@ -56,7 +63,7 @@ buy, by simulating *your own* character.
   more drink slots is measured with the best teas for both the old and the new number of slots); ranked by days
   until the price is earned back on the skill's best action, with 🛒 buttons for the MWITools cart. If the item stats
   don't add up to the action speed the game reports for your gear, it says so. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
-  also reads its order book; closing the market brings the panel back on the same row. Open rows and headings stay
+  also reads its order book (shown under *📦 How many*); closing the market brings the panel back on the same row. Open rows and headings stay
   open while you switch around. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
 - **Teas, coffee and food in the action window** – when you open an action in the game, a box above the *Start*
@@ -144,7 +151,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - Results are estimates – a few percent either way is normal.
 - The plan train relies on the class names of the MWITools planning tab and the game's action pages; it has only been
   tested against mock-ups of both.
-- Skilling: the market data has no volumes, so how much of an item really sells is up to your *Max sold/day*.
+- Skilling: the market data has no volumes, so the market's rating rests on prices alone – a calm item that sells only
+  a few a day can still look stable. *Max sold/day* caps it when you know better.
   The ⛓ chain makes every material it can (by the fastest source), even where buying one of them would pay better.
 - The phone layout has been tested at iPhone size in desktop Firefox, not on a real phone. Keep the screen on while
   an analysis runs: a phone pauses the page in the background.
