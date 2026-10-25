@@ -74,7 +74,9 @@ buy, by simulating *your own* character.
   button says which teas to have in the skill's slots for it (➕ put in, ✓ already there, ➖ take out), with the
   advisor's settings and focus, how many you have and a 🛒 button for the teas the job needs. For a combat zone it
   shows the drinks and food from your latest *Analyze upgrades* for that zone (kept per zone, also after a reload)
-  and buys what you lack for a day.
+  and buys what you lack for a day. Hour buttons (0.5, 1, 2 … 12) fill in the *Fight* count for that many hours at
+  the pace the analysis simulated with your current gear, and the 🛒 button then buys for those hours. They show only
+  when the window's difficulty is the tier that was analysed.
 - **Better tools on the Equipment page** – under the slots a box lists every tool slot where your skill level now
   allows a higher tier than the tool you wear (or an empty slot): the tool, its price, what it adds a day on the
   skill's best action and when it pays back (gathering and production skills), with a 🛒 button each and one for

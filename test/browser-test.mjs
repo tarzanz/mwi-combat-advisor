@@ -169,7 +169,7 @@ try {
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-combat-setups") || "{}"));
     const savedZone = Object.values(saved)[0];
     const planDrink = /Drink (.+?) (in an empty slot|instead of)/.exec(upgrades)?.[1];
-    check("plan's drinks and food saved for the combat window", savedZone && (!planDrink || savedZone.drinks.some((h) => clientData.itemDetailMap[h]?.name === planDrink)) && savedZone.food.includes("/items/donut") && savedZone.perHour["/items/donut"] > 0,
+    check("plan's drinks and food saved for the combat window", savedZone && (!planDrink || savedZone.drinks.some((h) => clientData.itemDetailMap[h]?.name === planDrink)) && savedZone.food.includes("/items/donut") && savedZone.perHour["/items/donut"] > 0 && savedZone.encountersPerHour > 0,
         JSON.stringify(saved).slice(0, 300) + " plan drink " + planDrink);
     check("owned gloves not suggested again", !/Linen Gloves[^\n]*you own it/.test(upgrades));
     // On a phone the column names are card labels (CSS), not text.

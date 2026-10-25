@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.25.0
+// @version      0.26.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1460,6 +1460,10 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-guide-list li span .mwia-guide-low, .mwia-guide-low { color: #ffd479; font-weight: 600; }
 .mwia-guide-note { margin: 2px 0; }
 .mwia-guide-cart { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
+.mwia-guide-hours { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
+.mwia-guide-hour { min-width: 32px; padding: 4px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
+.mwia-guide-hour.mwia-guide-picked { background: #4a5bb8; border-color: #8a98e8; }
+.mwia-guide-dim { color: #8189b0; font-size: 11px; }
 .mwia-tool-box { margin: 10px 0; }
 .mwia-tool-list { list-style: none; margin: 4px 0; padding: 0; }
 .mwia-tool-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid #2a3150; }
@@ -3459,7 +3463,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   var COMBAT2 = "/action_types/combat";
   var SETUPS_KEY = "mwia-combat-setups";
   var HOURS_PER_DAY2 = 24;
-  var g = { deps: null, scanTimer: null, loading: null, statuses: /* @__PURE__ */ new Map() };
+  var FIGHT_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  var g = { deps: null, scanTimer: null, loading: null, statuses: /* @__PURE__ */ new Map(), hours: /* @__PURE__ */ new Map() };
   var coins2 = (n2) => (n2 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n2));
   var have2 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
   var slotItems = (map, type) => (state.character?.[map]?.[type] || []).map((slot) => slot?.itemHrid).filter(Boolean);
@@ -3514,7 +3519,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const { panel, name, buttons } of panels) {
       const action = actionByName(name);
       if (!action) continue;
-      const html = action.type === COMBAT2 ? combatHtml(action) : skillingHtml(action);
+      const html = action.type === COMBAT2 ? combatHtml(action, panelTier(panel)) : skillingHtml(action);
       if (!html) continue;
       let box = panel.querySelector(".mwia-guide-box");
       if (!box) {
@@ -3572,7 +3577,22 @@ i.mwia-history-bid { background: #7ee2b0; }
     const focus = Number(settings.skillingGold ?? 100);
     return head("\u{1F375} Teas", `Combat Advisor \xB7 ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP \xB7 ${focus}% gold`}`) + (lines.length ? `<ul class="mwia-guide-list">${lines.join("")}</ul>` : "") + `<div class="mwia-guide-note">${verdict} ${slotsLine(entry)}</div>` + cartButton(items, label);
   }
-  function combatHtml(action) {
+  function panelTier(panel) {
+    const select = [...panel.querySelectorAll("select")].find((el) => /^T\d+$/.test(el.selectedOptions?.[0]?.textContent.trim() || ""));
+    if (select) return Number(select.selectedOptions[0].textContent.trim().slice(1));
+    const shown = [...panel.querySelectorAll("*")].find((el) => !el.children.length && el.tagName !== "OPTION" && !el.closest(".mwia-guide-box") && /^T\d+$/.test(el.textContent.trim()));
+    return shown ? Number(shown.textContent.trim().slice(1)) : null;
+  }
+  function fightsHtml(action, setup, tier) {
+    const rate = setup.encountersPerHour;
+    if (!(rate > 0)) return `<div class="mwia-guide-note mwia-guide-dim">Press <b>Analyze upgrades</b> again for this zone to get buttons that fill in the fights for a number of hours.</div>`;
+    const analysed = setup.tier || 0;
+    if (tier !== null && tier !== analysed) return `<div class="mwia-guide-note mwia-guide-dim">The advice is for T${analysed}. Pick T${tier} as the zone's tier under <b>Upgrades</b> and analyze it for drinks, food and fight counts at T${tier}.</div>`;
+    const picked = g.hours.get(action.hrid);
+    const buttons = FIGHT_HOURS.map((h2) => `<button class="mwia-guide-hour${h2 === picked ? " mwia-guide-picked" : ""}" data-guide-hours="${h2}" title="${Math.max(1, Math.round(rate * h2)).toLocaleString("en-US")} fights">${h2}</button>`).join("");
+    return `<div class="mwia-guide-sub">Fights for hours <span>\xB7 ${Math.round(rate).toLocaleString("en-US")} an hour</span></div><div class="mwia-guide-hours">${buttons}</div>`;
+  }
+  function combatHtml(action, tier = null) {
     const setup = combatSetups()[action.hrid];
     if (!setup) {
       return head("\u2615 Drinks and food", "Combat Advisor") + `<div class="mwia-guide-note">No advice for ${esc(action.name)} yet: in the advisor, pick it as the zone under <b>Upgrades</b> and press <b>Analyze upgrades</b>.</div>`;
@@ -3582,9 +3602,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const perDay2 = (hrid) => Math.ceil((setup.perHour?.[hrid] || 0) * HOURS_PER_DAY2);
     const stock = (hrid) => {
       const n2 = have2(hrid);
-      const need = perDay2(hrid);
-      const text = `${n2.toLocaleString("en-US")} in inventory${need ? `, ${need.toLocaleString("en-US")} a day` : ""}`;
-      return n2 < need ? `<b class="mwia-guide-low">${text}</b>` : text;
+      const need2 = perDay2(hrid);
+      const text = `${n2.toLocaleString("en-US")} in inventory${need2 ? `, ${need2.toLocaleString("en-US")} a day` : ""}`;
+      return n2 < need2 ? `<b class="mwia-guide-low">${text}</b>` : text;
     };
     const part = (title, target, current) => {
       const wanted = target.filter(Boolean);
@@ -3595,10 +3615,33 @@ i.mwia-history-bid { background: #7ee2b0; }
     const foodNow = slotItems("actionTypeFoodSlotsMap", COMBAT2);
     const all = [...setup.drinks, ...setup.food].filter(Boolean);
     const done2 = all.every((hrid) => drinksNow.includes(hrid) || foodNow.includes(hrid)) && [...drinksNow, ...foodNow].every((hrid) => all.includes(hrid));
-    const items = all.filter((hrid) => have2(hrid) < perDay2(hrid)).map((hrid) => ({ hrid, quantity: perDay2(hrid) - have2(hrid) }));
-    return head("\u2615 Drinks and food", `Combat Advisor \xB7 ${esc(actionName(action.hrid))}${setup.tier ? ` T${setup.tier}` : ""}, analysed ${age}`) + part("Drinks", setup.drinks, drinksNow) + part("Food", setup.food, foodNow) + `<div class="mwia-guide-note">${done2 ? "\u2713 Your slots match the advice." : "Set your slots as above before you start."}</div>` + cartButton(items, "\u{1F6D2} What's missing for 1 day");
+    const picked = setup.encountersPerHour > 0 && (tier === null || tier === (setup.tier || 0)) ? g.hours.get(action.hrid) : null;
+    const need = (hrid) => picked ? Math.ceil((setup.perHour?.[hrid] || 0) * picked) : perDay2(hrid);
+    const items = all.filter((hrid) => have2(hrid) < need(hrid)).map((hrid) => ({ hrid, quantity: need(hrid) - have2(hrid) }));
+    return head("\u2615 Drinks and food", `Combat Advisor \xB7 ${esc(actionName(action.hrid))}${setup.tier ? ` T${setup.tier}` : ""}, analysed ${age}`) + part("Drinks", setup.drinks, drinksNow) + part("Food", setup.food, foodNow) + `<div class="mwia-guide-note">${done2 ? "\u2713 Your slots match the advice." : "Set your slots as above before you start."}</div>` + fightsHtml(action, setup, tier) + cartButton(items, `\u{1F6D2} What's missing for ${picked ? `${picked} h` : "1 day"}`);
+  }
+  function onHours(button) {
+    const box = button.closest(".mwia-guide-box");
+    const actionHrid = box.dataset.action;
+    const action = getClientData()?.actionDetailMap[actionHrid];
+    const rate = combatSetups()[actionHrid]?.encountersPerHour;
+    if (!action || !(rate > 0)) return;
+    const hours = Number(button.dataset.guideHours);
+    const fights = Math.max(1, Math.round(rate * hours));
+    const input = findActionPanel(action.name)?.input;
+    g.hours.set(actionHrid, hours);
+    if (input) setReactInput(input, fights);
+    g.statuses.set(actionHrid, input ? `${fights.toLocaleString("en-US")} fights \u2248 ${hours} h.` : `Could not find the Fight box: enter ${fights.toLocaleString("en-US")} yourself.`);
+    scheduleScan2();
   }
   async function onClick2(event) {
+    const hoursButton = event.target.closest?.(".mwia-guide-box [data-guide-hours]");
+    if (hoursButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      onHours(hoursButton);
+      return;
+    }
     const button = event.target.closest?.(".mwia-guide-box [data-guide-cart]");
     if (!button) return;
     event.preventDefault();
@@ -4017,7 +4060,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const target = applyPlan(raw.baseProfile, { picks: [], drink: plan.drink, food: plan.food });
     const slots = slotCounts(raw.baseProfile, getClientData());
     const perHour = { ...raw.base.consumables, ...plan.drink?.result?.consumables || {}, ...plan.food?.result?.consumables || {}, ...ui.verified?.planned?.consumables || {} };
-    rememberCombatSetup(raw.zone, { drinks: target.drinks.slice(0, slots.drinks), food: target.food.slice(0, slots.food), perHour });
+    rememberCombatSetup(raw.zone, { drinks: target.drinks.slice(0, slots.drinks), food: target.food.slice(0, slots.food), perHour, encountersPerHour: raw.base.encounters });
   }
   async function doRefine() {
     await refineUncertain(ui.pool, ui.upgradeRaw, ui.settings, progress("Re-running uncertain suggestions"));

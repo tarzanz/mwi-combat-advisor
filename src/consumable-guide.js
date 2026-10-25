@@ -5,7 +5,7 @@
 import { actionName, getClientData, itemName, pricesStamp } from "./game-data.js";
 import { onStateChange, state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
-import { openActionPanels } from "./game-nav.js";
+import { findActionPanel, openActionPanels, setReactInput } from "./game-nav.js";
 import { heldStock } from "./skilling.js";
 import { skillingAdvice, slotsLine } from "./skilling-ui.js";
 
@@ -13,8 +13,11 @@ const SCAN_MS = 400;
 const COMBAT = "/action_types/combat";
 const SETUPS_KEY = "mwia-combat-setups";
 const HOURS_PER_DAY = 24;
+// The buttons that fill in the number of fights for that many hours.
+export const FIGHT_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-const g = { deps: null, scanTimer: null, loading: null, statuses: new Map() };
+// hours: the fight hours picked per zone, which the cart button follows.
+const g = { deps: null, scanTimer: null, loading: null, statuses: new Map(), hours: new Map() };
 
 const coins = (n) => (n < 0 ? "−" : "") + shortCoins(Math.abs(n));
 const have = (hrid) => (state.character ? heldStock(state.character, state.items, hrid).inventory : 0);
@@ -82,7 +85,7 @@ function scan() {
     for (const { panel, name, buttons } of panels) {
         const action = actionByName(name);
         if (!action) continue;
-        const html = action.type === COMBAT ? combatHtml(action) : skillingHtml(action);
+        const html = action.type === COMBAT ? combatHtml(action, panelTier(panel)) : skillingHtml(action);
         if (!html) continue;
         let box = panel.querySelector(".mwia-guide-box");
         if (!box) {
@@ -158,7 +161,26 @@ function skillingHtml(action) {
     );
 }
 
-function combatHtml(action) {
+// The difficulty picked in a combat window ("T0", "T1" …), or null if it can't be read.
+function panelTier(panel) {
+    const select = [...panel.querySelectorAll("select")].find((el) => /^T\d+$/.test(el.selectedOptions?.[0]?.textContent.trim() || ""));
+    if (select) return Number(select.selectedOptions[0].textContent.trim().slice(1));
+    const shown = [...panel.querySelectorAll("*")].find((el) => !el.children.length && el.tagName !== "OPTION" && !el.closest(".mwia-guide-box") && /^T\d+$/.test(el.textContent.trim()));
+    return shown ? Number(shown.textContent.trim().slice(1)) : null;
+}
+
+// Buttons that fill in the fights for that many hours, at the analysis's pace.
+function fightsHtml(action, setup, tier) {
+    const rate = setup.encountersPerHour;
+    if (!(rate > 0)) return `<div class="mwia-guide-note mwia-guide-dim">Press <b>Analyze upgrades</b> again for this zone to get buttons that fill in the fights for a number of hours.</div>`;
+    const analysed = setup.tier || 0;
+    if (tier !== null && tier !== analysed) return `<div class="mwia-guide-note mwia-guide-dim">The advice is for T${analysed}. Pick T${tier} as the zone's tier under <b>Upgrades</b> and analyze it for drinks, food and fight counts at T${tier}.</div>`;
+    const picked = g.hours.get(action.hrid);
+    const buttons = FIGHT_HOURS.map((h) => `<button class="mwia-guide-hour${h === picked ? " mwia-guide-picked" : ""}" data-guide-hours="${h}" title="${Math.max(1, Math.round(rate * h)).toLocaleString("en-US")} fights">${h}</button>`).join("");
+    return `<div class="mwia-guide-sub">Fights for hours <span>· ${Math.round(rate).toLocaleString("en-US")} an hour</span></div><div class="mwia-guide-hours">${buttons}</div>`;
+}
+
+function combatHtml(action, tier = null) {
     const setup = combatSetups()[action.hrid];
     if (!setup) {
         return head("☕ Drinks and food", "Combat Advisor") + `<div class="mwia-guide-note">No advice for ${esc(action.name)} yet: in the advisor, pick it as the zone under <b>Upgrades</b> and press <b>Analyze upgrades</b>.</div>`;
@@ -181,17 +203,44 @@ function combatHtml(action) {
     const foodNow = slotItems("actionTypeFoodSlotsMap", COMBAT);
     const all = [...setup.drinks, ...setup.food].filter(Boolean);
     const done = all.every((hrid) => drinksNow.includes(hrid) || foodNow.includes(hrid)) && [...drinksNow, ...foodNow].every((hrid) => all.includes(hrid));
-    const items = all.filter((hrid) => have(hrid) < perDay(hrid)).map((hrid) => ({ hrid, quantity: perDay(hrid) - have(hrid) }));
+    // What's missing for the hours picked (at the analysed tier), or for a day.
+    const picked = setup.encountersPerHour > 0 && (tier === null || tier === (setup.tier || 0)) ? g.hours.get(action.hrid) : null;
+    const need = (hrid) => (picked ? Math.ceil((setup.perHour?.[hrid] || 0) * picked) : perDay(hrid));
+    const items = all.filter((hrid) => have(hrid) < need(hrid)).map((hrid) => ({ hrid, quantity: need(hrid) - have(hrid) }));
     return (
         head("☕ Drinks and food", `Combat Advisor · ${esc(actionName(action.hrid))}${setup.tier ? ` T${setup.tier}` : ""}, analysed ${age}`) +
         part("Drinks", setup.drinks, drinksNow) +
         part("Food", setup.food, foodNow) +
         `<div class="mwia-guide-note">${done ? "✓ Your slots match the advice." : "Set your slots as above before you start."}</div>` +
-        cartButton(items, "🛒 What's missing for 1 day")
+        fightsHtml(action, setup, tier) +
+        cartButton(items, `🛒 What's missing for ${picked ? `${picked} h` : "1 day"}`)
     );
 }
 
+// Fills in the fights for the hours on the button; the player clicks the game's own button.
+function onHours(button) {
+    const box = button.closest(".mwia-guide-box");
+    const actionHrid = box.dataset.action;
+    const action = getClientData()?.actionDetailMap[actionHrid];
+    const rate = combatSetups()[actionHrid]?.encountersPerHour;
+    if (!action || !(rate > 0)) return;
+    const hours = Number(button.dataset.guideHours);
+    const fights = Math.max(1, Math.round(rate * hours));
+    const input = findActionPanel(action.name)?.input;
+    g.hours.set(actionHrid, hours);
+    if (input) setReactInput(input, fights);
+    g.statuses.set(actionHrid, input ? `${fights.toLocaleString("en-US")} fights ≈ ${hours} h.` : `Could not find the Fight box: enter ${fights.toLocaleString("en-US")} yourself.`);
+    scheduleScan();
+}
+
 async function onClick(event) {
+    const hoursButton = event.target.closest?.(".mwia-guide-box [data-guide-hours]");
+    if (hoursButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        onHours(hoursButton);
+        return;
+    }
     const button = event.target.closest?.(".mwia-guide-box [data-guide-cart]");
     if (!button) return;
     event.preventDefault();

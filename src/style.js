@@ -167,6 +167,10 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-guide-list li span .mwia-guide-low, .mwia-guide-low { color: #ffd479; font-weight: 600; }
 .mwia-guide-note { margin: 2px 0; }
 .mwia-guide-cart { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
+.mwia-guide-hours { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
+.mwia-guide-hour { min-width: 32px; padding: 4px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
+.mwia-guide-hour.mwia-guide-picked { background: #4a5bb8; border-color: #8a98e8; }
+.mwia-guide-dim { color: #8189b0; font-size: 11px; }
 .mwia-tool-box { margin: 10px 0; }
 .mwia-tool-list { list-style: none; margin: 4px 0; padding: 0; }
 .mwia-tool-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid #2a3150; }

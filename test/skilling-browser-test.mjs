@@ -386,7 +386,7 @@ try {
 
     // Combat: the zone's window shows the last Upgrades analysis's drinks and food.
     await page.evaluate(() => {
-        localStorage.setItem("mwia-combat-setups", JSON.stringify({ "/actions/combat/fly": { drinks: ["/items/attack_coffee", null], food: ["/items/donut"], perHour: { "/items/attack_coffee": 12, "/items/donut": 5 }, tier: 0, at: Date.now() - 3 * 3600000 } }));
+        localStorage.setItem("mwia-combat-setups", JSON.stringify({ "/actions/combat/fly": { drinks: ["/items/attack_coffee", null], food: ["/items/donut"], perHour: { "/items/attack_coffee": 12, "/items/donut": 5 }, encountersPerHour: 300, tier: 0, at: Date.now() - 3 * 3600000 } }));
         openPanel(data.actionDetailMap["/actions/combat/fly"]);
     });
     await page.waitForSelector(".modal .mwia-guide-box", { timeout: 4000 }).catch(() => null);
@@ -397,7 +397,22 @@ try {
     await new Promise((r) => setTimeout(r, 400));
     const combatCart = await page.evaluate(() => window.cart);
     check("combat window buys only what is missing", combatCart.length === 1 && combatCart[0].itemHrid === "/items/attack_coffee" && combatCart[0].quantity === 288, JSON.stringify(combatCart));
+    // The hour buttons fill in the fights at the analysis's pace, and the cart follows.
+    await page.click('.modal [data-guide-hours="8"]');
+    await page.waitForFunction(() => /What's missing for 8 h/.test(document.querySelector(".modal .mwia-guide-box")?.textContent || ""), { timeout: 3000 }).catch(() => null);
+    const fights = await page.evaluate(() => ({ value: document.querySelector(".modal .SkillActionDetail_maxActionCountInput__y input").value, buttons: document.querySelectorAll(".modal [data-guide-hours]").length, picked: document.querySelector(".modal .mwia-guide-picked")?.textContent, status: document.querySelector(".modal .mwia-guide-status")?.textContent }));
+    check("hour buttons fill in the fights", fights.value === "2400" && fights.buttons === 13 && fights.picked === "8" && fights.status === "2,400 fights ≈ 8 h.", JSON.stringify(fights));
+    await page.evaluate(() => (window.cart = []));
+    await page.click(".modal [data-guide-cart]");
+    await new Promise((r) => setTimeout(r, 400));
+    const hoursCart = await page.evaluate(() => window.cart);
+    check("the cart follows the hours picked", hoursCart.length === 1 && hoursCart[0].itemHrid === "/items/attack_coffee" && hoursCart[0].quantity === 96, JSON.stringify(hoursCart));
     await page.screenshot({ path: path.join(shotDir, "skilling-6b-combat.png") });
+    // Another tier than the one analysed: no fight counts.
+    await page.evaluate(() => document.querySelector(".modal .SkillActionDetail_name__y").insertAdjacentHTML("afterend", '<div class="difficulty"><div role="button">T2</div></div>'));
+    await page.waitForFunction(() => !document.querySelector(".modal [data-guide-hours]"), { timeout: 3000 }).catch(() => null);
+    const otherTier = await page.$eval(".modal .mwia-guide-box", (n) => n.textContent.replace(/\s+/g, " "));
+    check("another tier hides the hour buttons", /The advice is for T0\. Pick T2/.test(otherTier) && /What's missing for 1 day/.test(otherTier) && !(await page.$(".modal [data-guide-hours]")), otherTier);
     await page.evaluate(() => {
         document.querySelector(".modal")?.remove();
         openPanel(data.actionDetailMap["/actions/combat/aqua_planet"]);

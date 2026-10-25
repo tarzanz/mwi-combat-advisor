@@ -242,7 +242,8 @@ function saveCombatSetup() {
     const target = applyPlan(raw.baseProfile, { picks: [], drink: plan.drink, food: plan.food });
     const slots = slotCounts(raw.baseProfile, getClientData());
     const perHour = { ...raw.base.consumables, ...(plan.drink?.result?.consumables || {}), ...(plan.food?.result?.consumables || {}), ...(ui.verified?.planned?.consumables || {}) };
-    rememberCombatSetup(raw.zone, { drinks: target.drinks.slice(0, slots.drinks), food: target.food.slice(0, slots.food), perHour });
+    // Fights an hour with the gear you have now: the plan's gear isn't bought yet.
+    rememberCombatSetup(raw.zone, { drinks: target.drinks.slice(0, slots.drinks), food: target.food.slice(0, slots.food), perHour, encountersPerHour: raw.base.encounters });
 }
 
 async function doRefine() {
