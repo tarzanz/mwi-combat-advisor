@@ -60,11 +60,12 @@ function ranking(settings) {
     return rankings.get(key);
 }
 
-// One action's row, worked out with the tab's settings (its skill, if the tab shows another one).
+// One action's row, worked out with the tab's settings but always within its own
+// skill, so the advice doesn't depend on which skill the tab shows.
 export function skillingAdvice(actionHrid, settings) {
     const skill = actionHrid.split("/")[2];
     if (!SKILLING_SKILLS.includes(skill)) return null;
-    const result = ranking(settings.skillingSkill === "all" || settings.skillingSkill === skill ? settings : { ...settings, skillingSkill: skill });
+    const result = ranking({ ...settings, skillingSkill: skill });
     return result.available.find((entry) => entry.hrid === actionHrid) || null;
 }
 

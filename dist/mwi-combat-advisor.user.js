@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.23.1
+// @version      0.23.2
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -2061,6 +2061,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
   function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1 } = {}) {
+    var _a;
     const evaluator = (action, level) => (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
     const wanted = (action) => skill === "all" || action.type === skillType(skill);
     const doable = [];
@@ -2077,18 +2078,24 @@ i.mwia-history-bid { background: #7ee2b0; }
       }
     }
     const refs = { gold: 1, xp: 1 };
-    for (const { current } of doable) {
-      if (!current.valid) continue;
-      refs.gold = Math.max(refs.gold, current.goldPerDay);
-      refs.xp = Math.max(refs.xp, current.xpPerDay);
+    const skillRefs = {};
+    for (const { action, evaluate } of doable) {
+      const gold = bestTeas(action, who, data, market, evaluate, (r) => r.goldPerDay).result;
+      const xp = bestTeas(action, who, data, market, evaluate, (r) => r.xpPerDay).result;
+      const own = skillRefs[_a = action.type] || (skillRefs[_a] = { gold: 1, xp: 1 });
+      for (const r of [refs, own]) {
+        if (gold.valid) r.gold = Math.max(r.gold, gold.goldPerDay);
+        if (xp.valid) r.xp = Math.max(r.xp, xp.xpPerDay);
+      }
     }
     const score2 = focusScore(goldWeight, refs);
     const chain = chainBuilder(who, data, market, teaMode);
     const available = doable.map(({ action, evaluate, current }) => {
-      const best = bestTeas(action, who, data, market, evaluate, score2);
+      const teaScore = focusScore(goldWeight, skillRefs[action.type]);
+      const best = bestTeas(action, who, data, market, evaluate, teaScore);
       const shown = teaMode === "best" ? best.result : current;
       const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), price: plan.price?.(shown.action) ?? null, sellCap }) : null;
-      const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score2(shown), teaSlots: who.slots[action.type], pouch: who.pouch, betterTeas: !sameTeas(best.result.teas, current.teas) && score2(best.result) > score2(current) + 1e-9 };
+      const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score2(shown), teaSlots: who.slots[action.type], pouch: who.pouch, betterTeas: !sameTeas(best.result.teas, current.teas) && teaScore(best.result) > teaScore(current) + 1e-9 };
       if (plan) {
         const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.days * HOURS_PER_DAY : 0;
         entry.teaPlan = teaPurchase(entry, { hours, have: plan.have });
@@ -2589,7 +2596,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function skillingAdvice(actionHrid, settings) {
     const skill = actionHrid.split("/")[2];
     if (!SKILLING_SKILLS.includes(skill)) return null;
-    const result = ranking(settings.skillingSkill === "all" || settings.skillingSkill === skill ? settings : { ...settings, skillingSkill: skill });
+    const result = ranking({ ...settings, skillingSkill: skill });
     return result.available.find((entry) => entry.hrid === actionHrid) || null;
   }
   function computeRanking(settings) {

@@ -576,20 +576,30 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
             near.push(action);
         }
     }
-    // The focus compares each action with the most gold and XP any of them gives with your teas.
+    // The focus compares each action with the most gold and XP any action can
+    // give with the best teas for it – not with the teas in your slots, or
+    // following the advice would change the advice. The list is ranked against
+    // every action in it; teas are picked against the action's own skill, so
+    // they are the same whichever skill the list shows.
     const refs = { gold: 1, xp: 1 };
-    for (const { current } of doable) {
-        if (!current.valid) continue;
-        refs.gold = Math.max(refs.gold, current.goldPerDay);
-        refs.xp = Math.max(refs.xp, current.xpPerDay);
+    const skillRefs = {};
+    for (const { action, evaluate } of doable) {
+        const gold = bestTeas(action, who, data, market, evaluate, (r) => r.goldPerDay).result;
+        const xp = bestTeas(action, who, data, market, evaluate, (r) => r.xpPerDay).result;
+        const own = (skillRefs[action.type] ||= { gold: 1, xp: 1 });
+        for (const r of [refs, own]) {
+            if (gold.valid) r.gold = Math.max(r.gold, gold.goldPerDay);
+            if (xp.valid) r.xp = Math.max(r.xp, xp.xpPerDay);
+        }
     }
     const score = focusScore(goldWeight, refs);
     const chain = chainBuilder(who, data, market, teaMode);
     const available = doable.map(({ action, evaluate, current }) => {
-        const best = bestTeas(action, who, data, market, evaluate, score);
+        const teaScore = focusScore(goldWeight, skillRefs[action.type]);
+        const best = bestTeas(action, who, data, market, evaluate, teaScore);
         const shown = teaMode === "best" ? best.result : current;
         const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), price: plan.price?.(shown.action) ?? null, sellCap }) : null;
-        const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score(shown), teaSlots: who.slots[action.type], pouch: who.pouch, betterTeas: !sameTeas(best.result.teas, current.teas) && score(best.result) > score(current) + 1e-9 };
+        const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score(shown), teaSlots: who.slots[action.type], pouch: who.pouch, betterTeas: !sameTeas(best.result.teas, current.teas) && teaScore(best.result) > teaScore(current) + 1e-9 };
         if (plan) {
             // Teas for the suggested job; a gathering job runs for the days planned.
             const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.days * HOURS_PER_DAY : 0;

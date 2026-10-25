@@ -46,7 +46,9 @@ buy, by simulating *your own* character.
   the game with the count filled in; you click the game's button. Jobs shorter than *Shortest job* are greyed out
   and listed last; no job is longer than *Make for*. **🍵 Buy teas** puts the best teas for the job in the MWITools
   cart (a gathering job runs for *Make for*), less what you have. The **Focus** slider ranks by gold, XP or a mix
-  (each as a share of the most any action in the list gives); the best teas follow it, so an XP focus picks Wisdom Tea. **⛓ Yourself** compares buying the materials with making every one your levels
+  (each as a share of the most any action in the list can give with its best teas – not with the teas in your slots,
+  so following the advice doesn't change it); the best teas follow it, picked within the action's own skill so they are
+  the same whichever skill the list shows, so an XP focus picks Wisdom Tea. **⛓ Yourself** compares buying the materials with making every one your levels
   allow (gathered or crafted, each step with that skill's teas): gold per hour of the whole chain and how the hour
   splits between the steps; a row says when it beats buying. **Upgrades that pay back** (pick a skill): every tool,
   skilling top/bottoms, necklace, earrings, ring, charm, cape and pouch your levels allow – also +N copies for sale and
