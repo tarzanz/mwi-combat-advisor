@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.20.2
+// @version      0.21.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1442,6 +1442,18 @@ polyline.mwia-history-bid { stroke: #7ee2b0; }
 .mwia-history-ranges i { display: inline-block; width: 10px; height: 2px; margin: 0 3px 3px 6px; vertical-align: middle; }
 i.mwia-history-ask { background: #f2a65b; }
 i.mwia-history-bid { background: #7ee2b0; }
+.mwia-guide-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-guide-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
+.mwia-guide-head span, .mwia-guide-list li span, .mwia-guide-status { color: #8189b0; font-size: 11px; }
+.mwia-guide-sub { margin-top: 4px; color: #9aa3cf; font-size: 11px; }
+.mwia-guide-list { list-style: none; margin: 2px 0; padding: 0; }
+.mwia-guide-list li { margin: 1px 0; }
+.mwia-guide-keep { color: #7ee2b0; }
+.mwia-guide-add { color: #ffd479; font-weight: 600; }
+.mwia-guide-remove { color: #ff9b7b; }
+.mwia-guide-list li span .mwia-guide-low, .mwia-guide-low { color: #ffd479; font-weight: 600; }
+.mwia-guide-note { margin: 2px 0; }
+.mwia-guide-cart { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
 .mwia-tip-pop {
@@ -1553,13 +1565,13 @@ i.mwia-history-bid { background: #7ee2b0; }
       const wanted = Math.max(1, Math.ceil(item.quantity));
       const label = { hrid: item.hrid, enhancementLevel };
       try {
-        const have = api.getCartItem(item.hrid, enhancementLevel)?.quantity || 0;
-        if (have >= wanted) {
+        const have2 = api.getCartItem(item.hrid, enhancementLevel)?.quantity || 0;
+        if (have2 >= wanted) {
           outcome.present.push(label);
           continue;
         }
-        const result = api.addToCart([{ itemHrid: item.hrid, enhancementLevel, quantity: wanted - have, source: "manual" }]);
-        if (result?.ok) (have ? outcome.updated : outcome.added).push(label);
+        const result = api.addToCart([{ itemHrid: item.hrid, enhancementLevel, quantity: wanted - have2, source: "manual" }]);
+        if (result?.ok) (have2 ? outcome.updated : outcome.added).push(label);
         else outcome.failed.push(label);
       } catch {
         outcome.failed.push(label);
@@ -1584,11 +1596,12 @@ i.mwia-history-bid { background: #7ee2b0; }
   var RISKY_MARGIN = 0.05;
   var DRINKS_PER_HOUR = 12;
   var MIN_CYCLE_SECONDS = 3;
-  var DEFAULT_DRINK_SLOTS = 3;
   var NEAR_LEVELS = 10;
   var HOURS_PER_DAY = 24;
   var WIDE_SPREAD = 1.5;
   var INVENTORY2 = "/item_locations/inventory";
+  var POUCH = "/item_locations/pouch";
+  var TOTAL_LEVEL = "/skills/total_level";
   var BUFF = {
     efficiency: "/buff_types/efficiency",
     speed: "/buff_types/action_speed",
@@ -1610,6 +1623,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       levels[skill.skillHrid] = skill.level;
       experience[skill.skillHrid] = skill.experience ?? null;
     }
+    levels[TOTAL_LEVEL] ?? (levels[TOTAL_LEVEL] = Object.values(levels).reduce((sum, level) => sum + (Number(level) || 0), 0));
     const known = BUFF_SOURCES.filter((key) => character[key]);
     let buffs = null;
     if (known.length) {
@@ -1622,12 +1636,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const drinks = {};
     const slots = {};
+    const pouch = [...items.values()].find((item) => item.itemLocationHrid === POUCH && item.itemHrid)?.itemHrid || null;
+    const pouchSlots = drinkSlots(pouch, data);
     for (const skill of SKILLING_SKILLS) {
       const list = character.actionTypeDrinkSlotsMap?.[skillType(skill)];
       drinks[skillType(skill)] = (list || []).map((slot) => slot?.itemHrid).filter(Boolean);
-      slots[skillType(skill)] = list?.length || DEFAULT_DRINK_SLOTS;
+      slots[skillType(skill)] = Math.max(pouchSlots, drinks[skillType(skill)].length);
     }
-    return { levels, experience, buffs, drinks, slots, concentration: drinkConcentration(character, items, data) };
+    return { levels, experience, buffs, drinks, slots, pouch, concentration: drinkConcentration(character, items, data) };
+  }
+  function drinkSlots(pouchHrid, data) {
+    return 1 + (data.itemDetailMap[pouchHrid]?.equipmentDetail?.combatStats?.drinkSlots || 0);
   }
   function drinkConcentration(character, items, data) {
     const given = Number(character.noncombatStats?.drinkConcentration);
@@ -1844,11 +1863,11 @@ i.mwia-history-bid { background: #7ee2b0; }
   function focusScore(goldWeight, refs) {
     return (r) => goldWeight * r.goldPerDay / refs.gold + (1 - goldWeight) * r.xpPerDay / refs.xp;
   }
-  function teaPurchase(entry, { hours, have = () => 0 }) {
+  function teaPurchase(entry, { hours, have: have2 = () => 0 }) {
     const teas = entry.best.result.teas;
     if (!teas.length || !(hours > 0)) return null;
     const perTea = Math.ceil(hours * entry.best.result.drinksPerHour);
-    const items = teas.map((hrid) => ({ hrid, quantity: perTea - have(hrid), have: have(hrid) })).filter((item) => item.quantity > 0);
+    const items = teas.map((hrid) => ({ hrid, quantity: perTea - have2(hrid), have: have2(hrid) })).filter((item) => item.quantity > 0);
     return { hours, perTea, items };
   }
   function heldStock(character, items, itemHrid) {
@@ -1881,7 +1900,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const others = entry.revenuePerAction - main.value;
     return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others) / main.count / (1 - MARKET_TAX);
   }
-  function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins: coins3 = Infinity, have = () => 0, minJobHours = 0, sellAt = "ask" }) {
+  function suggestCount(entry, { stock, book, sellCap = 0, days = 1, coins: coins4 = Infinity, have: have2 = () => 0, minJobHours = 0, sellAt = "ask" }) {
     if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
@@ -1895,14 +1914,14 @@ i.mwia-history-bid { background: #7ee2b0; }
     const longest = Math.floor(days * HOURS_PER_DAY * entry.actionsPerHour);
     const limitedByDays = count2 > longest;
     if (limitedByDays) count2 = longest;
-    const spend = (n2) => entry.inputs.reduce((sum, input) => sum + Math.max(0, input.count * n2 - have(input.itemHrid)) * (input.price || 0), 0);
+    const spend = (n2) => entry.inputs.reduce((sum, input) => sum + Math.max(0, input.count * n2 - have2(input.itemHrid)) * (input.price || 0), 0);
     let limitedByCoins = false;
-    if (spend(count2) > coins3) {
+    if (spend(count2) > coins4) {
       let low = 0;
       let high = count2;
       while (low < high) {
         const mid = Math.ceil((low + high) / 2);
-        if (spend(mid) <= coins3) low = mid;
+        if (spend(mid) <= coins4) low = mid;
         else high = mid - 1;
       }
       count2 = low;
@@ -2045,7 +2064,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       const best = bestTeas(action, who, data, market, evaluate, score2);
       const shown = teaMode === "best" ? best.result : current;
       const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), sellCap }) : null;
-      const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score2(shown), betterTeas: !sameTeas(best.result.teas, current.teas) && score2(best.result) > score2(current) + 1e-9 };
+      const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score2(shown), teaSlots: who.slots[action.type], pouch: who.pouch, betterTeas: !sameTeas(best.result.teas, current.teas) && score2(best.result) > score2(current) + 1e-9 };
       if (plan) {
         const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.days * HOURS_PER_DAY : 0;
         entry.teaPlan = teaPurchase(entry, { hours, have: plan.have });
@@ -2061,8 +2080,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       const required = action.levelRequirement.level;
       const evaluate = evaluator(action, required);
       const atUnlock = teaMode === "best" ? bestTeas(action, who, data, market, evaluate).result : evaluate(who.drinks[action.type] || []);
-      const have = who.experience[skillHrid];
-      const needXp = Array.isArray(table) && have !== null && table[required] !== void 0 ? Math.max(0, table[required] - have) : null;
+      const have2 = who.experience[skillHrid];
+      const needXp = Array.isArray(table) && have2 !== null && table[required] !== void 0 ? Math.max(0, table[required] - have2) : null;
       const hours = needXp !== null && fastestXp[skillHrid] > 0 ? needXp / fastestXp[skillHrid] : null;
       return { ...atUnlock, needLevels: required - (who.levels[skillHrid] ?? 1), needXp, hoursToUnlock: hours };
     });
@@ -2099,23 +2118,37 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return best;
   }
+  function bestDayWithTeas(actions, who, data, market, sellCap) {
+    let best = null;
+    for (const action of actions) {
+      const evaluate = (teas) => limitSales(evaluateAction(action, who, data, market, teas), sellCap);
+      const r = bestTeas(action, who, data, market, evaluate).result;
+      if (r.valid && (!best || r.goldPerDay > best.goldPerDay)) best = r;
+    }
+    return best;
+  }
   function rankUpgrades(who, data, market, skill, { equipped, owned, listings, houseLevels, sellCap = 0, gameEquipmentBuffs = null }) {
     const type = skillType(skill);
     const actions = skillingActions(data).filter((a) => a.type === type && (who.levels[a.levelRequirement.skillHrid] ?? 1) >= a.levelRequirement.level);
     const base = bestDay(actions, who, data, market, sellCap);
     if (!base) return { base: null, upgrades: [], check: null };
-    const withBuffs = (extra, concentration = 0) => ({
+    const withBuffs = (extra, concentration = 0, slots = who.slots[type]) => ({
       ...who,
       buffs: { ...who.buffs || {}, [type]: [...who.buffs?.[type] || [], ...extra] },
-      concentration: who.concentration + concentration
+      concentration: who.concentration + concentration,
+      slots: { ...who.slots, [type]: slots }
     });
+    const POUCH_SLOT = "/item_locations/pouch";
+    let teaBase = null;
     const meets = (itemHrid) => (data.itemDetailMap[itemHrid]?.equipmentDetail?.levelRequirements || []).every((req) => (who.levels[req.skillHrid] ?? 0) >= req.level);
     const upgrades = [];
     for (const item of Object.values(data.itemDetailMap)) {
       const detail = item.equipmentDetail;
       if (!detail?.noncombatStats || !meets(item.hrid)) continue;
-      if (!itemSkillBuffs(item.hrid, 0, skill, data).buffs.length && !detail.noncombatStats.drinkConcentration) continue;
       const slot = location(item.hrid, data);
+      const slotsAfter = slot === POUCH_SLOT ? drinkSlots(item.hrid, data) : who.slots[type];
+      const moreSlots = slotsAfter > who.slots[type];
+      if (!itemSkillBuffs(item.hrid, 0, skill, data).buffs.length && !detail.noncombatStats.drinkConcentration && !moreSlots) continue;
       const current = equipped[slot] || null;
       const old = current ? itemSkillBuffs(current.itemHrid, current.enhancementLevel, skill, data) : { buffs: [], concentration: 0 };
       const offers = [...(owned[item.hrid] || []).map((level2) => ({ enhancementLevel: level2, price: 0, owned: true })), ...listings(item.hrid) || []];
@@ -2126,8 +2159,15 @@ i.mwia-history-bid { background: #7ee2b0; }
         seen.add(key);
         if (current && current.itemHrid === item.hrid && current.enhancementLevel >= offer.enhancementLevel) continue;
         const next = itemSkillBuffs(item.hrid, offer.enhancementLevel, skill, data);
-        const after = bestDay(actions, withBuffs([...negate(old.buffs), ...next.buffs], next.concentration - old.concentration), data, market, sellCap);
-        const gain = after.goldPerDay - base.goldPerDay;
+        const changed = withBuffs([...negate(old.buffs), ...next.buffs], next.concentration - old.concentration, Math.max(slotsAfter, who.drinks[type]?.length || 0));
+        let after;
+        let from = base;
+        if (slotsAfter !== who.slots[type]) {
+          teaBase || (teaBase = bestDayWithTeas(actions, who, data, market, sellCap));
+          from = teaBase;
+          after = bestDayWithTeas(actions, changed, data, market, sellCap);
+        } else after = bestDay(actions, changed, data, market, sellCap);
+        const gain = after.goldPerDay - from.goldPerDay;
         if (gain <= 1) continue;
         upgrades.push({
           kind: "item",
@@ -2137,9 +2177,11 @@ i.mwia-history-bid { background: #7ee2b0; }
           price: offer.price,
           replaces: current,
           gainPerDay: gain,
-          xpPerDay: after.xpPerDay - base.xpPerDay,
+          xpPerDay: after.xpPerDay - from.xpPerDay,
           paybackDays: offer.price / gain,
-          bestAction: after.action
+          bestAction: after.action,
+          extraSlots: slotsAfter - who.slots[type],
+          teas: slotsAfter !== who.slots[type] ? after.teas : null
         });
       }
     }
@@ -2398,7 +2440,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var SHORT_LIST = 25;
   var PLAN_DAYS = [0.5, 1, 2, 3, 7];
   var MIN_JOB_HOURS = [0, 0.5, 1, 2, 4, 8];
-  var view = { key: "", result: null, upgradesKey: "", upgrades: null, showAll: false, open: /* @__PURE__ */ new Set() };
+  var view = { upgradesKey: "", upgrades: null, showAll: false, open: /* @__PURE__ */ new Set() };
   var dec = (n2, d = 1) => n2.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
   var count = (n2) => n2 >= 100 ? dec(n2, 0) : n2 >= 1 ? dec(n2, 2) : n2.toPrecision(2);
@@ -2427,27 +2469,41 @@ i.mwia-history-bid { background: #7ee2b0; }
         <span class="mwia-focus-row">XP <input type="range" min="0" max="100" step="10" value="${goldShare(s)}" data-setting="skillingGold"> Gold</span></label>
     </div>`;
   }
+  var rankings = /* @__PURE__ */ new Map();
+  var KEPT_RANKINGS = 3;
   function ranking(settings) {
-    const data = getClientData();
     const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, settings.skillingDays, settings.skillingMinJob, goldShare(settings), historyVersion()].join("|");
-    if (view.key !== key) {
+    if (!rankings.has(key)) {
+      rankings.set(key, computeRanking(settings));
+      while (rankings.size > KEPT_RANKINGS) rankings.delete(rankings.keys().next().value);
+    }
+    return rankings.get(key);
+  }
+  function skillingAdvice(actionHrid, settings) {
+    const skill = actionHrid.split("/")[2];
+    if (!SKILLING_SKILLS.includes(skill)) return null;
+    const result = ranking(settings.skillingSkill === "all" || settings.skillingSkill === skill ? settings : { ...settings, skillingSkill: skill });
+    return result.available.find((entry) => entry.hrid === actionHrid) || null;
+  }
+  function computeRanking(settings) {
+    const data = getClientData();
+    {
       const who = skillingCharacter(state.character, state.items, data);
       const market = marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt);
-      const have = (hrid) => heldStock(state.character, state.items, hrid).inventory;
+      const have2 = (hrid) => heldStock(state.character, state.items, hrid).inventory;
       const plan = {
         stock: (action) => heldStock(state.character, state.items, action.outputItems?.[0]?.itemHrid),
         book: (action) => state.orderBooks.get(action.outputItems?.[0]?.itemHrid) || null,
         days: Number(settings.skillingDays) || 1,
         minJobHours: Number(settings.skillingMinJob) || 0,
-        coins: have("/items/coin"),
-        have,
+        coins: have2("/items/coin"),
+        have: have2,
         sellAt: settings.skillingSellAt
       };
-      view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
-      for (const entry of [...view.result.available, ...view.result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
-      view.key = key;
+      const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
+      for (const entry of [...result.available, ...result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
+      return result;
     }
-    return view.result;
   }
   function priceWarnings(entry) {
     const warnings = [];
@@ -2604,7 +2660,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function teaHtml(entry) {
     const { current, best } = entry;
-    const now = current.teas.length ? `Your teas: ${esc(names(current.teas))}.` : "You have no teas in this skill.";
+    const now = (current.teas.length ? `Your teas: ${esc(names(current.teas))}.` : "You have no teas in this skill.") + ` ${slotsLine(entry)}`;
     if (!entry.betterTeas) {
       if (!best.result.teas.length) return `${now} No tea earns back its cost here.`;
       return `${now} That is already the best setup. ${worthText(best.worth)}${purchaseText(entry.teaPlan)}`;
@@ -2612,14 +2668,18 @@ i.mwia-history-bid { background: #7ee2b0; }
     return `${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> \u2192 ${coins(best.result.goldPerDay)}/day, ${coins(best.result.xpPerDay)} XP/day
         (<span class="mwia-ok">${teaGain(best.result, current)}</span>). ${worthText(best.worth)}${purchaseText(entry.teaPlan)}`;
   }
+  function slotsLine(entry) {
+    const n2 = entry.teaSlots;
+    return `<span class="mwia-dim">${n2} tea slot${n2 === 1 ? "" : "s"} (${entry.pouch ? esc(itemName(entry.pouch)) : "no pouch"}).</span>`;
+  }
   function worthText(worth) {
     if (!worth.length) return "";
     return worth.map((w) => w.gainPerDay >= 0 ? `${esc(itemName(w.itemHrid))} earns ${coins(w.gainPerDay)}/day more than it costs.` : `${esc(itemName(w.itemHrid))} costs ${coins(-w.gainPerDay)}/day and adds ${coins(w.xpPerDay)} XP/day.`).join(" ");
   }
   function purchaseText(plan) {
     if (!plan) return "";
-    const have = plan.items.length ? ` To buy: ${plan.items.map((i) => `${i.quantity.toLocaleString("en-US")} ${esc(itemName(i.hrid))}${i.have ? ` (you have ${i.have.toLocaleString("en-US")})` : ""}`).join(", ")}.` : " You have enough of each.";
-    return `<br>For this job (${hoursText(plan.hours)}): ${plan.perTea.toLocaleString("en-US")} of each.${have}`;
+    const have2 = plan.items.length ? ` To buy: ${plan.items.map((i) => `${i.quantity.toLocaleString("en-US")} ${esc(itemName(i.hrid))}${i.have ? ` (you have ${i.have.toLocaleString("en-US")})` : ""}`).join(", ")}.` : " You have enough of each.";
+    return `<br>For this job (${hoursText(plan.hours)}): ${plan.perTea.toLocaleString("en-US")} of each.${have2}`;
   }
   function suggestionShort(suggestion) {
     if (!suggestion?.known) return "";
@@ -2717,7 +2777,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const replaces = u.replaces ? `replaces ${esc(itemName(u.replaces.itemHrid))}${u.replaces.enhancementLevel ? ` +${u.replaces.enhancementLevel}` : ""}` : "empty slot";
     const cart = u.owned ? "" : `<button class="mwia-cart-btn" data-action="skilling-cart" data-teas="${esc(JSON.stringify([{ hrid: u.itemHrid, quantity: 1, enhancementLevel: u.enhancementLevel }]))}" title="Adds it to the MWITools cart">\u{1F6D2} Add</button>`;
     return `<div class="mwia-upgrade"><div><b>${name}</b> <span class="mwia-dim">${u.owned ? "you own it" : coins(u.price)}</span>
-        <small>${gain} \xB7 ${payback} \xB7 ${replaces}</small></div>${cart}</div>`;
+        <small>${gain} \xB7 ${payback} \xB7 ${replaces}${slotsText(u)}</small></div>${cart}</div>`;
+  }
+  function slotsText(u) {
+    if (!u.extraSlots) return "";
+    const slots = `${u.extraSlots > 0 ? "+" : ""}${u.extraSlots} tea slot${Math.abs(u.extraSlots) === 1 ? "" : "s"}`;
+    return ` \xB7 ${slots}${u.teas?.length ? ` (with ${esc(names(u.teas))} on ${esc(u.bestAction.name)})` : ""}`;
   }
 
   // src/game-nav.js
@@ -2788,6 +2853,15 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (input) return { panel, input, buttons: panel.querySelector(BUTTONS) };
     }
     return null;
+  }
+  function openActionPanels() {
+    const panels = [];
+    for (const name of document.querySelectorAll(PANEL_NAME)) {
+      if (!visible(name)) continue;
+      const panel = name.closest(PANEL) || name.parentElement;
+      if (panel) panels.push({ panel, name: clean(name.textContent), buttons: panel.querySelector(BUTTONS) });
+    }
+    return panels;
   }
   function setReactInput(input, value) {
     const previous = input.value;
@@ -2970,10 +3044,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     await loadHistory();
     const summary = priceSummary(itemHrid);
     const entry = marketEntry(itemHrid);
-    const head = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price</b> <span>${text}</span></div>`;
+    const head2 = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price</b> <span>${text}</span></div>`;
     if (!summary || !summary.enough) {
-      const have = summary ? `${summary.hours7} of ${MIN_HOURS} h, ${summary.spanDays.toFixed(1)} of ${MIN_DAYS} days` : "nothing yet";
-      return head(`collecting: ${have}`) + `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+      const have2 = summary ? `${summary.hours7} of ${MIN_HOURS} h, ${summary.spanDays.toFixed(1)} of ${MIN_DAYS} days` : "nothing yet";
+      return head2(`collecting: ${have2}`) + `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
     }
     const row = (label, now, side) => {
       const versus = versusUsual(now, side.med7);
@@ -2987,7 +3061,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const points = await priceSeries(itemHrid, h.range);
     const long = h.range > 31 ? await longMedians(itemHrid) : null;
     const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "\u2013"}, bid ${long.b90 ? shortCoins(long.b90) : "\u2013"} \xB7 1 year: ask ${long.a365 ? shortCoins(long.a365) : "\u2013"}, bid ${long.b365 ? shortCoins(long.b365) : "\u2013"} (${long.days} days of data)</div>` : "";
-    return head(`${summary.hours7} h in the last week \xB7 ${summary.spanDays.toFixed(0)} days of data`) + `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
+    return head2(`${summary.hours7} h in the last week \xB7 ${summary.spanDays.toFixed(0)} days of data`) + `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
           <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` + longLine;
   }
   function chartSvg(points) {
@@ -3007,6 +3081,171 @@ i.mwia-history-bid { background: #7ee2b0; }
     };
     return `<svg class="mwia-history-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${line("b", "mwia-history-bid")}${line("a", "mwia-history-ask")}</svg>
         <div class="mwia-history-scale"><span>${esc(shortCoins(low))}</span><span>${esc(shortCoins(high))}</span></div>`;
+  }
+
+  // src/consumable-guide.js
+  var SCAN_MS2 = 400;
+  var COMBAT2 = "/action_types/combat";
+  var SETUPS_KEY = "mwia-combat-setups";
+  var HOURS_PER_DAY2 = 24;
+  var g = { deps: null, scanTimer: null, loading: null, statuses: /* @__PURE__ */ new Map() };
+  var coins2 = (n2) => (n2 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n2));
+  var have = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
+  var slotItems = (map, type) => (state.character?.[map]?.[type] || []).map((slot) => slot?.itemHrid).filter(Boolean);
+  function rememberCombatSetup(zone, setup) {
+    const all = combatSetups();
+    all[zone.zoneHrid] = { ...setup, tier: zone.tier || 0, at: Date.now() };
+    try {
+      localStorage.setItem(SETUPS_KEY, JSON.stringify(all));
+    } catch {
+    }
+    scheduleScan2();
+  }
+  function combatSetups() {
+    try {
+      return JSON.parse(localStorage.getItem(SETUPS_KEY) || "{}") || {};
+    } catch {
+      return {};
+    }
+  }
+  function startConsumableGuide(deps) {
+    g.deps = deps;
+    onStateChange(() => scheduleScan2());
+    new MutationObserver((records) => {
+      if (records.every((r) => r.target.closest?.(".mwia-guide-box"))) return;
+      scheduleScan2();
+    }).observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("click", onClick2, true);
+  }
+  function scheduleScan2() {
+    if (g.scanTimer) return;
+    g.scanTimer = setTimeout(() => {
+      g.scanTimer = null;
+      try {
+        scan2();
+      } catch (error) {
+        console.warn("[Combat Advisor] action window", error);
+      }
+    }, SCAN_MS2);
+  }
+  function actionByName(name) {
+    const data = getClientData();
+    if (!data || !name) return null;
+    return Object.values(data.actionDetailMap).find((action) => action.name === name && (action.type === COMBAT2 || action.levelRequirement)) || null;
+  }
+  function scan2() {
+    const shown = /* @__PURE__ */ new Set();
+    const panels = openActionPanels();
+    if (panels.length && (!getClientData() || !pricesStamp())) {
+      g.loading || (g.loading = g.deps.prepare().then(scheduleScan2, (error) => console.warn("[Combat Advisor] action window", error)).finally(() => g.loading = null));
+      return;
+    }
+    for (const { panel, name, buttons } of panels) {
+      const action = actionByName(name);
+      if (!action) continue;
+      const html = action.type === COMBAT2 ? combatHtml(action) : skillingHtml(action);
+      if (!html) continue;
+      let box = panel.querySelector(".mwia-guide-box");
+      if (!box) {
+        box = document.createElement("div");
+        box.className = "mwia-guide-box";
+        if (buttons) buttons.insertAdjacentElement("beforebegin", box);
+        else panel.appendChild(box);
+      }
+      shown.add(box);
+      const status = g.statuses.get(action.hrid);
+      const full = html + (status ? `<div class="mwia-guide-status">${esc(status)}</div>` : "");
+      if (box.dataset.action !== action.hrid || box.dataset.html !== full) {
+        box.dataset.action = action.hrid;
+        box.dataset.html = full;
+        box.innerHTML = full;
+      }
+    }
+    document.querySelectorAll(".mwia-guide-box").forEach((box) => shown.has(box) || box.remove());
+  }
+  var head = (title, note) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note}</span></div>`;
+  function itemLine(kind, hrid, extra = "") {
+    const mark = { keep: "\u2713", add: "\u2795 Put in", remove: "\u2796 Take out" }[kind];
+    return `<li class="mwia-guide-${kind}">${mark} ${esc(itemName(hrid))}${extra ? ` <span>${extra}</span>` : ""}</li>`;
+  }
+  function cartButton(items, label) {
+    if (!items.length) return "";
+    const title = items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ");
+    return `<button class="mwia-guide-cart" data-guide-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(title)}">${label}</button>`;
+  }
+  function skillingHtml(action) {
+    const settings = g.deps.settings();
+    const entry = state.character ? skillingAdvice(action.hrid, settings) : null;
+    if (!entry) return "";
+    const best = entry.betterTeas ? entry.best.result.teas : entry.current.teas;
+    const current = entry.current.teas;
+    const worth = new Map(entry.best.worth.map((w) => [w.itemHrid, w]));
+    const perDay2 = Math.ceil(entry.best.result.drinksPerHour * HOURS_PER_DAY2);
+    const gain = (hrid) => {
+      const w = worth.get(hrid);
+      if (!w) return "";
+      return w.gainPerDay >= 0 ? ` \xB7 +${coins2(w.gainPerDay)}/day` : ` \xB7 +${coins2(w.xpPerDay)} XP/day`;
+    };
+    const stock = (hrid) => {
+      const n2 = have(hrid);
+      return n2 < perDay2 ? `<b class="mwia-guide-low">${n2.toLocaleString("en-US")} in inventory</b>` : `${n2.toLocaleString("en-US")} in inventory`;
+    };
+    const lines = [
+      ...best.map((hrid) => itemLine(current.includes(hrid) ? "keep" : "add", hrid, stock(hrid) + gain(hrid))),
+      ...current.filter((hrid) => !best.includes(hrid)).map((hrid) => itemLine("remove", hrid))
+    ];
+    const verdict = !entry.betterTeas ? best.length ? "\u2713 Your teas are the best ones for this." : current.length ? "No tea earns back its cost here." : "\u2713 No tea earns back its cost here." : `Best teas: <b class="mwia-ok">${entry.best.result.goldPerDay >= entry.current.goldPerDay ? `+${coins2(entry.best.result.goldPerDay - entry.current.goldPerDay)}/day` : `+${coins2(entry.best.result.xpPerDay - entry.current.xpPerDay)} XP/day`}</b> over the ones in your slots now.`;
+    const plan = entry.teaPlan;
+    const items = plan?.items.length ? plan.items.map(({ hrid, quantity }) => ({ hrid, quantity })) : best.filter((hrid) => have(hrid) < perDay2).map((hrid) => ({ hrid, quantity: perDay2 - have(hrid) }));
+    const label = plan?.items.length ? `\u{1F6D2} Teas for ${plan.hours < 1 ? Math.max(1, Math.round(plan.hours * 60)) + " min" : Math.round(plan.hours * 10) / 10 + " h"}` : "\u{1F6D2} Teas for 1 day";
+    const focus = Number(settings.skillingGold ?? 100);
+    return head("\u{1F375} Teas", `Combat Advisor \xB7 ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP \xB7 ${focus}% gold`}`) + (lines.length ? `<ul class="mwia-guide-list">${lines.join("")}</ul>` : "") + `<div class="mwia-guide-note">${verdict} ${slotsLine(entry)}</div>` + cartButton(items, label);
+  }
+  function combatHtml(action) {
+    const setup = combatSetups()[action.hrid];
+    if (!setup) {
+      return head("\u2615 Drinks and food", "Combat Advisor") + `<div class="mwia-guide-note">No advice for ${esc(action.name)} yet: in the advisor, pick it as the zone under <b>Upgrades</b> and press <b>Analyze upgrades</b>.</div>`;
+    }
+    const hours = Math.max(0, (Date.now() - setup.at) / 36e5);
+    const age = hours < 1 ? "less than an hour ago" : hours < 48 ? `${Math.round(hours)} h ago` : `${Math.round(hours / 24)} days ago`;
+    const perDay2 = (hrid) => Math.ceil((setup.perHour?.[hrid] || 0) * HOURS_PER_DAY2);
+    const stock = (hrid) => {
+      const n2 = have(hrid);
+      const need = perDay2(hrid);
+      const text = `${n2.toLocaleString("en-US")} in inventory${need ? `, ${need.toLocaleString("en-US")} a day` : ""}`;
+      return n2 < need ? `<b class="mwia-guide-low">${text}</b>` : text;
+    };
+    const part = (title, target, current) => {
+      const wanted = target.filter(Boolean);
+      const lines = [...wanted.map((hrid) => itemLine(current.includes(hrid) ? "keep" : "add", hrid, stock(hrid))), ...current.filter((hrid) => !wanted.includes(hrid)).map((hrid) => itemLine("remove", hrid))];
+      return lines.length ? `<div class="mwia-guide-sub">${title}</div><ul class="mwia-guide-list">${lines.join("")}</ul>` : "";
+    };
+    const drinksNow = slotItems("actionTypeDrinkSlotsMap", COMBAT2);
+    const foodNow = slotItems("actionTypeFoodSlotsMap", COMBAT2);
+    const all = [...setup.drinks, ...setup.food].filter(Boolean);
+    const done2 = all.every((hrid) => drinksNow.includes(hrid) || foodNow.includes(hrid)) && [...drinksNow, ...foodNow].every((hrid) => all.includes(hrid));
+    const items = all.filter((hrid) => have(hrid) < perDay2(hrid)).map((hrid) => ({ hrid, quantity: perDay2(hrid) - have(hrid) }));
+    return head("\u2615 Drinks and food", `Combat Advisor \xB7 ${esc(actionName(action.hrid))}${setup.tier ? ` T${setup.tier}` : ""}, analysed ${age}`) + part("Drinks", setup.drinks, drinksNow) + part("Food", setup.food, foodNow) + `<div class="mwia-guide-note">${done2 ? "\u2713 Your slots match the advice." : "Set your slots as above before you start."}</div>` + cartButton(items, "\u{1F6D2} What's missing for 1 day");
+  }
+  async function onClick2(event) {
+    const button = event.target.closest?.(".mwia-guide-box [data-guide-cart]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const actionHrid = button.closest(".mwia-guide-box").dataset.action;
+    const label = (list) => list.map((i) => itemName(i.hrid)).join(", ");
+    try {
+      const outcome = await g.deps.addToCart(JSON.parse(button.dataset.guideCart));
+      const parts = [];
+      if (outcome.added.length) parts.push(`added ${label(outcome.added)}`);
+      if (outcome.updated.length) parts.push(`topped up ${label(outcome.updated)}`);
+      if (outcome.present.length) parts.push(`${label(outcome.present)} already in the cart`);
+      if (outcome.failed.length) parts.push(`could not add ${label(outcome.failed)}`);
+      g.statuses.set(actionHrid, "Cart: " + parts.join("; ") + ".");
+    } catch (error) {
+      g.statuses.set(actionHrid, error.message);
+    }
+    scheduleScan2();
   }
 
   // src/touch.js
@@ -3189,9 +3428,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   var int = (n2) => Math.round(n2).toLocaleString("en-US");
   var dec2 = (n2, d = 1) => n2.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var pct3 = (n2) => (n2 >= 0 ? "+" : "") + dec2(n2 * 100, 1) + "%";
-  var HOURS_PER_DAY2 = 24;
-  var perDay = (perHour) => perHour * HOURS_PER_DAY2;
-  function coins2(n2) {
+  var HOURS_PER_DAY3 = 24;
+  var perDay = (perHour) => perHour * HOURS_PER_DAY3;
+  function coins3(n2) {
     if (n2 === null || n2 === void 0) return "\u2013";
     const abs = Math.abs(n2);
     if (abs >= 1e9) return dec2(n2 / 1e9, 2) + "B";
@@ -3282,6 +3521,16 @@ i.mwia-history-bid { background: #7ee2b0; }
     ui.upgradeResult = rateUpgrades(ui.upgradeRaw, ui.settings);
     ui.plan = buildPlan(ui.upgradeResult, Number(ui.settings.budget) || 0, ui.settings.spending);
     ui.verified = null;
+    saveCombatSetup();
+  }
+  function saveCombatSetup() {
+    const raw = ui.upgradeRaw;
+    const plan = ui.plan;
+    if (!raw || !plan) return;
+    const target = applyPlan(raw.baseProfile, { picks: [], drink: plan.drink, food: plan.food });
+    const slots = slotCounts(raw.baseProfile, getClientData());
+    const perHour = { ...raw.base.consumables, ...plan.drink?.result?.consumables || {}, ...plan.food?.result?.consumables || {}, ...ui.verified?.planned?.consumables || {} };
+    rememberCombatSetup(raw.zone, { drinks: target.drinks.slice(0, slots.drinks), food: target.food.slice(0, slots.food), perHour });
   }
   async function doRefine() {
     await refineUncertain(ui.pool, ui.upgradeRaw, ui.settings, progress("Re-running uncertain suggestions"));
@@ -3297,6 +3546,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     rerateUpgrades();
     if (ui.plan.picks.length || ui.plan.drink || ui.plan.food) {
       ui.verified = await verifyPlan(ui.pool, profile, ui.plan, zone, settings, progress("Checking the shopping list"));
+      saveCombatSetup();
     }
   }
   function render() {
@@ -3463,7 +3713,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const best = pickBestZone(ui.zoneResults, ui.settings);
     const profile = currentProfile();
     const current = profile?.currentZone && ui.zoneResults.find((z) => z.zone.zoneHrid === profile.currentZone.zoneHrid && z.zone.tier === profile.currentZone.tier);
-    const summary = (r) => `<b>${int(xpValue(r, objective))} ${objectiveLabel()}</b> and <b>${coins2(perDay(r.profit))}</b> profit/day`;
+    const summary = (r) => `<b>${int(xpValue(r, objective))} ${objectiveLabel()}</b> and <b>${coins3(perDay(r.profit))}</b> profit/day`;
     if (best) {
       html += `<div class="mwia-reco"><b>Recommendation:</b> ${zoneLabel(best.zone)} \u2013 about ${summary(best.result)}, ${deathBadge(best.result.deaths)}.`;
       if (isSpawnCapped(best.result)) {
@@ -3482,7 +3732,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       const r = z.result;
       const match = bestScore > 0 ? int(100 * score(r, goal) / bestScore) : "\u2013";
       html += `<tr class="${z === best ? "mwia-best" : ""}"><td>${zoneLabel(z.zone)}${cappedBadge(r)}</td><td class="mwia-num">${match}</td><td class="mwia-num">${int(xpValue(r, objective))}</td>
-          <td class="mwia-num">${int(r.xpTotal)}</td><td class="mwia-num">${coins2(perDay(r.profit))}</td><td class="mwia-num">${dec2(r.killsTotal, 0)}</td><td>${deathBadge(r.deaths)}</td></tr>`;
+          <td class="mwia-num">${int(r.xpTotal)}</td><td class="mwia-num">${coins3(perDay(r.profit))}</td><td class="mwia-num">${dec2(r.killsTotal, 0)}</td><td>${deathBadge(r.deaths)}</td></tr>`;
     }
     html += `</tbody></table><p class="mwia-dim">Simulated ${int(Math.max(1, runSettings().hours / 2))} h per zone. These are estimates \u2013 differences of a few percent are noise.
       \u23F1 = you kill faster than monsters appear there.</p>`;
@@ -3505,7 +3755,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     return items;
   }
   var cartLabel = (i) => `${i.quantity ? i.quantity + "\xD7 " : ""}${itemName(i.hrid)}${i.enhancementLevel ? " +" + i.enhancementLevel : ""}`;
-  function cartButton(items, label = "\u{1F6D2} Add") {
+  function cartButton2(items, label = "\u{1F6D2} Add") {
     if (!items.length) return "";
     const id = String(ui.cartItems.size + 1);
     ui.cartItems.set(id, items);
@@ -3539,8 +3789,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!result) return html;
     const base = result.base;
     const label = objectiveLabel();
-    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${int(xpValue(base, ui.settings.objective))} ${label}</b>, profit <b>${coins2(perDay(base.profit))}/day</b>
-      (loot ${coins2(perDay(base.loot))} \u2212 food/drinks ${coins2(perDay(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
+    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${int(xpValue(base, ui.settings.objective))} ${label}</b>, profit <b>${coins3(perDay(base.profit))}/day</b>
+      (loot ${coins3(perDay(base.loot))} \u2212 food/drinks ${coins3(perDay(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
     if (isSpawnCapped(base)) {
       html += `<p class="mwia-reco">\u23F1 In ${zoneLabel(result.zone)} you kill monsters as fast as they appear, so upgrades that add damage hardly matter here.
           A harder zone or tier is the biggest improvement \u2013 run <b>Where to fight</b> with a higher Max tier.</p>`;
@@ -3571,33 +3821,33 @@ i.mwia-history-bid { background: #7ee2b0; }
           what = `<b>${gearLabel(p)}</b> in ${SLOT_NAMES[p.slot]}${p.extraFood ? ` and put <b>${esc(itemName(p.extraFood))}</b> in the new food slot` : ""}`;
         }
         const replaces = p.replaces ? ` \u2013 replaces ${p.kind === "ability" ? esc(abilityName(p.replaces)) : gearLabel(p.replaces)}` : "";
-        html += `<li>${p.cost ? "Buy" : "Use"} ${what}${replaces}: ${gainText(p)} ${p.cost ? `for ${coins2(p.cost)}` : "(free)"} ${cartButton(cartItems(p))}</li>`;
+        html += `<li>${p.cost ? "Buy" : "Use"} ${what}${replaces}: ${gainText(p)} ${p.cost ? `for ${coins3(p.cost)}` : "(free)"} ${cartButton2(cartItems(p))}</li>`;
       }
       for (const [kind, pick, max] of [["Food", plan.food, plan.foodMax], ["Drink", plan.drink, plan.drinkMax]]) {
         if (!pick) continue;
         if (pick.remove) {
           html += `<li>Stop using <b>${esc(itemName(pick.hrid))}</b> (empty that ${kind.toLowerCase()} slot): ${gainText(pick)},
-                  saves about ${coins2(perDay(-pick.costPerHourDelta))}/day`;
+                  saves about ${coins3(perDay(-pick.costPerHourDelta))}/day`;
         } else {
           const where = pick.replaces ? `instead of ${esc(itemName(pick.replaces))}` : "in an empty slot";
-          const money = pick.costPerHourDelta < 0 ? `saves about ${coins2(perDay(-pick.costPerHourDelta))}/day` : `costs about ${coins2(perDay(pick.costPerHourDelta))}/day extra`;
+          const money = pick.costPerHourDelta < 0 ? `saves about ${coins3(perDay(-pick.costPerHourDelta))}/day` : `costs about ${coins3(perDay(pick.costPerHourDelta))}/day extra`;
           html += `<li>${kind} <b>${esc(itemName(pick.hrid))}</b> ${where}: ${gainText(pick)}, ${money}
-                  <span class="mwia-dim">(optional \u2013 a running cost)</span> ${cartButton(cartItems(pick), "\u{1F6D2} 1 day")}`;
+                  <span class="mwia-dim">(optional \u2013 a running cost)</span> ${cartButton2(cartItems(pick), "\u{1F6D2} 1 day")}`;
         }
         if (dropsHpFood(pick)) {
           html += `<br><span class="mwia-warn">You don't need HP food in this zone, but keep some at hand \u2013 put it back before you move to a harder zone or tier.</span>`;
         }
-        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText(max)}) at ${coins2(perDay(max.costPerHourDelta))}/day.</span>`;
+        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText(max)}) at ${coins3(perDay(max.costPerHourDelta))}/day.</span>`;
         html += `</li>`;
       }
-      html += `</ol><p>Total one-time cost: <b>${coins2(plan.spent)}</b> of your ${coins2(Number(ui.settings.budget) || 0)} budget.
-          ${cartButton(plan.picks.flatMap(cartItems), "\u{1F6D2} Add all purchases to cart")}</p>`;
+      html += `</ol><p>Total one-time cost: <b>${coins3(plan.spent)}</b> of your ${coins3(Number(ui.settings.budget) || 0)} budget.
+          ${cartButton2(plan.picks.flatMap(cartItems), "\u{1F6D2} Add all purchases to cart")}</p>`;
       if (ui.verified) {
         const v = ui.verified;
         const before = xpValue(v.base, ui.settings.objective);
         const after = xpValue(v.planned, ui.settings.objective);
         html += `<div class="mwia-reco">Everything combined (simulated): <b>${int(before)} \u2192 ${int(after)} ${label}</b> (${pct3(after / Math.max(1, before) - 1)}),
-              profit <b>${coins2(perDay(v.base.profit))} \u2192 ${coins2(perDay(v.planned.profit))}</b> per day (food/drinks ${coins2(perDay(v.base.cost))} \u2192 ${coins2(perDay(v.planned.cost))}),
+              profit <b>${coins3(perDay(v.base.profit))} \u2192 ${coins3(perDay(v.planned.profit))}</b> per day (food/drinks ${coins3(perDay(v.base.cost))} \u2192 ${coins3(perDay(v.planned.cost))}),
               deaths ${dec2(v.base.deaths, 2)} \u2192 ${dec2(v.planned.deaths, 2)} per hour.
               <br><span class="mwia-dim">Run the zone analysis again after buying \u2013 with better gear a harder zone may become the best.</span></div>`;
       }
@@ -3639,7 +3889,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function gainText(c2) {
     const gold = ui.upgradeResult.goal.gold;
-    const profit = `${signed(coins2, perDay(c2.profitDelta))} profit/day`;
+    const profit = `${signed(coins3, perDay(c2.profitDelta))} profit/day`;
     if (gold === 0) return `${pct3(c2.deltaPct)} ${objectiveLabel()}`;
     if (gold === 1) return profit;
     return `${pct3(c2.deltaPct)} gain (${signed(int, c2.xpDelta)} ${objectiveLabel()}, ${profit})`;
@@ -3661,9 +3911,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const c2 of shown) {
       const efficiency = c2.cost > 0 ? pct3(c2.delta / c2.cost * 1e6) : "\u221E";
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${slotText(c2)}</td><td>${nameHtml(c2)}</td><td>${replacesHtml(c2)}</td>
-          <td class="mwia-num">${c2.cost ? coins2(c2.cost) : "0"}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td><td class="mwia-num">${signed(coins2, perDay(c2.profitDelta))}</td>
+          <td class="mwia-num">${c2.cost ? coins3(c2.cost) : "0"}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td><td class="mwia-num">${signed(coins3, perDay(c2.profitDelta))}</td>
           <td class="mwia-num">${pct3(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
-          <td>${upgradeNotes(c2, base)}</td><td>${cartButton(cartItems(c2))}</td></tr>`;
+          <td>${upgradeNotes(c2, base)}</td><td>${cartButton2(cartItems(c2))}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -3675,13 +3925,13 @@ i.mwia-history-bid { background: #7ee2b0; }
       <th class="mwia-num">Extra cost/day</th><th class="mwia-num">+${objectiveLabel()}</th><th class="mwia-num" title="Includes the extra food/drink cost">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num">Deaths/h</th><th class="mwia-num" title="Extra cost per 1000 extra XP">Cost per 1000 XP</th><th></th></tr></thead><tbody>`;
     for (const c2 of shown) {
-      const per1000 = c2.xpDelta > 0 ? coins2(c2.costPerHourDelta / c2.xpDelta * 1e3) : c2.remove && c2.xpDelta < 0 ? `saves ${coins2(c2.costPerHourDelta / c2.xpDelta * 1e3)}` : "\u2013";
+      const per1000 = c2.xpDelta > 0 ? coins3(c2.costPerHourDelta / c2.xpDelta * 1e3) : c2.remove && c2.xpDelta < 0 ? `saves ${coins3(c2.costPerHourDelta / c2.xpDelta * 1e3)}` : "\u2013";
       const name = (c2.remove ? `<i>Stop using</i> ${esc(itemName(c2.hrid))}` : esc(itemName(c2.hrid))) + (dropsHpFood(c2) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c2.replaces ? esc(itemName(c2.replaces)) : "\u2013"}</td>
-          <td class="mwia-num">${c2.remove ? "\u2013" : coins2(askPrice(c2.hrid))}</td><td class="mwia-num">${coins2(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td>
-          <td class="mwia-num">${signed(coins2, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct3(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
+          <td class="mwia-num">${c2.remove ? "\u2013" : coins3(askPrice(c2.hrid))}</td><td class="mwia-num">${coins3(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed(int, c2.xpDelta)}</td>
+          <td class="mwia-num">${signed(coins3, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct3(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td class="mwia-num ${c2.safe ? "" : "mwia-bad"}">${dec2(c2.result.deaths, 2)}${c2.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
-          <td>${cartButton(cartItems(c2), "\u{1F6D2} 1 day")}</td></tr>`;
+          <td>${cartButton2(cartItems(c2), "\u{1F6D2} 1 day")}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -3764,7 +4014,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     ui.notice = { level: "warn", text: `Could not open ${action.name} automatically. Open it yourself and enter ${count2}. (${navDiagnostics()})` };
     render();
   }
-  function onClick2(event) {
+  function onClick3(event) {
     const target = event.target.closest("[data-action],[data-tab]");
     if (!target || !ui.root.contains(target)) return;
     if (target.dataset.tab) {
@@ -3886,8 +4136,16 @@ i.mwia-history-bid { background: #7ee2b0; }
       </nav>
       <div class="mwia-body"></div>`;
     document.body.appendChild(root);
+    startConsumableGuide({
+      settings: () => ui.settings,
+      prepare: async () => {
+        await loadClientData(ui.win);
+        await loadPrices();
+      },
+      addToCart: (items) => addToCart(ui.win, items)
+    });
     ui.root = root;
-    root.addEventListener("click", onClick2);
+    root.addEventListener("click", onClick3);
     root.addEventListener("change", onChange);
     root.addEventListener("toggle", rememberToggle, true);
     enableTapTips(root);
@@ -4047,9 +4305,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const rows = /* @__PURE__ */ new Map();
     for (const hrid of [...order].reverse()) {
       const wanted = demand.get(hrid) || 0;
-      const have = owned.get(hrid) || 0;
-      const need = Math.max(0, wanted - have);
-      const row = { hrid, name: name(hrid), wanted, have, need };
+      const have2 = owned.get(hrid) || 0;
+      const need = Math.max(0, wanted - have2);
+      const row = { hrid, name: name(hrid), wanted, have: have2, need };
       if (produced(hrid)) {
         const action = actions.get(hrid);
         const perAction = action.outputItems[0].count || 1;
@@ -4134,15 +4392,15 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var COIN = "/items/coin";
   function boughtCost(rows, price) {
-    let coins3 = 0;
+    let coins4 = 0;
     const unpriced = [];
     for (const row of rows.values()) {
       if (row.action || row.need <= 0 || row.hrid === COIN) continue;
       const each = price(row.hrid);
       if (each === null || each === void 0) unpriced.push(row.name);
-      else coins3 += Math.ceil(row.need - 1e-9) * each;
+      else coins4 += Math.ceil(row.need - 1e-9) * each;
     }
-    return { coins: coins3, unpriced };
+    return { coins: coins4, unpriced };
   }
   function planCosts({ goals, policies }, data, { owned, houseLevels = {}, price }) {
     const actions = productionActions(data);
@@ -4442,7 +4700,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }, NOT_QUEUED_AFTER_MS);
   }
   function onGameMessage(type, data) {
-    scheduleScan2();
+    scheduleScan3();
     if (type === "init_character_data") {
       t.seenActionIds = /* @__PURE__ */ new Set();
       restore();
@@ -4500,7 +4758,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (!train.stops.length) html += `<p>Nothing needs to be made \u2014 your inventory already covers the plan.</p>`;
       if (train.covered.length) html += `<p class="mwia-dim">Already in inventory: ${esc(train.covered.join(", "))}</p>`;
       const buyable = toBuy(train).filter((s) => s.itemHrid !== "/items/coin");
-      const coins3 = train.shortages.find((s) => s.itemHrid === "/items/coin");
+      const coins4 = train.shortages.find((s) => s.itemHrid === "/items/coin");
       const gatherable = new Map((train.gather || []).map((item) => [item.itemHrid, item]));
       const gatherButton = (s) => {
         const item = gatherable.get(s.itemHrid);
@@ -4511,12 +4769,12 @@ i.mwia-history-bid { background: #7ee2b0; }
         html += `<p><b>Missing materials:</b> ${buyable.map((s) => `${esc(s.name)} \xD7${n(s.need)}${gatherButton(s)}`).join(", ")}
               <button class="mwia-cart-btn" data-train="cart" title="Add the missing materials to the MWITools shopping cart">\u{1F6D2} Add to cart</button></p>`;
       }
-      if (coins3) html += `<p class="mwia-warn">Coins short: ${n(coins3.need)}</p>`;
+      if (coins4) html += `<p class="mwia-warn">Coins short: ${n(coins4.need)}</p>`;
       for (const warning of train.warnings) html += `<p class="mwia-warn">\u26A0 ${esc(warning)}</p>`;
     }
     t.root.innerHTML = html;
   }
-  async function onClick3(event) {
+  async function onClick4(event) {
     const button = event.target.closest("[data-train]");
     if (!button) return;
     const action = button.dataset.train;
@@ -4572,7 +4830,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   var scanQueued = false;
-  function scheduleScan2() {
+  function scheduleScan3() {
     if (scanQueued) return;
     scanQueued = true;
     requestAnimationFrame(() => {
@@ -4586,7 +4844,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     t.win = win2;
     t.root = document.createElement("div");
     t.root.className = "mwia-train mwia-hidden";
-    t.root.addEventListener("click", onClick3);
+    t.root.addEventListener("click", onClick4);
     enableTapTips(t.root);
     document.body.appendChild(t.root);
     try {
@@ -4598,8 +4856,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     rememberQueuedActions();
     render2();
     onStateChange(onGameMessage);
-    new MutationObserver(scheduleScan2).observe(document.body, { childList: true, subtree: true });
-    scheduleScan2();
+    new MutationObserver(scheduleScan3).observe(document.body, { childList: true, subtree: true });
+    scheduleScan3();
   }
 
   // src/main.js

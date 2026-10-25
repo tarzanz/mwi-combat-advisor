@@ -30,6 +30,9 @@ const userscript = readFileSync(path.join(root, "dist/mwi-combat-advisor.user.js
 const character = fixtureCharacter();
 character.characterSkills = character.characterSkills.map((s) => ({ ...s, experience: clientData.levelExperienceTable[s.level] + 10 }));
 character.characterSkills.push({ skillHrid: "/skills/tailoring", level: 20, experience: clientData.levelExperienceTable[20] + 10 });
+// A Large Pouch: two drink slots in every skill. Total level 800 is enough for a Giant Pouch (3 slots).
+character.characterItems.push({ hash: "pouch", itemHrid: "/items/large_pouch", itemLocationHrid: "/item_locations/pouch", count: 1, enhancementLevel: 0 });
+character.characterSkills.push({ skillHrid: "/skills/total_level", level: 800 });
 const FORAGING = "/action_types/foraging";
 character.actionTypeDrinkSlotsMap = { ...character.actionTypeDrinkSlotsMap, [FORAGING]: [{ itemHrid: "/items/wisdom_tea" }, null, null] };
 character.equipmentActionTypeBuffsMap = { [FORAGING]: [{ typeHrid: "/buff_types/action_speed", flatBoost: 0.15, ratioBoost: 0 }] };
@@ -45,6 +48,10 @@ for (const item of Object.values(clientData.itemDetailMap)) {
     marketData[item.hrid] = { 0: { a: 3 * vendor, b: item.hrid === "/items/cotton_fabric" ? -1 : vendor } };
 }
 marketData["/items/gathering_tea"] = { 0: { a: -1, b: 10 } };
+// Cheap Efficiency and Tailoring Tea: a third tea slot pays for itself.
+marketData["/items/efficiency_tea"] = { 0: { a: 2, b: 1 } };
+marketData["/items/tailoring_tea"] = { 0: { a: 2, b: 1 } };
+marketData["/items/artisan_tea"] = { 0: { a: 2, b: 1 } };
 // Cotton Boots sell for 2% more than their materials cost: a thin margin.
 const bootsCost = clientData.actionDetailMap["/actions/tailoring/cotton_boots"].inputItems.reduce((sum, i) => sum + i.count * marketData[i.itemHrid][0].a, 0);
 marketData["/items/cotton_boots"] = { 0: { a: Math.round((bootsCost * 1.02) / 0.96), b: Math.round(bootsCost) } };
@@ -341,7 +348,48 @@ try {
     await page.waitForFunction(() => /^\d+$/.test(document.querySelector(".modal input")?.value || ""), { timeout: 6000 }).catch(() => null);
     const filled = await page.evaluate(() => ({ name: document.querySelector(".modal .SkillActionDetail_name__y")?.textContent, value: document.querySelector(".modal input")?.value, hidden: document.querySelector(".mwia-panel").classList.contains("mwia-hidden") }));
     check("make button opens the action with the count", filled.name === topTailoring.action.name && filled.value === String(expPlan.count) && filled.hidden, JSON.stringify(filled));
+    // The action window says which teas to have in the slots, and buys what is missing.
+    await page.waitForSelector(".modal .mwia-guide-box", { timeout: 4000 }).catch(() => null);
+    const teaAdvice = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid);
+    const adviceTeas = teaAdvice.betterTeas ? teaAdvice.best.result.teas : teaAdvice.current.teas;
+    const guide = await page.evaluate(() => {
+        const box = document.querySelector(".modal .mwia-guide-box");
+        return box && { text: box.textContent.replace(/\s+/g, " "), lines: [...box.querySelectorAll("li")].map((li) => li.className + ":" + li.textContent.replace(/\s+/g, " ").trim()), beforeButtons: !!box.nextElementSibling?.matches('[class*="buttonsContainer"]'), cart: !!box.querySelector("[data-guide-cart]") };
+    });
+    const names = (list) => list.map((hrid) => clientData.itemDetailMap[hrid].name);
+    check("action window lists the teas to put in", guide && guide.beforeButtons && names(adviceTeas).every((n) => guide.lines.some((l) => l.startsWith("mwia-guide-add:➕ Put in " + n))) && /2 tea slots \(Large Pouch\)/.test(guide.text) && adviceTeas.length <= 2,
+        JSON.stringify(guide) + " vs " + names(adviceTeas));
+    await page.evaluate(() => (window.cart = []));
+    await page.click(".modal [data-guide-cart]");
+    await page.waitForFunction(() => /Cart: added/.test(document.querySelector(".modal .mwia-guide-box")?.textContent || ""), { timeout: 3000 }).catch(() => null);
+    const guideCart = await page.evaluate(() => window.cart);
+    const guideStatus = await page.$eval(".modal .mwia-guide-status", (n) => n.textContent).catch(() => "");
+    check("action window puts the missing teas in the cart", adviceTeas.length > 0 && adviceTeas.every((hrid) => guideCart.some((c) => c.itemHrid === hrid && c.quantity > 0)) && guideStatus === `Cart: added ${names(adviceTeas).join(", ")}.`, JSON.stringify(guideCart) + " " + guideStatus);
     await page.screenshot({ path: path.join(shotDir, "skilling-6-opened.png") });
+    await page.evaluate(() => document.querySelector(".modal")?.remove());
+    await new Promise((r) => setTimeout(r, 600));
+    check("the tea box goes with the window", !(await page.$(".mwia-guide-box")));
+
+    // Combat: the zone's window shows the last Upgrades analysis's drinks and food.
+    await page.evaluate(() => {
+        localStorage.setItem("mwia-combat-setups", JSON.stringify({ "/actions/combat/fly": { drinks: ["/items/attack_coffee", null], food: ["/items/donut"], perHour: { "/items/attack_coffee": 12, "/items/donut": 5 }, tier: 0, at: Date.now() - 3 * 3600000 } }));
+        openPanel(data.actionDetailMap["/actions/combat/fly"]);
+    });
+    await page.waitForSelector(".modal .mwia-guide-box", { timeout: 4000 }).catch(() => null);
+    const combatGuide = await page.$eval(".modal .mwia-guide-box", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
+    check("combat window shows the drinks and food to use", /analysed 3 h ago/.test(combatGuide) && /➕ Put in Attack Coffee 0 in inventory, 288 a day/.test(combatGuide) && /✓ Donut 300 in inventory, 120 a day/.test(combatGuide), combatGuide);
+    await page.evaluate(() => (window.cart = []));
+    await page.click(".modal [data-guide-cart]");
+    await new Promise((r) => setTimeout(r, 400));
+    const combatCart = await page.evaluate(() => window.cart);
+    check("combat window buys only what is missing", combatCart.length === 1 && combatCart[0].itemHrid === "/items/attack_coffee" && combatCart[0].quantity === 288, JSON.stringify(combatCart));
+    await page.screenshot({ path: path.join(shotDir, "skilling-6b-combat.png") });
+    await page.evaluate(() => {
+        document.querySelector(".modal")?.remove();
+        openPanel(data.actionDetailMap["/actions/combat/aqua_planet"]);
+    });
+    await page.waitForSelector(".modal .mwia-guide-box", { timeout: 4000 }).catch(() => null);
+    check("a zone without analysis says how to get advice", /No advice for Aqua Planet yet/.test(await page.$eval(".modal .mwia-guide-box", (n) => n.textContent).catch(() => "")));
     await page.evaluate(() => document.querySelector(".modal")?.remove());
     await page.click(".mwia-launcher");
 
@@ -407,6 +455,15 @@ try {
     check("upgrades listed by payback", upgradeRows.length > 0 && upgradeRows[0].startsWith(clientData.itemDetailMap[firstUpgrade.itemHrid]?.name || firstUpgrade.name) && upgradeRows[0].includes(`+${coinText(firstUpgrade.gainPerDay)}/day`),
         `${upgradeRows[0]} vs ${firstUpgrade.itemHrid || firstUpgrade.name} +${coinText(firstUpgrade.gainPerDay)}`);
     check("house room among the upgrades", expUpgrades.upgrades.some((u) => u.kind === "house" && u.name === "Sewing Parlor") && upgradeRows.some((t) => /Sewing Parlor → level 1/.test(t)));
+    // Tea slots come from the pouch; a bigger one is an upgrade when the extra tea pays.
+    const whoNow = skillingCharacter(character, items(character), clientData);
+    check("tea slots follow the pouch", whoNow.slots[FORAGING] === 2 && whoNow.slots["/action_types/tailoring"] === 2, JSON.stringify(whoNow.slots));
+    const tailoringUpgrades = rankUpgrades(whoNow, clientData, market("ask"), "tailoring", {
+        equipped: equippedNow, owned: ownedNow, houseLevels: {}, listings: (hrid) => Object.entries(marketData[hrid] || {}).filter(([, e]) => e.a > 0).map(([level, e]) => ({ enhancementLevel: Number(level), price: e.a })),
+    });
+    const giant = tailoringUpgrades.upgrades.find((u) => u.itemHrid === "/items/giant_pouch");
+    const tailoringRows = await page.$$eval(".mwia-upgrade", (list) => list.map((n) => n.textContent.replace(/\s+/g, " ").trim()));
+    check("a pouch with another tea slot is an upgrade", giant && giant.extraSlots === 1 && giant.teas.length === 3 && tailoringRows.some((t) => t.startsWith("Giant Pouch") && /\+1 tea slot \(with /.test(t)), JSON.stringify(giant && { gain: giant.gainPerDay, teas: giant.teas }) + " " + tailoringRows.find((t) => /Pouch/.test(t)));
     await page.click(".mwia-upgrade [data-action=\"skilling-cart\"]");
     await new Promise((r) => setTimeout(r, 300));
     check("upgrade goes to the cart", (await page.evaluate(() => window.cart || [])).some((c) => c.itemHrid === firstUpgrade.itemHrid && c.quantity === 1));

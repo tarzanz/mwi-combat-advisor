@@ -13,7 +13,7 @@ const PLAN_DAYS = [0.5, 1, 2, 3, 7];
 const MIN_JOB_HOURS = [0, 0.5, 1, 2, 4, 8];
 
 // open: the rows and headings the player has opened, kept across re-renders.
-const view = { key: "", result: null, upgradesKey: "", upgrades: null, showAll: false, open: new Set() };
+const view = { upgradesKey: "", upgrades: null, showAll: false, open: new Set() };
 
 const dec = (n, d = 1) => n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
@@ -47,10 +47,30 @@ export function skillingSettingsHtml(s) {
     </div>`;
 }
 
+// The last few rankings (the tab's skill, and the one open in the game's action window).
+const rankings = new Map();
+const KEPT_RANKINGS = 3;
+
 function ranking(settings) {
-    const data = getClientData();
     const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, settings.skillingDays, settings.skillingMinJob, goldShare(settings), historyVersion()].join("|");
-    if (view.key !== key) {
+    if (!rankings.has(key)) {
+        rankings.set(key, computeRanking(settings));
+        while (rankings.size > KEPT_RANKINGS) rankings.delete(rankings.keys().next().value);
+    }
+    return rankings.get(key);
+}
+
+// One action's row, worked out with the tab's settings (its skill, if the tab shows another one).
+export function skillingAdvice(actionHrid, settings) {
+    const skill = actionHrid.split("/")[2];
+    if (!SKILLING_SKILLS.includes(skill)) return null;
+    const result = ranking(settings.skillingSkill === "all" || settings.skillingSkill === skill ? settings : { ...settings, skillingSkill: skill });
+    return result.available.find((entry) => entry.hrid === actionHrid) || null;
+}
+
+function computeRanking(settings) {
+    const data = getClientData();
+    {
         const who = skillingCharacter(state.character, state.items, data);
         const market = marketPricer((hrid) => marketEntry(hrid), data, settings.skillingSellAt);
         const have = (hrid) => heldStock(state.character, state.items, hrid).inventory;
@@ -63,11 +83,10 @@ function ranking(settings) {
             have,
             sellAt: settings.skillingSellAt,
         };
-        view.result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
-        for (const entry of [...view.result.available, ...view.result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
-        view.key = key;
+        const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
+        for (const entry of [...result.available, ...result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
+        return result;
     }
-    return view.result;
 }
 
 // Prices far from their usual level (once enough history is collected): the
@@ -255,13 +274,19 @@ function teaSummary(entry) {
 
 function teaHtml(entry) {
     const { current, best } = entry;
-    const now = current.teas.length ? `Your teas: ${esc(names(current.teas))}.` : "You have no teas in this skill.";
+    const now = (current.teas.length ? `Your teas: ${esc(names(current.teas))}.` : "You have no teas in this skill.") + ` ${slotsLine(entry)}`;
     if (!entry.betterTeas) {
         if (!best.result.teas.length) return `${now} No tea earns back its cost here.`;
         return `${now} That is already the best setup. ${worthText(best.worth)}${purchaseText(entry.teaPlan)}`;
     }
     return `${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> → ${coins(best.result.goldPerDay)}/day, ${coins(best.result.xpPerDay)} XP/day
         (<span class="mwia-ok">${teaGain(best.result, current)}</span>). ${worthText(best.worth)}${purchaseText(entry.teaPlan)}`;
+}
+
+// "2 tea slots (Large Pouch)": one, plus what the pouch adds.
+export function slotsLine(entry) {
+    const n = entry.teaSlots;
+    return `<span class="mwia-dim">${n} tea slot${n === 1 ? "" : "s"} (${entry.pouch ? esc(itemName(entry.pouch)) : "no pouch"}).</span>`;
 }
 
 function worthText(worth) {
@@ -380,5 +405,12 @@ function upgradeRowHtml(u) {
     const replaces = u.replaces ? `replaces ${esc(itemName(u.replaces.itemHrid))}${u.replaces.enhancementLevel ? ` +${u.replaces.enhancementLevel}` : ""}` : "empty slot";
     const cart = u.owned ? "" : `<button class="mwia-cart-btn" data-action="skilling-cart" data-teas="${esc(JSON.stringify([{ hrid: u.itemHrid, quantity: 1, enhancementLevel: u.enhancementLevel }]))}" title="Adds it to the MWITools cart">🛒 Add</button>`;
     return `<div class="mwia-upgrade"><div><b>${name}</b> <span class="mwia-dim">${u.owned ? "you own it" : coins(u.price)}</span>
-        <small>${gain} · ${payback} · ${replaces}</small></div>${cart}</div>`;
+        <small>${gain} · ${payback} · ${replaces}${slotsText(u)}</small></div>${cart}</div>`;
+}
+
+// A pouch with more drink slots, and the teas that fill them.
+function slotsText(u) {
+    if (!u.extraSlots) return "";
+    const slots = `${u.extraSlots > 0 ? "+" : ""}${u.extraSlots} tea slot${Math.abs(u.extraSlots) === 1 ? "" : "s"}`;
+    return ` · ${slots}${u.teas?.length ? ` (with ${esc(names(u.teas))} on ${esc(u.bestAction.name)})` : ""}`;
 }

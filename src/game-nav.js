@@ -83,6 +83,17 @@ export function findActionPanel(actionName) {
     return null;
 }
 
+// Every action window on screen (skilling or combat), with its name and the Start buttons.
+export function openActionPanels() {
+    const panels = [];
+    for (const name of document.querySelectorAll(PANEL_NAME)) {
+        if (!visible(name)) continue;
+        const panel = name.closest(PANEL) || name.parentElement;
+        if (panel) panels.push({ panel, name: clean(name.textContent), buttons: panel.querySelector(BUTTONS) });
+    }
+    return panels;
+}
+
 // Sets a React-controlled input the way a keystroke would.
 export function setReactInput(input, value) {
     const previous = input.value;

@@ -23,13 +23,14 @@ const COWBELL_BAG_TAX = 0.18;
 export const RISKY_MARGIN = 0.05;
 export const DRINKS_PER_HOUR = 12;
 const MIN_CYCLE_SECONDS = 3;
-const DEFAULT_DRINK_SLOTS = 3;
 export const NEAR_LEVELS = 10;
 const HOURS_PER_DAY = 24;
 // A product whose cheapest seller asks this many times the best bid is hard to sell at the ask.
 const WIDE_SPREAD = 1.5;
 
 const INVENTORY = "/item_locations/inventory";
+const POUCH = "/item_locations/pouch";
+const TOTAL_LEVEL = "/skills/total_level";
 const BUFF = {
     efficiency: "/buff_types/efficiency",
     speed: "/buff_types/action_speed",
@@ -54,6 +55,8 @@ export function skillingCharacter(character, items, data) {
         levels[skill.skillHrid] = skill.level;
         experience[skill.skillHrid] = skill.experience ?? null;
     }
+    // Pouches ask for a total level; worked out when the game doesn't send it.
+    levels[TOTAL_LEVEL] ??= Object.values(levels).reduce((sum, level) => sum + (Number(level) || 0), 0);
     const known = BUFF_SOURCES.filter((key) => character[key]);
     let buffs = null;
     if (known.length) {
@@ -66,12 +69,20 @@ export function skillingCharacter(character, items, data) {
     }
     const drinks = {};
     const slots = {};
+    const pouch = [...items.values()].find((item) => item.itemLocationHrid === POUCH && item.itemHrid)?.itemHrid || null;
+    const pouchSlots = drinkSlots(pouch, data);
     for (const skill of SKILLING_SKILLS) {
         const list = character.actionTypeDrinkSlotsMap?.[skillType(skill)];
         drinks[skillType(skill)] = (list || []).map((slot) => slot?.itemHrid).filter(Boolean);
-        slots[skillType(skill)] = list?.length || DEFAULT_DRINK_SLOTS;
+        // The game's list can hold locked slots too; a tea you already use always counts.
+        slots[skillType(skill)] = Math.max(pouchSlots, drinks[skillType(skill)].length);
     }
-    return { levels, experience, buffs, drinks, slots, concentration: drinkConcentration(character, items, data) };
+    return { levels, experience, buffs, drinks, slots, pouch, concentration: drinkConcentration(character, items, data) };
+}
+
+// Drink slots: one, plus what the pouch adds (the same number as in combat).
+export function drinkSlots(pouchHrid, data) {
+    return 1 + (data.itemDetailMap[pouchHrid]?.equipmentDetail?.combatStats?.drinkSlots || 0);
 }
 
 // Guzzling Pouch: drinks work harder and run out faster.
@@ -558,7 +569,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         const best = bestTeas(action, who, data, market, evaluate, score);
         const shown = teaMode === "best" ? best.result : current;
         const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), sellCap }) : null;
-        const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score(shown), betterTeas: !sameTeas(best.result.teas, current.teas) && score(best.result) > score(current) + 1e-9 };
+        const entry = { ...shown, teaMode, current, best, suggestion, chain: chain(shown), score: score(shown), teaSlots: who.slots[action.type], pouch: who.pouch, betterTeas: !sameTeas(best.result.teas, current.teas) && score(best.result) > score(current) + 1e-9 };
         if (plan) {
             // Teas for the suggested job; a gathering job runs for the days planned.
             const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.days * HOURS_PER_DAY : 0;

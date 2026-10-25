@@ -32,7 +32,7 @@ buy, by simulating *your own* character.
   and teas are bought at the cheapest ask; products sell at the ask (a listing) or the best bid (*Sell at*), minus
   the 4% market tax. Filter by skill; tap a row for its buttons and short headings (speed, gold, XP, how many, teas) that
   open to the whole calculation. For each action it also tries every tea
-  setup that fits your slots, shows the one that earns the most and what each of its teas earns above its cost; *Teas:
+  setup that fits your slots (one, plus what your pouch adds – the same as in combat), shows the one that earns the most and what each of its teas earns above its cost; *Teas:
   Best teas* ranks with those setups. ⚠ marks thin markets (no buy orders, or an ask far above the bid),
   materials nobody sells and thin margins (a price drop under 5% wipes out the profit). *Max sold/day* sets how many
   of one crafted item the market takes a day; past it the action only runs part of the day (gathered raw materials
@@ -50,12 +50,18 @@ buy, by simulating *your own* character.
   allow (gathered or crafted, each step with that skill's teas): gold per hour of the whole chain and how the hour
   splits between the steps; a row says when it beats buying. **Upgrades that pay back** (pick a skill): every tool,
   skilling top/bottoms, necklace, earrings, ring, charm, cape and pouch your levels allow – also +N copies for sale and
-  ones in your inventory – tried in place of what you wear, plus the skill's house room one level up; ranked by days
+  ones in your inventory – tried in place of what you wear, plus the skill's house room one level up (a pouch with
+  more drink slots is measured with the best teas for both the old and the new number of slots); ranked by days
   until the price is earned back on the skill's best action, with 🛒 buttons for the MWITools cart. If the item stats
   don't add up to the action speed the game reports for your gear, it says so. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
   also reads its order book; closing the market brings the panel back on the same row. Open rows and headings stay
   open while you switch around. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
+- **Teas, coffee and food in the action window** – when you open an action in the game, a box above the *Start*
+  button says which teas to have in the skill's slots for it (➕ put in, ✓ already there, ➖ take out), with the
+  advisor's settings and focus, how many you have and a 🛒 button for the teas the job needs. For a combat zone it
+  shows the drinks and food from your latest *Analyze upgrades* for that zone (kept per zone, also after a reload)
+  and buys what you lack for a day.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the
   plan's goals (house level / item quantity) and the Full chain / One step / Buy choice of every step-2 row, works out

@@ -3,7 +3,7 @@
 // tried in place of what you wear now, and measured by how much more the
 // skill's best action earns a day; payback = price / extra gold a day.
 
-import { evaluateAction, limitSales, skillType, skillingActions } from "./skilling.js";
+import { bestTeas, drinkSlots, evaluateAction, limitSales, skillType, skillingActions } from "./skilling.js";
 
 const MAX_HOUSE_LEVEL = 8;
 export const UPGRADES_SHOWN = 10;
@@ -39,6 +39,18 @@ function bestDay(actions, who, data, market, sellCap) {
     return best;
 }
 
+// The same with the best teas for its slots: a pouch with an extra slot only
+// pays off with a tea to put in it, so both sides use the best setup.
+function bestDayWithTeas(actions, who, data, market, sellCap) {
+    let best = null;
+    for (const action of actions) {
+        const evaluate = (teas) => limitSales(evaluateAction(action, who, data, market, teas), sellCap);
+        const r = bestTeas(action, who, data, market, evaluate).result;
+        if (r.valid && (!best || r.goldPerDay > best.goldPerDay)) best = r;
+    }
+    return best;
+}
+
 // equipped: location -> { itemHrid, enhancementLevel }; owned: itemHrid -> [enhancement levels in the inventory];
 // listings: itemHrid -> [{ enhancementLevel, price }] for sale; houseLevels: houseRoomHrid -> level.
 export function rankUpgrades(who, data, market, skill, { equipped, owned, listings, houseLevels, sellCap = 0, gameEquipmentBuffs = null }) {
@@ -46,19 +58,24 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
     const actions = skillingActions(data).filter((a) => a.type === type && (who.levels[a.levelRequirement.skillHrid] ?? 1) >= a.levelRequirement.level);
     const base = bestDay(actions, who, data, market, sellCap);
     if (!base) return { base: null, upgrades: [], check: null };
-    const withBuffs = (extra, concentration = 0) => ({
+    const withBuffs = (extra, concentration = 0, slots = who.slots[type]) => ({
         ...who,
         buffs: { ...(who.buffs || {}), [type]: [...(who.buffs?.[type] || []), ...extra] },
         concentration: who.concentration + concentration,
+        slots: { ...who.slots, [type]: slots },
     });
+    const POUCH_SLOT = "/item_locations/pouch";
+    let teaBase = null; // the best-tea day with today's slots, worked out when a pouch needs it
     const meets = (itemHrid) => (data.itemDetailMap[itemHrid]?.equipmentDetail?.levelRequirements || []).every((req) => (who.levels[req.skillHrid] ?? 0) >= req.level);
 
     const upgrades = [];
     for (const item of Object.values(data.itemDetailMap)) {
         const detail = item.equipmentDetail;
         if (!detail?.noncombatStats || !meets(item.hrid)) continue;
-        if (!itemSkillBuffs(item.hrid, 0, skill, data).buffs.length && !detail.noncombatStats.drinkConcentration) continue;
         const slot = location(item.hrid, data);
+        const slotsAfter = slot === POUCH_SLOT ? drinkSlots(item.hrid, data) : who.slots[type];
+        const moreSlots = slotsAfter > who.slots[type];
+        if (!itemSkillBuffs(item.hrid, 0, skill, data).buffs.length && !detail.noncombatStats.drinkConcentration && !moreSlots) continue;
         const current = equipped[slot] || null;
         const old = current ? itemSkillBuffs(current.itemHrid, current.enhancementLevel, skill, data) : { buffs: [], concentration: 0 };
         const offers = [...(owned[item.hrid] || []).map((level) => ({ enhancementLevel: level, price: 0, owned: true })), ...(listings(item.hrid) || [])];
@@ -69,8 +86,15 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
             seen.add(key);
             if (current && current.itemHrid === item.hrid && current.enhancementLevel >= offer.enhancementLevel) continue;
             const next = itemSkillBuffs(item.hrid, offer.enhancementLevel, skill, data);
-            const after = bestDay(actions, withBuffs([...negate(old.buffs), ...next.buffs], next.concentration - old.concentration), data, market, sellCap);
-            const gain = after.goldPerDay - base.goldPerDay;
+            const changed = withBuffs([...negate(old.buffs), ...next.buffs], next.concentration - old.concentration, Math.max(slotsAfter, who.drinks[type]?.length || 0));
+            let after;
+            let from = base;
+            if (slotsAfter !== who.slots[type]) {
+                teaBase ||= bestDayWithTeas(actions, who, data, market, sellCap);
+                from = teaBase;
+                after = bestDayWithTeas(actions, changed, data, market, sellCap);
+            } else after = bestDay(actions, changed, data, market, sellCap);
+            const gain = after.goldPerDay - from.goldPerDay;
             if (gain <= 1) continue;
             upgrades.push({
                 kind: "item",
@@ -80,9 +104,11 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
                 price: offer.price,
                 replaces: current,
                 gainPerDay: gain,
-                xpPerDay: after.xpPerDay - base.xpPerDay,
+                xpPerDay: after.xpPerDay - from.xpPerDay,
                 paybackDays: offer.price / gain,
                 bestAction: after.action,
+                extraSlots: slotsAfter - who.slots[type],
+                teas: slotsAfter !== who.slots[type] ? after.teas : null,
             });
         }
     }

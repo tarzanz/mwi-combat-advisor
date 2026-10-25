@@ -165,6 +165,12 @@ try {
     console.log(`upgrade analysis took ${((Date.now() - t0) / 1000).toFixed(1)} s in the browser`);
     check("shopping list rendered", /Total one-time cost/.test(upgrades));
     check("combined effect verified", /Everything combined/.test(upgrades));
+    // The plan's drinks and food are kept per zone for the game's combat window.
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-combat-setups") || "{}"));
+    const savedZone = Object.values(saved)[0];
+    const planDrink = /Drink (.+?) (in an empty slot|instead of)/.exec(upgrades)?.[1];
+    check("plan's drinks and food saved for the combat window", savedZone && (!planDrink || savedZone.drinks.some((h) => clientData.itemDetailMap[h]?.name === planDrink)) && savedZone.food.includes("/items/donut") && savedZone.perHour["/items/donut"] > 0,
+        JSON.stringify(saved).slice(0, 300) + " plan drink " + planDrink);
     check("owned gloves not suggested again", !/Linen Gloves[^\n]*you own it/.test(upgrades));
     // On a phone the column names are card labels (CSS), not text.
     const headers = MOBILE ? await page.$$eval(".mwia-wide td", (cells) => cells.map((c) => c.dataset.label).join("|")) : upgrades;

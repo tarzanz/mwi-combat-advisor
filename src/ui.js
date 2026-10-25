@@ -13,6 +13,7 @@ import {
     xpValue,
     zoneGoal,
     analyzeZones,
+    applyPlan,
     buildPlan,
     pickBestZone,
     score,
@@ -38,6 +39,7 @@ import { coinsInput, esc, parseCoins } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
 import { rememberToggle, renderSkilling, toggleShowAll } from "./skilling-ui.js";
 import { onHistoryChange } from "./price-history-ui.js";
+import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js";
 import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 
@@ -230,6 +232,18 @@ function rerateUpgrades() {
     ui.upgradeResult = rateUpgrades(ui.upgradeRaw, ui.settings);
     ui.plan = buildPlan(ui.upgradeResult, Number(ui.settings.budget) || 0, ui.settings.spending);
     ui.verified = null;
+    saveCombatSetup();
+}
+
+// The drinks and food the plan leaves you with, for the box in the game's combat window.
+function saveCombatSetup() {
+    const raw = ui.upgradeRaw;
+    const plan = ui.plan;
+    if (!raw || !plan) return;
+    const target = applyPlan(raw.baseProfile, { picks: [], drink: plan.drink, food: plan.food });
+    const slots = slotCounts(raw.baseProfile, getClientData());
+    const perHour = { ...raw.base.consumables, ...(plan.drink?.result?.consumables || {}), ...(plan.food?.result?.consumables || {}), ...(ui.verified?.planned?.consumables || {}) };
+    rememberCombatSetup(raw.zone, { drinks: target.drinks.slice(0, slots.drinks), food: target.food.slice(0, slots.food), perHour });
 }
 
 async function doRefine() {
@@ -247,6 +261,7 @@ async function doUpgrades() {
     rerateUpgrades();
     if (ui.plan.picks.length || ui.plan.drink || ui.plan.food) {
         ui.verified = await verifyPlan(ui.pool, profile, ui.plan, zone, settings, progress("Checking the shopping list"));
+        saveCombatSetup();
     }
 }
 
@@ -916,6 +931,14 @@ export function mountUI(win, workerSource) {
       </nav>
       <div class="mwia-body"></div>`;
     document.body.appendChild(root);
+    startConsumableGuide({
+        settings: () => ui.settings,
+        prepare: async () => {
+            await loadClientData(ui.win);
+            await loadPrices();
+        },
+        addToCart: (items) => addToCart(ui.win, items),
+    });
     ui.root = root;
 
     root.addEventListener("click", onClick);
