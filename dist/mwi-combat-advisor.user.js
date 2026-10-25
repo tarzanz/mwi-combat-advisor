@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.23.0
+// @version      0.23.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1444,6 +1444,10 @@ polyline.mwia-history-bid { stroke: #7ee2b0; }
 .mwia-history-ranges i { display: inline-block; width: 10px; height: 2px; margin: 0 3px 3px 6px; vertical-align: middle; }
 i.mwia-history-ask { background: #f2a65b; }
 i.mwia-history-bid { background: #7ee2b0; }
+.mwia-history-sum { margin: 2px 0; font-variant-numeric: tabular-nums; }
+.mwia-history-sum span { white-space: nowrap; }
+.mwia-history-more summary { cursor: pointer; color: #9aa3cf; font-size: 11px; margin-top: 2px; }
+.mwia-history-more[open] summary { margin-bottom: 4px; }
 .mwia-history-head .mwia-history-prelim { color: #ffd479; font-weight: 600; }
 .mwia-guide-box, .mwia-tool-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-guide-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
@@ -3090,7 +3094,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var SCAN_MS = 400;
   var RANGES = [30, 365];
   var PRELIMINARY_HOURS = 2;
-  var h = { win: null, scanTimer: null, scanning: false, range: 30, listeners: /* @__PURE__ */ new Set(), exported: null, status: "" };
+  var h = { win: null, scanTimer: null, scanning: false, range: 30, open: false, listeners: /* @__PURE__ */ new Set(), exported: null, status: "" };
   var pct2 = (fraction) => `${fraction >= 0 ? "+" : "\u2212"}${Math.abs(fraction * 100).toFixed(0)}%`;
   function onHistoryChange(listener) {
     h.listeners.add(listener);
@@ -3111,6 +3115,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     setInterval(collect, COLLECT_EVERY_MS);
     new MutationObserver(() => scheduleScan()).observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", onClick, true);
+    document.addEventListener("toggle", (event) => {
+      if (!event.target.matches?.(".mwia-history-more") || event.target.open === h.open) return;
+      h.open = event.target.open;
+      scheduleScan(true);
+    }, true);
   }
   function scheduleScan(force = false) {
     if (force) document.querySelectorAll(".mwia-history").forEach((box) => box.dataset.version = "");
@@ -3146,7 +3155,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     });
     if (!current) return;
     let box = document.querySelector(".mwia-history");
-    const key = `${current.itemHrid}|${h.range}|${h.exported ? "ready" : ""}|${h.status}`;
+    const key = `${current.itemHrid}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}`;
     if (box && box.dataset.version === key) return;
     if (!box) {
       box = document.createElement("div");
@@ -3155,7 +3164,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     box.dataset.item = current.itemHrid;
     box.dataset.version = key;
-    box.innerHTML = await historyHtml(current.itemHrid) + exportHtml();
+    box.innerHTML = await historyHtml(current.itemHrid);
   }
   function exportHtml() {
     const e = h.exported;
@@ -3214,24 +3223,36 @@ i.mwia-history-bid { background: #7ee2b0; }
     const entry = marketEntry(itemHrid);
     const head2 = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price</b> <span>${text}</span></div>`;
     const saved = `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+    const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${exportHtml()}</details>`;
     if (!summary || summary.hours7 < PRELIMINARY_HOURS) {
-      return head2(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + saved;
+      return head2(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + more("Export", saved);
     }
-    const row = (label, now, side) => {
+    const versusText = (now, side) => {
       const versus = versusUsual(now, side.med7);
       const cls = !versus ? "" : versus.label === "above" ? "mwia-history-high" : versus.label === "below" ? "mwia-history-low" : "";
-      return `<tr><th>${label}</th><td>${now > 0 ? shortCoins(now) : "\u2013"}</td>
-            <td>${side.med7 ? shortCoins(side.med7) : "\u2013"} <span class="${cls}">${versus ? `${pct2(versus.diff)} ${versus.label === "near" ? "usual" : versus.label}` : ""}</span></td>
-            <td>${side.med30 ? shortCoins(side.med30) : "\u2013"}</td><td>${trendArrow(side.trend)}</td></tr>`;
+      return versus ? `<span class="${cls}">${pct2(versus.diff)} ${versus.label === "near" ? "usual" : versus.label}</span>` : "";
     };
+    const row = (label, now, side) => `<tr><th>${label}</th><td>${now > 0 ? shortCoins(now) : "\u2013"}</td>
+            <td>${side.med7 ? shortCoins(side.med7) : "\u2013"} ${versusText(now, side)}</td>
+            <td>${side.med30 ? shortCoins(side.med30) : "\u2013"}</td><td>${trendArrow(side.trend)}</td></tr>`;
     const askNow = entry?.a > 0 ? entry.a : null;
     const bidNow = entry?.b > 0 ? entry.b : null;
-    const points = await priceSeries(itemHrid, h.range);
-    const long = h.range > 31 ? await longMedians(itemHrid) : null;
+    const brief = (label, now, side) => `${label} <b>${now > 0 ? shortCoins(now) : "\u2013"}</b> ${versusText(now, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
+    const swing = summary.a.swing ?? summary.b.swing;
+    const line = `<div class="mwia-history-sum">${brief("Ask", askNow, summary.a)} \xB7 ${brief("Bid", bidNow, summary.b)}${swing !== null ? ` \xB7 <span title="Half of the week's prices lie within this share of the 7-day median">swings \xB1${Math.round(swing * 100)}%</span>` : ""}</div>`;
+    const points = h.open ? await priceSeries(itemHrid, h.range) : [];
+    const long = h.open && h.range > 31 ? await longMedians(itemHrid) : null;
     const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "\u2013"}, bid ${long.b90 ? shortCoins(long.b90) : "\u2013"} \xB7 1 year: ask ${long.a365 ? shortCoins(long.a365) : "\u2013"}, bid ${long.b365 ? shortCoins(long.b365) : "\u2013"} (${long.days} days of data)</div>` : "";
     const preliminary = !summary.enough;
-    return (preliminary ? head2(`<b class="mwia-history-prelim">preliminary</b> \xB7 ${progressText(summary)}`) : head2(`${summary.hours7} h in the last week \xB7 ${summary.spanDays.toFixed(0)} days of data`)) + `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
-          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` + longLine + (preliminary ? `<div class="mwia-history-note">Preliminary: only ${summary.hours7} h over ${summary.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>` + saved : "");
+    return (preliminary ? head2(`<b class="mwia-history-prelim">preliminary</b> \xB7 ${readyText(summary)}`) : head2(`7-day median \xB7 ${summary.spanDays.toFixed(0)} days of data`)) + line + more(
+      "Chart and details",
+      `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
+          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` + longLine + (preliminary ? `<div class="mwia-history-note">Preliminary: ${progressText(summary)}. Only ${summary.hours7} h over ${summary.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>` : `<div class="mwia-history-note">${summary.hours7} h in the last week.</div>`) + saved
+    );
+  }
+  function readyText(summary) {
+    const parts = progressText(summary).split(" \xB7 ");
+    return parts.length > 2 ? parts.slice(2).join(" \xB7 ") : "almost ready";
   }
   function progressText(summary) {
     const hoursLeft = Math.max(0, MIN_HOURS - summary.hours7);

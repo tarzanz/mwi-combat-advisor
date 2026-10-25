@@ -14,7 +14,8 @@ const RANGES = [30, 365];
 const PRELIMINARY_HOURS = 2;
 
 // exported: the prepared CSV export ({ csv, items, hours, days }), status: what the last export button did.
-const h = { win: null, scanTimer: null, scanning: false, range: 30, listeners: new Set(), exported: null, status: "" };
+// open: the details under the summary line are unfolded (kept between items).
+const h = { win: null, scanTimer: null, scanning: false, range: 30, open: false, listeners: new Set(), exported: null, status: "" };
 
 const pct = (fraction) => `${fraction >= 0 ? "+" : "−"}${Math.abs(fraction * 100).toFixed(0)}%`;
 
@@ -40,6 +41,12 @@ export function startPriceHistory(win) {
     setInterval(collect, COLLECT_EVERY_MS);
     new MutationObserver(() => scheduleScan()).observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", onClick, true);
+    // toggle doesn't bubble: listen in the capture phase. The chart is drawn when unfolded.
+    document.addEventListener("toggle", (event) => {
+        if (!event.target.matches?.(".mwia-history-more") || event.target.open === h.open) return;
+        h.open = event.target.open;
+        scheduleScan(true);
+    }, true);
 }
 
 function scheduleScan(force = false) {
@@ -82,7 +89,7 @@ async function scan() {
     });
     if (!current) return;
     let box = document.querySelector(".mwia-history");
-    const key = `${current.itemHrid}|${h.range}|${h.exported ? "ready" : ""}|${h.status}`;
+    const key = `${current.itemHrid}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}`;
     if (box && box.dataset.version === key) return;
     if (!box) {
         box = document.createElement("div");
@@ -91,7 +98,7 @@ async function scan() {
     }
     box.dataset.item = current.itemHrid;
     box.dataset.version = key;
-    box.innerHTML = (await historyHtml(current.itemHrid)) + exportHtml();
+    box.innerHTML = await historyHtml(current.itemHrid);
 }
 
 // Export: one tap prepares the CSV, then Download and Copy act on it at once
@@ -152,39 +159,57 @@ function onClick(event) {
     scheduleScan(true);
 }
 
+// The box: a one-line summary, with the table, chart and export folded under it.
 async function historyHtml(itemHrid) {
     await loadHistory();
     const summary = priceSummary(itemHrid);
     const entry = marketEntry(itemHrid);
     const head = (text) => `<div class="mwia-history-head"><b>📈 Usual price</b> <span>${text}</span></div>`;
     const saved = `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+    const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${exportHtml()}</details>`;
     if (!summary || summary.hours7 < PRELIMINARY_HOURS) {
-        return head(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + saved;
+        return head(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + more("Export", saved);
     }
-    const row = (label, now, side) => {
+    const versusText = (now, side) => {
         const versus = versusUsual(now, side.med7);
         const cls = !versus ? "" : versus.label === "above" ? "mwia-history-high" : versus.label === "below" ? "mwia-history-low" : "";
-        return `<tr><th>${label}</th><td>${now > 0 ? shortCoins(now) : "–"}</td>
-            <td>${side.med7 ? shortCoins(side.med7) : "–"} <span class="${cls}">${versus ? `${pct(versus.diff)} ${versus.label === "near" ? "usual" : versus.label}` : ""}</span></td>
-            <td>${side.med30 ? shortCoins(side.med30) : "–"}</td><td>${trendArrow(side.trend)}</td></tr>`;
+        return versus ? `<span class="${cls}">${pct(versus.diff)} ${versus.label === "near" ? "usual" : versus.label}</span>` : "";
     };
+    const row = (label, now, side) => `<tr><th>${label}</th><td>${now > 0 ? shortCoins(now) : "–"}</td>
+            <td>${side.med7 ? shortCoins(side.med7) : "–"} ${versusText(now, side)}</td>
+            <td>${side.med30 ? shortCoins(side.med30) : "–"}</td><td>${trendArrow(side.trend)}</td></tr>`;
     const askNow = entry?.a > 0 ? entry.a : null;
     const bidNow = entry?.b > 0 ? entry.b : null;
-    const points = await priceSeries(itemHrid, h.range);
-    const long = h.range > 31 ? await longMedians(itemHrid) : null;
+    // Ask 366 +0% usual → · Bid 365 +2% usual · swings ±1%
+    const brief = (label, now, side) => `${label} <b>${now > 0 ? shortCoins(now) : "–"}</b> ${versusText(now, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
+    const swing = summary.a.swing ?? summary.b.swing;
+    const line = `<div class="mwia-history-sum">${brief("Ask", askNow, summary.a)} · ${brief("Bid", bidNow, summary.b)}${swing !== null ? ` · <span title="Half of the week's prices lie within this share of the 7-day median">swings ±${Math.round(swing * 100)}%</span>` : ""}</div>`;
+    const points = h.open ? await priceSeries(itemHrid, h.range) : [];
+    const long = h.open && h.range > 31 ? await longMedians(itemHrid) : null;
     const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "–"}, bid ${long.b90 ? shortCoins(long.b90) : "–"} · 1 year: ask ${long.a365 ? shortCoins(long.a365) : "–"}, bid ${long.b365 ? shortCoins(long.b365) : "–"} (${long.days} days of data)</div>` : "";
     const preliminary = !summary.enough;
     return (
-        (preliminary
-            ? head(`<b class="mwia-history-prelim">preliminary</b> · ${progressText(summary)}`)
-            : head(`${summary.hours7} h in the last week · ${summary.spanDays.toFixed(0)} days of data`)) +
-        `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` +
-        chartSvg(points) +
-        `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
+        (preliminary ? head(`<b class="mwia-history-prelim">preliminary</b> · ${readyText(summary)}`) : head(`7-day median · ${summary.spanDays.toFixed(0)} days of data`)) +
+        line +
+        more(
+            "Chart and details",
+            `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` +
+                chartSvg(points) +
+                `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
           <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` +
-        longLine +
-        (preliminary ? `<div class="mwia-history-note">Preliminary: only ${summary.hours7} h over ${summary.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>` + saved : "")
+                longLine +
+                (preliminary
+                    ? `<div class="mwia-history-note">Preliminary: ${progressText(summary)}. Only ${summary.hours7} h over ${summary.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>`
+                    : `<div class="mwia-history-note">${summary.hours7} h in the last week.</div>`) +
+                saved
+        )
     );
+}
+
+// The short form for the summary line: "ready in about 1 day".
+function readyText(summary) {
+    const parts = progressText(summary).split(" · ");
+    return parts.length > 2 ? parts.slice(2).join(" · ") : "almost ready";
 }
 
 // "12 h ✓ · 0.9 of 2 days · ready in about 1 day": both are needed – enough

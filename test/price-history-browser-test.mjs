@@ -142,7 +142,12 @@ try {
     });
     check("box sits above the button row, full width", placed.width >= 340 && !placed.inRow && placed.beforeRow, JSON.stringify(placed));
     check("box is only as tall as its content in a column layout", placed.height < 260, JSON.stringify(placed));
-    check("marketplace chart drawn", await page.$$eval(".mwia-history polyline", (lines) => lines.length === 2));
+    // Folded: one summary line; the table and chart open under it.
+    const folded = await page.$eval(".mwia-history", (n) => ({ sum: n.querySelector(".mwia-history-sum")?.textContent.replace(/\s+/g, " ").trim(), height: n.getBoundingClientRect().height, open: n.querySelector("details").open }));
+    check("folded box: a summary line and little height", !folded.open && folded.height < 110 && folded.sum === `Ask ${shortCoins(askNow)} +30% above → · Bid ${shortCoins(usualBid)} +0% usual → · swings ±0%`, JSON.stringify(folded));
+    await page.click(".mwia-history-more summary");
+    await page.waitForFunction(() => document.querySelectorAll(".mwia-history polyline").length === 2, { timeout: 4000 }).catch(() => null);
+    check("marketplace chart drawn when unfolded", await page.$$eval(".mwia-history polyline", (lines) => lines.length === 2) && await page.$eval(".mwia-history details", (d) => d.open));
     await page.screenshot({ path: path.join(shotDir, "history-1-market.png") });
     // Export: prepare, then copy the CSV.
     await browser.defaultBrowserContext().overridePermissions(url, ["clipboard-read", "clipboard-write", "clipboard-sanitized-write"]).catch(() => null);
@@ -164,7 +169,7 @@ try {
     });
     await page.waitForFunction(() => /preliminary/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     const prelim = await page.$eval(".mwia-history", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
-    check("enough hours but too few days: preliminary numbers", /preliminary · 12 h ✓ · 0\.7 of 2 days · ready in about 1\.3 days/.test(prelim) && /Ask1,728 500 \+246% above/.test(prelim) && /Preliminary: only \d+ h over 0\.\d days/.test(prelim), prelim.slice(0, 300));
+    check("enough hours but too few days: preliminary numbers", /preliminary · ready in about 1\.3 days/.test(prelim) && /Preliminary: 12 h ✓ · 0\.7 of 2 days · ready in about 1\.3 days\./.test(prelim) && /Ask1,728 500 \+246% above/.test(prelim) && /Only \d+ h over 0\.\d days/.test(prelim), prelim.slice(0, 300));
     await page.screenshot({ path: path.join(shotDir, "history-2-preliminary.png") });
 
     // Another item without history says it is still collecting.

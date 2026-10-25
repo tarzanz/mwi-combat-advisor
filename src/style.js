@@ -150,6 +150,10 @@ polyline.mwia-history-bid { stroke: #7ee2b0; }
 .mwia-history-ranges i { display: inline-block; width: 10px; height: 2px; margin: 0 3px 3px 6px; vertical-align: middle; }
 i.mwia-history-ask { background: #f2a65b; }
 i.mwia-history-bid { background: #7ee2b0; }
+.mwia-history-sum { margin: 2px 0; font-variant-numeric: tabular-nums; }
+.mwia-history-sum span { white-space: nowrap; }
+.mwia-history-more summary { cursor: pointer; color: #9aa3cf; font-size: 11px; margin-top: 2px; }
+.mwia-history-more[open] summary { margin-bottom: 4px; }
 .mwia-history-head .mwia-history-prelim { color: #ffd479; font-weight: 600; }
 .mwia-guide-box, .mwia-tool-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-guide-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }

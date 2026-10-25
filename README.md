@@ -85,7 +85,8 @@ buy, by simulating *your own* character.
   a house upgrade and Artisan Tea are not counted.
 - **Price history** – while the game is open the script saves every item's ask and bid every 30 minutes (one point
   per hour for two weeks, then one per day for a year; in the browser's IndexedDB, on that device only). In the game's
-  marketplace a box under the open item shows the price now against its usual price – the median of the last 7 and 30
+  marketplace a box under the open item shows one summary line – ask and bid now against their usual price, trend and
+  typical swing – and folds open (*Chart and details*) to the price now against its usual price – the median of the last 7 and 30
   days, so one odd listing hardly moves it – with ±%, a trend arrow (this week's median against last week's) and a
   chart of ask and bid for 30 days or a year (plus 90-day and 1-year medians). The Skilling tab warns when a product
   sells more than 10% above or below its usual price, or a material costs more than 10% above it. Until an item has
