@@ -47,11 +47,15 @@ buy, by simulating *your own* character.
   thin otherwise, or with too little history. **How many to make:** for each crafted item a row suggests a count
   without opening the market: the planned hours of crafting, less what you already have in the inventory or on your
   own sell orders (and within your *Max sold/day*), smaller on a swinging price, and no more than the rating's share
-  of your coins buys materials for (using materials you have first). The list is ranked by what the planned hours
+  of your coins buys materials for (using materials you have first). The materials you still have to buy are rated
+  too, and the thinnest market of the product and those materials sets the share. A material you opened on the
+  market in the last 12 hours caps the job at what others had listed within 5% of its lowest ask (plus what you
+  have) – worth a look for a 🔴 material before buying a lot of it. The game only trades within a price band
+  (*Tradable range*) the order book doesn't include, so listings near the top of it may not be buyable. The list is ranked by what the planned hours
   give, so a job your coins or your stock keep short ranks lower, and an item you already hold a whole job of goes
   last. The row and *📦 How many* show the rating, what the batch's materials cost (and how much of it you still have
-  to buy) and its profit once it sells; an order book you saw on the market is shown there too, but doesn't set the
-  count. *▶ Make N* opens the action in the game with the count filled in; you click the game's button. **🍵 Buy teas** puts the best teas for the job in the MWITools
+  to buy) and its profit once it sells, and each material to buy with its rating; the product's order book, if you
+  saw it on the market, is shown there too, but doesn't set the count. *▶ Make N* opens the action in the game with the count filled in; you click the game's button. **🍵 Buy teas** puts the best teas for the job in the MWITools
   cart (a gathering job runs for the planned hours), less what you have. The **Focus** slider ranks by gold, XP or a mix
   (each as a share of the most any action in the list can give with its best teas – not with the teas in your slots,
   so following the advice doesn't change it); the best teas follow it, picked within the action's own skill so they are

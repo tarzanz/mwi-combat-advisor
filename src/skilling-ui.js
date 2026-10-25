@@ -73,7 +73,6 @@ function computeRanking(settings) {
     {
         const who = skillingCharacter(state.character, state.items, data);
         const market = skillingMarket(settings.skillingSellAt);
-        const have = (hrid) => heldStock(state.character, state.items, hrid).inventory;
         const plan = {
             stock: (action) => heldStock(state.character, state.items, action.outputItems?.[0]?.itemHrid),
             book: (action) => state.orderBooks.get(action.outputItems?.[0]?.itemHrid) || null,
@@ -83,6 +82,7 @@ function computeRanking(settings) {
             sellAt: settings.skillingSellAt,
             price: (action) => priceNow(action.outputItems?.[0]?.itemHrid, settings.skillingSellAt),
             liquidity: (action) => liquidityRating(action.outputItems?.[0]?.itemHrid ? priceSummary(action.outputItems[0].itemHrid) : null),
+            inputMarket: (hrid) => ({ liquidity: liquidityRating(priceSummary(hrid)), book: state.orderBooks.get(hrid) || null }),
         };
         const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100 });
         for (const entry of [...result.available, ...result.upcoming]) entry.warnings = [...entry.warnings, ...priceWarnings(entry)];
@@ -339,7 +339,7 @@ function suggestionShort(suggestion) {
 }
 
 function suggestionSummary(s) {
-    const rating = RATING[s.liquidity.rating];
+    const rating = RATING[s.liquidity.rating] + (s.ratedBy ? " (materials)" : "");
     if (!s.count) return `${rating} · ${s.held ? "you hold enough" : "your coins don't stretch to one"}`;
     return `${rating} · make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}) · ${coins(s.batch.materials)} in, ${s.batch.profit >= 0 ? "+" : "−"}${coins(Math.abs(s.batch.profit))}`;
 }
@@ -358,10 +358,29 @@ function liquidityText(l) {
     return `${RATING[l.rating]} over the last ${l.hours} hours of prices: ${parts.join(", ")}. <span class="mwia-dim">Stable needs ≥ ${share(s.both)}, ≤ ${share(s.spread)}, ≤ ±${share(s.swing)} and ≥ ${share(s.activity)}. Prices only – the market file has no quantities, so a calm item that sells a few a day can still look stable.</span>`;
 }
 
+const ago = (at) => hoursText((Date.now() - at) / 3600000);
+const have = (hrid) => heldStock(state.character, state.items, hrid).inventory;
+
+// The materials to buy, each with its market's rating – the thinnest market of
+// the product and these sets the coins – and what was listed when last seen.
+function materialsText(s) {
+    const shown = s.inputs.filter((i) => i.toBuy > 0);
+    if (!shown.length) return "";
+    const parts = shown.map((i) => {
+        const rating = i.liquidity || { rating: "thin", known: false };
+        let text = `${i.toBuy.toLocaleString("en-US")} ${esc(itemName(i.itemHrid))} ${RATING[rating.rating]}${rating.known ? "" : " (too little history)"}`;
+        if (i.bookAt) text += ` – ${i.nearAsks.toLocaleString("en-US")} listed near the lowest ask ${ago(i.bookAt)} ago`;
+        else if (rating.rating !== "stable") text += ` – <i>open it on the market to see how many are for sale</i>`;
+        return i.itemHrid === s.ratedBy || i.itemHrid === s.limitedByBook ? `<span class="mwia-warn">${text}</span>` : text;
+    });
+    const by = s.ratedBy ? ` <span class="mwia-dim">The coins follow the thinnest market: ${esc(itemName(s.ratedBy))}.</span>` : "";
+    return `To buy: ${parts.join(" · ")}.${by}`;
+}
+
 function suggestionHtml(e) {
     const s = e.suggestion;
     const product = esc(itemName(e.action.outputItems[0].itemHrid));
-    const lines = [liquidityText(s.liquidity)];
+    const lines = [liquidityText(s.productLiquidity)];
     let plan = `A ${hoursText(s.plannedHours)} job is ${s.plannedUnits.toLocaleString("en-US")} ${product}${s.cappedBySales ? " (your <i>Max sold/day</i>)" : ""}`;
     if (s.held) plan += ` − ${s.held.toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)`;
     lines.push(plan + ".");
@@ -376,8 +395,14 @@ function suggestionHtml(e) {
     const budget = `${Math.round(s.coinShare * 100)}% of your coins (${coins(s.budget)}) for a ${s.liquidity.rating} market`;
     if (s.limitedByCoins) lines.push(`<span class="mwia-warn">Materials capped at ${budget}.</span>`);
     else lines.push(`<span class="mwia-dim">Materials may take up to ${budget}.</span>`);
+    const materials = materialsText(s);
+    if (materials) lines.push(materials);
+    if (s.limitedByBook) {
+        const input = s.inputs.find((i) => i.itemHrid === s.limitedByBook);
+        lines.push(`<span class="mwia-warn">Capped at the ${esc(itemName(input.itemHrid))} you can get: ${input.nearAsks.toLocaleString("en-US")} listed within ${dec(ASK_WINDOW * 100, 0)}% of the lowest ask ${ago(input.bookAt)} ago${have(input.itemHrid) ? `, plus ${have(input.itemHrid).toLocaleString("en-US")} you have` : ""}.</span>`);
+    }
     if (s.bookAt) {
-        const age = hoursText((Date.now() - s.bookAt) / 3600000);
+        const age = ago(s.bookAt);
         const seen = [s.profitableBids !== null && `${s.profitableBids.toLocaleString("en-US")} in buy orders at ≥ ${coins(s.breakEven)} (break-even)`, s.nearAsks !== null && `${s.nearAsks.toLocaleString("en-US")} listed by others within ${dec(ASK_WINDOW * 100, 0)}% of the lowest ask`].filter(Boolean);
         if (seen.length) lines.push(`<span class="mwia-dim">On the market ${age} ago: ${seen.join(" · ")}.</span>`);
     }

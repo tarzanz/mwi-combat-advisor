@@ -401,6 +401,9 @@ export const LIQUIDITY = {
     ok: { both: 0.75, spread: 0.15, swing: 0.08, activity: 0 },
 };
 const LIQUIDITY_HOURS = 12;
+const RATING_ORDER = { thin: 0, ok: 1, stable: 2 };
+// A material's order book seen on the market within this many hours caps the job.
+export const INPUT_BOOK_HOURS = 12;
 
 export function liquidityRating(summary) {
     const l = summary?.liquidity;
@@ -444,15 +447,17 @@ export function swingShare(price) {
 
 // How many to make, without opening the market: the planned hours of crafting,
 // less what you already hold or have listed, smaller on a swinging price, and
-// no more than the share of your coins the market's rating allows for materials.
-// An order book seen on the market is shown alongside, but doesn't set the count.
+// no more than the share of your coins the worst market (the product's or a
+// bought material's) allows for materials. The product's order book is shown
+// alongside; a material's, seen lately, caps the job at what was listed.
+// inputMarket(hrid): { liquidity, book } for a material.
 // fill: the job's share of the planned hours – what the ranking goes by.
-export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null }) {
+export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null, inputMarket = null, now = Date.now() }) {
     if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
     const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
-    const rating = liquidity || { rating: "thin", known: false };
+    const product = liquidity || { rating: "thin", known: false };
     const planned = Math.max(1, Math.floor(hours * entry.actionsPerHour));
     // Your own daily sales limit caps it too.
     const capUnits = sellCap > 0 ? sellCap : Infinity;
@@ -462,7 +467,41 @@ export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = P
     const swing = swingShare(price);
     if (swing && swing.share < 1) count = Math.ceil(count * swing.share);
     // Materials bought for n actions, using what is in the inventory first.
-    const spend = (n) => entry.inputs.reduce((sum, input) => sum + Math.max(0, input.count * n - have(input.itemHrid)) * (input.price || 0), 0);
+    const toBuy = (input, n) => Math.max(0, input.count * n - have(input.itemHrid));
+    const spend = (n) => entry.inputs.reduce((sum, input) => sum + toBuy(input, n) * (input.price || 0), 0);
+    // The materials you'd have to buy: their markets rate the job too, and an
+    // order book seen lately caps it at what was listed near the lowest ask.
+    const bought = entry.inputs.filter((input) => input.count > 0 && input.price > 0 && toBuy(input, count) > 0);
+    const inputs = bought.map((input) => {
+        const market = inputMarket?.(input.itemHrid) || {};
+        const fresh = market.book && now - market.book.at <= INPUT_BOOK_HOURS * 3600000 ? market.book : null;
+        const asks = fresh ? othersNearLowestAsk(fresh, { listings: [] }) : null;
+        return {
+            itemHrid: input.itemHrid,
+            perAction: input.count,
+            liquidity: market.liquidity || null,
+            nearAsks: asks?.quantity ?? null,
+            lowestAsk: asks?.lowest ?? null,
+            bookAt: fresh?.at ?? null,
+            maxCount: asks ? Math.floor((have(input.itemHrid) + asks.quantity) / input.count + 1e-9) : Infinity,
+        };
+    });
+    let limitedByBook = null;
+    for (const input of inputs) {
+        if (input.maxCount < count) {
+            count = input.maxCount;
+            limitedByBook = input.itemHrid;
+        }
+    }
+    // The worst market of the product and its bought materials sets the coins.
+    let rating = product;
+    let ratedBy = null;
+    for (const input of inputs) {
+        if (inputMarket && RATING_ORDER[input.liquidity?.rating ?? "thin"] < RATING_ORDER[rating.rating]) {
+            rating = input.liquidity || { rating: "thin", known: false };
+            ratedBy = input.itemHrid;
+        }
+    }
     const share = coinShare[rating.rating] ?? coinShare.thin;
     const budget = coins * share;
     let limitedByCoins = false;
@@ -500,6 +539,10 @@ export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = P
         plannedUnits,
         cappedBySales: plannedUnits < planned * entry.mainCount,
         liquidity: rating,
+        productLiquidity: product,
+        ratedBy,
+        inputs: inputs.map((input) => ({ ...input, toBuy: Math.max(0, Math.ceil(input.perAction * count - have(input.itemHrid) - 1e-9)) })),
+        limitedByBook,
         coinShare: share,
         budget,
         count,

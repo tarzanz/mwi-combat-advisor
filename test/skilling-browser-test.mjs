@@ -66,7 +66,7 @@ const books = new Map();
 // No price history in the test browser: every market is rated thin.
 const planFor = (c, { mode = "away", sellAt = "ask" } = {}) => {
     const have = (hrid) => heldStock(c, items(c), hrid).inventory;
-    return { ...PLAN_MODES[mode], stock: (a) => heldStock(c, items(c), a.outputItems?.[0]?.itemHrid), book: (a) => books.get(a.outputItems?.[0]?.itemHrid) || null, coins: have("/items/coin"), have, sellAt, liquidity: () => liquidityRating(null) };
+    return { ...PLAN_MODES[mode], stock: (a) => heldStock(c, items(c), a.outputItems?.[0]?.itemHrid), book: (a) => books.get(a.outputItems?.[0]?.itemHrid) || null, coins: have("/items/coin"), have, sellAt, liquidity: () => liquidityRating(null), inputMarket: (hrid) => ({ liquidity: liquidityRating(null), book: books.get(hrid) || null }) };
 };
 const expectRank = (c, options) => rankSkilling(skillingCharacter(c, items(c), clientData), clientData, market(options.sellAt || "ask"), { plan: planFor(c, options), ...options });
 
@@ -298,6 +298,22 @@ try {
     const withBook = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
     const bookDetail = await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] .mwia-skill-detail`, (n) => n.textContent);
     check("order book shown, count unchanged", withBook.count === expPlan.count && withBook.profitableBids === 90 && /On the market .* ago: 90 in buy orders/.test(bookDetail) && /thin market: under 12 hours of prices/.test(bookDetail), bookDetail.slice(0, 300));
+    check("materials to buy listed with their markets", /To buy: [\d,]+ .*🔴 thin market \(too little history\) – open it on the market/.test(bookDetail), bookDetail);
+
+    // A material's order book caps the job at what was listed near its lowest ask.
+    const material = topTailoring.inputs[0].itemHrid;
+    const materialAsk = marketData[material][0].a;
+    const listed = Math.ceil(topTailoring.inputs[0].count * 10);
+    const materialBook = { type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: material, orderBooks: [{ asks: [{ price: materialAsk, quantity: listed }, { price: materialAsk * 2, quantity: 1e6 }], bids: [] }] } };
+    books.set(material, { at: Date.now(), asks: materialBook.marketItemOrderBooks.orderBooks[0].asks, bids: [] });
+    for (const socket of sockets) socket.send(JSON.stringify(materialBook));
+    await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
+    await select(page, "skillingSkill", "all");
+    await select(page, "skillingSkill", "tailoring");
+    const byMaterial = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
+    const cappedDetail = await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] .mwia-skill-detail`, (n) => n.textContent);
+    check("a material's order book caps the job", byMaterial.limitedByBook === material && byMaterial.count < expPlan.count && byMaterial.count > 0 && byMaterial.count * topTailoring.inputs[0].count <= listed + 1e-9 + heldStock(character, items(character), material).inventory && new RegExp(`Capped at the .* you can get: ${listed} listed within 5% of the lowest ask`).test(cappedDetail) && cappedDetail.includes(`make ${byMaterial.count.toLocaleString("en-US")}`),
+        `${byMaterial.count} / ${cappedDetail.slice(0, 400)}`);
     check("order book survives a reload", await page.evaluate((hrid) => !!JSON.parse(localStorage.getItem("mwia-order-books") || "{}")[hrid], PRODUCT));
 
     // The market button opens the item on the market (through MWITools' API here).
@@ -345,7 +361,7 @@ try {
     await page.click(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] [data-action="skilling-make"]`);
     await page.waitForFunction(() => /^\d+$/.test(document.querySelector(".modal input")?.value || ""), { timeout: 6000 }).catch(() => null);
     const filled = await page.evaluate(() => ({ name: document.querySelector(".modal .SkillActionDetail_name__y")?.textContent, value: document.querySelector(".modal input")?.value, hidden: document.querySelector(".mwia-panel").classList.contains("mwia-hidden") }));
-    check("make button opens the action with the count", filled.name === topTailoring.action.name && filled.value === String(expPlan.count) && filled.hidden, JSON.stringify(filled));
+    check("make button opens the action with the count", filled.name === topTailoring.action.name && filled.value === String(byMaterial.count) && filled.hidden, JSON.stringify(filled));
     // The action window says which teas to have in the slots, and buys what is missing.
     await page.waitForSelector(".modal .mwia-guide-box", { timeout: 4000 }).catch(() => null);
     const teaAdvice = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid);

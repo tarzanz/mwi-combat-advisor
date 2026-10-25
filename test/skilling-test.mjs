@@ -85,6 +85,19 @@ check("a stable market may use 60% of the coins", poorStable.limitedByCoins && p
 check("a thin market only 10%", poorThin.limitedByCoins && poorThin.count === 20, String(poorThin.count));
 const active = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, ...PLAN_MODES.active });
 check("active: 1 h jobs and more of the coins", active.count === 100 && active.plannedHours === 1, String(active.count));
+// The materials to buy: their markets rate the job too, and a fresh order book caps it.
+const thinInput = (hrid) => ({ liquidity: hrid === "/items/x" ? { rating: "thin", known: true } : stable, book: null });
+const byInput = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, inputMarket: thinInput, ...away });
+check("a thin material market sets the coins", byInput.count === 20 && byInput.ratedBy === "/items/x" && byInput.liquidity.rating === "thin" && byInput.productLiquidity.rating === "stable", JSON.stringify({ c: byInput.count, r: byInput.ratedBy }));
+const owned = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, inputMarket: thinInput, have: (h) => (h === "/items/x" ? 1000 : 0), ...away });
+check("a material you hold enough of doesn't rate the job", owned.ratedBy === null && owned.count === 800, JSON.stringify({ c: owned.count, r: owned.ratedBy }));
+const now = Date.now();
+const book = (at) => ({ at, asks: [{ price: 50, quantity: 60 }, { price: 52, quantity: 40 }, { price: 80, quantity: 1000 }], bids: [] });
+const booked = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), have: (h) => (h === "/items/x" ? 30 : 0), now, ...away });
+check("a fresh material order book caps the job", booked.count === 130 && booked.limitedByBook === "/items/x" && booked.inputs[0].nearAsks === 100 && booked.inputs[0].toBuy === 100, JSON.stringify({ c: booked.count, i: booked.inputs }));
+const stale = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 13 * 3600000) }), now, ...away });
+check("an old material order book doesn't", stale.count === 800 && stale.limitedByBook === null && stale.inputs[0].bookAt === null);
+
 check("thin margin under 5%", thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.03 }) && !thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.2 }));
 check("thin margin under the price's swing", thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.08 }, 0.12) && !thinMargin({ costPerAction: 0, profitPerHour: 1, margin: 1 }, 0.5));
 
