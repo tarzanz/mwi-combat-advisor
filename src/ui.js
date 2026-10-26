@@ -43,6 +43,7 @@ import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js
 import { startToolNotice } from "./tool-notice.js";
 import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
+import { startTrain } from "./train-ui.js";
 
 const SETTINGS_KEY = "mwia-settings";
 const DEFAULT_SETTINGS = { goldWeight: 0, acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingMode: "away", skillingGold: 100 };
@@ -830,6 +831,13 @@ function onClick(event) {
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
             openWithCount(target.dataset.hrid, Number(target.dataset.count));
             break;
+        case "skilling-train": {
+            const plan = JSON.parse(target.dataset.plan);
+            ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
+            ui.root.classList.add("mwia-hidden");
+            startTrain({ goals: [{ kind: "item", hrid: plan.product, target: plan.target }], policies: new Map(plan.made.map((hrid) => [hrid, "chain"])), title: plan.title });
+            break;
+        }
         case "skilling-cart":
             sendItemsToCart(JSON.parse(target.dataset.teas || "[]"));
             break;

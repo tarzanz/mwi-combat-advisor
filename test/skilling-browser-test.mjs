@@ -437,6 +437,17 @@ try {
     const chainText = await page.$eval('.mwia-skill-row[data-hrid="/actions/tailoring/linen_fabric"] .mwia-skill-detail', (n) => [...n.querySelectorAll(".mwia-skill-sec")].find((d) => /Yourself/.test(d.textContent))?.textContent || "");
     check("chain shown in the row", chainText.includes(`${coinText(linenFabric.chain.profitPerHour)}/h`) && /Of each hour: \d+% Linen Fabric · \d+% Flax/.test(chainText), chainText.slice(0, 160));
 
+    // 🚂 Train: the chain pays more here, so a train makes Linen Fabric from Flax you gather.
+    const trainPlan = linenFabric.chainSuggestion;
+    check("chain train planned for the hours", linenFabric.chain.profitPerHour >= linenFabric.profitPerHour && trainPlan?.count > 0 && trainPlan.hours <= 8 + 1e-9 && chainText.includes(`Train ${trainPlan.count.toLocaleString("en-US")}`), JSON.stringify(trainPlan) + " " + chainText.slice(-300));
+    await page.click('.mwia-skill-row[data-hrid="/actions/tailoring/linen_fabric"] [data-action="skilling-train"]');
+    await page.waitForSelector(".mwia-train:not(.mwia-hidden) .mwia-train-now", { timeout: 5000 }).catch(() => null);
+    const trainText = await page.$eval(".mwia-train", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
+    check("train button starts a train that gathers Flax, then makes Linen Fabric", /Linen Fabric ×/.test(trainText) && /Flax/.test(trainText) && trainText.indexOf("Flax") < trainText.lastIndexOf("Linen Fabric"), trainText.slice(0, 400));
+    await page.screenshot({ path: path.join(shotDir, "skilling-7-train.png") });
+    await page.evaluate(() => { document.querySelector(".modal")?.remove(); document.querySelector(".mwia-train").classList.add("mwia-hidden"); });
+    if (await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden"))) await page.click(".mwia-launcher");
+
     // XP focus: the list ranks by XP, and the best teas follow.
     await page.$eval('[data-setting="skillingGold"]', (input) => { input.value = "0"; input.dispatchEvent(new Event("change", { bubbles: true })); });
     await new Promise((r) => setTimeout(r, 100));

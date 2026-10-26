@@ -4,7 +4,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fixtureCharacter } from "./fixture-character.js";
-import { PLAN_MODES, SKILLING_SKILLS, liquidityRating, marketPricer, rankSkilling, skillingCharacter, suggestCount, thinMargin } from "../src/skilling.js";
+import { PLAN_MODES, SKILLING_SKILLS, liquidityRating, marketPricer, rankSkilling, skillingCharacter, suggestChainCount, suggestCount, thinMargin } from "../src/skilling.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const dataDir = path.join(root, "engine/data");
@@ -97,6 +97,13 @@ const booked = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, i
 check("a fresh material order book caps the job", booked.count === 130 && booked.limitedByBook === "/items/x" && booked.inputs[0].nearAsks === 100 && booked.inputs[0].toBuy === 100, JSON.stringify({ c: booked.count, i: booked.inputs }));
 const stale = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 13 * 3600000) }), now, ...away });
 check("an old material order book doesn't", stale.count === 800 && stale.limitedByBook === null && stale.inputs[0].bookAt === null);
+
+// The whole chain in the planned hours, with what it still buys within the coins.
+const chain = { profitPerHour: 2000, hoursPerAction: 0.04, cashPerAction: 10, bought: ["/items/y"] };
+const chained = suggestChainCount(job, chain, { stock: { inventory: 20, listed: 0, listings: [] }, coins: 1e9, liquidity: stable, ...away });
+check("chain: the planned hours for the whole chain, less stock", chained.count === 180 && Math.abs(chained.hours - 7.2) < 1e-9 && chained.cash === 1800, JSON.stringify(chained));
+const chainPoor = suggestChainCount(job, chain, { stock: none, coins: 1000, liquidity: stable, inputMarket: () => ({ liquidity: { rating: "thin", known: true } }), ...away });
+check("chain: what it buys within the coins of its thinnest market", chainPoor.count === 10 && chainPoor.limitedByCoins && chainPoor.ratedBy === "/items/y", JSON.stringify(chainPoor));
 
 check("thin margin under 5%", thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.03 }) && !thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.2 }));
 check("thin margin under the price's swing", thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.08 }, 0.12) && !thinMargin({ costPerAction: 0, profitPerHour: 1, margin: 1 }, 0.5));

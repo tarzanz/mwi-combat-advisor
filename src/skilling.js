@@ -554,6 +554,33 @@ export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = P
     };
 }
 
+// How many to make with the whole chain (see chainBuilder) in the planned hours,
+// less what you hold, smaller on a swinging price, and with what the chain still
+// buys within the share of your coins its worst market allows.
+export function suggestChainCount(entry, chain, { stock, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, price = null, liquidity = null, inputMarket = null }) {
+    if (!chain || !entry.mainCount || chain.profitPerHour <= 0) return null;
+    const planned = Math.max(1, Math.floor(hours / chain.hoursPerAction));
+    const plannedUnits = Math.min(planned * entry.mainCount, sellCap > 0 ? sellCap : Infinity);
+    const held = stock.inventory + stock.listed;
+    let count = Math.max(0, Math.ceil((plannedUnits - held) / entry.mainCount - 1e-9));
+    const swing = swingShare(price);
+    if (swing && swing.share < 1) count = Math.ceil(count * swing.share);
+    let rating = liquidity || { rating: "thin", known: false };
+    let ratedBy = null;
+    for (const hrid of inputMarket ? chain.bought : []) {
+        const own = inputMarket(hrid)?.liquidity || { rating: "thin", known: false };
+        if (RATING_ORDER[own.rating] < RATING_ORDER[rating.rating]) {
+            rating = own;
+            ratedBy = hrid;
+        }
+    }
+    const share = coinShare[rating.rating] ?? coinShare.thin;
+    const budget = coins * share;
+    const limitedByCoins = chain.cashPerAction > 0 && count * chain.cashPerAction > budget;
+    if (limitedByCoins) count = Math.floor(budget / chain.cashPerAction);
+    return { count, hours: count * chain.hoursPerAction, cash: count * chain.cashPerAction, liquidity: rating, ratedBy, coinShare: share, budget, limitedByCoins, held };
+}
+
 // Making it all yourself: every material your levels let you make or gather is
 // made (by its fastest source, with that skill's teas), the rest bought. The
 // time of every step adds up, so the gold is per hour of the whole chain.
@@ -708,13 +735,16 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         // Ranked by what the planned hours give: a job your coins or your stock
         // keep short earns for only part of them.
         const fill = suggestion ? suggestion.fill : 1;
+        const chained = chain(shown);
         const entry = {
             ...shown,
             teaMode,
             current,
             best,
             suggestion,
-            chain: chain(shown),
+            chain: chained,
+            // A train that makes the materials too, when that pays at least as well as buying them.
+            chainSuggestion: plan && chained && chained.profitPerHour >= shown.profitPerHour ? suggestChainCount(shown, chained, { ...plan, stock: plan.stock(shown.action), price, liquidity, sellCap }) : null,
             score: score({ goldPerDay: shown.goldPerDay * fill, xpPerDay: shown.xpPerDay * fill }),
             thinMargin: !!plan?.hideThinMargins && thinMargin(shown, price?.swing ?? null),
             teaSlots: who.slots[action.type],

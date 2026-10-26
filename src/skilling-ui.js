@@ -273,7 +273,16 @@ function chainHtml(e) {
     return `Make every material your levels allow, buy the rest: <b>${coins(c.profitPerHour)}/h = ${coins(c.goldPerDay)}/day</b>
         <span class="${better ? "mwia-ok" : "mwia-dim"}">(${better ? "+" : "−"}${coins(Math.abs(c.goldPerDay - e.goldPerDay))}/day vs buying)</span>.
         <br>Of each hour: ${shares.join(" · ")}.${c.bought.length ? `<br>Still bought: ${esc(names(c.bought))}.` : ""}
-        <br><span class="mwia-dim">Each step uses that skill's teas; the gold is per hour of the whole chain.</span>`;
+        <br><span class="mwia-dim">Each step uses that skill's teas; the gold is per hour of the whole chain.</span>${chainTrainText(e)}`;
+}
+
+function chainTrainText(e) {
+    const t = e.chainSuggestion;
+    if (!t) return "";
+    const rating = `${RATING[t.liquidity.rating]}${t.ratedBy ? ` (${esc(itemName(t.ratedBy))})` : ""}`;
+    const coinsText = e.chain.cashPerAction > 0 ? ` What it buys may take ${Math.round(t.coinShare * 100)}% of your coins (${coins(t.budget)}) for a ${rating}${t.limitedByCoins ? " – that caps it" : ""}.` : "";
+    if (!t.count) return `<br>🚂 Nothing to train: ${t.held ? "you already hold a whole job" : "your coins don't stretch to one"}.${coinsText}`;
+    return `<br>🚂 <b>Train ${t.count.toLocaleString("en-US")}</b>: the whole chain in about ${hoursText(t.hours)}${t.held ? `, less the ${t.held.toLocaleString("en-US")} you hold` : ""}${t.cash > 1 ? `, ${coins(t.cash)} of materials to buy` : ""}.${coinsText}`;
 }
 
 // ▶ Make N, 🍵 Buy teas and 🏪 Market, always in view when a row is open.
@@ -286,8 +295,21 @@ function actionButtons(e) {
     const teas = plan?.items.length
         ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart: ${esc(plan.items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">🍵 Buy teas</button>`
         : "";
+    const train = trainButton(e);
     const market = crafted ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(productHrid)}" title="Opens ${esc(itemName(productHrid))} on the market. Not needed for the advice; the orders you see there are shown under How many.">🏪 Market</button>` : "";
-    return make || teas || market ? `<div class="mwia-skill-buttons">${make}${teas}${market}</div>` : "";
+    return make || train || teas || market ? `<div class="mwia-skill-buttons">${make}${train}${teas}${market}</div>` : "";
+}
+
+// 🚂 Train N: an advisor train that makes the materials too (production steps
+// made, raw materials gathered where your levels allow), for the planned hours.
+function trainButton(e) {
+    const t = e.chainSuggestion;
+    if (!t?.count) return "";
+    const product = e.action.outputItems[0].itemHrid;
+    const made = [product, ...e.chain.shares.filter((s) => s.action.function === "/action_functions/production").map((s) => s.itemHrid)];
+    // The train counts what you have in the inventory towards the target.
+    const plan = { product, target: Math.ceil(t.count * e.mainCount - 1e-9) + have(product), made, title: `${itemName(product)} ×${t.count.toLocaleString("en-US")}` };
+    return `<button class="mwia-btn" data-action="skilling-train" data-plan="${esc(JSON.stringify(plan))}" title="Starts a train: the materials made and gathered first, then ${t.count.toLocaleString("en-US")} ${esc(itemName(product))} – about ${hoursText(t.hours)} in all">🚂 Train ${t.count.toLocaleString("en-US")}</button>`;
 }
 
 // What the better teas add: gold, or XP when the focus leans that way and gold drops.

@@ -69,14 +69,26 @@ function setNotice(kind, text, diag = "") {
 async function startFromPlanning() {
     try {
         const data = getClientData() || (await loadClientData(t.win));
-        if (!state.character) throw new Error("Character data not received yet. Reload the game page with the advisor installed.");
         const plan = readPlanningTab(document, data);
         if (plan.error) throw new Error(plan.error);
+        await startTrain(plan);
+    } catch (error) {
+        showStandaloneError(error.message);
+    }
+}
+
+// Starts a train for plan: { goals: [{kind, hrid, target}], policies: Map itemHrid -> "chain"|"single"|"buy", title? }.
+// Used by the planning tab's button and the Skilling tab's 🚂 Train.
+export async function startTrain(plan) {
+    try {
+        const data = getClientData() || (await loadClientData(t.win));
+        if (!state.character) throw new Error("Character data not received yet. Reload the game page with the advisor installed.");
         const houseLevels = {};
         for (const room of Object.values(state.character.characterHouseRoomMap || {})) houseLevels[room.houseRoomHrid] = room.level;
         const skills = {};
         for (const skill of state.character.characterSkills || []) skills[skill.skillHrid] = skill.level;
         const train = buildTrain(plan, data, { owned: inventoryCounts(state.items), houseLevels, skills });
+        if (plan.title) train.title = plan.title;
         t.train = { ...train, made: train.stops, index: 0 };
         t.train.stops = trainStops(t.train);
         // A phone screen is small; start with just the current stop showing.
