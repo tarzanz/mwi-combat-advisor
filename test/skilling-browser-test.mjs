@@ -478,10 +478,16 @@ try {
     for (const i of character.characterItems) if (i.itemLocationHrid !== "/item_locations/inventory") equippedNow[i.itemLocationHrid] = { itemHrid: i.itemHrid, enhancementLevel: i.enhancementLevel || 0 };
     const ownedNow = {};
     for (const i of character.characterItems) if (i.itemLocationHrid === "/item_locations/inventory") (ownedNow[i.itemHrid] ||= []).push(i.enhancementLevel || 0);
+    // Measured on the top of the Skilling list: what you'd make.
+    const topOf = (skill, c = character) => expectRank(c, { skill }).available.find((e) => e.valid && e.goldPerDay > 0)?.hrid || null;
+    const listingsOf = (hrid) => Object.entries(marketData[hrid] || {}).filter(([, e]) => e.a > 0).map(([level, e]) => ({ enhancementLevel: Number(level), price: e.a, bid: e.b > 0 ? e.b : null })).sort((a, b) => a.price - b.price);
     const expUpgrades = rankUpgrades(skillingCharacter(character, items(character), clientData), clientData, market("ask"), "tailoring", {
-        equipped: equippedNow, owned: ownedNow, houseLevels: {}, gameEquipmentBuffs: character.equipmentActionTypeBuffsMap,
-        listings: (hrid) => Object.entries(marketData[hrid] || {}).filter(([, e]) => e.a > 0).map(([level, e]) => ({ enhancementLevel: Number(level), price: e.a })).sort((a, b) => a.price - b.price),
+        equipped: equippedNow, owned: ownedNow, houseLevels: {}, gameEquipmentBuffs: character.equipmentActionTypeBuffsMap, listings: listingsOf, actionHrid: topOf("tailoring"),
     });
+    const upgradeIntro = await page.$eval(".mwia-upgrade-list", (n) => n.closest("section")?.querySelector("p")?.textContent || "").catch(() => "");
+    check("upgrades measured on the top of the list", expUpgrades.base.action.hrid === topOf("tailoring") && upgradeIntro.includes(`the top of the list above (now ${expUpgrades.base.action.name}`), upgradeIntro);
+    const sold = expUpgrades.upgrades.find((u) => u.kind === "item" && !u.owned && u.resale > 0);
+    check("payback counts selling it again at the bid", sold && Math.abs(sold.paybackDays - (sold.price - sold.resale) / sold.gainPerDay) < 1e-9 && sold.cost < sold.price, JSON.stringify(sold && { p: sold.price, r: sold.resale, d: sold.paybackDays }));
     const upgradeRows = await page.$$eval(".mwia-upgrade", (list) => list.map((n) => n.textContent.replace(/\s+/g, " ").trim()));
     const firstUpgrade = expUpgrades.upgrades[0];
     check("upgrades listed by payback", upgradeRows.length > 0 && upgradeRows[0].startsWith(clientData.itemDetailMap[firstUpgrade.itemHrid]?.name || firstUpgrade.name) && upgradeRows[0].includes(`+${coinText(firstUpgrade.gainPerDay)}/day`),
@@ -491,7 +497,7 @@ try {
     const whoNow = skillingCharacter(character, items(character), clientData);
     check("tea slots follow the pouch", whoNow.slots[FORAGING] === 2 && whoNow.slots["/action_types/tailoring"] === 2, JSON.stringify(whoNow.slots));
     const tailoringUpgrades = rankUpgrades(whoNow, clientData, market("ask"), "tailoring", {
-        equipped: equippedNow, owned: ownedNow, houseLevels: {}, listings: (hrid) => Object.entries(marketData[hrid] || {}).filter(([, e]) => e.a > 0).map(([level, e]) => ({ enhancementLevel: Number(level), price: e.a })),
+        equipped: equippedNow, owned: ownedNow, houseLevels: {}, listings: listingsOf, actionHrid: topOf("tailoring"),
     });
     const giant = tailoringUpgrades.upgrades.find((u) => u.itemHrid === "/items/giant_pouch");
     const tailoringRows = await page.$$eval(".mwia-upgrade", (list) => list.map((n) => n.textContent.replace(/\s+/g, " ").trim()));
@@ -530,7 +536,7 @@ try {
         if (i.itemLocationHrid === "/item_locations/inventory") (ownedTools[i.itemHrid] ||= []).push(i.enhancementLevel || 0);
         else equippedTools[i.itemLocationHrid] = { itemHrid: i.itemHrid, enhancementLevel: i.enhancementLevel || 0 };
     }
-    const expTools = toolTiers(skillingCharacter(character, items(character), clientData), clientData, market("ask"), { equipped: equippedTools, owned: ownedTools });
+    const expTools = toolTiers(skillingCharacter(character, items(character), clientData), clientData, market("ask"), { equipped: equippedTools, owned: ownedTools, actionFor: (skill) => topOf(skill) });
     const toolRows = await page.$$eval("#equipment .mwia-tool-list li", (list) => list.map((li) => li.textContent.replace(/\s+/g, " ").trim()));
     const needle = expTools.find((n) => n.itemHrid === "/items/azure_needle");
     check("equipment page lists tools a level now allows", toolRows.length === expTools.length && toolRows.some((r) => r.startsWith("Tailoring lvl 20: Cheese Needle → Azure Needle (lvl 20) · " + coinText(needle.price)))

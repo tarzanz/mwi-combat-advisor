@@ -1,9 +1,11 @@
 // Skilling upgrades that pay back: tools, clothes, jewellery, charms, capes
 // (also enhanced +N copies for sale) and the skill's house room. Each is
 // tried in place of what you wear now, and measured by how much more the
-// skill's best action earns a day; payback = price / extra gold a day.
+// action you'd make earns a day (the top of the Skilling list, or the skill's
+// best action); payback = what it costs, less what it sells for again at the
+// bid, / extra gold a day.
 
-import { SKILLING_SKILLS, bestTeas, drinkSlots, evaluateAction, limitSales, skillType, skillingActions } from "./skilling.js";
+import { MARKET_TAX, SKILLING_SKILLS, bestTeas, drinkSlots, evaluateAction, limitSales, skillType, skillingActions } from "./skilling.js";
 
 const MAX_HOUSE_LEVEL = 8;
 export const UPGRADES_SHOWN = 10;
@@ -51,11 +53,24 @@ function bestDayWithTeas(actions, who, data, market, sellCap) {
     return best;
 }
 
-// What wearing one item instead of another (or nothing) changes on the skill's
-// best action: gold and XP a day, with the teas you have now.
-export function swapGain(who, data, market, skill, current, itemHrid, enhancementLevel = 0, sellCap = 0) {
+// The skill's actions your levels allow – only actionHrid when given and allowed.
+function skillActions(who, data, skill, actionHrid = null) {
     const type = skillType(skill);
     const actions = skillingActions(data).filter((a) => a.type === type && (who.levels[a.levelRequirement.skillHrid] ?? 1) >= a.levelRequirement.level);
+    const chosen = actionHrid && actions.find((a) => a.hrid === actionHrid);
+    return chosen ? [chosen] : actions;
+}
+
+// What an item brings back when sold again: the best bid for its level after tax, else the vendor price.
+function resaleValue(itemHrid, offer, data) {
+    return offer.bid > 0 ? offer.bid * (1 - MARKET_TAX) : data.itemDetailMap[itemHrid]?.sellPrice || 0;
+}
+
+// What wearing one item instead of another (or nothing) changes on the action
+// you'd make (actionHrid, else the skill's best): gold and XP a day, with the teas you have now.
+export function swapGain(who, data, market, skill, current, itemHrid, enhancementLevel = 0, sellCap = 0, actionHrid = null) {
+    const type = skillType(skill);
+    const actions = skillActions(who, data, skill, actionHrid);
     const base = bestDay(actions, who, data, market, sellCap);
     if (!base) return null;
     const old = current ? itemSkillBuffs(current.itemHrid, current.enhancementLevel, skill, data) : { buffs: [], concentration: 0 };
@@ -66,9 +81,10 @@ export function swapGain(who, data, market, skill, current, itemHrid, enhancemen
 
 // equipped: location -> { itemHrid, enhancementLevel }; owned: itemHrid -> [enhancement levels in the inventory];
 // listings: itemHrid -> [{ enhancementLevel, price }] for sale; houseLevels: houseRoomHrid -> level.
-export function rankUpgrades(who, data, market, skill, { equipped, owned, listings, houseLevels, sellCap = 0, gameEquipmentBuffs = null }) {
+// listings carry the bid for the level too; actionHrid: the action to measure on.
+export function rankUpgrades(who, data, market, skill, { equipped, owned, listings, houseLevels, sellCap = 0, gameEquipmentBuffs = null, actionHrid = null }) {
     const type = skillType(skill);
-    const actions = skillingActions(data).filter((a) => a.type === type && (who.levels[a.levelRequirement.skillHrid] ?? 1) >= a.levelRequirement.level);
+    const actions = skillActions(who, data, skill, actionHrid);
     const base = bestDay(actions, who, data, market, sellCap);
     if (!base) return { base: null, upgrades: [], check: null };
     const withBuffs = (extra, concentration = 0, slots = who.slots[type]) => ({
@@ -109,16 +125,20 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
             } else after = bestDay(actions, changed, data, market, sellCap);
             const gain = after.goldPerDay - from.goldPerDay;
             if (gain <= 1) continue;
+            const resale = offer.owned ? 0 : resaleValue(item.hrid, offer, data);
+            const cost = Math.max(0, offer.price - resale);
             upgrades.push({
                 kind: "item",
                 itemHrid: item.hrid,
                 enhancementLevel: offer.enhancementLevel,
                 owned: !!offer.owned,
                 price: offer.price,
+                resale,
+                cost,
                 replaces: current,
                 gainPerDay: gain,
                 xpPerDay: after.xpPerDay - from.xpPerDay,
-                paybackDays: offer.price / gain,
+                paybackDays: cost / gain,
                 bestAction: after.action,
                 extraSlots: slotsAfter - who.slots[type],
                 teas: slotsAfter !== who.slots[type] ? after.teas : null,
@@ -140,6 +160,15 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
             upgrades.push({ kind: "house", roomHrid: room.hrid, name: room.name, level: level + 1, price, materials: priced, gainPerDay: gain, xpPerDay: after.xpPerDay - base.xpPerDay, paybackDays: price === null ? null : price / gain, bestAction: after.action });
         }
     }
+    // Each +level against the next lower one of the same item on offer: what the step costs and adds.
+    for (const u of upgrades) {
+        if (u.kind !== "item") continue;
+        const lower = upgrades.filter((o) => o.kind === "item" && o.itemHrid === u.itemHrid && o.enhancementLevel < u.enhancementLevel).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
+        if (!lower) continue;
+        const gain = u.gainPerDay - lower.gainPerDay;
+        const cost = u.cost - lower.cost;
+        u.step = { from: lower.enhancementLevel, price: u.price - lower.price, cost, gainPerDay: gain, paybackDays: gain > 1 ? Math.max(0, cost) / gain : null };
+    }
     upgrades.sort((a, b) => (a.paybackDays ?? Infinity) - (b.paybackDays ?? Infinity));
 
     // How well the equipment stats match what the game says your gear gives (action speed).
@@ -156,7 +185,8 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
 // highest-tier tool you can use, when it is above the one you wear. Gold and XP
 // a day for the gathering and production skills; price from the cheapest ask.
 // equipped: location -> { itemHrid, enhancementLevel }; owned: itemHrid -> [levels].
-export function toolTiers(who, data, market, { equipped, owned, sellCap = 0 }) {
+// actionFor(skill): the action to measure a skill on (the top of its Skilling list), or null for its best.
+export function toolTiers(who, data, market, { equipped, owned, sellCap = 0, actionFor = () => null }) {
     const tiers = new Map(); // tool type -> [{ itemHrid, skillHrid, level }]
     for (const item of Object.values(data.itemDetailMap)) {
         const detail = item.equipmentDetail;
@@ -174,9 +204,10 @@ export function toolTiers(who, data, market, { equipped, owned, sellCap = 0 }) {
         const wearing = current ? tools.find((tool) => tool.itemHrid === current.itemHrid) : null;
         if (!best || (wearing && wearing.level >= best.level)) continue;
         const skill = best.skillHrid.split("/").pop();
-        const gain = SKILLING_SKILLS.includes(skill) ? swapGain(who, data, market, skill, current, best.itemHrid, 0, sellCap) : null;
+        const gain = SKILLING_SKILLS.includes(skill) ? swapGain(who, data, market, skill, current, best.itemHrid, 0, sellCap, actionFor(skill)) : null;
         const isOwned = !!owned[best.itemHrid]?.length;
         const price = isOwned ? 0 : market.buy(best.itemHrid);
+        const resale = isOwned ? 0 : resaleValue(best.itemHrid, { bid: market.sell(best.itemHrid).bid }, data);
         notices.push({
             type,
             skill,
@@ -188,7 +219,7 @@ export function toolTiers(who, data, market, { equipped, owned, sellCap = 0 }) {
             price,
             gainPerDay: gain?.gainPerDay ?? null,
             xpPerDay: gain?.xpPerDay ?? null,
-            paybackDays: gain && gain.gainPerDay > 1 && price !== null ? price / gain.gainPerDay : null,
+            paybackDays: gain && gain.gainPerDay > 1 && price !== null ? Math.max(0, price - resale) / gain.gainPerDay : null,
         });
     }
     return notices.sort((a, b) => a.skill.localeCompare(b.skill));

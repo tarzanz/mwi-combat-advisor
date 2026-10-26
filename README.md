@@ -68,7 +68,10 @@ buy, by simulating *your own* character.
   skilling top/bottoms, necklace, earrings, ring, charm, cape and pouch your levels allow – also +N copies for sale and
   ones in your inventory – tried in place of what you wear, plus the skill's house room one level up (a pouch with
   more drink slots is measured with the best teas for both the old and the new number of slots); ranked by days
-  until the price is earned back on the skill's best action, with 🛒 buttons for the MWITools cart. If the item stats
+  until it is earned back on what you'd make – the top of the Skilling list with your settings, not an action your
+  coins or the market can't carry – counting what it sells for again at the bid (else the vendor price). Each +level
+  also shows its step over the next lower level for sale: what the step costs and adds a day, and its own payback.
+  🛒 buttons add them to the MWITools cart. If the item stats
   don't add up to the action speed the game reports for your gear, it says so. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
   also reads its order book (shown under *📦 How many*); closing the market brings the panel back on the same row. Open rows and headings stay
   open while you switch around. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
@@ -81,8 +84,8 @@ buy, by simulating *your own* character.
   the pace the analysis simulated with your current gear, and the 🛒 button then buys for those hours. They show only
   when the window's difficulty is the tier that was analysed.
 - **Better tools on the Equipment page** – under the slots a box lists every tool slot where your skill level now
-  allows a higher tier than the tool you wear (or an empty slot): the tool, its price, what it adds a day on the
-  skill's best action and when it pays back (gathering and production skills), with a 🛒 button each and one for
+  allows a higher tier than the tool you wear (or an empty slot): the tool, its price, what it adds a day on what
+  you'd make (the top of the skill's Skilling list) and when it pays back, counting a resale at the bid (gathering and production skills), with a 🛒 button each and one for
   all. A tool already in your inventory just says to equip it.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the

@@ -442,9 +442,19 @@ function suggestionHtml(e) {
 
 const INVENTORY = "/item_locations/inventory";
 
+// The action upgrades are measured on: the top of the skill's Skilling list –
+// what you'd make – when it earns gold, else null (the skill's best).
+export function topActionHrid(settings, skill) {
+    if (!SKILLING_SKILLS.includes(skill) || !state.character) return null;
+    return ranking({ ...settings, skillingSkill: skill }).available.find((e) => e.valid && e.goldPerDay > 0)?.hrid || null;
+}
+
+// What the top action depends on, for caches.
+export const topActionKey = (settings) => [settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, planMode(settings), goldShare(settings), historyVersion()].join("|");
+
 function upgradeRanking(settings) {
     const skill = settings.skillingSkill;
-    const key = [state.updatedAt, pricesStamp(), skill, settings.skillingSellAt, settings.skillingSellCap].join("|");
+    const key = [state.updatedAt, pricesStamp(), skill, topActionKey(settings)].join("|");
     if (view.upgradesKey !== key) {
         const data = getClientData();
         const equipped = {};
@@ -463,6 +473,7 @@ function upgradeRanking(settings) {
             houseLevels,
             sellCap: Number(settings.skillingSellCap) || 0,
             gameEquipmentBuffs: state.character.equipmentActionTypeBuffsMap || null,
+            actionHrid: topActionHrid(settings, skill),
         });
         view.upgradesKey = key;
     }
@@ -476,7 +487,7 @@ function upgradesHtml(settings) {
     const { base, upgrades, check } = upgradeRanking(settings);
     let html = `<section><h3>Upgrades that pay back</h3>`;
     if (!base) return html + `<p class="mwia-dim">Nothing in this skill earns gold at your level yet.</p></section>`;
-    html += `<p class="mwia-dim">Each tried in place of what you wear now, measured on the skill's best action (now ${esc(base.action.name)}, ${coins(base.goldPerDay)}/day). Payback = price ÷ extra gold a day.</p>`;
+    html += `<p class="mwia-dim">Each tried in place of what you wear now, measured on what you'd make: the top of the list above (now ${esc(base.action.name)}, ${coins(base.goldPerDay)}/day). Payback = what it costs, less what it sells for again at the bid, ÷ extra gold a day. A +level's step shows what it adds over the next lower one for sale.</p>`;
     if (check && !check.matches) {
         html += `<div class="mwia-notice mwia-notice-warn">Your gear's action speed here is ${pct(check.game)} by the game but ${pct(check.mine)} by the item stats, so these numbers may be a little off.</div>`;
     }
@@ -486,7 +497,7 @@ function upgradesHtml(settings) {
 }
 
 function upgradeRowHtml(u) {
-    const payback = u.paybackDays === null ? "price unknown" : u.paybackDays === 0 ? "free – you own it" : `pays back in ${hoursText(u.paybackDays * 24)}`;
+    const payback = u.paybackDays === null ? "price unknown" : u.paybackDays === 0 ? (u.owned ? "free – you own it" : "sells again for what it costs") : `pays back in ${hoursText(u.paybackDays * 24)}`;
     const gain = `+${coins(u.gainPerDay)}/day${u.xpPerDay > 1 ? `, +${coins(u.xpPerDay)} XP/day` : ""}`;
     if (u.kind === "house") {
         const cart = u.materials.filter((m) => m.itemHrid !== "/items/coin").map((m) => ({ hrid: m.itemHrid, quantity: m.count }));
@@ -498,8 +509,11 @@ function upgradeRowHtml(u) {
     const name = `${esc(itemName(u.itemHrid))}${u.enhancementLevel ? ` <span class="mwia-enh">+${u.enhancementLevel}</span>` : ""}`;
     const replaces = u.replaces ? `replaces ${esc(itemName(u.replaces.itemHrid))}${u.replaces.enhancementLevel ? ` +${u.replaces.enhancementLevel}` : ""}` : "empty slot";
     const cart = u.owned ? "" : `<button class="mwia-cart-btn" data-action="skilling-cart" data-teas="${esc(JSON.stringify([{ hrid: u.itemHrid, quantity: 1, enhancementLevel: u.enhancementLevel }]))}" title="Adds it to the MWITools cart">🛒 Add</button>`;
-    return `<div class="mwia-upgrade"><div><b>${name}</b> <span class="mwia-dim">${u.owned ? "you own it" : coins(u.price)}</span>
-        <small>${gain} · ${payback} · ${replaces}${slotsText(u)}</small></div>${cart}</div>`;
+    const resale = !u.owned && u.resale > 1 ? ` <span class="mwia-dim">(${coins(u.resale)} back when sold)</span>` : "";
+    const st = u.step;
+    const step = st ? `<small class="mwia-dim">+${st.from} → +${u.enhancementLevel}: ${st.price >= 0 ? "+" : "−"}${coins(Math.abs(st.price))} for +${coins(st.gainPerDay)}/day${st.paybackDays === null ? " – adds nothing" : st.paybackDays === 0 ? " – no extra cost after resale" : ` – the step pays back in ${hoursText(st.paybackDays * 24)}`}</small>` : "";
+    return `<div class="mwia-upgrade"><div><b>${name}</b> <span class="mwia-dim">${u.owned ? "you own it" : coins(u.price)}</span>${resale}
+        <small>${gain} · ${payback} · ${replaces}${slotsText(u)}</small>${step}</div>${cart}</div>`;
 }
 
 // A pouch with more drink slots, and the teas that fill them.

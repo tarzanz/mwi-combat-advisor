@@ -100,7 +100,7 @@ export function askPrice(itemHrid, enhancementLevel = 0) {
 export function marketListings(itemHrid) {
     return Object.entries(prices?.[itemHrid] || {})
         .filter(([, entry]) => entry.a > 0)
-        .map(([level, entry]) => ({ enhancementLevel: Number(level), price: entry.a }))
+        .map(([level, entry]) => ({ enhancementLevel: Number(level), price: entry.a, bid: entry.b > 0 ? entry.b : null }))
         .sort((a, b) => a.price - b.price);
 }
 

@@ -4,6 +4,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fixtureCharacter } from "./fixture-character.js";
+import { rankUpgrades } from "../src/skilling-upgrades.js";
 import { PLAN_MODES, SKILLING_SKILLS, liquidityRating, marketPricer, rankSkilling, skillingCharacter, suggestChainCount, suggestCount, thinMargin } from "../src/skilling.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -104,6 +105,16 @@ const chained = suggestChainCount(job, chain, { stock: { inventory: 20, listed: 
 check("chain: the planned hours for the whole chain, less stock", chained.count === 180 && Math.abs(chained.hours - 7.2) < 1e-9 && chained.cash === 1800, JSON.stringify(chained));
 const chainPoor = suggestChainCount(job, chain, { stock: none, coins: 1000, liquidity: stable, inputMarket: () => ({ liquidity: { rating: "thin", known: true } }), ...away });
 check("chain: what it buys within the coins of its thinnest market", chainPoor.count === 10 && chainPoor.limitedByCoins && chainPoor.ratedBy === "/items/y", JSON.stringify(chainPoor));
+
+// Upgrades: payback counts selling it again at the bid; each +level shows its step over the next lower one.
+const needleOffers = [{ enhancementLevel: 0, price: 1000, bid: 800 }, { enhancementLevel: 3, price: 3000, bid: 2000 }, { enhancementLevel: 5, price: 9000, bid: null }];
+const ups = rankUpgrades(skillingCharacter(character, items, data), data, market, "tailoring", { equipped: {}, owned: {}, houseLevels: {}, listings: (hrid) => (hrid === "/items/azure_needle" ? needleOffers : []), actionHrid: "/actions/tailoring/rough_leather" });
+const needle = (level) => ups.upgrades.find((u) => u.itemHrid === "/items/azure_needle" && u.enhancementLevel === level);
+const n0 = needle(0), n3 = needle(3), n5 = needle(5);
+check("upgrades measured on the action given", ups.base.action.hrid === "/actions/tailoring/rough_leather", ups.base?.action.hrid);
+check("payback after resale at the bid", n0 && Math.abs(n0.cost - (1000 - 800 * 0.96)) < 1e-9 && Math.abs(n0.paybackDays - n0.cost / n0.gainPerDay) < 1e-12, JSON.stringify(n0 && { c: n0.cost, d: n0.paybackDays }));
+check("no bid: resale at the vendor price", n5 && Math.abs(n5.resale - data.itemDetailMap["/items/azure_needle"].sellPrice) < 1e-9);
+check("a +level's step over the next lower one", n5?.step && n5.step.from === 3 && n5.step.price === 6000 && Math.abs(n5.step.gainPerDay - (n5.gainPerDay - n3.gainPerDay)) < 1e-6 && !n0.step, JSON.stringify(n5?.step));
 
 check("thin margin under 5%", thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.03 }) && !thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.2 }));
 check("thin margin under the price's swing", thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.08 }, 0.12) && !thinMargin({ costPerAction: 0, profitPerHour: 1, margin: 1 }, 0.5));

@@ -6,7 +6,7 @@ import { onStateChange, state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
 import { visible } from "./game-nav.js";
 import { skillingCharacter } from "./skilling.js";
-import { skillingMarket } from "./skilling-ui.js";
+import { skillingMarket, topActionHrid, topActionKey } from "./skilling-ui.js";
 import { toolTiers } from "./skilling-upgrades.js";
 
 const SCAN_MS = 400;
@@ -54,7 +54,7 @@ function equipmentGrid() {
 
 function notices() {
     const settings = t.deps.settings();
-    const key = [state.updatedAt, pricesStamp(), settings.skillingSellAt, settings.skillingSellCap].join("|");
+    const key = [state.updatedAt, pricesStamp(), topActionKey(settings)].join("|");
     if (t.key !== key) {
         const data = getClientData();
         const equipped = {};
@@ -66,7 +66,7 @@ function notices() {
         }
         const who = skillingCharacter(state.character, state.items, data);
         const market = skillingMarket(settings.skillingSellAt);
-        t.notices = toolTiers(who, data, market, { equipped, owned, sellCap: Number(settings.skillingSellCap) || 0 });
+        t.notices = toolTiers(who, data, market, { equipped, owned, sellCap: Number(settings.skillingSellCap) || 0, actionFor: (skill) => topActionHrid(settings, skill) });
         t.key = key;
     }
     return t.notices;
@@ -117,7 +117,7 @@ function boxHtml(list) {
         <ul class="mwia-tool-list">${list.map(rowHtml).join("")}</ul>
         ${buyable.length > 1 ? cartButton(buyable.map((n) => ({ hrid: n.itemHrid, quantity: 1 })), `🛒 Add all ${buyable.length} (${coins(buyable.reduce((sum, n) => sum + n.price, 0))})`) : ""}
         ${t.status ? `<div class="mwia-guide-status">${esc(t.status)}</div>` : ""}
-        <div class="mwia-guide-status">Gold a day on the skill's best action now, sold at the ${t.deps.settings().skillingSellAt === "bid" ? "bid" : "ask"}.</div>`;
+        <div class="mwia-guide-status">Gold a day on what you'd make now (the top of the skill's Skilling list), sold at the ${t.deps.settings().skillingSellAt === "bid" ? "bid" : "ask"}. Payback counts selling the tool again at the bid.</div>`;
 }
 
 async function onClick(event) {
