@@ -78,6 +78,33 @@ buy, by simulating *your own* character.
   also reads its order book (shown under *📦 How many*); closing the market brings the panel back on the same row. Open rows and headings stay
   open while you switch around. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
+- **Levelling Enhancing and Alchemy** – two more choices in the Skilling tab's *Skill* list (not part of *All
+  skills*). These skills mostly cost gold, so the **Focus** slider weighs time against money there: *Gold only* ranks
+  the cheapest coins per XP first, *XP only* the most XP a day whatever it costs, and in between each counts as a
+  share of the best in the list (coins per XP against the cheapest, XP a day against the fastest). Every row shows its
+  coins per XP; tap it for the whole calculation, with your level, buffs and the best teas.
+  - **Enhancing:** enhance an item towards a target +level again and again. A failure drops it back to +0 (no
+    protection), so the item is bought once per success while every attempt costs its enhancing materials; at the
+    target the +level is sold and a new item bought. One row per item, at the target (+1 … +20) that suits the focus –
+    *🎚 Targets* lists them all with attempts, gold and XP a day. Success = the game's rate for the +level × (1 + 0.05%
+    per level above the item, or −50% × (1 − level / item level) below it, + the tool's and the Observatory's success);
+    12 s / (1 + speed, +1% per level above the item); XP 1.4 × (1 + +level) × (10 + item level) × wisdom, a tenth on a
+    failure; Blessed Tea's double steps. The attempts per target come from a closed formula (the same as a Markov
+    solve). The +level sells at the lowest ask, never above its usual ask at that level (from the price history), or
+    at the bid (*Sell at*); with nobody buying it, the nearest lower +level's bid is a floor. An item you have at +0 is
+    used first, valued at its bid. **▶ Enhance to +N** opens Enhancing with the item from your inventory in the slot
+    and the target set (without it, the page opens and says to buy it first); **🛒 Materials** adds what the planned
+    hours use.
+  - **Alchemy:** every coinify, decompose and transmute of an item on the market, bought at the ask. Success = base
+    (70%, 60%, the item's transmute rate) × (1 + catalyst + Catalytic Tea + 0.9 / item level per level below the item);
+    20 s / (1 + speed) with efficiency +1% per level above the item; the bulk size (10 essences at once), the coins it
+    costs (decompose 5 × (10 + item level), transmute max(50, sell price / 5)), XP 1.0 / 1.4 / 1.6 × (10 + item level),
+    a tenth on a failure, Alchemy Essence ((100 + item level) / 1800) and Artisan's Crates. The catalyst (none, the
+    action's own or Prime) that suits the focus is picked; it is used up only on a success. A transmute that gives the
+    item back saves buying one. *Plan*, the market's rating and *How many* work as for crafting; **▶ Coinify N**
+    (Decompose, Transmute) opens that tab with the item from your inventory and the count filled in.
+  - Only the 40 items that do best without teas in gold, in XP and in XP per coin (and those you have) are tried with
+    every tea setup, so the list stays quick.
 - **Teas, coffee and food in the action window** – when you open an action in the game, a box above the *Start*
   button says which teas to have in the skill's slots for it (➕ put in, ✓ already there, ➖ take out), with the
   advisor's settings and focus, how many you have and a 🛒 button for the teas the job needs. For a combat zone it
@@ -114,7 +141,8 @@ buy, by simulating *your own* character.
   a house upgrade and Artisan Tea are not counted.
 - **Price history** – while the game is open the script saves every item's ask and bid every 30 minutes, each +level
   of an item on its own (one point per hour for two weeks, then one per day for a year; in the browser's IndexedDB, on
-  that device only, keeping only what changed since the point before, so prices that stand still take no room). In the game's
+  that device only, keeping only what changed since the point before, so prices that stand still take no room), and how
+  many of each sold that hour and at what average price, as the market file says. In the game's
   marketplace a box under the open item shows one summary line – ask and bid now against their usual price, trend and
   typical swing – and folds open (*Chart and details*) to the price now against its usual price – the median of the last 7 and 30
   days, so one odd listing hardly moves it – with ±%, a trend arrow (this week's median against last week's) and a
@@ -181,8 +209,12 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - Results are estimates – a few percent either way is normal.
 - The plan train relies on the class names of the MWITools planning tab and the game's action pages; it has only been
   tested against mock-ups of both.
-- Skilling: the market data has no volumes, so the market's rating rests on prices alone – a calm item that sells only
-  a few a day can still look stable. *Max sold/day* caps it when you know better.
+- Skilling: the market's rating rests on prices alone – a calm item that sells only a few a day can still look
+  stable. The price history now also saves how many were sold each hour (the market file's `v`, with the average
+  trade price `p`), and *How many* shows about how many sell a day once 12 hours of that are collected; the rating
+  doesn't use it yet. *Max sold/day* caps it when you know better.
+- Enhancing: no protection (Mirror of Protection, copies) yet, no essence or crate drops, and no Observatory/Enhancer
+  upgrades under *Upgrades that pay back*. Alchemy: no Unrefine. Neither has the tea box in the game's action window.
   The ⛓ chain makes every material it can (by the fastest source), even where buying one of them would pay better.
 - The phone layout has been tested at iPhone size in desktop Firefox, not on a real phone. Keep the screen on while
   an analysis runs: a phone pauses the page in the background.
@@ -197,6 +229,7 @@ node test/browser-test.mjs path/to/marketplace.json /tmp [mwitools.user.js]  # f
 node test/train-browser-test.mjs /tmp                     # plan train against a mock planning tab and game
 node test/skilling-browser-test.mjs /tmp                  # Skilling tab against a mock game and market
 node test/price-history-test.mjs                          # price-history maths in Node
+node test/leveling-test.mjs                               # Enhancing and Alchemy rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # in Chromium instead of Firefox

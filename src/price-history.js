@@ -10,8 +10,8 @@
 // game was closed are simply missing, so uneven sampling doesn't skew it.
 
 const DB_NAME = "mwia-price-history";
-const HOURLY = "hourly"; // { hour, a: Float32Array, b: Float32Array }, item i at index i
-const DAILY = "daily"; // { day, a, b, aLow, aHigh, bLow, bHigh: Float32Array, n: Uint8Array }
+const HOURLY = "hourly"; // { hour, a, b, p, v: Float32Array, sold: true }, item i at index i
+const DAILY = "daily"; // { day, a, b, aLow, aHigh, bLow, bHigh, p, v: Float32Array, n, vn: Uint8Array }
 const META = "meta"; // "items": [hrid, ...] (the index order), "last": the newest file's timestamp
 
 export const HOURLY_DAYS = 14;
@@ -31,12 +31,17 @@ export const MIN_DAYS = 2;
 // The history's name for an item at a +level: the item itself at +0.
 export const historyKey = (itemHrid, level = 0) => (level ? `${itemHrid}+${level}` : itemHrid);
 
-export const HOURLY_FIELDS = ["a", "b"];
-export const DAILY_FIELDS = ["a", "b", "aLow", "aHigh", "bLow", "bHigh", "n"];
+// The market file also says, per item, how many were traded in its hour (v)
+// and at what average price (p). A record with sold: true has them; an item
+// missing from such an hour sold nothing. Days keep the mean sold per hour
+// (v) over the vn hours that had the numbers.
+export const HOURLY_FIELDS = ["a", "b", "p", "v"];
+export const DAILY_FIELDS = ["a", "b", "aLow", "aHigh", "bLow", "bHigh", "n", "p", "v", "vn"];
+const COUNTS = new Set(["n", "vn"]);
 const hasValue = (v) => Number.isFinite(v) && v !== 0;
 const same = (x, y) => x === y || (Number.isNaN(x) && Number.isNaN(y));
-const emptyOf = (field, count) => (field === "n" ? new Uint8Array(count) : new Float32Array(count).fill(NaN));
-const fieldAt = (array, field, i) => (array && i < array.length ? array[i] : field === "n" ? 0 : NaN);
+const emptyOf = (field, count) => (COUNTS.has(field) ? new Uint8Array(count) : new Float32Array(count).fill(NaN));
+const fieldAt = (array, field, i) => (array && i < array.length ? array[i] : COUNTS.has(field) ? 0 : NaN);
 
 // A record as stored: only the items whose values differ from the record
 // before it (idx, and each field's values at those items). A key record – the
@@ -79,7 +84,8 @@ export function decodeRecords(stored, fields) {
         for (const f of fields) {
             const values = emptyOf(f, s.count);
             if (!s.key && previous) for (let i = 0; i < s.count; i++) values[i] = fieldAt(previous[f], f, i);
-            s.idx.forEach((i, j) => (values[i] = s[f][j]));
+            // Records stored before a field existed (p, v) simply don't have it.
+            if (s[f]) s.idx.forEach((i, j) => (values[i] = s[f][j]));
             full[f] = values;
         }
         out.push(full);
@@ -134,8 +140,12 @@ export function rollUpDays(hourlyRecords, itemCount) {
         byDay.get(day).push(record);
     }
     return [...byDay].map(([day, records]) => {
-        const out = { day, a: new Float32Array(itemCount), b: new Float32Array(itemCount), aLow: new Float32Array(itemCount), aHigh: new Float32Array(itemCount), bLow: new Float32Array(itemCount), bHigh: new Float32Array(itemCount), n: new Uint8Array(itemCount) };
+        const out = { day, a: new Float32Array(itemCount), b: new Float32Array(itemCount), aLow: new Float32Array(itemCount), aHigh: new Float32Array(itemCount), bLow: new Float32Array(itemCount), bHigh: new Float32Array(itemCount), n: new Uint8Array(itemCount), p: new Float32Array(itemCount), v: new Float32Array(itemCount), vn: new Uint8Array(itemCount) };
+        const sold = records.filter((r) => r.sold);
         for (let i = 0; i < itemCount; i++) {
+            out.p[i] = dayStats(sold.map((r) => at(r.p, i)))[0];
+            out.v[i] = sold.length ? sold.reduce((sum, r) => sum + (Number.isFinite(at(r.v, i)) ? at(r.v, i) : 0), 0) / sold.length : NaN;
+            out.vn[i] = sold.length;
             const [aMed, aLow, aHigh, an] = dayStats(records.map((r) => (i < r.a.length ? r.a[i] : NaN)));
             const [bMed, bLow, bHigh, bn] = dayStats(records.map((r) => (i < r.b.length ? r.b[i] : NaN)));
             out.a[i] = aMed;
@@ -190,10 +200,10 @@ export function summarize(i, hours, days, nowHour) {
     return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS, liquidity: liquidity(i, hours, nowHour) };
 }
 
-// How lively the week's market was, from prices alone (the market file has no
-// quantities): the share of hours with both a buyer and a seller, the median
-// spread between them, and how often the lowest ask moved from one hour with
-// data to the next – a sign that things sell and get relisted.
+// How lively the week's market was: the share of hours with both a buyer and
+// a seller, the median spread between them, how often the lowest ask moved
+// from one hour with data to the next – a sign that things sell and get
+// relisted – and, where the file said so, how many were sold.
 function liquidity(i, hours, nowHour) {
     let observed = 0;
     let both = 0;
@@ -219,7 +229,22 @@ function liquidity(i, hours, nowHour) {
             lastAsk = a;
         }
     }
-    return { hours: observed, both: observed ? both / observed : 0, spread: median(spreads), activity: pairs ? moves / pairs : 0 };
+    return { hours: observed, both: observed ? both / observed : 0, spread: median(spreads), activity: pairs ? moves / pairs : 0, sold: soldPerDay(i, hours, nowHour) };
+}
+
+// Sold a day over the week: the mean of the hours whose file had the numbers, × 24.
+export function soldPerDay(i, hours, nowHour) {
+    let counted = 0;
+    let total = 0;
+    const prices = [];
+    for (const r of hours) {
+        if (!r.sold || nowHour - r.hour >= 7 * 24) continue;
+        counted++;
+        const v = at(r.v, i);
+        if (Number.isFinite(v)) total += v;
+        if (Number.isFinite(at(r.p, i))) prices.push([at(r.p, i), Number.isFinite(v) ? v : 1]);
+    }
+    return { hours: counted, perDay: counted ? (total / counted) * 24 : null, price: median(prices), enough: counted >= MIN_HOURS };
 }
 
 // Every stored price as CSV, to read in a spreadsheet or hand to an AI. Hourly
@@ -333,7 +358,7 @@ export async function recordSnapshot(marketData, timestamp) {
     const entries = [];
     for (const [hrid, levels] of Object.entries(marketData)) {
         for (const [level, entry] of Object.entries(levels || {})) {
-            if (!(entry?.a > 0) && !(entry?.b > 0) && level !== "0") continue;
+            if (!(entry?.a > 0) && !(entry?.b > 0) && !(entry?.v > 0) && level !== "0") continue;
             const key = historyKey(hrid, Number(level));
             if (!store.index.has(key)) {
                 store.index.set(key, store.items.length);
@@ -343,10 +368,12 @@ export async function recordSnapshot(marketData, timestamp) {
         }
     }
     const count = store.items.length;
-    const record = { hour, a: new Float32Array(count).fill(NaN), b: new Float32Array(count).fill(NaN) };
+    const record = { hour, a: new Float32Array(count).fill(NaN), b: new Float32Array(count).fill(NaN), p: new Float32Array(count).fill(NaN), v: new Float32Array(count).fill(NaN), sold: true };
     for (const [i, entry] of entries) {
         if (entry?.a > 0) record.a[i] = entry.a;
         if (entry?.b > 0) record.b[i] = entry.b;
+        if (entry?.p > 0) record.p[i] = entry.p;
+        if (entry?.v > 0) record.v[i] = entry.v;
     }
     // The newest point of an hour wins.
     store.hours = store.hours.filter((r) => r.hour !== hour);

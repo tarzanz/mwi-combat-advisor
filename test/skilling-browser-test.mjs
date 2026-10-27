@@ -36,6 +36,9 @@ character.characterSkills.push({ skillHrid: "/skills/total_level", level: 800 })
 // Tools: a Cheese Needle worn (Tailoring 20 allows an Azure Needle), Azure Shears in the inventory.
 character.characterItems.push({ hash: "needle", itemHrid: "/items/cheese_needle", itemLocationHrid: "/item_locations/tailoring_tool", count: 1, enhancementLevel: 0 });
 character.characterItems.push({ hash: "shears", itemHrid: "/items/azure_shears", itemLocationHrid: "/item_locations/inventory", count: 1, enhancementLevel: 0 });
+// Enhancing and Alchemy, levelled by paying for it.
+character.characterSkills.push({ skillHrid: "/skills/enhancing", level: 30, experience: clientData.levelExperienceTable[30] + 10 });
+character.characterSkills.push({ skillHrid: "/skills/alchemy", level: 28, experience: clientData.levelExperienceTable[28] + 10 });
 const FORAGING = "/action_types/foraging";
 character.actionTypeDrinkSlotsMap = { ...character.actionTypeDrinkSlotsMap, [FORAGING]: [{ itemHrid: "/items/wisdom_tea" }, null, null] };
 character.equipmentActionTypeBuffsMap = { [FORAGING]: [{ typeHrid: "/buff_types/action_speed", flatBoost: 0.15, ratioBoost: 0 }] };
@@ -61,14 +64,21 @@ const bootsCost = clientData.actionDetailMap["/actions/tailoring/cotton_boots"].
 marketData["/items/cotton_boots"] = { 0: { a: Math.round((bootsCost * 1.02) / 0.96), b: Math.round(bootsCost) } };
 
 const items = (c) => new Map(c.characterItems.map((i) => [i.hash, i]));
+// No +level is for sale or bought in this market: an enhanced item sells at its +0 bid (a floor), after tax.
+const resale = (hrid) => ({ price: marketData[hrid][0].b * 0.96, source: "lower", level: 0 });
+const ownedOf = (c) => (hrid) => heldStock(c, items(c), hrid).inventory;
 const market = (sellAt) => marketPricer((hrid) => marketData[hrid]?.[0], clientData, sellAt);
 const books = new Map();
 // No price history in the test browser: every market is rated thin.
 const planFor = (c, { mode = "away", sellAt = "ask" } = {}) => {
     const have = (hrid) => heldStock(c, items(c), hrid).inventory;
-    return { ...PLAN_MODES[mode], stock: (a) => heldStock(c, items(c), a.outputItems?.[0]?.itemHrid), book: (a) => books.get(a.outputItems?.[0]?.itemHrid) || null, coins: have("/items/coin"), have, sellAt, liquidity: () => liquidityRating(null), inputMarket: (hrid) => ({ liquidity: liquidityRating(null), book: books.get(hrid) || null }) };
+    return { ...PLAN_MODES[mode], stock: (a) => heldStock(c, items(c), a.outputItems?.[0]?.itemHrid), book: (a) => books.get(a.outputItems?.[0]?.itemHrid) || null, coins: have("/items/coin"), have, sellAt, liquidity: (a) => (a.outputItems?.[0]?.itemHrid === "/items/coin" ? { rating: "stable", known: true, coin: true } : liquidityRating(null)), inputMarket: (hrid) => ({ liquidity: liquidityRating(null), book: books.get(hrid) || null }) };
 };
-const expectRank = (c, options) => rankSkilling(skillingCharacter(c, items(c), clientData), clientData, market(options.sellAt || "ask"), { plan: planFor(c, options), ...options });
+const expectRank = (c, options) => rankSkilling(skillingCharacter(c, items(c), clientData), clientData, market(options.sellAt || "ask"), { plan: planFor(c, options), leveling: { resale, owned: ownedOf(c) }, ...options });
+
+// The item on top of the Enhancing list (all-gold focus) is in the inventory, so ▶ can put it in the slot.
+const topEnhance = expectRank(character, { skill: "enhancing", goldWeight: 1 }).available[0];
+character.characterItems.push({ hash: "enh", itemHrid: topEnhance.action.itemHrid, itemLocationHrid: "/item_locations/inventory", count: 1, enhancementLevel: 0 });
 
 // The best tailoring item: 5 in the inventory, 3 on a sell order, and an order
 // book where some buy orders pay above break-even and some don't.
@@ -102,7 +112,7 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
   // The game: navigation, skill page with category tabs, action cards, action panel.
   const production = Object.values(data.actionDetailMap).filter((a) => a.function === "/action_functions/production" || a.function === "/action_functions/gathering");
   document.body.insertAdjacentHTML("afterbegin", '<nav id="nav"></nav><div id="skillpage"></div>');
-  document.getElementById("nav").innerHTML = '<div class="NavigationBar_navigationLinks__zz">' + ["tailoring", "foraging"].map((s) => '<div class="NavigationBar_navigationLink__abc" data-skill="' + s + '"><svg><use href="/sprites/skills.svg#' + s + '"></use></svg>' + s + '</div>').join("") + '</div>';
+  document.getElementById("nav").innerHTML = '<div class="NavigationBar_navigationLinks__zz">' + ["tailoring", "foraging", "enhancing", "alchemy"].map((s) => '<div class="NavigationBar_navigationLink__abc" data-skill="' + s + '"><svg><use href="/sprites/skills.svg#' + s + '"></use></svg>' + s + '</div>').join("") + '</div>';
   function showSkill(skill, category) {
     const list = production.filter((a) => a.type === "/action_types/" + skill);
     const categories = [...new Set(list.map((a) => a.category))];
@@ -114,6 +124,30 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
     page.querySelectorAll(".SkillAction_skillAction__x").forEach((c) => c.onclick = () => setTimeout(() => openPanel(data.actionDetailMap[c.dataset.hrid]), 50));
   }
   document.querySelectorAll(".NavigationBar_navigationLink__abc").forEach((l) => l.onclick = () => setTimeout(() => showSkill(l.dataset.skill), 80));
+  // The game's own Enhance / Alchemize handlers and their windows (React-like: a component behind the input).
+  const gameRoot = document.createElement("div");
+  gameRoot.id = "root";
+  document.body.appendChild(gameRoot);
+  gameRoot["__reactContainer$t"] = { current: { stateNode: {
+    handleEnhanceItem: (hash) => { window.enhanceCall = hash; setTimeout(() => levelPanel("enhancing", hash), 50); },
+    handleAlchemizeItem: (hash) => { window.alchemyCall = hash; setTimeout(() => levelPanel("alchemy", hash), 50); },
+  } } };
+  function levelPanel(kind, hash) {
+    document.querySelector(".lvl")?.remove();
+    const box = document.createElement("div");
+    box.className = "lvl";
+    const tabs = kind === "alchemy" ? ["Coinify", "Decompose", "Transmute", "Unrefine"].map((t) => '<button role="tab" aria-selected="' + (t === "Coinify") + '">' + t + "</button>").join("") : "";
+    box.innerHTML = tabs + '<div class="SkillActionDetail_' + kind + 'Component__q"><input type="text"></div>';
+    document.body.appendChild(box);
+    const comp = { state: { primaryItemHash: hash },
+      enhancingMaxLevelChanged: (e) => { window.enhanceTarget = e.target.value; },
+      selectEnhancingItemHandler: (h) => { comp.state.primaryItemHash = h; },
+      // Changing the tab empties the slot, as a fresh window would.
+      selectAlchemyItemHandler: (h) => { comp.state.primaryItemHash = h; window.alchemyItem = h; },
+      maxActionCountChanged: (e) => { window.alchemyCount = e.target.value; } };
+    box.querySelector("input")["__reactFiber$t"] = { stateNode: null, return: { stateNode: comp, return: null } };
+    box.querySelectorAll("[role=tab]").forEach((b) => b.onclick = () => { box.querySelectorAll("[role=tab]").forEach((x) => x.setAttribute("aria-selected", String(x === b))); window.alchemyTab = b.textContent; comp.state.primaryItemHash = null; });
+  }
   function openPanel(action) {
     document.querySelector(".modal")?.remove();
     const modal = document.createElement("div");
@@ -695,6 +729,82 @@ try {
     await page.waitForSelector("#teapage .mwia-tea-note", { timeout: 3000 }).catch(() => null);
     check("an unreadable tea row says why", /can't mark the teas – no tea slots/.test(await page.$eval("#teapage .mwia-tea-note", (n) => n.textContent).catch(() => "")));
     await page.evaluate(() => document.getElementById("teapage").remove());
+
+    // Enhancing: one row per item at the target that suits the focus, worked out like the Node calculation.
+    await page.click(".mwia-launcher");
+    await page.waitForSelector('[data-tab="skilling"]');
+    await page.click('[data-tab="skilling"]');
+    await select(page, "skillingSkill", "enhancing");
+    const settingsNow = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll("[data-setting]")].map((n) => [n.dataset.setting, n.value])));
+    const leveling = (skill) => expectRank(character, { skill, teaMode: settingsNow.skillingTeas, sellAt: settingsNow.skillingSellAt, mode: settingsNow.skillingMode, goldWeight: Number(settingsNow.skillingGold) / 100 });
+    const enhancing = await rows(page);
+    const expEnh = leveling("enhancing").available;
+    check("Enhancing lists items with a target", enhancing.length > 0 && expEnh.slice(0, 3).every((e, i) => enhancing[i]?.name === e.action.name && enhancing[i].gold === `${coinText(e.goldPerDay)}/day` && enhancing[i].xp === `${coinText(e.xpPerDay)} XP/day`),
+        JSON.stringify(enhancing.slice(0, 2)) + " vs " + expEnh.slice(0, 2).map((e) => `${e.action.name} +${e.target} ${coinText(e.goldPerDay)} ${coinText(e.xpPerDay)}`).join(", "));
+    check("Enhancing rows show coins per XP", /item level \d+ · [\d.,]+ coins\/XP/.test(enhancing[0]?.sub || ""), enhancing[0]?.sub);
+    check("an enhanced item no one buys is valued at a lower +level's bid", /valued at the \+0 bid/.test(enhancing[0]?.warn || ""), enhancing[0]?.warn);
+    await page.click(".mwia-skill-row summary");
+    const enhDetail = await page.$eval(".mwia-skill-row[open] .mwia-skill-detail", (n) => n.textContent);
+    check("Enhancing detail: odds, attempts, every target", /attempts per \+\d+/.test(enhDetail) && /A failure drops the item to \+0/.test(enhDetail) && /\+1: [\d.,]+ attempts/.test(enhDetail) && /suits your Focus/.test(enhDetail), enhDetail.slice(0, 300));
+    await page.screenshot({ path: path.join(shotDir, "skilling-12-enhancing.png") });
+    // XP only: a higher target and more XP a day than all gold.
+    await page.evaluate(() => { const r = document.querySelector('[data-setting="skillingGold"]'); r.value = "0"; r.dispatchEvent(new Event("change", { bubbles: true })); });
+    await new Promise((r) => setTimeout(r, 300));
+    const xpOnly = await rows(page);
+    const expEnhXp = expectRank(character, { skill: "enhancing", teaMode: settingsNow.skillingTeas, sellAt: settingsNow.skillingSellAt, goldWeight: 0 }).available[0];
+    check("XP focus picks more XP at a higher cost", xpOnly[0]?.name === expEnhXp.action.name && expEnhXp.xpPerDay >= expEnh[0].xpPerDay && expEnhXp.goldPerDay <= expEnh[0].goldPerDay, `${xpOnly[0]?.name} vs ${expEnhXp.action.name}`);
+    await page.evaluate((v) => { const r = document.querySelector('[data-setting="skillingGold"]'); r.value = v; r.dispatchEvent(new Event("change", { bubbles: true })); }, settingsNow.skillingGold);
+    await new Promise((r) => setTimeout(r, 300));
+    // ▶ Enhance puts the item (from the inventory) in the game's slot and sets the target.
+    const enhRow = expEnh.find((e) => e.action.itemHrid === topEnhance.action.itemHrid);
+    await page.evaluate((hrid) => [...document.querySelectorAll(".mwia-skill-row")].find((r) => r.dataset.hrid === hrid).open = true, enhRow.hrid);
+    await page.evaluate((hrid) => [...document.querySelectorAll(".mwia-skill-row")].find((r) => r.dataset.hrid === hrid).querySelector('[data-action="skilling-level"]').click(), enhRow.hrid);
+    await page.waitForFunction(() => window.enhanceTarget !== undefined, { timeout: 5000 }).catch(() => null);
+    const enhCall = await page.evaluate(() => ({ hash: window.enhanceCall, target: window.enhanceTarget }));
+    check("▶ Enhance opens the item with the target", enhCall.hash === `1::/item_locations/inventory::${topEnhance.action.itemHrid}::0` && enhCall.target === String(enhRow.target), JSON.stringify(enhCall));
+
+    // Alchemy: coinify, decompose and transmute, with the odds.
+    await page.click(".mwia-launcher");
+    await page.waitForSelector(".mwia-skill-row");
+    await select(page, "skillingSkill", "alchemy");
+    const alchemy = await rows(page);
+    const expAlc = leveling("alchemy").available;
+    check("Alchemy lists item actions", alchemy.length > 0 && expAlc.slice(0, 3).every((e, i) => alchemy[i]?.name === e.action.name && alchemy[i].gold === `${coinText(e.goldPerDay)}/day`),
+        JSON.stringify(alchemy.slice(0, 2)) + " vs " + expAlc.slice(0, 2).map((e) => `${e.action.name} ${coinText(e.goldPerDay)}`).join(", "));
+    check("Alchemy rows show the success rate", /% success/.test(alchemy[0]?.sub || ""), alchemy[0]?.sub);
+    const above = expAlc.find((e) => e.requiredLevel > e.effectiveLevel);
+    check("an item above your level has lower odds", !above || above.successRate < above.baseRate * (1 + above.catalyst.bonus + above.successBuff) - 1e-9, above ? `${above.action.name} ${above.successRate}` : "none");
+    // ▶ Coinify with an item you have (Donut): the tab, the item and the count.
+    const clickLevel = async (hrid) => {
+        await page.evaluate(() => { for (const k of ["alchemyCall", "alchemyItem", "alchemyCount"]) window[k] = undefined; document.querySelector(".mwia-notice")?.remove(); });
+        if (await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden")).catch(() => false)) await page.click(".mwia-launcher");
+        await page.evaluate((h) => { const r = [...document.querySelectorAll(".mwia-skill-row")].find((x) => x.dataset.hrid === h); r.open = true; r.querySelector('[data-action="skilling-level"]').click(); }, hrid);
+    };
+    const lvlState = () => page.evaluate(() => ({ call: window.alchemyCall, tab: document.querySelector('.lvl [aria-selected="true"]')?.textContent, item: window.alchemyItem, count: window.alchemyCount, notice: document.querySelector(".mwia-notice")?.textContent }));
+    const donut = expAlc.find((e) => e.action.hrid === "/actions/alchemy/coinify#/items/donut");
+    await page.click('[data-action="skilling-all"]');
+    await new Promise((r) => setTimeout(r, 200));
+    check("an item you have is always listed", !!donut && (await rows(page)).some((r) => r.name === donut.action.name), donut?.action.name);
+    if (donut) {
+        await clickLevel(donut.hrid);
+        await page.waitForFunction(() => window.alchemyCount !== undefined, { timeout: 5000 }).catch(() => null);
+        const st = await lvlState();
+        check("▶ Coinify opens the item you have on the Coinify tab with the count", st.call === "1::/item_locations/inventory::/items/donut::0" && st.tab === "Coinify" && st.count === String(donut.suggestion?.count ?? 0), JSON.stringify(st));
+    }
+    // ▶ Transmute: the tab changes (which empties the slot), and the item is put back.
+    const trans = expAlc.find((e) => e.action.hrid === "/actions/alchemy/transmute#/items/donut");
+    if (trans) {
+        await clickLevel(trans.hrid);
+        await page.waitForFunction(() => window.alchemyItem !== undefined, { timeout: 5000 }).catch(() => null);
+        const st = await lvlState();
+        check("▶ Transmute switches the tab and puts the item back", st.tab === "Transmute" && st.item === "1::/item_locations/inventory::/items/donut::0", JSON.stringify(st));
+    }
+    // Without the item: the page opens and it says to buy it first.
+    const notOwned = expAlc.find((e) => heldStock(character, items(character), e.action.itemHrid).inventory === 0);
+    await clickLevel(notOwned.hrid);
+    await page.waitForFunction(() => /buy it first/.test(document.querySelector(".mwia-notice")?.textContent || ""), { timeout: 8000 }).catch(() => null);
+    check("▶ without the item opens the page and says to buy it first", /buy it first/.test((await lvlState()).notice || ""), JSON.stringify(await lvlState()));
+    await page.evaluate(() => document.querySelector(".lvl")?.remove());
 
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {

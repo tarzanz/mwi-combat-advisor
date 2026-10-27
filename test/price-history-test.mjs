@@ -1,7 +1,7 @@
 // Checks the price-history maths without a browser: medians, daily roll-up,
 // the usual price and trend of an item, and how a price compares with it.
 // Usage: node test/price-history-test.mjs
-import { DAILY_FIELDS, HOURLY_FIELDS, decodeRecords, encodeRecord, historyCsv, historyKey, median, rollUpDays, summarize, versusUsual, trendArrow, MIN_HOURS } from "../src/price-history.js";
+import { DAILY_FIELDS, HOURLY_FIELDS, decodeRecords, encodeRecord, historyCsv, historyKey, median, rollUpDays, soldPerDay, summarize, versusUsual, trendArrow, MIN_HOURS } from "../src/price-history.js";
 import { swingShare } from "../src/skilling.js";
 
 let failures = 0;
@@ -86,8 +86,8 @@ check("CSV export", JSON.stringify(rows) === JSON.stringify([
 // item added on day two, one old full record first – read back exactly.
 const sameArrays = (x, y) => x.length === y.length && [...x].every((v, i) => v === y[i] || (Number.isNaN(v) && Number.isNaN(y[i])));
 const sameRecords = (xs, ys, fields) => xs.length === ys.length && xs.every((x, k) => fields.every((f) => {
-    const n = Math.max(x[f].length, ys[k][f].length);
-    const pad = (arr) => Array.from({ length: n }, (_, i) => (i < arr.length ? arr[i] : f === "n" ? 0 : NaN));
+    const n = Math.max(x[f]?.length || 0, ys[k][f]?.length || 0);
+    const pad = (arr = []) => Array.from({ length: n }, (_, i) => (i < arr.length ? arr[i] : f === "n" || f === "vn" ? 0 : NaN));
     return sameArrays(pad(x[f]), pad(ys[k][f]));
 }));
 let seed = 7;
@@ -102,7 +102,14 @@ for (let h = 0; h < 72; h++) {
         a[i] = i < 10 ? 1000 + Math.floor(rand() * 50) : 5000 + i + (h > 40 && i % 3 === 0 ? 7 : 0); // 10 lively, the rest still
         if (i % 2 === 0) b[i] = a[i] * 0.9;
     }
-    raw.push({ hour: 480000 + h, a, b });
+    // From the second day on the file also says how many were sold (v) and at what price (p).
+    if (h < 24) raw.push({ hour: 480000 + h, a, b });
+    else {
+        const p = new Float32Array(count).fill(NaN);
+        const v = new Float32Array(count).fill(NaN);
+        for (let i = 0; i < 10; i++) if ((h + i) % 3) [p[i], v[i]] = [a[i], 1 + (i % 4)];
+        raw.push({ hour: 480000 + h, a, b, p, v, sold: true });
+    }
 }
 const dayKey = (r) => Math.floor(r.hour / 24);
 const stored = raw.map((r, k) => (k === 0 ? r : encodeRecord(r, raw[k - 1], HOURLY_FIELDS, dayKey)));
@@ -118,6 +125,14 @@ const daysRaw = rollUpDays(raw, 60).sort((x, y) => x.day - y.day);
 const weekKey = (d) => Math.floor(d.day / 7);
 const daysStored = daysRaw.map((d, k) => encodeRecord(d, daysRaw[k - 1] || null, DAILY_FIELDS, weekKey));
 check("days read back exactly", daysRaw.length >= 3 && sameRecords(decodeRecords(daysStored, DAILY_FIELDS), daysRaw, DAILY_FIELDS) && daysStored[0].key);
+// Sold a day: the mean of the hours that had the numbers (an item missing from one sold none), × 24.
+const lastHour = raw[raw.length - 1].hour;
+const sold0 = soldPerDay(0, raw, lastHour);
+const expected0 = (raw.filter((r) => r.sold).reduce((sum, r) => sum + (Number.isFinite(r.v[0]) ? r.v[0] : 0), 0) / raw.filter((r) => r.sold).length) * 24;
+check("sold a day from the hours with numbers", sold0.hours === 48 && Math.abs(sold0.perDay - expected0) < 1e-9 && sold0.enough && sold0.price > 0, JSON.stringify(sold0));
+check("nothing sold reads as 0 a day, no numbers as unknown", soldPerDay(20, raw, lastHour).perDay === 0 && soldPerDay(0, raw.filter((r) => !r.sold), lastHour).perDay === null);
+const day2 = daysRaw.find((d) => d.vn[0] > 0);
+check("days keep the mean sold per hour", !!day2 && day2.vn[0] === 24 && day2.v[0] > 0 && daysRaw[0].vn[0] === 0, day2 ? `${day2.v[0]} ${day2.vn[0]}` : "none");
 check("a +level has its own name", historyKey("/items/rainbow_pot", 2) === "/items/rainbow_pot+2" && historyKey("/items/rainbow_pot", 0) === "/items/rainbow_pot");
 
 console.log(failures ? `${failures} check(s) failed` : "All checks passed");

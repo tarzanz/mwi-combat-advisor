@@ -42,7 +42,7 @@ import { onHistoryChange } from "./price-history-ui.js";
 import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js";
 import { startToolNotice } from "./tool-notice.js";
 import { startTeaSlots } from "./tea-slots.js";
-import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactInput, visible } from "./game-nav.js";
+import { findActionPanel, inventoryItemHash, navDiagnostics, openAction, openAlchemy, openEnhancing, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 import { startTrain } from "./train-ui.js";
 
@@ -798,6 +798,24 @@ async function openWithCount(actionHrid, count) {
     render();
 }
 
+// Opens Enhancing or Alchemy in the game with the item (when you have it) and
+// the target or count filled in; the player clicks the game's own button.
+async function openLeveling(dataset) {
+    const { item, kind, label } = dataset;
+    const value = Number(dataset.value) || 0;
+    const owned = [...state.items.values()].some((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0);
+    const hash = owned ? inventoryItemHash(state.character?.character?.id, item) : null;
+    ui.root.classList.add("mwia-hidden");
+    const opened = kind === "enhance" ? await openEnhancing(hash, value) : await openAlchemy(hash, label, value);
+    if (opened === "item") return;
+    ui.root.classList.remove("mwia-hidden");
+    const what = kind === "enhance" ? `set the target to +${value}` : `pick ${label}${value ? ` and enter ${value}` : ""}`;
+    ui.notice = opened === "page"
+        ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet – buy it first (🛒)."} Pick it in the game and ${what}.` }
+        : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}. (${navDiagnostics()})` };
+    render();
+}
+
 // ---------- events ----------
 
 function onClick(event) {
@@ -831,6 +849,10 @@ function onClick(event) {
         case "skilling-make":
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
             openWithCount(target.dataset.hrid, Number(target.dataset.count));
+            break;
+        case "skilling-level":
+            ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
+            openLeveling(target.dataset);
             break;
         case "skilling-train": {
             const plan = JSON.parse(target.dataset.plan);

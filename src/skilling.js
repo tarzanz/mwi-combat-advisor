@@ -1,9 +1,16 @@
 // Gold and XP per day for gathering and production, worked out from the
 // character's own levels, buffs and teas and priced on the market. The game
 // rules (level efficiency, speed, the 3 s floor, 12 drinks an hour, the 4%
-// market tax, tea effects) are the same ones MWITools uses.
+// market tax, tea effects) are the same ones MWITools uses. Enhancing and
+// Alchemy have their own rules (enhancing.js, alchemy.js) and join the list
+// when picked.
+
+import { ALCHEMY, ALCHEMY_FUNCTION, alchemyActions, evaluateAlchemy } from "./alchemy.js";
+import { ENHANCE_FUNCTION, ENHANCING, enhancingActions, evaluateEnhance } from "./enhancing.js";
 
 export const SKILLING_SKILLS = ["milking", "foraging", "woodcutting", "cheesesmithing", "crafting", "tailoring", "cooking", "brewing"];
+// Skills you mostly pay to level: shown when picked, not in "All skills".
+export const LEVELING_SKILLS = ["alchemy", "enhancing"];
 
 // Every buff source the game sends per action type, except the drinks: teas
 // are added from the drink slots, so other tea setups can be tried.
@@ -29,6 +36,7 @@ const HOURS_PER_DAY = 24;
 export const WIDE_SPREAD = 1.5;
 
 const INVENTORY = "/item_locations/inventory";
+const COIN = "/items/coin";
 const POUCH = "/item_locations/pouch";
 const TOTAL_LEVEL = "/skills/total_level";
 const BUFF = {
@@ -71,13 +79,18 @@ export function skillingCharacter(character, items, data) {
     const slots = {};
     const pouch = [...items.values()].find((item) => item.itemLocationHrid === POUCH && item.itemHrid)?.itemHrid || null;
     const pouchSlots = drinkSlots(pouch, data);
-    for (const skill of SKILLING_SKILLS) {
+    for (const skill of [...SKILLING_SKILLS, ...LEVELING_SKILLS]) {
         const list = character.actionTypeDrinkSlotsMap?.[skillType(skill)];
         drinks[skillType(skill)] = (list || []).map((slot) => slot?.itemHrid).filter(Boolean);
         // The game's list can hold locked slots too; a tea you already use always counts.
         slots[skillType(skill)] = Math.max(pouchSlots, drinks[skillType(skill)].length);
     }
-    return { levels, experience, buffs, drinks, slots, pouch, concentration: drinkConcentration(character, items, data) };
+    // The raw buff lists, the gear worn and the house: Enhancing fills in what the game doesn't send.
+    const sources = Object.fromEntries(known.map((key) => [key, character[key]]));
+    const equipped = [...items.values()].filter((item) => item.itemHrid && item.itemLocationHrid !== INVENTORY).map((item) => ({ itemHrid: item.itemHrid, enhancementLevel: item.enhancementLevel || 0 }));
+    const houseLevels = {};
+    for (const [hrid, room] of Object.entries(character.characterHouseRoomMap || {})) houseLevels[hrid] = room?.level || 0;
+    return { levels, experience, buffs, drinks, slots, pouch, concentration: drinkConcentration(character, items, data), sources, equipped, houseLevels };
 }
 
 // Drink slots: one, plus what the pouch adds (the same number as in combat).
@@ -130,7 +143,7 @@ export function usableTeas(data, type) {
         .map((item) => item.hrid);
 }
 
-function totals(buffs) {
+export function totals(buffs) {
     const sum = new Map();
     for (const buff of buffs) {
         const entry = sum.get(buff.typeHrid) || { flat: 0, ratio: 0 };
@@ -141,7 +154,7 @@ function totals(buffs) {
     return (type) => sum.get(type) || { flat: 0, ratio: 0 };
 }
 
-function teaBuffs(teas, concentration, data) {
+export function teaBuffs(teas, concentration, data) {
     const list = [];
     for (const hrid of teas) {
         for (const buff of data.itemDetailMap[hrid]?.consumableDetail?.buffs || []) {
@@ -324,16 +337,17 @@ export function limitSales(result, sellCap) {
 }
 
 // The tea setup that scores best (gold a day by default), and what each of its teas adds.
+// evaluate(teas, score): the score lets Enhancing and Alchemy pick their target and catalyst by it.
 export function bestTeas(action, who, data, market, evaluate, score = (r) => r.goldPerDay) {
     const type = action.type;
     const candidates = usableTeas(data, type).filter((hrid) => market.buy(hrid) !== null || (who.drinks[type] || []).includes(hrid));
     let best = null;
     for (const teas of teaSetups(data, type, who.slots[type], candidates)) {
-        const result = evaluate(teas);
+        const result = evaluate(teas, score);
         if (!best || score(result) > score(best) + 1e-12) best = result;
     }
     const worth = best.teas.map((hrid) => {
-        const without = evaluate(best.teas.filter((t) => t !== hrid));
+        const without = evaluate(best.teas.filter((t) => t !== hrid), score);
         return { itemHrid: hrid, gainPerDay: best.goldPerDay - without.goldPerDay, xpPerDay: best.xpPerDay - without.xpPerDay };
     });
     return { result: best, worth };
@@ -342,6 +356,16 @@ export function bestTeas(action, who, data, market, evaluate, score = (r) => r.g
 // XP ↔ gold focus: each counts as a share of the most any action in the list gives.
 function focusScore(goldWeight, refs) {
     return (r) => (goldWeight * r.goldPerDay) / refs.gold + ((1 - goldWeight) * r.xpPerDay) / refs.xp;
+}
+
+// Levelling (Enhancing, Alchemy): time against money. Money is the coins per
+// XP against the cheapest in the list, time the days per XP against the
+// fastest; the focus weighs the two, so "Gold only" is the cheapest way to the
+// XP and "XP only" the fastest, whatever it costs.
+export const coinsPerXp = (r) => (r.valid && r.xpPerDay > 0 ? -r.goldPerDay / r.xpPerDay : Infinity);
+function timeMoneyScore(goldWeight, refs) {
+    const costScale = Math.max(1e-9, Math.abs(Number.isFinite(refs.cost) ? refs.cost : 1));
+    return (r) => (r.xpPerDay > 0 && r.valid !== false ? -((goldWeight * -r.goldPerDay) / r.xpPerDay / costScale + ((1 - goldWeight) * refs.xp) / r.xpPerDay) : -Infinity);
 }
 
 // Teas to buy for a job: the best setup's teas for as many hours as the job
@@ -454,7 +478,7 @@ export function swingShare(price) {
 // fill: the job's share of the planned hours – what the ranking goes by.
 export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null, inputMarket = null, now = Date.now() }) {
     // A craft that loses gold still costs coins for its materials (worth it for the XP), so it is planned the same way.
-    if (entry.action.function !== "/action_functions/production" || !entry.valid || !entry.mainCount) return null;
+    if ((entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION) || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
     const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
@@ -468,11 +492,12 @@ export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = P
     const swing = swingShare(price);
     if (swing && swing.share < 1) count = Math.ceil(count * swing.share);
     // Materials bought for n actions, using what is in the inventory first.
-    const toBuy = (input, n) => Math.max(0, input.count * n - have(input.itemHrid));
+    // Coins an action costs (Alchemy) are paid from the coins, not bought.
+    const toBuy = (input, n) => (input.itemHrid === COIN ? input.count * n : Math.max(0, input.count * n - have(input.itemHrid)));
     const spend = (n) => entry.inputs.reduce((sum, input) => sum + toBuy(input, n) * (input.price || 0), 0);
     // The materials you'd have to buy: their markets rate the job too, and an
     // order book seen lately caps it at what was listed near the lowest ask.
-    const bought = entry.inputs.filter((input) => input.count > 0 && input.price > 0 && toBuy(input, count) > 0);
+    const bought = entry.inputs.filter((input) => input.itemHrid !== COIN && input.count > 0 && input.price > 0 && toBuy(input, count) > 0);
     const inputs = bought.map((input) => {
         const market = inputMarket?.(input.itemHrid) || {};
         const fresh = market.book && now - market.book.at <= INPUT_BOOK_HOURS * 3600000 ? market.book : null;
@@ -688,11 +713,34 @@ function chainBuilder(who, data, market, teaMode) {
     };
 }
 
+const leveling = (action) => action.function === ENHANCE_FUNCTION || action.function === ALCHEMY_FUNCTION;
 const sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
 
+// Enhancing and Alchemy offer hundreds of items: only those that do well
+// without teas – in gold, in XP or in XP per coin – and those kept are tried
+// with every tea setup.
+export const SHORTLIST = 40;
+function shortlist(candidates, keep = () => false) {
+    if (candidates.length <= 3 * SHORTLIST) return candidates;
+    const tried = candidates.map((c) => {
+        const gold = c.evaluate([], (r) => r.goldPerDay);
+        const xp = c.evaluate([], (r) => r.xpPerDay);
+        const cheap = c.evaluate([], (r) => -coinsPerXp(r));
+        return { c, gold: gold.valid ? gold.goldPerDay : -Infinity, xp: xp.valid ? xp.xpPerDay : -Infinity, perCoin: -coinsPerXp(cheap) };
+    });
+    const kept = new Set(candidates.filter(keep));
+    for (const key of ["gold", "xp", "perCoin"]) [...tried].sort((a, b) => b[key] - a[key]).slice(0, SHORTLIST).forEach((t) => kept.add(t.c));
+    return candidates.filter((c) => kept.has(c));
+}
+
 // The Skilling tab: what the character can do now, ranked by gold, and what unlocks soon.
-export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1 } = {}) {
-    const evaluator = (action, level) => (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
+// Enhancing and Alchemy are listed only when picked. leveling: { resale(hrid, level), owned(hrid) }.
+export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1, leveling: levelingOptions = {} } = {}) {
+    const evaluator = (action, level) => {
+        if (action.function === ENHANCE_FUNCTION) return (teas, score) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, score });
+        if (action.function === ALCHEMY_FUNCTION) return (teas, score) => evaluateAlchemy(action, who, data, market, teas, { score });
+        return (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
+    };
     const wanted = (action) => skill === "all" || action.type === skillType(skill);
     const doable = [];
     const near = [];
@@ -702,12 +750,17 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         const level = who.levels[action.levelRequirement.skillHrid];
         const required = action.levelRequirement.level;
         if (required <= level) {
-            const evaluate = evaluator(action, level);
-            doable.push({ action, evaluate, current: evaluate(who.drinks[action.type] || []) });
+            doable.push({ action, evaluate: evaluator(action, level) });
         } else if (required <= level + NEAR_LEVELS) {
             near.push(action);
         }
     }
+    // Any item can be enhanced or alchemised; a level below the item's only lowers the odds.
+    const levelingList = skill === ENHANCING || skill === ALCHEMY;
+    // Items you have always stay on the shortlist.
+    const owned = (c) => (levelingOptions.owned?.(c.action.itemHrid) || 0) > 0;
+    if (skill === ENHANCING) doable.push(...shortlist(enhancingActions(data, market, levelingOptions.owned).map((action) => ({ action, evaluate: evaluator(action) })), owned));
+    if (skill === ALCHEMY) doable.push(...shortlist(alchemyActions(data, market).map((action) => ({ action, evaluate: evaluator(action) })), owned));
     // The focus compares each action with the most gold and XP any action can
     // give with the best teas for it – not with the teas in your slots, or
     // following the advice would change the advice. The list is ranked against
@@ -721,25 +774,31 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     const NO_STOCK = { inventory: 0, listed: 0, listings: [] };
     const fillOf = (r) => (plan ? suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null, sellCap })?.fill ?? 1 : 1);
     for (const { action, evaluate } of doable) {
-        const gold = bestTeas(action, who, data, market, evaluate, (r) => r.goldPerDay).result;
+        const own = (skillRefs[action.type] ||= { gold: 1, xp: 1, cost: Infinity });
+        // Levelling: "gold" is the cheapest coins per XP, not the most gold a day.
+        const gold = bestTeas(action, who, data, market, evaluate, leveling(action) ? (r) => -coinsPerXp(r) : (r) => r.goldPerDay).result;
         const xp = bestTeas(action, who, data, market, evaluate, (r) => r.xpPerDay).result;
-        const own = (skillRefs[action.type] ||= { gold: 1, xp: 1 });
         const goldDay = gold.valid ? gold.goldPerDay * fillOf(gold) : 0;
         const xpDay = xp.valid ? xp.xpPerDay * fillOf(xp) : 0;
         for (const r of [refs, own]) {
             r.gold = Math.max(r.gold, goldDay);
             r.xp = Math.max(r.xp, xpDay);
+            if (leveling(action)) r.cost = Math.min(r.cost, coinsPerXp(gold));
         }
     }
-    const score = focusScore(goldWeight, refs);
+    const scoreFor = (r) => (levelingList ? timeMoneyScore(goldWeight, r) : focusScore(goldWeight, r));
+    const score = scoreFor(refs);
     const chain = chainBuilder(who, data, market, teaMode);
-    const available = doable.map(({ action, evaluate, current }) => {
-        const teaScore = focusScore(goldWeight, skillRefs[action.type]);
+    const available = doable.map(({ action, evaluate }) => {
+        const teaScore = scoreFor(skillRefs[action.type]);
+        const current = evaluate(who.drinks[action.type] || [], teaScore);
         const best = bestTeas(action, who, data, market, evaluate, teaScore);
         const shown = teaMode === "best" ? best.result : current;
         const price = plan?.price?.(shown.action) ?? null;
         const liquidity = plan?.liquidity?.(shown.action) ?? null;
-        const suggestion = plan ? suggestCount(shown, { ...plan, stock: plan.stock(shown.action), book: plan.book(shown.action), price, liquidity, sellCap }) : null;
+        // Alchemy's products (coins, essences) aren't stock you are already selling.
+        const stock = action.function === ALCHEMY_FUNCTION ? NO_STOCK : plan?.stock(shown.action);
+        const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity, sellCap }) : null;
         // Ranked by what the planned hours give: a job your coins or your stock
         // keep short earns for only part of them.
         const fill = suggestion ? suggestion.fill : 1;
@@ -761,7 +820,8 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         };
         if (plan) {
             // Teas for the suggested job; a gathering job runs for the hours planned.
-            const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : action.function === "/action_functions/gathering" ? plan.hours : 0;
+            const runs = action.function === "/action_functions/gathering" || action.function === ENHANCE_FUNCTION;
+            const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : runs ? plan.hours : 0;
             entry.teaPlan = teaPurchase(entry, { hours, have: plan.have });
         }
         return entry;

@@ -198,6 +198,91 @@ export async function openAction(win, action, data, timeoutMs = 4000) {
     return false;
 }
 
+// ---------- Enhancing and Alchemy ----------
+// The game opens these with an inventory item already in the slot through its
+// own handlers (the item menu's Enhance / Alchemize). The item's key is
+// "<character id>::/item_locations/inventory::<item>::<+level>".
+
+const ENHANCING_PANEL = '[class*="SkillActionDetail_enhancingComponent"]';
+const ALCHEMY_PANEL = '[class*="SkillActionDetail_alchemyComponent"]';
+
+export const inventoryItemHash = (characterId, itemHrid, level = 0) => `${characterId}::/item_locations/inventory::${itemHrid}::${level}`;
+
+// The React component behind an element that has the named method.
+function componentWith(element, method) {
+    for (const node of element ? [element, ...element.querySelectorAll("input, button, select")] : []) {
+        const key = Object.getOwnPropertyNames(node).find((k) => /^__react(Fiber|InternalInstance)\$/.test(k));
+        for (let fiber = key ? node[key] : null, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
+            if (typeof fiber.stateNode?.[method] === "function") return fiber.stateNode;
+        }
+    }
+    return null;
+}
+
+async function waitFor(find, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+        const found = find();
+        if (found || Date.now() > deadline) return found || null;
+        await sleep(100);
+    }
+}
+
+const visiblePanel = (selector) => [...document.querySelectorAll(selector)].find(visible) || null;
+
+// Opens Enhancing with the item (one you have at +0) and the target level set.
+// Without the item in the inventory it only opens the Enhancing page. Returns
+// "item", "page" or false.
+export async function openEnhancing(itemHash, target, timeoutMs = 4000) {
+    lastDiagnostics = "";
+    const called = itemHash ? callReactHandler(["handleEnhanceItem"], [itemHash]) : "no item";
+    if (!/called/.test(called)) {
+        const link = clickSkill("enhancing");
+        lastDiagnostics = `${called} · ${link ? "opened the Enhancing page" : "no Enhancing link"}`;
+        return link ? "page" : false;
+    }
+    const panel = await waitFor(() => visiblePanel(ENHANCING_PANEL), timeoutMs);
+    const component = panel && (await waitFor(() => componentWith(panel, "enhancingMaxLevelChanged"), timeoutMs));
+    if (!component) {
+        lastDiagnostics = panel ? "enhancing panel without its component" : "no enhancing panel";
+        return panel ? "page" : false;
+    }
+    if (component.state?.primaryItemHash !== itemHash && typeof component.selectEnhancingItemHandler === "function") component.selectEnhancingItemHandler(itemHash);
+    await sleep(150);
+    component.enhancingMaxLevelChanged({ target: { value: String(target) } });
+    return "item";
+}
+
+// Opens Alchemy on the action's tab with the item (one you have) and the count
+// set. Without the item in the inventory it only opens the tab. Returns "item",
+// "page" or false.
+export async function openAlchemy(itemHash, tabLabel, count, timeoutMs = 4000) {
+    lastDiagnostics = "";
+    const called = itemHash ? callReactHandler(["handleAlchemizeItem"], [itemHash]) : "no item";
+    if (!/called/.test(called)) {
+        const link = clickSkill("alchemy");
+        if (link) await waitFor(() => clickTab(tabLabel), timeoutMs);
+        lastDiagnostics = `${called} · ${link ? "opened the Alchemy page" : "no Alchemy link"}`;
+        return link ? "page" : false;
+    }
+    await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs);
+    // A window that was already open is drawn again first; then the tab, until it is the selected one.
+    await sleep(300);
+    const selected = () => [...document.querySelectorAll(TABS)].some((tab) => visible(tab) && clean(tab.textContent) === tabLabel && tab.getAttribute("aria-selected") === "true");
+    await waitFor(() => (clickTab(tabLabel), selected()), timeoutMs);
+    await sleep(150);
+    const panel = await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs);
+    const component = panel && (await waitFor(() => componentWith(panel, "selectAlchemyItemHandler"), timeoutMs));
+    if (!component) {
+        lastDiagnostics = panel ? "alchemy panel without its component" : "no alchemy panel";
+        return panel ? "page" : false;
+    }
+    if (component.state?.primaryItemHash !== itemHash) component.selectAlchemyItemHandler(itemHash);
+    await sleep(150);
+    if (count > 0 && typeof component.maxActionCountChanged === "function") component.maxActionCountChanged({ target: { value: String(count) } });
+    return "item";
+}
+
 // Opens the marketplace on an item: through MWITools' public API when it is
 // installed, else the game's own "go to marketplace" handler.
 export function openMarketplace(win, itemHrid) {
