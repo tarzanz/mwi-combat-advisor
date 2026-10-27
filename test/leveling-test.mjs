@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { alchemyActions, coinCost, evaluateAlchemy, levelPenalty } from "../src/alchemy.js";
 import { BASE_RATES, MAX_TARGET, enhanceCycles, enhancingActions, evaluateEnhance, levelBonus } from "../src/enhancing.js";
-import { coinsPerXp, marketPricer, rankSkilling } from "../src/skilling.js";
+import { PLAN_MODES, coinsPerXp, enhanceBudget, marketPricer, rankSkilling } from "../src/skilling.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const dataDir = path.join(root, "engine/data");
@@ -131,6 +131,29 @@ check("…and not twice when it does", near(sent.successBonus, 0.006));
     check("game window: Enhancing Essence 10.1%", near(drop("/items/enhancing_essence"), 0.101));
     check("game window: Small Artisan's Crate ~0.0872%", near(drop("/items/small_artisans_crate") * 100, 0.0872, 2e-4), String(drop("/items/small_artisans_crate") * 100));
     check("drops come with every attempt", near(r.dropsPerAttempt, r.outputs.slice(1).reduce((sum, o) => sum + o.value, 0)) && r.revenuePerAction > r.outputs[0].value);
+}
+
+// The market takes only so many a day: the rest goes for the floor price.
+{
+    const sellHigh = () => ({ price: 1e6, source: "ask", level: 1, floor: 1000, sold: 2 });
+    const r = evaluateEnhance(gator, enhancer, data, market, [], { resale: sellHigh, score: (x) => -x.target });
+    const share = 2 / r.salesCap.made;
+    check("sales past what the market takes go for the floor", r.target === 1 && r.salesCap?.perDay === 2 && near(r.outputs[0].price, share * 1e6 + (1 - share) * 1000), JSON.stringify(r.salesCap));
+    const capped = evaluateEnhance(gator, enhancer, data, market, [], { resale: (h, l) => ({ ...sellHigh(), sold: null }), sellCap: 5, score: (x) => -x.target });
+    check("…or past Max sold/day without sales numbers", capped.salesCap?.perDay === 5 && !capped.salesCap.fromSales);
+}
+// Coins: the item and the planned hours of materials within the share of your coins.
+{
+    const r = evaluateEnhance(gator, enhancer, data, market, [], { resale });
+    const plan = { ...PLAN_MODES.away, coins: 1e9, inputMarket: () => ({ liquidity: { rating: "stable", known: true } }) };
+    const rich = enhanceBudget(r, plan);
+    check("plenty of coins: the whole plan", rich.fill === 1 && near(rich.need, r.base.price + rich.perHour * 8));
+    const poor = enhanceBudget(r, { ...plan, coins: r.base.price / 0.6 - 1 });
+    check("can't afford the item: nothing", poor.fill === 0);
+    const some = enhanceBudget(r, { ...plan, coins: (r.base.price + rich.perHour * 2) / 0.6 });
+    check("coins for 2 of 8 hours", near(some.fill, 0.25) && near(some.hours, 2));
+    const thin = enhanceBudget(r, { ...plan, coins: (r.base.price + rich.perHour * 2) / 0.6, inputMarket: () => ({ liquidity: { rating: "thin", known: true } }) });
+    check("a thin market for the item: a smaller share", thin.share === PLAN_MODES.away.coinShare.thin && thin.fill < some.fill);
 }
 
 // ---------- The list: time against money ----------

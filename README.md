@@ -92,8 +92,12 @@ buy, by simulating *your own* character.
     failure; Blessed Tea's double steps; Enhancing Essence ((100 + item level) / 1000) and Artisan's Crates on every
     attempt (checked against the game's Enhancing window). The attempts per target come from a closed formula (the same as a Markov
     solve). The +level sells at the lowest ask, never above its usual ask at that level (from the price history), or
-    at the bid (*Sell at*); with nobody buying it, the nearest lower +level's bid is a floor. An item you have at +0 is
-    used first, valued at its bid. **▶ Enhance to +N** opens Enhancing with the item from your inventory in the slot
+    at the bid (*Sell at*) – a listing only counts when a buyer at that +level, its usual ask or its sales back it, so
+    a lone listing nobody buys from is ignored; otherwise the nearest lower +level's bid is a floor. The market takes
+    only so many a day (its sales, once collected, else *Max sold/day*): the rest is valued at the floor. An item you
+    have at +0 is used first, valued at its bid. Within your coins as with crafting (*Plan*): the item and the planned
+    hours of materials and teas may take the share of your coins that the item's market allows; a row whose item you
+    can't afford fades and goes last, one your coins carry only part of the hours ranks by that part. **▶ Enhance to +N** opens Enhancing with the item from your inventory in the slot
     and the target set (without it, the page opens and says to buy it first); **🛒 Materials** adds what the planned
     hours use.
   - **Alchemy:** every coinify, decompose and transmute of an item on the market, bought at the ask. Success = base

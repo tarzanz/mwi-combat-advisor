@@ -65,7 +65,7 @@ marketData["/items/cotton_boots"] = { 0: { a: Math.round((bootsCost * 1.02) / 0.
 
 const items = (c) => new Map(c.characterItems.map((i) => [i.hash, i]));
 // No +level is for sale or bought in this market: an enhanced item sells at its +0 bid (a floor), after tax.
-const resale = (hrid) => ({ price: marketData[hrid][0].b * 0.96, source: "lower", level: 0 });
+const resale = (hrid) => ({ price: marketData[hrid][0].b * 0.96, source: "lower", level: 0, floor: marketData[hrid][0].b * 0.96, sold: null });
 const ownedOf = (c) => (hrid) => heldStock(c, items(c), hrid).inventory;
 const market = (sellAt) => marketPricer((hrid) => marketData[hrid]?.[0], clientData, sellAt);
 const books = new Map();
@@ -79,6 +79,9 @@ const expectRank = (c, options) => rankSkilling(skillingCharacter(c, items(c), c
 // The item on top of the Enhancing list (all-gold focus) is in the inventory, so ▶ can put it in the slot.
 const topEnhance = expectRank(character, { skill: "enhancing", goldWeight: 1 }).available[0];
 character.characterItems.push({ hash: "enh", itemHrid: topEnhance.action.itemHrid, itemLocationHrid: "/item_locations/inventory", count: 1, enhancementLevel: 0 });
+// Its +1 has a lone listing far above anything, with nobody bidding: it must not count.
+const LONE = topEnhance.action.itemHrid;
+marketData[LONE] = { ...marketData[LONE], 1: { a: 1e9, b: -1 } };
 
 // The best tailoring item: 5 in the inventory, 3 on a sell order, and an order
 // book where some buy orders pay above break-even and some don't.
@@ -743,6 +746,9 @@ try {
         JSON.stringify(enhancing.slice(0, 2)) + " vs " + expEnh.slice(0, 2).map((e) => `${e.action.name} +${e.target} ${coinText(e.goldPerDay)} ${coinText(e.xpPerDay)}`).join(", "));
     check("Enhancing rows show coins per XP", /item level \d+ · [\d.,]+ coins\/XP/.test(enhancing[0]?.sub || ""), enhancing[0]?.sub);
     check("an enhanced item no one buys is valued at a lower +level's bid", /valued at the \+0 bid/.test(enhancing[0]?.warn || ""), enhancing[0]?.warn);
+    // A lone listing nobody buys from stays a cost, not a fortune.
+    const loneRow = enhancing.find((r) => r.name === clientData.itemDetailMap[LONE].name);
+    check("a lone +level listing without buyers isn't counted", !!loneRow && /^−/.test(loneRow.gold) && enhancing.every((r) => /^−/.test(r.gold)), JSON.stringify(loneRow));
     await page.click(".mwia-skill-row summary");
     const enhDetail = await page.$eval(".mwia-skill-row[open] .mwia-skill-detail", (n) => n.textContent);
     check("Enhancing detail: odds, attempts, every target", /attempts per \+\d+/.test(enhDetail) && /A failure drops the item to \+0/.test(enhDetail) && /\+1: [\d.,]+ attempts/.test(enhDetail) && /suits your Focus/.test(enhDetail), enhDetail.slice(0, 300));

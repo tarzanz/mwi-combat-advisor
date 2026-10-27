@@ -114,9 +114,12 @@ const isAlchemy = (entry) => entry.action.function === ALCHEMY_FUNCTION;
 
 // What an item enhanced to +level sells for, after tax. Listed (Sell at: ask):
 // the lowest ask, but never above the week's usual ask at that level (or,
-// without history, 1.5× the bid). Sold now (bid): the best bid, or the usual
-// bid when nobody bids right now. With neither, the nearest lower level's bid
-// is a floor (a +6 sells for at least what a +5 does, once listed), else the shop.
+// without history, 1.5× the bid) – and only when something backs it: a buyer
+// at that +level, its usual ask, or sales. A lone listing nobody buys from
+// says nothing. Sold now (bid): the best bid, or the usual bid when nobody
+// bids right now. With neither, the nearest lower level's bid is a floor (a +6
+// sells for at least what a +5 does, once listed), else the shop.
+// floor: that floor, for what the market can't take (sold: a day, once known).
 export function plusResale(itemHrid, level, sellAt, data) {
     const entry = marketEntry(itemHrid, level);
     const summary = priceSummary(itemHrid, level);
@@ -125,23 +128,29 @@ export function plusResale(itemHrid, level, sellAt, data) {
     const bid = entry?.b > 0 ? entry.b : null;
     const usualAsk = usual?.a.med7 > 0 ? usual.a.med7 : null;
     const usualBid = usual?.b.med7 > 0 ? usual.b.med7 : null;
-    const sold = summary?.liquidity?.sold?.enough ? summary.liquidity.sold.perDay : null;
-    const out = (price, source, from = level) => ({ price: price * (1 - MARKET_TAX), source, level: from, ask, bid, usualAsk, usualBid, history: !!usual, sold });
-    if (sellAt === "ask" && (ask || usualAsk)) {
-        const ceiling = usualAsk || (bid ? WIDE_SPREAD * bid : Infinity);
+    const soldNow = summary?.liquidity?.sold;
+    const sold = soldNow?.enough ? soldNow.perDay : null;
+    const lower = marketBids(itemHrid).filter((b) => b.enhancementLevel < level).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
+    const vendor = data.itemDetailMap[itemHrid]?.sellPrice || 0;
+    const floor = lower ? lower.bid * (1 - MARKET_TAX) : vendor;
+    const base = { ask, bid, usualAsk, usualBid, history: !!usual, sold, floor, floorLevel: lower ? lower.enhancementLevel : null };
+    const out = (price, source, from = level) => ({ ...base, price: price * (1 - MARKET_TAX), source, level: from });
+    const backed = bid || usualAsk || sold > 0;
+    if (sellAt === "ask" && backed && (ask || usualAsk)) {
+        const ceiling = usualAsk || (bid ? WIDE_SPREAD * bid : soldNow?.price || Infinity);
         return out(Math.min(ask || usualAsk, ceiling), ask ? (ask > ceiling ? (usualAsk ? "usual" : "spread") : "ask") : "usual");
     }
     if (bid || usualBid) return out(bid || usualBid, bid ? "bid" : "usualbid");
-    const lower = marketBids(itemHrid).filter((b) => b.enhancementLevel < level).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
-    if (lower) return out(lower.bid, "lower", lower.enhancementLevel);
-    return { price: data.itemDetailMap[itemHrid]?.sellPrice || 0, source: "vendor", level: null, ask, bid };
+    const unbacked = sellAt === "ask" && ask ? ask : null;
+    if (lower) return { ...out(lower.bid, "lower", lower.enhancementLevel), unbacked };
+    return { ...base, price: vendor, source: "vendor", level: null, unbacked };
 }
 
 // Enhancing: a +level that only sells as a floor, or at the shop.
 function enhanceWarnings(entry) {
     const sell = entry.outputs[0]?.sell;
     if (!sell) return [];
-    if (sell.source === "lower" || sell.source === "vendor") return [{ kind: "plusfloor", itemHrid: entry.action.itemHrid, target: entry.target, from: sell.level }];
+    if (sell.source === "lower" || sell.source === "vendor") return [{ kind: "plusfloor", itemHrid: entry.action.itemHrid, target: entry.target, from: sell.level, unbacked: sell.unbacked }];
     if (!sell.history) return [{ kind: "plusnohistory", itemHrid: entry.action.itemHrid, target: entry.target }];
     return [];
 }
@@ -245,8 +254,10 @@ function warningText(warning) {
             return `Thin margin: a ${dec(warning.margin * 100, 1)}% drop in the selling price wipes out the profit.`;
         case "unsellable":
             return `${item} can't be sold.`;
-        case "plusfloor":
-            return warning.from === null || warning.from === undefined ? `Nobody buys ${item} +${warning.target} or a lower +level: valued at the shop price.` : `Nobody buys ${item} +${warning.target} right now: valued at the +${warning.from} bid – list it to sell.`;
+        case "plusfloor": {
+            const listing = warning.unbacked ? ` The listing at ${coins(warning.unbacked)} isn't counted: nobody bids for +${warning.target} and it hasn't been seen selling.` : "";
+            return (warning.from === null || warning.from === undefined ? `Nobody buys ${item} +${warning.target} or a lower +level: valued at the shop price.` : `Nobody buys ${item} +${warning.target} right now: valued at the +${warning.from} bid – list it to sell.`) + listing;
+        }
         case "plusnohistory":
             return `Under ${MIN_HOURS} hours of prices for ${item} +${warning.target} yet: its price now is used as it is.`;
         default:
@@ -258,7 +269,7 @@ function rowHtml(entry, best, upcoming = false, first = false) {
     const day = entry.goldPerDay;
     const leveling = isEnhance(entry) || isAlchemy(entry);
     const perXp = leveling && entry.coinsPerXp !== null ? ` · ${entry.coinsPerXp >= 0 ? `${dec(entry.coinsPerXp, 1)} coins/XP` : `earns ${dec(-entry.coinsPerXp, 1)}/XP`}` : "";
-    const levelText = leveling ? `item level ${entry.action.levelRequirement.level}${isAlchemy(entry) ? ` · ${pct(entry.successRate).replace("+", "")} success` : ""}${perXp}${suggestionShort(entry.suggestion)}` : "";
+    const levelText = leveling ? `item level ${entry.action.levelRequirement.level}${isAlchemy(entry) ? ` · ${pct(entry.successRate).replace("+", "")} success` : ""}${perXp}${suggestionShort(entry.suggestion)}${budgetShort(entry.budget)}` : "";
     const sub = leveling
         ? levelText
         : upcoming
@@ -273,7 +284,7 @@ function rowHtml(entry, best, upcoming = false, first = false) {
         ? `<span class="mwia-skill-hint">⛓ ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>`
         : "";
     // Levelling costs gold by design: only an invalid row or one you can't afford fades.
-    const faded = !entry.valid || (!leveling && day <= 0) || entry.suggestion?.count === 0 || entry.thinMargin;
+    const faded = !entry.valid || (!leveling && day <= 0) || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
     return `<details class="mwia-skill-row${(best || (leveling && first)) && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">→ +${entry.target}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
         <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
@@ -356,6 +367,8 @@ function enhanceSections(e, section) {
         `<b>Each attempt uses</b> ${mats} = ${coins(e.costPerAttempt)}.`,
         `<b>Each attempt may drop</b> ${e.outputs.slice(1).map((o) => `${count(o.count)} × ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}`).join(" · ")} = ${coins(e.dropsPerAttempt)}.`,
         `<b>Each +${e.target}</b> (one per ${count(e.attempts)} attempts): the item ${base}, sold at ${sold} for ${coins(sell.price)} after tax.${sell.sold !== null && sell.sold !== undefined ? ` About ${soldText(sell.sold)} +${e.target} sell a day; you'd make ${count(e.itemsPerHour * 24)}.` : ""}`,
+        e.salesCap ? `<span class="mwia-warn">The market takes about ${soldText(e.salesCap.perDay)} a day (${e.salesCap.fromSales ? "its sales" : "your <i>Max sold/day</i>"}); the rest of the ${count(e.salesCap.made)} you'd make go for ${coins(Math.min(sell.floor, sell.price))} (the ${sell.floorLevel === null ? "shop" : `+${sell.floorLevel} bid`}): ${coins(e.outputs[0].price)} each on average.</span>` : "",
+        budgetText(e.budget),
         e.teas.length ? `<b>Teas:</b> ${e.teaCosts.map((t) => `${esc(itemName(t.itemHrid))} @ ${coins(t.price)}`).join(" · ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h.` : "",
         `(${coins(e.revenuePerAction)} − ${coins(e.costPerAction)}) × ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` − ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h × 24 = <b>${coins(e.goldPerDay)}/day</b>.`,
     ].filter(Boolean)));
@@ -487,6 +500,22 @@ function purchaseText(plan) {
     if (!plan) return "";
     const have = plan.items.length ? ` To buy: ${plan.items.map((i) => `${i.quantity.toLocaleString("en-US")} ${esc(itemName(i.hrid))}${i.have ? ` (you have ${i.have.toLocaleString("en-US")})` : ""}`).join(", ")}.` : " You have enough of each.";
     return `<br>For this job (${hoursText(plan.hours)}): ${plan.perTea.toLocaleString("en-US")} of each.${have}`;
+}
+
+// Enhancing within your coins: can't afford the item, or the coins last only part of the plan.
+function budgetShort(b) {
+    if (!b || b.fill >= 1) return "";
+    if (b.fill === 0) return ` · <span class="mwia-warn">the item (${coins(b.item)}) is over ${Math.round(b.share * 100)}% of your coins</span>`;
+    return ` · your coins last ${hoursText(b.hours)} of ${hoursText(b.plannedHours)}`;
+}
+
+function budgetText(b) {
+    if (!b) return "";
+    const rating = `${RATING[b.rating.rating]}${b.rating.known ? "" : " (too little history)"}`;
+    const what = `${b.item ? `the item (${coins(b.item)}) and ` : ""}${hoursText(b.plannedHours)} of materials and teas (${coins(b.perHour)}/h) need ${coins(b.need)}; the item's market is a ${rating}, so up to ${Math.round(b.share * 100)}% of your coins (${coins(b.budget)}) may go into it`;
+    if (b.fill === 0) return `<span class="mwia-warn">${what} – not enough for the item itself.</span>`;
+    if (b.fill < 1) return `<span class="mwia-warn">${what} – enough for ${hoursText(b.hours)}.</span>`;
+    return `<span class="mwia-dim">${what}.</span>`;
 }
 
 function suggestionShort(suggestion) {

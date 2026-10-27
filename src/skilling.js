@@ -580,6 +580,22 @@ export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = P
     };
 }
 
+// Enhancing within your coins: the item (unless you have it) and the planned
+// hours of materials and teas may take the share of your coins that the
+// item's market allows. The items come back as they sell, so one at a time is
+// tied up. Without the coins for the item it can't start (fill 0); short of
+// the materials it runs part of the planned hours.
+export function enhanceBudget(entry, { hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, inputMarket = null }) {
+    if (!entry.valid || entry.action.function !== ENHANCE_FUNCTION) return null;
+    const rating = inputMarket?.(entry.action.itemHrid)?.liquidity || { rating: "thin", known: false };
+    const share = coinShare[rating.rating] ?? coinShare.thin;
+    const budget = coins * share;
+    const item = entry.base.owned ? 0 : entry.base.price;
+    const perHour = entry.costPerAttempt * entry.actionsPerHour + entry.teaPerHour;
+    const fill = item > budget ? 0 : perHour > 0 ? Math.min(1, (budget - item) / (perHour * hours)) : 1;
+    return { rating, share, budget, item, perHour, need: item + perHour * hours, fill, hours: fill * hours, plannedHours: hours };
+}
+
 // How many to make with the whole chain (see chainBuilder) in the planned hours,
 // less what you hold, smaller on a swinging price, and with what the chain still
 // buys within the share of your coins its worst market allows.
@@ -737,7 +753,7 @@ function shortlist(candidates, keep = () => false) {
 // Enhancing and Alchemy are listed only when picked. leveling: { resale(hrid, level), owned(hrid) }.
 export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1, leveling: levelingOptions = {} } = {}) {
     const evaluator = (action, level) => {
-        if (action.function === ENHANCE_FUNCTION) return (teas, score) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, score });
+        if (action.function === ENHANCE_FUNCTION) return (teas, score) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, sellCap, score });
         if (action.function === ALCHEMY_FUNCTION) return (teas, score) => evaluateAlchemy(action, who, data, market, teas, { score });
         return (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
     };
@@ -772,7 +788,11 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     const refs = { gold: 1, xp: 1 };
     const skillRefs = {};
     const NO_STOCK = { inventory: 0, listed: 0, listings: [] };
-    const fillOf = (r) => (plan ? suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null, sellCap })?.fill ?? 1 : 1);
+    const fillOf = (r) => {
+        if (!plan) return 1;
+        if (r.action.function === ENHANCE_FUNCTION) return enhanceBudget(r, plan)?.fill ?? 1;
+        return suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null, sellCap })?.fill ?? 1;
+    };
     for (const { action, evaluate } of doable) {
         const own = (skillRefs[action.type] ||= { gold: 1, xp: 1, cost: Infinity });
         // Levelling: "gold" is the cheapest coins per XP, not the most gold a day.
@@ -799,9 +819,11 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         // Alchemy's products (coins, essences) aren't stock you are already selling.
         const stock = action.function === ALCHEMY_FUNCTION ? NO_STOCK : plan?.stock(shown.action);
         const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity, sellCap }) : null;
+        // Enhancing: what your coins carry.
+        const budget = plan ? enhanceBudget(shown, plan) : null;
         // Ranked by what the planned hours give: a job your coins or your stock
         // keep short earns for only part of them.
-        const fill = suggestion ? suggestion.fill : 1;
+        const fill = suggestion ? suggestion.fill : budget ? budget.fill : 1;
         const chained = chain(shown);
         const entry = {
             ...shown,
@@ -809,6 +831,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
             current,
             best,
             suggestion,
+            budget,
             chain: chained,
             // A train that makes the materials too, when that pays at least as well as buying them.
             chainSuggestion: plan && chained && chained.profitPerHour >= shown.profitPerHour ? suggestChainCount(shown, chained, { ...plan, stock: plan.stock(shown.action), price, liquidity, sellCap }) : null,
@@ -821,7 +844,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         if (plan) {
             // Teas for the suggested job; a gathering job runs for the hours planned.
             const runs = action.function === "/action_functions/gathering" || action.function === ENHANCE_FUNCTION;
-            const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : runs ? plan.hours : 0;
+            const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : budget ? budget.hours : runs ? plan.hours : 0;
             entry.teaPlan = teaPurchase(entry, { hours, have: plan.have });
         }
         return entry;

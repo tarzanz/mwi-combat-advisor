@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.33.0
+// @version      0.33.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1897,7 +1897,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const price = market.buy(action.itemHrid);
     return price === null ? null : { price, owned: false };
   }
-  function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score: score2 = (r) => r.goldPerDay } = {}) {
+  function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score: score2 = (r) => r.goldPerDay, sellCap = 0 } = {}) {
     const buff = totals([...who.buffs?.[TYPE2] || [], ...teaBuffs(teas, who.concentration, data)]);
     const fraction = (type) => buff(type).flat + buff(type).ratio;
     const level = who.levels[SKILL2] ?? 1;
@@ -1970,8 +1970,17 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (!Number.isFinite(attempts) || attempts <= 0) break;
       const sold = resale ? resale(action.itemHrid, target) : { price: 0, source: "none", level: null };
       const perCycle = 1 / attempts;
+      const madePerDay = actionsPerHour / attempts * 24;
+      const takes = sold.sold ?? (sellCap > 0 ? sellCap : null);
+      let price = sold.price;
+      let salesCap = null;
+      if (takes !== null && madePerDay > takes && sold.floor !== void 0) {
+        const share = takes / madePerDay;
+        price = share * sold.price + (1 - share) * Math.min(sold.floor, sold.price);
+        salesCap = { perDay: takes, made: madePerDay, fromSales: sold.sold !== null && sold.sold !== void 0 };
+      }
       const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
-      const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price: sold.price, sell: sold, value: perCycle * sold.price }, ...drops];
+      const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price, sell: sold, value: perCycle * price }, ...drops];
       const revenuePerAction = outputs.reduce((sum, o) => sum + o.value, 0);
       const costPerAction = costPerAttempt + (itemIn ? itemIn.value : 0);
       const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
@@ -1981,6 +1990,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         target,
         attempts,
         itemsPerHour: actionsPerHour / attempts,
+        salesCap,
         outputs,
         inputs: itemIn ? [...inputs, itemIn] : inputs,
         costPerAttempt,
@@ -2468,6 +2478,16 @@ i.mwia-history-bid { background: #7ee2b0; }
       limitedByCoins
     };
   }
+  function enhanceBudget(entry, { hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins5 = Infinity, inputMarket = null }) {
+    if (!entry.valid || entry.action.function !== ENHANCE_FUNCTION) return null;
+    const rating = inputMarket?.(entry.action.itemHrid)?.liquidity || { rating: "thin", known: false };
+    const share = coinShare[rating.rating] ?? coinShare.thin;
+    const budget = coins5 * share;
+    const item = entry.base.owned ? 0 : entry.base.price;
+    const perHour = entry.costPerAttempt * entry.actionsPerHour + entry.teaPerHour;
+    const fill = item > budget ? 0 : perHour > 0 ? Math.min(1, (budget - item) / (perHour * hours)) : 1;
+    return { rating, share, budget, item, perHour, need: item + perHour * hours, fill, hours: fill * hours, plannedHours: hours };
+  }
   function suggestChainCount(entry, chain, { stock, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins5 = Infinity, price = null, liquidity: liquidity2 = null, inputMarket = null }) {
     if (!chain || !entry.mainCount || chain.profitPerHour <= 0) return null;
     const planned = Math.max(1, Math.floor(hours / chain.hoursPerAction));
@@ -2607,7 +2627,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1, leveling: levelingOptions = {} } = {}) {
     var _a;
     const evaluator = (action, level) => {
-      if (action.function === ENHANCE_FUNCTION) return (teas, score3) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, score: score3 });
+      if (action.function === ENHANCE_FUNCTION) return (teas, score3) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, sellCap, score: score3 });
       if (action.function === ALCHEMY_FUNCTION) return (teas, score3) => evaluateAlchemy(action, who, data, market, teas, { score: score3 });
       return (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
     };
@@ -2631,7 +2651,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     const refs = { gold: 1, xp: 1 };
     const skillRefs = {};
     const NO_STOCK = { inventory: 0, listed: 0, listings: [] };
-    const fillOf = (r) => plan ? suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null, sellCap })?.fill ?? 1 : 1;
+    const fillOf = (r) => {
+      if (!plan) return 1;
+      if (r.action.function === ENHANCE_FUNCTION) return enhanceBudget(r, plan)?.fill ?? 1;
+      return suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null, sellCap })?.fill ?? 1;
+    };
     for (const { action, evaluate } of doable) {
       const own = skillRefs[_a = action.type] || (skillRefs[_a] = { gold: 1, xp: 1, cost: Infinity });
       const gold = bestTeas(action, who, data, market, evaluate, leveling(action) ? (r) => -coinsPerXp(r) : (r) => r.goldPerDay).result;
@@ -2656,7 +2680,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       const liquidity2 = plan?.liquidity?.(shown.action) ?? null;
       const stock = action.function === ALCHEMY_FUNCTION ? NO_STOCK : plan?.stock(shown.action);
       const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity: liquidity2, sellCap }) : null;
-      const fill = suggestion ? suggestion.fill : 1;
+      const budget = plan ? enhanceBudget(shown, plan) : null;
+      const fill = suggestion ? suggestion.fill : budget ? budget.fill : 1;
       const chained = chain(shown);
       const entry = {
         ...shown,
@@ -2664,6 +2689,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         current,
         best,
         suggestion,
+        budget,
         chain: chained,
         // A train that makes the materials too, when that pays at least as well as buying them.
         chainSuggestion: plan && chained && chained.profitPerHour >= shown.profitPerHour ? suggestChainCount(shown, chained, { ...plan, stock: plan.stock(shown.action), price, liquidity: liquidity2, sellCap }) : null,
@@ -2675,7 +2701,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       };
       if (plan) {
         const runs = action.function === "/action_functions/gathering" || action.function === ENHANCE_FUNCTION;
-        const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : runs ? plan.hours : 0;
+        const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : budget ? budget.hours : runs ? plan.hours : 0;
         entry.teaPlan = teaPurchase(entry, { hours, have: plan.have });
       }
       return entry;
@@ -3367,21 +3393,27 @@ i.mwia-history-bid { background: #7ee2b0; }
     const bid = entry?.b > 0 ? entry.b : null;
     const usualAsk = usual?.a.med7 > 0 ? usual.a.med7 : null;
     const usualBid = usual?.b.med7 > 0 ? usual.b.med7 : null;
-    const sold = summary?.liquidity?.sold?.enough ? summary.liquidity.sold.perDay : null;
-    const out = (price, source, from = level) => ({ price: price * (1 - MARKET_TAX), source, level: from, ask, bid, usualAsk, usualBid, history: !!usual, sold });
-    if (sellAt === "ask" && (ask || usualAsk)) {
-      const ceiling = usualAsk || (bid ? WIDE_SPREAD * bid : Infinity);
+    const soldNow = summary?.liquidity?.sold;
+    const sold = soldNow?.enough ? soldNow.perDay : null;
+    const lower = marketBids(itemHrid).filter((b) => b.enhancementLevel < level).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
+    const vendor = data.itemDetailMap[itemHrid]?.sellPrice || 0;
+    const floor = lower ? lower.bid * (1 - MARKET_TAX) : vendor;
+    const base = { ask, bid, usualAsk, usualBid, history: !!usual, sold, floor, floorLevel: lower ? lower.enhancementLevel : null };
+    const out = (price, source, from = level) => ({ ...base, price: price * (1 - MARKET_TAX), source, level: from });
+    const backed = bid || usualAsk || sold > 0;
+    if (sellAt === "ask" && backed && (ask || usualAsk)) {
+      const ceiling = usualAsk || (bid ? WIDE_SPREAD * bid : soldNow?.price || Infinity);
       return out(Math.min(ask || usualAsk, ceiling), ask ? ask > ceiling ? usualAsk ? "usual" : "spread" : "ask" : "usual");
     }
     if (bid || usualBid) return out(bid || usualBid, bid ? "bid" : "usualbid");
-    const lower = marketBids(itemHrid).filter((b) => b.enhancementLevel < level).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
-    if (lower) return out(lower.bid, "lower", lower.enhancementLevel);
-    return { price: data.itemDetailMap[itemHrid]?.sellPrice || 0, source: "vendor", level: null, ask, bid };
+    const unbacked = sellAt === "ask" && ask ? ask : null;
+    if (lower) return { ...out(lower.bid, "lower", lower.enhancementLevel), unbacked };
+    return { ...base, price: vendor, source: "vendor", level: null, unbacked };
   }
   function enhanceWarnings(entry) {
     const sell = entry.outputs[0]?.sell;
     if (!sell) return [];
-    if (sell.source === "lower" || sell.source === "vendor") return [{ kind: "plusfloor", itemHrid: entry.action.itemHrid, target: entry.target, from: sell.level }];
+    if (sell.source === "lower" || sell.source === "vendor") return [{ kind: "plusfloor", itemHrid: entry.action.itemHrid, target: entry.target, from: sell.level, unbacked: sell.unbacked }];
     if (!sell.history) return [{ kind: "plusnohistory", itemHrid: entry.action.itemHrid, target: entry.target }];
     return [];
   }
@@ -3474,8 +3506,10 @@ i.mwia-history-bid { background: #7ee2b0; }
         return `Thin margin: a ${dec(warning.margin * 100, 1)}% drop in the selling price wipes out the profit.`;
       case "unsellable":
         return `${item} can't be sold.`;
-      case "plusfloor":
-        return warning.from === null || warning.from === void 0 ? `Nobody buys ${item} +${warning.target} or a lower +level: valued at the shop price.` : `Nobody buys ${item} +${warning.target} right now: valued at the +${warning.from} bid \u2013 list it to sell.`;
+      case "plusfloor": {
+        const listing = warning.unbacked ? ` The listing at ${coins(warning.unbacked)} isn't counted: nobody bids for +${warning.target} and it hasn't been seen selling.` : "";
+        return (warning.from === null || warning.from === void 0 ? `Nobody buys ${item} +${warning.target} or a lower +level: valued at the shop price.` : `Nobody buys ${item} +${warning.target} right now: valued at the +${warning.from} bid \u2013 list it to sell.`) + listing;
+      }
       case "plusnohistory":
         return `Under ${MIN_HOURS} hours of prices for ${item} +${warning.target} yet: its price now is used as it is.`;
       default:
@@ -3486,13 +3520,13 @@ i.mwia-history-bid { background: #7ee2b0; }
     const day = entry.goldPerDay;
     const leveling2 = isEnhance(entry) || isAlchemy(entry);
     const perXp = leveling2 && entry.coinsPerXp !== null ? ` \xB7 ${entry.coinsPerXp >= 0 ? `${dec(entry.coinsPerXp, 1)} coins/XP` : `earns ${dec(-entry.coinsPerXp, 1)}/XP`}` : "";
-    const levelText = leveling2 ? `item level ${entry.action.levelRequirement.level}${isAlchemy(entry) ? ` \xB7 ${pct(entry.successRate).replace("+", "")} success` : ""}${perXp}${suggestionShort(entry.suggestion)}` : "";
+    const levelText = leveling2 ? `item level ${entry.action.levelRequirement.level}${isAlchemy(entry) ? ` \xB7 ${pct(entry.successRate).replace("+", "")} success` : ""}${perXp}${suggestionShort(entry.suggestion)}${budgetShort(entry.budget)}` : "";
     const sub = leveling2 ? levelText : upcoming ? `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level} \xB7 in ${entry.needLevels} level${entry.needLevels === 1 ? "" : "s"}${entry.hoursToUnlock !== null ? ` \xB7 ~${hoursText(entry.hoursToUnlock)}` : ""}` : `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level}${entry.capped ? ` \xB7 ${dec(entry.hoursPerDay, 1)} h/day (sales limit)` : ""}${suggestionShort(entry.suggestion)}`;
     const warn = entry.warnings.length ? ` <span class="mwia-warn" title="${esc(entry.warnings.map(warningText).join(" "))}">\u26A0</span>` : "";
     const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas ? `<span class="mwia-skill-hint">\u{1F375} ${teaGain(entry.best.result, entry.current)} with other teas</span>` : "";
     const gold = entry.valid ? `<span class="${day < 0 && !leveling2 ? "mwia-bad" : day > 0 && (best || leveling2) ? "mwia-ok" : ""}">${coins(day)}/day</span>` : `<span class="mwia-dim">\u2013</span>`;
     const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1 ? `<span class="mwia-skill-hint">\u26D3 ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>` : "";
-    const faded = !entry.valid || !leveling2 && day <= 0 || entry.suggestion?.count === 0 || entry.thinMargin;
+    const faded = !entry.valid || !leveling2 && day <= 0 || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
     return `<details class="mwia-skill-row${(best || leveling2 && first) && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">\u2192 +${entry.target}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
         <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
@@ -3564,6 +3598,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       `<b>Each attempt uses</b> ${mats} = ${coins(e.costPerAttempt)}.`,
       `<b>Each attempt may drop</b> ${e.outputs.slice(1).map((o) => `${count(o.count)} \xD7 ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}`).join(" \xB7 ")} = ${coins(e.dropsPerAttempt)}.`,
       `<b>Each +${e.target}</b> (one per ${count(e.attempts)} attempts): the item ${base}, sold at ${sold} for ${coins(sell.price)} after tax.${sell.sold !== null && sell.sold !== void 0 ? ` About ${soldText(sell.sold)} +${e.target} sell a day; you'd make ${count(e.itemsPerHour * 24)}.` : ""}`,
+      e.salesCap ? `<span class="mwia-warn">The market takes about ${soldText(e.salesCap.perDay)} a day (${e.salesCap.fromSales ? "its sales" : "your <i>Max sold/day</i>"}); the rest of the ${count(e.salesCap.made)} you'd make go for ${coins(Math.min(sell.floor, sell.price))} (the ${sell.floorLevel === null ? "shop" : `+${sell.floorLevel} bid`}): ${coins(e.outputs[0].price)} each on average.</span>` : "",
+      budgetText(e.budget),
       e.teas.length ? `<b>Teas:</b> ${e.teaCosts.map((t4) => `${esc(itemName(t4.itemHrid))} @ ${coins(t4.price)}`).join(" \xB7 ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h.` : "",
       `(${coins(e.revenuePerAction)} \u2212 ${coins(e.costPerAction)}) \xD7 ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` \u2212 ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h \xD7 24 = <b>${coins(e.goldPerDay)}/day</b>.`
     ].filter(Boolean)));
@@ -3671,6 +3707,19 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!plan) return "";
     const have4 = plan.items.length ? ` To buy: ${plan.items.map((i) => `${i.quantity.toLocaleString("en-US")} ${esc(itemName(i.hrid))}${i.have ? ` (you have ${i.have.toLocaleString("en-US")})` : ""}`).join(", ")}.` : " You have enough of each.";
     return `<br>For this job (${hoursText(plan.hours)}): ${plan.perTea.toLocaleString("en-US")} of each.${have4}`;
+  }
+  function budgetShort(b) {
+    if (!b || b.fill >= 1) return "";
+    if (b.fill === 0) return ` \xB7 <span class="mwia-warn">the item (${coins(b.item)}) is over ${Math.round(b.share * 100)}% of your coins</span>`;
+    return ` \xB7 your coins last ${hoursText(b.hours)} of ${hoursText(b.plannedHours)}`;
+  }
+  function budgetText(b) {
+    if (!b) return "";
+    const rating = `${RATING[b.rating.rating]}${b.rating.known ? "" : " (too little history)"}`;
+    const what = `${b.item ? `the item (${coins(b.item)}) and ` : ""}${hoursText(b.plannedHours)} of materials and teas (${coins(b.perHour)}/h) need ${coins(b.need)}; the item's market is a ${rating}, so up to ${Math.round(b.share * 100)}% of your coins (${coins(b.budget)}) may go into it`;
+    if (b.fill === 0) return `<span class="mwia-warn">${what} \u2013 not enough for the item itself.</span>`;
+    if (b.fill < 1) return `<span class="mwia-warn">${what} \u2013 enough for ${hoursText(b.hours)}.</span>`;
+    return `<span class="mwia-dim">${what}.</span>`;
   }
   function suggestionShort(suggestion) {
     if (!suggestion?.known) return "";
