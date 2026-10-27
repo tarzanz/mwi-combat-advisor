@@ -119,6 +119,13 @@ buy, by simulating *your own* character.
   lasts; more than 10% below says waiting may pay. A ⚠ warns when the margin is smaller than the price's usual swing.
   **⬇ Export all prices** in the box prepares every stored price as one CSV (hourly rows only where an item's price
   changed, daily rows with low/high), then **Download CSV** or **📋 Copy** – to read in a spreadsheet or hand to an AI.
+- **Listing prices** – the game's *Sell Listing* and *Buy Listing* windows get price buttons under the price box:
+  **Match** (the best offer now), **Wall** (one price step in front of the first level in the order book holding a
+  fifth of everything others offer within the tradable range – passing the small undercuts, staying in front of the
+  big pile), **Usual** (the week's median ask or bid) and **Patient** (the upper quartile of the week's asks when
+  selling, the lower quartile of its bids when buying), each kept within the tradable range. The game's own −/+ make
+  the steps, so the price is always one the game takes. A line says how many others offer a better price than the one
+  in the box and how it compares with the usual price. Usual and Patient need 12 hours of prices; +N items get no help.
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the **⚔ Advisor** button can be
   dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact

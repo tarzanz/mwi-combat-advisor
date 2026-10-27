@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.28.0
+// @version      0.29.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1460,6 +1460,11 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-guide-list li span .mwia-guide-low, .mwia-guide-low { color: #ffd479; font-weight: 600; }
 .mwia-guide-note { margin: 2px 0; }
 .mwia-guide-cart { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
+.mwia-listprice { margin: 6px 0; padding: 6px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-listprice-buttons { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; min-width: 58px; padding: 3px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
+.mwia-listprice-buttons button small { font-weight: 400; font-size: 11px; color: #9aa3cf; }
+.mwia-listprice-info { margin-top: 4px; color: #9aa3cf; font-size: 11px; text-align: center; }
 .mwia-guide-hours { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
 .mwia-guide-hour { min-width: 32px; padding: 4px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-guide-hour.mwia-guide-picked { background: #4a5bb8; border-color: #8a98e8; }
@@ -1908,7 +1913,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const lowest = Math.min(...book.asks.map((o) => o.price));
     const top = lowest * (1 + ASK_WINDOW);
     const near = book.asks.filter((o) => o.price <= top).reduce((sum, o) => sum + o.quantity, 0);
-    const mine = (stock.listings || []).filter((l) => l.price > 0 && l.price <= top).reduce((sum, l) => sum + l.quantity, 0);
+    const mine = (stock.listings || []).filter((l2) => l2.price > 0 && l2.price <= top).reduce((sum, l2) => sum + l2.quantity, 0);
     return { quantity: Math.max(0, near - mine), lowest };
   }
   function breakEvenPrice(entry) {
@@ -1925,11 +1930,11 @@ i.mwia-history-bid { background: #7ee2b0; }
   var RATING_ORDER = { thin: 0, ok: 1, stable: 2 };
   var INPUT_BOOK_HOURS = 12;
   function liquidityRating(summary) {
-    const l = summary?.liquidity;
+    const l2 = summary?.liquidity;
     const swing = summary?.a?.swing;
-    if (!l || l.hours < LIQUIDITY_HOURS || l.spread === null || swing === null) return { rating: "thin", known: false, ...l, swing: swing ?? null };
-    const meets = (t3) => l.both >= t3.both && l.spread <= t3.spread && swing <= t3.swing && l.activity >= t3.activity;
-    return { rating: meets(LIQUIDITY.stable) ? "stable" : meets(LIQUIDITY.ok) ? "ok" : "thin", known: true, ...l, swing };
+    if (!l2 || l2.hours < LIQUIDITY_HOURS || l2.spread === null || swing === null) return { rating: "thin", known: false, ...l2, swing: swing ?? null };
+    const meets = (t3) => l2.both >= t3.both && l2.spread <= t3.spread && swing <= t3.swing && l2.activity >= t3.activity;
+    return { rating: meets(LIQUIDITY.stable) ? "stable" : meets(LIQUIDITY.ok) ? "ok" : "thin", known: true, ...l2, swing };
   }
   var PLAN_MODES = {
     away: { hours: 8, coinShare: { stable: 0.6, ok: 0.3, thin: 0.1 }, hideThinMargins: true },
@@ -2457,6 +2462,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return list[list.length - 1][0];
   }
+  function quantile(pairs, q) {
+    const list = pairs.filter(([v, w]) => Number.isFinite(v) && w > 0).sort((x, y) => x[0] - y[0]);
+    const total = list.reduce((sum, [, w]) => sum + w, 0);
+    if (!total) return null;
+    let seen = 0;
+    for (const [v, w] of list) {
+      seen += w;
+      if (seen >= q * total) return v;
+    }
+    return list[list.length - 1][0];
+  }
   function dayStats(values) {
     const finite = values.filter(Number.isFinite);
     if (!finite.length) return [NaN, NaN, NaN, 0];
@@ -2506,7 +2522,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       const week7 = median(week);
       const previous = before.length >= MIN_HOURS ? median(before) : null;
       const swing = week7 ? median(week.map(([v, w]) => [Math.abs(v / week7 - 1), w])) : null;
-      return { med7: week7, med30: median(month), trend: week7 && previous ? week7 / previous - 1 : null, swing };
+      return { med7: week7, med30: median(month), trend: week7 && previous ? week7 / previous - 1 : null, swing, q25: quantile(week, 0.25), q75: quantile(week, 0.75) };
     };
     let first = Infinity;
     let hours7 = 0;
@@ -2547,7 +2563,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     return { hours: observed, both: observed ? both / observed : 0, spread: median(spreads), activity: pairs ? moves / pairs : 0 };
   }
   function historyCsv(items, hours, days, exportedAt = /* @__PURE__ */ new Date()) {
-    const num = (v) => Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "";
+    const num2 = (v) => Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "";
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
     const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
     const id = (hrid) => hrid.replace(/^\/items\//, "");
@@ -2562,7 +2578,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const previous = /* @__PURE__ */ new Map();
     for (const r of hours) {
       items.forEach((hrid, i) => {
-        const pair = num(at(r.a, i)) + "," + num(at(r.b, i));
+        const pair = num2(at(r.a, i)) + "," + num2(at(r.b, i));
         if (previous.get(i) === pair || !previous.has(i) && pair === ",") return;
         previous.set(i, pair);
         lines.push(`hour,${hourText(r.hour)},${id(hrid)},${pair}`);
@@ -2571,7 +2587,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const d of days) {
       items.forEach((hrid, i) => {
         if (!at(d.n, i)) return;
-        lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num(at(list, i))).join(",")},${at(d.n, i)}`);
+        lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)}`);
       });
     }
     return { csv: lines.join("\n") + "\n", items: items.length, hours: hours.length, days: days.length };
@@ -3018,17 +3034,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!s.count) return `${rating} \xB7 ${s.held ? "you hold enough" : "your coins don't stretch to one"}`;
     return `${rating} \xB7 make ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}) \xB7 ${coins(s.batch.materials)} in, ${s.batch.profit >= 0 ? "+" : "\u2212"}${coins(Math.abs(s.batch.profit))}`;
   }
-  function liquidityText(l) {
+  function liquidityText(l2) {
     const share = (x) => `${Math.round(x * 100)}%`;
-    if (!l.known) return `${RATING.thin}: under ${MIN_HOURS} hours of prices for it yet${l.hours ? ` (${l.hours})` : ""}, so it is treated as thin.`;
+    if (!l2.known) return `${RATING.thin}: under ${MIN_HOURS} hours of prices for it yet${l2.hours ? ` (${l2.hours})` : ""}, so it is treated as thin.`;
     const parts = [
-      `a buyer and a seller in ${share(l.both)} of the hours`,
-      `spread ${dec(l.spread * 100, 1)}%`,
-      `price swings \xB1${dec(l.swing * 100, 1)}%`,
-      `the lowest ask moved in ${share(l.activity)} of the hours`
+      `a buyer and a seller in ${share(l2.both)} of the hours`,
+      `spread ${dec(l2.spread * 100, 1)}%`,
+      `price swings \xB1${dec(l2.swing * 100, 1)}%`,
+      `the lowest ask moved in ${share(l2.activity)} of the hours`
     ];
     const s = LIQUIDITY.stable;
-    return `${RATING[l.rating]} over the last ${l.hours} hours of prices: ${parts.join(", ")}. <span class="mwia-dim">Stable needs \u2265 ${share(s.both)}, \u2264 ${share(s.spread)}, \u2264 \xB1${share(s.swing)} and \u2265 ${share(s.activity)}. Prices only \u2013 the market file has no quantities, so a calm item that sells a few a day can still look stable.</span>`;
+    return `${RATING[l2.rating]} over the last ${l2.hours} hours of prices: ${parts.join(", ")}. <span class="mwia-dim">Stable needs \u2265 ${share(s.both)}, \u2264 ${share(s.spread)}, \u2264 \xB1${share(s.swing)} and \u2265 ${share(s.activity)}. Prices only \u2013 the market file has no quantities, so a calm item that sells a few a day can still look stable.</span>`;
   }
   var ago = (at2) => hoursText((Date.now() - at2) / 36e5);
   var have = (hrid) => heldStock(state.character, state.items, hrid).inventory;
@@ -5476,6 +5492,203 @@ i.mwia-history-bid { background: #7ee2b0; }
     });
   }
 
+  // src/listing-price.js
+  var WALL_SHARE = 0.2;
+  function otherLevels(levels, own = [], range = null, side = "sell") {
+    const mine = /* @__PURE__ */ new Map();
+    for (const listing of own) mine.set(listing.price, (mine.get(listing.price) || 0) + listing.quantity);
+    return levels.map((level) => ({ price: level.price, quantity: level.quantity - (mine.get(level.price) || 0) })).filter((level) => level.quantity > 0 && (!range || level.price >= range.min && level.price <= range.max)).sort((a, b) => side === "sell" ? a.price - b.price : b.price - a.price);
+  }
+  function findWall(levels) {
+    const total = levels.reduce((sum, level) => sum + level.quantity, 0);
+    let ahead = 0;
+    for (const level of levels) {
+      if (total > 0 && level.quantity >= WALL_SHARE * total) return { price: level.price, quantity: level.quantity, ahead, total };
+      ahead += level.quantity;
+    }
+    return null;
+  }
+  function standing(price, levels, side = "sell") {
+    let better = 0;
+    let same = 0;
+    for (const level of levels) {
+      if (level.price === price) same += level.quantity;
+      else if (side === "sell" ? level.price < price : level.price > price) better += level.quantity;
+    }
+    return { better, same };
+  }
+  function listingPrices({ side, book = null, own = [], best = null, range = null, summary = null }) {
+    const sell = side === "sell";
+    const levels = otherLevels(book ? sell ? book.asks : book.bids : [], own, range, side);
+    const clamp = (price) => {
+      if (range && price > range.max) return { price: range.max, capped: "max" };
+      if (range && price < range.min) return { price: range.min, capped: "min" };
+      return { price, capped: null };
+    };
+    const out = [];
+    if (best > 0) out.push({ kind: "match", ...clamp(best), step: 0, snap: false });
+    const wall = findWall(levels);
+    if (wall) out.push({ kind: "wall", price: wall.price, capped: null, step: sell ? -1 : 1, snap: false, wall });
+    const history = summary && summary.hours7 >= MIN_HOURS ? summary[sell ? "a" : "b"] : null;
+    if (history?.med7 > 0) out.push({ kind: "usual", ...clamp(history.med7), step: 0, snap: true });
+    const patient = sell ? history?.q75 : history?.q25;
+    if (patient > 0) out.push({ kind: "patient", ...clamp(patient), step: 0, snap: true });
+    return { levels, suggestions: out, usual: history?.med7 ?? null, hours: summary?.hours7 ?? 0 };
+  }
+
+  // src/listing-price-ui.js
+  var MODAL = '[class*="MarketplacePanel_modalContent"]';
+  var HEADER = '[class*="MarketplacePanel_header"]';
+  var PRICE_INPUTS = '[class*="MarketplacePanel_priceInputs"]';
+  var BEST = '[class*="MarketplacePanel_bestPrice"]';
+  var SCAN_MS4 = 300;
+  var BOOK_OLD_MS = 10 * 60 * 1e3;
+  var LABELS = { match: "Match", wall: "Wall", usual: "Usual", patient: "Patient" };
+  var l = { scanTimer: null };
+  var num = (n2) => Math.round(n2).toLocaleString("en-US");
+  var numberIn = (text) => {
+    const found = String(text).match(/\d[\d\s,.]*[kmb]?/gi);
+    return found ? parseCoins(found[found.length - 1].trim()) : null;
+  };
+  var tick = () => new Promise((resolve2) => requestAnimationFrame(() => resolve2()));
+  function startListingPrices() {
+    new MutationObserver((records) => {
+      if (records.every((r) => r.target.closest?.(".mwia-listprice"))) return;
+      scheduleScan5();
+    }).observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("click", onClick6, true);
+    document.addEventListener("input", (event) => {
+      if (event.target.closest?.(MODAL)) scheduleScan5();
+    }, true);
+  }
+  function scheduleScan5() {
+    if (l.scanTimer) return;
+    l.scanTimer = setTimeout(() => {
+      l.scanTimer = null;
+      try {
+        scan4();
+      } catch (error) {
+        console.warn("[Combat Advisor] listing prices", error);
+      }
+    }, SCAN_MS4);
+  }
+  function readModal(modal) {
+    const header = modal.querySelector(HEADER)?.textContent || "";
+    const side = /sell listing|sell order/i.test(header) ? "sell" : /buy listing|buy order/i.test(header) ? "buy" : null;
+    const inputs = modal.querySelector(PRICE_INPUTS);
+    const input = inputs?.querySelector("input");
+    if (!side || !input) return null;
+    const use = modal.querySelector("svg use");
+    const id = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#").pop();
+    if (!id) return null;
+    const text = modal.textContent || "";
+    const range = /Tradable range:\s*(\d[\d\s,.]*)\s*[–-]\s*(\d[\d\s,.]*)/i.exec(text);
+    const enhanced = /\+(\d+)/.exec(modal.querySelector("svg")?.closest("div")?.parentElement?.textContent || "");
+    return {
+      side,
+      hrid: "/items/" + id,
+      level: enhanced ? Number(enhanced[1]) : 0,
+      inputs,
+      input,
+      best: numberIn(modal.querySelector(BEST)?.textContent || ""),
+      range: range ? { min: parseCoins(range[1]), max: parseCoins(range[2]) } : null
+    };
+  }
+  function ownListings(hrid, side) {
+    return (state.character?.myMarketListings || []).filter((listing) => listing.itemHrid === hrid && !listing.enhancementLevel && !!listing.isSell === (side === "sell")).map((listing) => ({ price: Number(listing.price) || 0, quantity: Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0)) }));
+  }
+  function context(modal) {
+    const m = readModal(modal);
+    if (!m || m.level) return m;
+    const book = state.orderBooks.get(m.hrid) || null;
+    return { ...m, book, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side), best: m.best, range: m.range, summary: priceSummary(m.hrid) }) };
+  }
+  function scan4() {
+    for (const modal of document.querySelectorAll(MODAL)) {
+      if (!visible(modal)) continue;
+      const c2 = context(modal);
+      let box = modal.querySelector(".mwia-listprice");
+      if (!c2) {
+        box?.remove();
+        continue;
+      }
+      if (!box) {
+        box = document.createElement("div");
+        box.className = "mwia-listprice";
+        c2.inputs.insertAdjacentElement("afterend", box);
+      }
+      const html = boxHtml2(c2);
+      if (box.dataset.html !== html) {
+        box.dataset.html = html;
+        box.innerHTML = html;
+      }
+    }
+  }
+  function boxHtml2(c2) {
+    if (c2.level) return `<div class="mwia-listprice-info">Price help is for +0 items only.</div>`;
+    const sell = c2.side === "sell";
+    const buttons = c2.suggestions.map((s, i) => {
+      const shown = s.kind === "wall" ? `${sell ? "<" : ">"} ${shortCoins(s.price)}` : shortCoins(s.price);
+      return `<button type="button" data-listprice="${i}" title="${esc(titleFor(s, c2))}"><b>${LABELS[s.kind]}</b><small>${shown}</small></button>`;
+    });
+    return `${buttons.length ? `<div class="mwia-listprice-buttons">${buttons.join("")}</div>` : ""}<div class="mwia-listprice-info">${infoHtml(c2)}</div>`;
+  }
+  function titleFor(s, c2) {
+    const sell = c2.side === "sell";
+    const cap2 = s.capped ? ` (the tradable range's ${s.capped})` : "";
+    if (s.kind === "match") return `The best ${sell ? "sell" : "buy"} offer now: ${num(s.price)}${cap2}.`;
+    if (s.kind === "wall") return `One step ${sell ? "under" : "over"} ${num(s.wall.quantity)} at ${num(s.price)}, the first level with a fifth of all ${sell ? "listed" : "bid"}; ${num(s.wall.ahead)} lie in front of it.`;
+    if (s.kind === "usual") return `The week's median ${sell ? "ask" : "bid"}: ${num(s.price)}${cap2}.`;
+    return `${sell ? "A quarter of the week's asks were at or above" : "A quarter of the week's bids were at or below"} ${num(s.price)}${cap2}: for when you're in no hurry.`;
+  }
+  function infoHtml(c2) {
+    const sell = c2.side === "sell";
+    const price = numberIn(c2.input.value);
+    const parts = [];
+    if (price > 0 && c2.book) {
+      const { better, same } = standing(price, c2.levels, c2.side);
+      parts.push(`${num(better)} ${sell ? "listed cheaper" : "bid higher"}${same ? `, ${num(same)} at ${num(price)}` : ""}`);
+      const age = Date.now() - c2.book.at;
+      if (age > BOOK_OLD_MS) parts.push(`order book ${Math.round(age / 6e4)} min old`);
+    } else if (!c2.book) parts.push(`open ${esc(itemName(c2.hrid))} on the market for the order book`);
+    const vs = price > 0 ? versusUsual(price, c2.usual) : null;
+    if (vs) parts.push(`${vs.diff >= 0 ? "+" : "\u2212"}${Math.abs(Math.round(vs.diff * 100))}% vs usual ${sell ? "ask" : "bid"} (${num(c2.usual)})`);
+    else if (!c2.usual) parts.push(`usual price after 12 h of prices${c2.hours ? ` (${c2.hours} so far)` : ""}`);
+    return parts.join(" \xB7 ");
+  }
+  function controls(c2) {
+    const buttons = [...c2.inputs.querySelectorAll("button")];
+    const by = (pattern) => buttons.find((b) => pattern.test(b.textContent.trim()));
+    return { minus: by(/^[-−]$/), plus: by(/^\+$/), min: by(/^min$/i), max: by(/^max$/i) };
+  }
+  async function apply(modal, index) {
+    const c2 = context(modal);
+    const s = c2?.suggestions?.[index];
+    if (!s) return;
+    const b = controls(c2);
+    if (s.capped === "max" && b.max) b.max.click();
+    else if (s.capped === "min" && b.min) b.min.click();
+    else {
+      setReactInput(c2.input, Math.round(s.price));
+      await tick();
+      if (s.step) (s.step < 0 ? b.minus : b.plus)?.click();
+      else if (s.snap && b.plus && b.minus) {
+        b.plus.click();
+        await tick();
+        b.minus.click();
+      }
+    }
+    await tick();
+    scheduleScan5();
+  }
+  function onClick6(event) {
+    const button = event.target.closest?.(".mwia-listprice [data-listprice]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    apply(button.closest(MODAL), Number(button.dataset.listprice));
+  }
+
   // src/main.js
   var win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   installSocketHook(win);
@@ -5488,6 +5701,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     mountUI(win, worker_source_default);
     mountPlanTrain(win);
     startPriceHistory(win);
+    startListingPrices();
   }
 })();
 

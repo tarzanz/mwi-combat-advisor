@@ -40,6 +40,19 @@ export function median(pairs) {
     return list[list.length - 1][0];
 }
 
+// The value below which a share q of the weight lies (q = 0.5 is the median, without averaging); null when empty.
+export function quantile(pairs, q) {
+    const list = pairs.filter(([v, w]) => Number.isFinite(v) && w > 0).sort((x, y) => x[0] - y[0]);
+    const total = list.reduce((sum, [, w]) => sum + w, 0);
+    if (!total) return null;
+    let seen = 0;
+    for (const [v, w] of list) {
+        seen += w;
+        if (seen >= q * total) return v;
+    }
+    return list[list.length - 1][0];
+}
+
 // One day's points of one side -> [median, low, high, count].
 function dayStats(values) {
     const finite = values.filter(Number.isFinite);
@@ -97,7 +110,8 @@ export function summarize(i, hours, days, nowHour) {
         const previous = before.length >= MIN_HOURS ? median(before) : null;
         // Typical swing: half the week's prices lie within ± this share of the median.
         const swing = week7 ? median(week.map(([v, w]) => [Math.abs(v / week7 - 1), w])) : null;
-        return { med7: week7, med30: median(month), trend: week7 && previous ? week7 / previous - 1 : null, swing };
+        // q25/q75: the week's lower and upper quartile, for a patient buy or sell price.
+        return { med7: week7, med30: median(month), trend: week7 && previous ? week7 / previous - 1 : null, swing, q25: quantile(week, 0.25), q75: quantile(week, 0.75) };
     };
     let first = Infinity;
     let hours7 = 0;

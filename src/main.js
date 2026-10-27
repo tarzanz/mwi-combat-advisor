@@ -3,6 +3,7 @@ import { installSocketHook } from "./game-state.js";
 import { mountUI } from "./ui.js";
 import { mountPlanTrain } from "./train-ui.js";
 import { startPriceHistory } from "./price-history-ui.js";
+import { startListingPrices } from "./listing-price-ui.js";
 
 const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
@@ -18,4 +19,5 @@ function mount() {
     mountUI(win, WORKER_SOURCE);
     mountPlanTrain(win);
     startPriceHistory(win);
+    startListingPrices();
 }

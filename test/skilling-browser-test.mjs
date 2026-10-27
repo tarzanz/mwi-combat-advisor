@@ -552,6 +552,48 @@ try {
     await page.evaluate(() => document.getElementById("equipment").remove());
     await new Promise((r) => setTimeout(r, 600));
     check("the tool notice goes with the page", !(await page.$(".mwia-tool-box")));
+    // Listing windows: price buttons from the order book (no price history in the test browser).
+    const fabricBook = { type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: "/items/cotton_fabric", orderBooks: [{
+        asks: [{ price: 1096, quantity: 9552 }, { price: 1100, quantity: 6082 }, { price: 1120, quantity: 22886 }, { price: 1140, quantity: 90000 }, { price: 1300, quantity: 25 }],
+        bids: [{ price: 1040, quantity: 500 }, { price: 1000, quantity: 10000 }, { price: 800, quantity: 10000 }],
+    }] } };
+    for (const socket of sockets) socket.send(JSON.stringify(fabricBook));
+    await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
+    const openListing = (side, best, price) => page.evaluate((side, best, price) => {
+        document.querySelector(".listing-modal")?.remove();
+        // The game's −/+ move between valid prices: steps of 4 here.
+        document.body.insertAdjacentHTML("beforeend", `<div class="listing-modal"><div class="MarketplacePanel_modalContent__x"><div class="MarketplacePanel_header__x">${side} Listing</div>
+            <div class="icon"><svg><use href="/sprites/items.svg#cotton_fabric"></use></svg><span>1</span></div><div>Tradable range: 984 – 1 205</div>
+            <div>Price (Best ${side} Offer: <span class="MarketplacePanel_bestPrice__x">${best}</span>)</div>
+            <div class="MarketplacePanel_inputContainer__x"><div class="MarketplacePanel_priceInputs__x"><button>Min</button><button>-</button><input type="text" value="${price}"><button>+</button><button>Max</button></div></div>
+            <button>Post ${side} Listing</button></div></div>`);
+        const box = document.querySelector(".listing-modal");
+        const input = box.querySelector("input");
+        const [min, minus, plus, max] = box.querySelectorAll(".MarketplacePanel_priceInputs__x button");
+        const set = (v) => { input.value = String(v); input.dispatchEvent(new Event("input", { bubbles: true })); };
+        minus.onclick = () => set(Math.ceil(Number(input.value) / 4) * 4 - 4);
+        plus.onclick = () => set(Math.floor(Number(input.value) / 4) * 4 + 4);
+        min.onclick = () => set(984);
+        max.onclick = () => set(1205);
+    }, side, best, price);
+    const listingBox = () => page.evaluate(() => ({ buttons: [...document.querySelectorAll(".listing-modal .mwia-listprice button")].map((b) => `${b.querySelector("b").textContent} ${b.querySelector("small").textContent}`), info: document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || "", price: document.querySelector(".listing-modal input").value }));
+    await openListing("Sell", "1 096", "1 092");
+    await page.waitForSelector(".listing-modal .mwia-listprice button", { timeout: 4000 }).catch(() => null);
+    const sellBox = await listingBox();
+    check("sell listing shows match and wall", JSON.stringify(sellBox.buttons) === JSON.stringify(["Match 1,096", "Wall < 1,140"]) && /^0 listed cheaper · usual price after 12 h/.test(sellBox.info), JSON.stringify(sellBox));
+    await page.click('.listing-modal [data-listprice="1"]');
+    await page.waitForFunction(() => /^38,520 listed cheaper/.test(document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || ""), { timeout: 3000 }).catch(() => null);
+    const walled = await listingBox();
+    check("wall: one step under the wall", walled.price === "1136" && /^38,520 listed cheaper/.test(walled.info), JSON.stringify(walled));
+    await page.screenshot({ path: path.join(shotDir, "skilling-10-listing.png") });
+    await openListing("Buy", "1 040", "1 044");
+    await page.waitForFunction(() => document.querySelectorAll(".listing-modal .mwia-listprice button").length === 2, { timeout: 4000 }).catch(() => null);
+    await page.click('.listing-modal [data-listprice="1"]');
+    await page.waitForFunction(() => /^500 bid higher/.test(document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || ""), { timeout: 3000 }).catch(() => null);
+    const buyBox = await listingBox();
+    check("buy listing: one step over the bid wall", JSON.stringify(buyBox.buttons) === JSON.stringify(["Match 1,040", "Wall > 1,000"]) && buyBox.price === "1004" && /^500 bid higher/.test(buyBox.info), JSON.stringify(buyBox));
+    await page.evaluate(() => document.querySelector(".listing-modal").remove());
+
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
     await browser.close();
