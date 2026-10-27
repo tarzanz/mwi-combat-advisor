@@ -562,13 +562,16 @@ try {
     const openListing = (side, best, price) => page.evaluate((side, best, price) => {
         document.querySelector(".listing-modal")?.remove();
         // The game's −/+ move between valid prices: steps of 4 here.
-        document.body.insertAdjacentHTML("beforeend", `<div class="listing-modal"><div class="MarketplacePanel_modalContent__x"><div class="MarketplacePanel_header__x">${side} Listing</div>
-            <div class="icon"><svg><use href="/sprites/items.svg#cotton_fabric"></use></svg><span>1</span></div><div>Tradable range: 984 – 1 205</div>
-            <div>Price (Best ${side} Offer: <span class="MarketplacePanel_bestPrice__x">${best}</span>)</div>
+        // Like the game's: a modal container with a close icon first, an Enhancement Level box, coin icons.
+        document.body.insertAdjacentHTML("beforeend", `<div class="listing-modal Modal_modalContainer__3B80m"><div class="Modal_modal__x"><div class="MarketplacePanel_header__yahJo">${side} Listing</div>
+            <button class="close"><svg><use href="/sprites/misc.svg#close_menu"></use></svg></button>
+            <div class="icon"><svg><use href="/sprites/items.svg#cotton_fabric"></use></svg><span>1</span></div>
+            <div>Enhancement Level</div><div><input class="enh" type="text" value="0"></div><div>Tradable range: 984 – 1 205</div>
+            <div>Price (Best ${side} Offer: <span class="MarketplacePanel_bestPrice__x">${best} <svg><use href="/sprites/items.svg#coin"></use></svg></span>)</div>
             <div class="MarketplacePanel_inputContainer__x"><div class="MarketplacePanel_priceInputs__x"><button>Min</button><button>-</button><input type="text" value="${price}"><button>+</button><button>Max</button></div></div>
             <button>Post ${side} Listing</button></div></div>`);
         const box = document.querySelector(".listing-modal");
-        const input = box.querySelector("input");
+        const input = box.querySelector(".MarketplacePanel_priceInputs__x input");
         const [min, minus, plus, max] = box.querySelectorAll(".MarketplacePanel_priceInputs__x button");
         const set = (v) => { input.value = String(v); input.dispatchEvent(new Event("input", { bubbles: true })); };
         minus.onclick = () => set(Math.ceil(Number(input.value) / 4) * 4 - 4);
@@ -576,7 +579,7 @@ try {
         min.onclick = () => set(984);
         max.onclick = () => set(1205);
     }, side, best, price);
-    const listingBox = () => page.evaluate(() => ({ buttons: [...document.querySelectorAll(".listing-modal .mwia-listprice button")].map((b) => `${b.querySelector("b").textContent} ${b.querySelector("small").textContent}`), info: document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || "", price: document.querySelector(".listing-modal input").value }));
+    const listingBox = () => page.evaluate(() => ({ buttons: [...document.querySelectorAll(".listing-modal .mwia-listprice button")].map((b) => `${b.querySelector("b").textContent} ${b.querySelector("small").textContent}`), info: document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || "", price: document.querySelector(".listing-modal .MarketplacePanel_priceInputs__x input").value }));
     await openListing("Sell", "1 096", "1 092");
     await page.waitForSelector(".listing-modal .mwia-listprice button", { timeout: 4000 }).catch(() => null);
     const sellBox = await listingBox();
@@ -586,6 +589,9 @@ try {
     const walled = await listingBox();
     check("wall: one step under the wall", walled.price === "1136" && /^38,520 listed cheaper/.test(walled.info), JSON.stringify(walled));
     await page.screenshot({ path: path.join(shotDir, "skilling-10-listing.png") });
+    await page.evaluate(() => { const enh = document.querySelector(".listing-modal input.enh"); enh.value = "3"; enh.dispatchEvent(new Event("input", { bubbles: true })); });
+    await page.waitForFunction(() => /for \+0 items only/.test(document.querySelector(".listing-modal .mwia-listprice")?.textContent || ""), { timeout: 3000 }).catch(() => null);
+    check("an enhanced item gets no price help", /for \+0 items only/.test(await page.$eval(".listing-modal .mwia-listprice", (n) => n.textContent)) && !(await page.$(".listing-modal .mwia-listprice button")));
     await openListing("Buy", "1 040", "1 044");
     await page.waitForFunction(() => document.querySelectorAll(".listing-modal .mwia-listprice button").length === 2, { timeout: 4000 }).catch(() => null);
     await page.click('.listing-modal [data-listprice="1"]');

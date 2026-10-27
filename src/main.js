@@ -19,5 +19,5 @@ function mount() {
     mountUI(win, WORKER_SOURCE);
     mountPlanTrain(win);
     startPriceHistory(win);
-    startListingPrices();
+    startListingPrices(win);
 }

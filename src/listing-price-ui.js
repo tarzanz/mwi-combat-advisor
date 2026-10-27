@@ -3,14 +3,15 @@
 // week's usual or a patient price – with a line on where your price stands.
 // The player still posts the listing with the game's own button.
 
-import { itemName } from "./game-data.js";
+import { getClientData, itemName, loadClientData } from "./game-data.js";
 import { state } from "./game-state.js";
 import { esc, parseCoins, shortCoins } from "./format.js";
 import { setReactInput, visible } from "./game-nav.js";
 import { priceSummary, versusUsual } from "./price-history.js";
 import { listingPrices, standing } from "./listing-price.js";
 
-const MODAL = '[class*="MarketplacePanel_modalContent"]';
+// The listing window: the game's modal around the marketplace's price inputs.
+const MODAL = '[class*="Modal_modalContainer"],[class*="MarketplacePanel_modalContent"]';
 const HEADER = '[class*="MarketplacePanel_header"]';
 const PRICE_INPUTS = '[class*="MarketplacePanel_priceInputs"]';
 const BEST = '[class*="MarketplacePanel_bestPrice"]';
@@ -19,7 +20,7 @@ const BOOK_OLD_MS = 10 * 60 * 1000;
 
 const LABELS = { match: "Match", wall: "Wall", usual: "Usual", patient: "Patient" };
 
-const l = { scanTimer: null };
+const l = { win: null, scanTimer: null, loading: null };
 
 const num = (n) => Math.round(n).toLocaleString("en-US");
 // The last number in a text ("Best Sell Offer: 1 096" -> 1096), or null.
@@ -29,7 +30,8 @@ const numberIn = (text) => {
 };
 const tick = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
-export function startListingPrices() {
+export function startListingPrices(win) {
+    l.win = win;
     new MutationObserver((records) => {
         if (records.every((r) => r.target.closest?.(".mwia-listprice"))) return; // our own re-render
         scheduleScan();
@@ -38,6 +40,16 @@ export function startListingPrices() {
     document.addEventListener("input", (event) => {
         if (event.target.closest?.(MODAL)) scheduleScan();
     }, true);
+}
+
+// Every listing window on screen: the modal holding a price box.
+function listingModals() {
+    const found = new Set();
+    for (const inputs of document.querySelectorAll(PRICE_INPUTS)) {
+        const modal = inputs.closest(MODAL);
+        if (modal && visible(modal)) found.add(modal);
+    }
+    return [...found];
 }
 
 function scheduleScan() {
@@ -59,16 +71,21 @@ function readModal(modal) {
     const inputs = modal.querySelector(PRICE_INPUTS);
     const input = inputs?.querySelector("input");
     if (!side || !input) return null;
-    const use = modal.querySelector("svg use");
-    const id = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#").pop();
-    if (!id) return null;
+    // The item: the first icon that is an item (not the coin or the close button).
+    const items = getClientData()?.itemDetailMap || {};
+    const hrid = [...modal.querySelectorAll("svg use")]
+        .map((use) => "/items/" + (use.getAttribute("href") || use.getAttribute("xlink:href") || "").split("#").pop())
+        .find((candidate) => items[candidate] && candidate !== "/items/coin");
+    if (!hrid) return null;
     const text = modal.textContent || "";
     const range = /Tradable range:\s*(\d[\d\s,.]*)\s*[–-]\s*(\d[\d\s,.]*)/i.exec(text);
-    const enhanced = /\+(\d+)/.exec(modal.querySelector("svg")?.closest("div")?.parentElement?.textContent || "");
+    // Equipment has an Enhancement Level box: the first input after that label.
+    const label = [...modal.querySelectorAll("*")].find((el) => !el.children.length && /^enhancement level$/i.test(el.textContent.trim()));
+    const level = label && [...modal.querySelectorAll("input")].find((el) => label.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
     return {
         side,
-        hrid: "/items/" + id,
-        level: enhanced ? Number(enhanced[1]) : 0,
+        hrid,
+        level: level ? Number(level.value) || 0 : 0,
         inputs,
         input,
         best: numberIn(modal.querySelector(BEST)?.textContent || ""),
@@ -90,8 +107,13 @@ function context(modal) {
 }
 
 function scan() {
-    for (const modal of document.querySelectorAll(MODAL)) {
-        if (!visible(modal)) continue;
+    const modals = listingModals();
+    // The item names come from the game data, which may not be loaded yet after a reload.
+    if (modals.length && !getClientData()) {
+        l.loading ||= loadClientData(l.win).then(scheduleScan, (error) => console.warn("[Combat Advisor] listing prices", error)).finally(() => (l.loading = null));
+        return;
+    }
+    for (const modal of modals) {
         const c = context(modal);
         let box = modal.querySelector(".mwia-listprice");
         if (!c) {

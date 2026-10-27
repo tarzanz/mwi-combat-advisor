@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.29.0
+// @version      0.29.1
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5537,21 +5537,22 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/listing-price-ui.js
-  var MODAL = '[class*="MarketplacePanel_modalContent"]';
+  var MODAL = '[class*="Modal_modalContainer"],[class*="MarketplacePanel_modalContent"]';
   var HEADER = '[class*="MarketplacePanel_header"]';
   var PRICE_INPUTS = '[class*="MarketplacePanel_priceInputs"]';
   var BEST = '[class*="MarketplacePanel_bestPrice"]';
   var SCAN_MS4 = 300;
   var BOOK_OLD_MS = 10 * 60 * 1e3;
   var LABELS = { match: "Match", wall: "Wall", usual: "Usual", patient: "Patient" };
-  var l = { scanTimer: null };
+  var l = { win: null, scanTimer: null, loading: null };
   var num = (n2) => Math.round(n2).toLocaleString("en-US");
   var numberIn = (text) => {
     const found = String(text).match(/\d[\d\s,.]*[kmb]?/gi);
     return found ? parseCoins(found[found.length - 1].trim()) : null;
   };
   var tick = () => new Promise((resolve2) => requestAnimationFrame(() => resolve2()));
-  function startListingPrices() {
+  function startListingPrices(win2) {
+    l.win = win2;
     new MutationObserver((records) => {
       if (records.every((r) => r.target.closest?.(".mwia-listprice"))) return;
       scheduleScan5();
@@ -5560,6 +5561,14 @@ i.mwia-history-bid { background: #7ee2b0; }
     document.addEventListener("input", (event) => {
       if (event.target.closest?.(MODAL)) scheduleScan5();
     }, true);
+  }
+  function listingModals() {
+    const found = /* @__PURE__ */ new Set();
+    for (const inputs of document.querySelectorAll(PRICE_INPUTS)) {
+      const modal = inputs.closest(MODAL);
+      if (modal && visible(modal)) found.add(modal);
+    }
+    return [...found];
   }
   function scheduleScan5() {
     if (l.scanTimer) return;
@@ -5578,16 +5587,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     const inputs = modal.querySelector(PRICE_INPUTS);
     const input = inputs?.querySelector("input");
     if (!side || !input) return null;
-    const use = modal.querySelector("svg use");
-    const id = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#").pop();
-    if (!id) return null;
+    const items = getClientData()?.itemDetailMap || {};
+    const hrid = [...modal.querySelectorAll("svg use")].map((use) => "/items/" + (use.getAttribute("href") || use.getAttribute("xlink:href") || "").split("#").pop()).find((candidate) => items[candidate] && candidate !== "/items/coin");
+    if (!hrid) return null;
     const text = modal.textContent || "";
     const range = /Tradable range:\s*(\d[\d\s,.]*)\s*[–-]\s*(\d[\d\s,.]*)/i.exec(text);
-    const enhanced = /\+(\d+)/.exec(modal.querySelector("svg")?.closest("div")?.parentElement?.textContent || "");
+    const label = [...modal.querySelectorAll("*")].find((el) => !el.children.length && /^enhancement level$/i.test(el.textContent.trim()));
+    const level = label && [...modal.querySelectorAll("input")].find((el) => label.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
     return {
       side,
-      hrid: "/items/" + id,
-      level: enhanced ? Number(enhanced[1]) : 0,
+      hrid,
+      level: level ? Number(level.value) || 0 : 0,
       inputs,
       input,
       best: numberIn(modal.querySelector(BEST)?.textContent || ""),
@@ -5604,8 +5614,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     return { ...m, book, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side), best: m.best, range: m.range, summary: priceSummary(m.hrid) }) };
   }
   function scan4() {
-    for (const modal of document.querySelectorAll(MODAL)) {
-      if (!visible(modal)) continue;
+    const modals = listingModals();
+    if (modals.length && !getClientData()) {
+      l.loading || (l.loading = loadClientData(l.win).then(scheduleScan5, (error) => console.warn("[Combat Advisor] listing prices", error)).finally(() => l.loading = null));
+      return;
+    }
+    for (const modal of modals) {
       const c2 = context(modal);
       let box = modal.querySelector(".mwia-listprice");
       if (!c2) {
@@ -5701,7 +5715,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     mountUI(win, worker_source_default);
     mountPlanTrain(win);
     startPriceHistory(win);
-    startListingPrices();
+    startListingPrices(win);
   }
 })();
 
