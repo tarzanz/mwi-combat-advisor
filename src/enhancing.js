@@ -9,7 +9,10 @@
 // - 12 s / (1 + speed), speed +1% per level above the item;
 // - XP on success 1.4 × (1 + current +level) × (10 + item level) × (1 + wisdom),
 //   a tenth of that on a failure;
-// - Blessed Tea: a success sometimes adds two levels.
+// - Blessed Tea: a success sometimes adds two levels;
+// - every attempt may drop Enhancing Essence ((100 + item level) / 1000) and an
+//   Artisan's Crate ((100 + item level) / 120000 for a small one) – checked
+//   against the game's Enhancing window (Cheese Helmet: 10.1% and ~0.087%).
 
 import { MARKET_TAX, teaBuffs, totals } from "./skilling.js";
 
@@ -25,6 +28,16 @@ const FAIL_XP = 0.1;
 const OBSERVATORY = "/house_rooms/observatory";
 const OBSERVATORY_SUCCESS = 0.0005;
 const SUCCESS = "/buff_types/enhancing_success";
+const ESSENCE = "/items/enhancing_essence";
+
+// The Artisan's Crate an attempt may drop, by the item's level. The small
+// crate's rate is the game's; the larger ones are assumed to follow Alchemy's
+// pattern (the same ratio between the sizes).
+export function enhanceCrate(itemLevel) {
+    if (itemLevel < 35) return { itemHrid: "/items/small_artisans_crate", rate: (100 + itemLevel) / 120000 };
+    if (itemLevel < 70) return { itemHrid: "/items/medium_artisans_crate", rate: (65 + itemLevel) / 180000 };
+    return { itemHrid: "/items/large_artisans_crate", rate: (30 + itemLevel) / 240000 };
+}
 
 // The success bonus from levels: a little above the item's level, a lot less below it.
 export function levelBonus(level, itemLevel) {
@@ -148,6 +161,14 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
 
     const inputs = materials(detail, market) || [];
     const costPerAttempt = inputs.reduce((sum, i) => sum + i.value, 0);
+    // Drops on every attempt, success or not.
+    const drops = [];
+    const crate = enhanceCrate(itemLevel);
+    for (const [itemHrid, count, kind] of [[ESSENCE, ((100 + itemLevel) / 1000) * (1 + fraction("/buff_types/essence_find")), "essence"], [crate.itemHrid, crate.rate * (1 + fraction("/buff_types/rare_find")), "rare"]]) {
+        const sell = market.sell(itemHrid);
+        drops.push({ itemHrid, count, kind, price: sell.price, sell, value: count * sell.price });
+    }
+    const dropsPerAttempt = drops.reduce((sum, d) => sum + d.value, 0);
     const base = baseItem(action, market, owned);
     const drinksPerHour = 12 * who.concentration;
     const teaCosts = teas.map((hrid) => {
@@ -196,8 +217,8 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
         // Per attempt: the materials, and 1/attempts of an item bought and of one sold at +target.
         const perCycle = 1 / attempts;
         const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
-        const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price: sold.price, sell: sold, value: perCycle * sold.price }];
-        const revenuePerAction = outputs[0].value;
+        const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price: sold.price, sell: sold, value: perCycle * sold.price }, ...drops];
+        const revenuePerAction = outputs.reduce((sum, o) => sum + o.value, 0);
         const costPerAction = costPerAttempt + (itemIn ? itemIn.value : 0);
         const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
         const xpPerAction = cycles.xp[target] / attempts;
@@ -209,6 +230,7 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
             outputs,
             inputs: itemIn ? [...inputs, itemIn] : inputs,
             costPerAttempt,
+            dropsPerAttempt,
             revenuePerAction,
             costPerAction,
             profitPerHour,

@@ -354,6 +354,7 @@ function enhanceSections(e, section) {
     const base = e.base.owned ? `one you have (worth ${coins(e.base.price)} at the bid)` : `bought at ${coins(e.base.price)}`;
     sections.push(section("💰 Gold", `${coins(e.profitPerHour)}/h`, [
         `<b>Each attempt uses</b> ${mats} = ${coins(e.costPerAttempt)}.`,
+        `<b>Each attempt may drop</b> ${e.outputs.slice(1).map((o) => `${count(o.count)} × ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}`).join(" · ")} = ${coins(e.dropsPerAttempt)}.`,
         `<b>Each +${e.target}</b> (one per ${count(e.attempts)} attempts): the item ${base}, sold at ${sold} for ${coins(sell.price)} after tax.${sell.sold !== null && sell.sold !== undefined ? ` About ${soldText(sell.sold)} +${e.target} sell a day; you'd make ${count(e.itemsPerHour * 24)}.` : ""}`,
         e.teas.length ? `<b>Teas:</b> ${e.teaCosts.map((t) => `${esc(itemName(t.itemHrid))} @ ${coins(t.price)}`).join(" · ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h.` : "",
         `(${coins(e.revenuePerAction)} − ${coins(e.costPerAction)}) × ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` − ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h × 24 = <b>${coins(e.goldPerDay)}/day</b>.`,

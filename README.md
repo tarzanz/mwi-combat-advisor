@@ -89,7 +89,8 @@ buy, by simulating *your own* character.
     *🎚 Targets* lists them all with attempts, gold and XP a day. Success = the game's rate for the +level × (1 + 0.05%
     per level above the item, or −50% × (1 − level / item level) below it, + the tool's and the Observatory's success);
     12 s / (1 + speed, +1% per level above the item); XP 1.4 × (1 + +level) × (10 + item level) × wisdom, a tenth on a
-    failure; Blessed Tea's double steps. The attempts per target come from a closed formula (the same as a Markov
+    failure; Blessed Tea's double steps; Enhancing Essence ((100 + item level) / 1000) and Artisan's Crates on every
+    attempt (checked against the game's Enhancing window). The attempts per target come from a closed formula (the same as a Markov
     solve). The +level sells at the lowest ask, never above its usual ask at that level (from the price history), or
     at the bid (*Sell at*); with nobody buying it, the nearest lower +level's bid is a floor. An item you have at +0 is
     used first, valued at its bid. **▶ Enhance to +N** opens Enhancing with the item from your inventory in the slot
@@ -213,7 +214,7 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
   stable. The price history now also saves how many were sold each hour (the market file's `v`, with the average
   trade price `p`), and *How many* shows about how many sell a day once 12 hours of that are collected; the rating
   doesn't use it yet. *Max sold/day* caps it when you know better.
-- Enhancing: no protection (Mirror of Protection, copies) yet, no essence or crate drops, and no Observatory/Enhancer
+- Enhancing: no protection (Mirror of Protection, copies) yet, and no Observatory/Enhancer
   upgrades under *Upgrades that pay back*. Alchemy: no Unrefine. Neither has the tea box in the game's action window.
   The ⛓ chain makes every material it can (by the fastest source), even where buying one of them would pay better.
 - The phone layout has been tested at iPhone size in desktop Firefox, not on a real phone. Keep the screen on while

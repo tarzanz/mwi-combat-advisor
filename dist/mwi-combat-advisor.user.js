@@ -1818,6 +1818,12 @@ i.mwia-history-bid { background: #7ee2b0; }
   var OBSERVATORY = "/house_rooms/observatory";
   var OBSERVATORY_SUCCESS = 5e-4;
   var SUCCESS = "/buff_types/enhancing_success";
+  var ESSENCE2 = "/items/enhancing_essence";
+  function enhanceCrate(itemLevel) {
+    if (itemLevel < 35) return { itemHrid: "/items/small_artisans_crate", rate: (100 + itemLevel) / 12e4 };
+    if (itemLevel < 70) return { itemHrid: "/items/medium_artisans_crate", rate: (65 + itemLevel) / 18e4 };
+    return { itemHrid: "/items/large_artisans_crate", rate: (30 + itemLevel) / 24e4 };
+  }
   function levelBonus(level, itemLevel) {
     if (level >= itemLevel) return OBSERVATORY_SUCCESS * (level - itemLevel);
     return -0.5 * (1 - level / itemLevel);
@@ -1913,6 +1919,13 @@ i.mwia-history-bid { background: #7ee2b0; }
     const cycles = enhanceCycles(rates, blessed, xpAt);
     const inputs = materials(detail, market) || [];
     const costPerAttempt = inputs.reduce((sum, i) => sum + i.value, 0);
+    const drops = [];
+    const crate = enhanceCrate(itemLevel);
+    for (const [itemHrid, count2, kind] of [[ESSENCE2, (100 + itemLevel) / 1e3 * (1 + fraction("/buff_types/essence_find")), "essence"], [crate.itemHrid, crate.rate * (1 + fraction("/buff_types/rare_find")), "rare"]]) {
+      const sell = market.sell(itemHrid);
+      drops.push({ itemHrid, count: count2, kind, price: sell.price, sell, value: count2 * sell.price });
+    }
+    const dropsPerAttempt = drops.reduce((sum, d) => sum + d.value, 0);
     const base = baseItem(action, market, owned);
     const drinksPerHour = 12 * who.concentration;
     const teaCosts = teas.map((hrid) => {
@@ -1958,8 +1971,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       const sold = resale ? resale(action.itemHrid, target) : { price: 0, source: "none", level: null };
       const perCycle = 1 / attempts;
       const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
-      const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price: sold.price, sell: sold, value: perCycle * sold.price }];
-      const revenuePerAction = outputs[0].value;
+      const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price: sold.price, sell: sold, value: perCycle * sold.price }, ...drops];
+      const revenuePerAction = outputs.reduce((sum, o) => sum + o.value, 0);
       const costPerAction = costPerAttempt + (itemIn ? itemIn.value : 0);
       const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
       const xpPerAction = cycles.xp[target] / attempts;
@@ -1971,6 +1984,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         outputs,
         inputs: itemIn ? [...inputs, itemIn] : inputs,
         costPerAttempt,
+        dropsPerAttempt,
         revenuePerAction,
         costPerAction,
         profitPerHour,
@@ -3548,6 +3562,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const base = e.base.owned ? `one you have (worth ${coins(e.base.price)} at the bid)` : `bought at ${coins(e.base.price)}`;
     sections.push(section("\u{1F4B0} Gold", `${coins(e.profitPerHour)}/h`, [
       `<b>Each attempt uses</b> ${mats} = ${coins(e.costPerAttempt)}.`,
+      `<b>Each attempt may drop</b> ${e.outputs.slice(1).map((o) => `${count(o.count)} \xD7 ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}`).join(" \xB7 ")} = ${coins(e.dropsPerAttempt)}.`,
       `<b>Each +${e.target}</b> (one per ${count(e.attempts)} attempts): the item ${base}, sold at ${sold} for ${coins(sell.price)} after tax.${sell.sold !== null && sell.sold !== void 0 ? ` About ${soldText(sell.sold)} +${e.target} sell a day; you'd make ${count(e.itemsPerHour * 24)}.` : ""}`,
       e.teas.length ? `<b>Teas:</b> ${e.teaCosts.map((t4) => `${esc(itemName(t4.itemHrid))} @ ${coins(t4.price)}`).join(" \xB7 ")}, ${dec(e.drinksPerHour, 1)} of each per hour = ${coins(e.teaPerHour)}/h.` : "",
       `(${coins(e.revenuePerAction)} \u2212 ${coins(e.costPerAction)}) \xD7 ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` \u2212 ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h \xD7 24 = <b>${coins(e.goldPerDay)}/day</b>.`

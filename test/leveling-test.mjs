@@ -107,6 +107,32 @@ check("an Enhancer's success counts when the game doesn't send it", near(tooled.
 const sent = evaluateEnhance(gator, { ...enhancer, equipped: [{ itemHrid: "/items/cheese_enhancer", enhancementLevel: 0 }], sources: { equipmentActionTypeBuffsMap: { "/action_types/enhancing": [{ typeHrid: "/buff_types/enhancing_success", flatBoost: 0.006, ratioBoost: 0 }] } }, buffs: { "/action_types/enhancing": [{ typeHrid: "/buff_types/enhancing_success", flatBoost: 0.006, ratioBoost: 0 }] } }, data, market, [], { resale });
 check("…and not twice when it does", near(sent.successBonus, 0.006));
 
+// The game's Enhancing window: Enhancing 8, a Cheese Enhancer, Observatory 1, Cheese Helmet (level 1) to +1.
+{
+    const helmet = enhancingActions(data, market).find((a) => a.itemHrid === "/items/cheese_helmet");
+    const me = {
+        levels: { "/skills/enhancing": 8 },
+        buffs: { "/action_types/enhancing": [
+            { typeHrid: "/buff_types/action_speed", flatBoost: 0.01, ratioBoost: 0 },
+            { typeHrid: "/buff_types/wisdom", flatBoost: 0.344, ratioBoost: 0 },
+            { typeHrid: "/buff_types/rare_find", flatBoost: 0.037, ratioBoost: 0 },
+        ] },
+        equipped: [{ itemHrid: "/items/cheese_enhancer", enhancementLevel: 0 }],
+        houseLevels: { "/house_rooms/observatory": 1 },
+        drinks: {},
+        slots: { "/action_types/enhancing": 1 },
+        concentration: 1,
+    };
+    const r = evaluateEnhance(helmet, me, data, market, [], { resale });
+    const drop = (hrid) => r.outputs.find((o) => o.itemHrid === hrid)?.count;
+    check("game window: 50.5% success for +0→+1", near(r.rates[0], 0.505, 5e-4), String(r.rates[0]));
+    check("game window: 11.11 s", near(r.cycleSeconds, 11.11, 5e-3), String(r.cycleSeconds));
+    check("game window: 20.7 XP on a success", near(1.4 * 11 * (1 + r.wisdom), 20.7, 0.05));
+    check("game window: Enhancing Essence 10.1%", near(drop("/items/enhancing_essence"), 0.101));
+    check("game window: Small Artisan's Crate ~0.0872%", near(drop("/items/small_artisans_crate") * 100, 0.0872, 2e-4), String(drop("/items/small_artisans_crate") * 100));
+    check("drops come with every attempt", near(r.dropsPerAttempt, r.outputs.slice(1).reduce((sum, o) => sum + o.value, 0)) && r.revenuePerAction > r.outputs[0].value);
+}
+
 // ---------- The list: time against money ----------
 const who = { ...alchemist, levels: { "/skills/alchemy": 28, "/skills/enhancing": 30 }, buffs: {}, drinks: {} };
 const list = (skill, goldWeight) => rankSkilling(who, data, market, { skill, goldWeight, teaMode: "best", leveling: { resale } }).available.filter((e) => e.valid);
