@@ -453,7 +453,8 @@ try {
     await new Promise((r) => setTimeout(r, 100));
     const xpRows = await rows(page);
     const expXp = expectRank(character, { skill: "tailoring", goldWeight: 0 }).available;
-    const byXp = [...expXp].filter((e) => e.valid).sort((a, b) => b.xpPerDay - a.xpPerDay)[0];
+    // XP within the coins: a job they keep short counts for its share of the hours.
+    const byXp = [...expXp].filter((e) => e.valid).sort((a, b) => b.xpPerDay * (b.suggestion?.fill ?? 1) - a.xpPerDay * (a.suggestion?.fill ?? 1))[0];
     check("XP focus ranks by XP", xpRows[0]?.name === expXp[0].action.name && expXp[0].hrid === byXp.hrid && /XP only/.test(await page.$eval(".mwia-focus-text", (n) => n.textContent)), `${xpRows[0]?.name} vs ${byXp.action.name}`);
     const foragingXp = expectRank(character, { skill: "foraging", goldWeight: 0 }).available[0];
     check("XP focus picks XP teas", foragingXp.best.result.teas.includes("/items/wisdom_tea"), foragingXp.best.result.teas.join(","));

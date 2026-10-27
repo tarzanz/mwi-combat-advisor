@@ -86,6 +86,29 @@ check("a stable market may use 60% of the coins", poorStable.limitedByCoins && p
 check("a thin market only 10%", poorThin.limitedByCoins && poorThin.count === 20, String(poorThin.count));
 const active = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, ...PLAN_MODES.active });
 check("active: 1 h jobs and more of the coins", active.count === 100 && active.plannedHours === 1, String(active.count));
+// With a plan, the focus scale is what the planned hours give within the coins:
+// with little coins, a craft that loses gold doesn't top a 90%-gold list on its XP.
+{
+    const who = skillingCharacter(character, items, data);
+    const plan = { ...PLAN_MODES.active, stock: () => none, book: () => null, coins: 20000, have: () => 0, liquidity: () => ({ rating: "stable", known: true }) };
+    // One craft worth a fortune that the coins can't buy materials for (like Chrono Gloves).
+    const rich = Object.values(data.actionDetailMap).find((a) => a.type === "/action_types/tailoring" && a.inputItems?.length && a.levelRequirement.level <= 20 && a.hrid !== "/actions/tailoring/rough_leather");
+    const prices = { ...marketData, [rich.outputItems[0].itemHrid]: { 0: { a: 5e9, b: 4e9 } } };
+    for (const input of rich.inputItems) prices[input.itemHrid] = { 0: { a: 1e6, b: 9e5 } };
+    const richMarket = marketPricer((hrid) => prices[hrid]?.[0], data, "ask");
+    const list = rankSkilling(who, data, richMarket, { skill: "tailoring", goldWeight: 0.9, plan }).available.filter((e) => e.valid);
+    const firstPaying = list.findIndex((e) => e.goldPerDay > 0 && (e.suggestion?.fill ?? 1) > 0);
+    const firstLosing = list.findIndex((e) => e.goldPerDay < 0);
+    const top = Math.max(...list.map((e) => e.score));
+    const richEntry = list.find((e) => e.hrid === rich.hrid);
+    check("an action the coins can't carry doesn't set the focus scale", top > 0.5 && richEntry?.goldPerDay > 1e9 && richEntry.suggestion.fill === 0, `${top} ${rich.hrid} ${richEntry?.goldPerDay} ${richEntry?.suggestion?.fill}`);
+    check("a losing craft ranks under paying ones at 90% gold", firstPaying >= 0 && (firstLosing < 0 || firstPaying < firstLosing), `${list[0]?.action.name} ${firstPaying} ${firstLosing}`);
+}
+
+// A craft that loses gold is planned within the coins too.
+const losing = suggestCount({ ...job, profitPerHour: -500, revenuePerAction: 40 }, { stock: none, coins: 10000, liquidity: stable, ...away });
+check("a losing craft is limited by the coins too", losing && losing.count === 120 && losing.limitedByCoins && losing.batch.profit < 0, JSON.stringify(losing && { c: losing.count, p: losing.batch.profit }));
+
 // The materials to buy: their markets rate the job too, and a fresh order book caps it.
 const thinInput = (hrid) => ({ liquidity: hrid === "/items/x" ? { rating: "thin", known: true } : stable, book: null });
 const byInput = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, inputMarket: thinInput, ...away });

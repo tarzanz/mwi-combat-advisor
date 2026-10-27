@@ -453,7 +453,8 @@ export function swingShare(price) {
 // inputMarket(hrid): { liquidity, book } for a material.
 // fill: the job's share of the planned hours – what the ranking goes by.
 export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null, inputMarket = null, now = Date.now() }) {
-    if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
+    // A craft that loses gold still costs coins for its materials (worth it for the XP), so it is planned the same way.
+    if (entry.action.function !== "/action_functions/production" || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
     const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
@@ -711,16 +712,23 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     // give with the best teas for it – not with the teas in your slots, or
     // following the advice would change the advice. The list is ranked against
     // every action in it; teas are picked against the action's own skill, so
-    // they are the same whichever skill the list shows.
+    // they are the same whichever skill the list shows. With a plan, "the most"
+    // is what the planned hours give within your coins (stock aside, so making
+    // the item doesn't move the scale): an action your coins can't carry
+    // doesn't set it.
     const refs = { gold: 1, xp: 1 };
     const skillRefs = {};
+    const NO_STOCK = { inventory: 0, listed: 0, listings: [] };
+    const fillOf = (r) => (plan ? suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null, sellCap })?.fill ?? 1 : 1);
     for (const { action, evaluate } of doable) {
         const gold = bestTeas(action, who, data, market, evaluate, (r) => r.goldPerDay).result;
         const xp = bestTeas(action, who, data, market, evaluate, (r) => r.xpPerDay).result;
         const own = (skillRefs[action.type] ||= { gold: 1, xp: 1 });
+        const goldDay = gold.valid ? gold.goldPerDay * fillOf(gold) : 0;
+        const xpDay = xp.valid ? xp.xpPerDay * fillOf(xp) : 0;
         for (const r of [refs, own]) {
-            if (gold.valid) r.gold = Math.max(r.gold, gold.goldPerDay);
-            if (xp.valid) r.xp = Math.max(r.xp, xp.xpPerDay);
+            r.gold = Math.max(r.gold, goldDay);
+            r.xp = Math.max(r.xp, xpDay);
         }
     }
     const score = focusScore(goldWeight, refs);

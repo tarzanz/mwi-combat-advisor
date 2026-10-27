@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.29.3
+// @version      0.30.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1956,7 +1956,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
   }
   function suggestCount(entry, { stock, book = null, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins5 = Infinity, have: have3 = () => 0, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now = Date.now() }) {
-    if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.profitPerHour <= 0 || !entry.mainCount) return null;
+    if (entry.action.function !== "/action_functions/production" || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
     const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
@@ -2190,13 +2190,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const refs = { gold: 1, xp: 1 };
     const skillRefs = {};
+    const NO_STOCK = { inventory: 0, listed: 0, listings: [] };
+    const fillOf = (r) => plan ? suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null, sellCap })?.fill ?? 1 : 1;
     for (const { action, evaluate } of doable) {
       const gold = bestTeas(action, who, data, market, evaluate, (r) => r.goldPerDay).result;
       const xp = bestTeas(action, who, data, market, evaluate, (r) => r.xpPerDay).result;
       const own = skillRefs[_a = action.type] || (skillRefs[_a] = { gold: 1, xp: 1 });
+      const goldDay = gold.valid ? gold.goldPerDay * fillOf(gold) : 0;
+      const xpDay = xp.valid ? xp.xpPerDay * fillOf(xp) : 0;
       for (const r of [refs, own]) {
-        if (gold.valid) r.gold = Math.max(r.gold, gold.goldPerDay);
-        if (xp.valid) r.xp = Math.max(r.xp, xp.xpPerDay);
+        r.gold = Math.max(r.gold, goldDay);
+        r.xp = Math.max(r.xp, xpDay);
       }
     }
     const score2 = focusScore(goldWeight, refs);
