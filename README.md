@@ -112,8 +112,9 @@ buy, by simulating *your own* character.
   *Calculate Step 3* the same for the whole plan: your current choices, all Buy, all One step, all Full chain. Lowest
   ask prices; what is in your inventory is not bought again (each row on its own, the plan total shared). Coins for
   a house upgrade and Artisan Tea are not counted.
-- **Price history** – while the game is open the script saves every item's ask and bid every 30 minutes (one point
-  per hour for two weeks, then one per day for a year; in the browser's IndexedDB, on that device only). In the game's
+- **Price history** – while the game is open the script saves every item's ask and bid every 30 minutes, each +level
+  of an item on its own (one point per hour for two weeks, then one per day for a year; in the browser's IndexedDB, on
+  that device only, keeping only what changed since the point before, so prices that stand still take no room). In the game's
   marketplace a box under the open item shows one summary line – ask and bid now against their usual price, trend and
   typical swing – and folds open (*Chart and details*) to the price now against its usual price – the median of the last 7 and 30
   days, so one odd listing hardly moves it – with ±%, a trend arrow (this week's median against last week's) and a
@@ -133,7 +134,9 @@ buy, by simulating *your own* character.
   big pile), **Usual** (the week's median ask or bid) and **Patient** (the upper quartile of the week's asks when
   selling, the lower quartile of its bids when buying), each kept within the tradable range. The game's own −/+ make
   the steps, so the price is always one the game takes. A line says how many others offer a better price than the one
-  in the box and how it compares with the usual price. Usual and Patient need 12 hours of prices; +N items get no help.
+  in the box and how it compares with the usual price. Usual and Patient need 12 hours of prices. +N items use that
+  level's order book, history and tradable range (the range the game sends with the order book when the window
+  doesn't show it); open the item at that level on the market first.
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the **⚔ Advisor** button can be
   dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact

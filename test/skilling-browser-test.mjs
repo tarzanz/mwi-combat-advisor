@@ -561,14 +561,15 @@ try {
     }] } };
     for (const socket of sockets) socket.send(JSON.stringify(fabricBook));
     await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
-    const openListing = (side, best, price) => page.evaluate((side, best, price) => {
+    // opts: level (the Enhancement Level box), min/max (the price buttons' ends), rangeText (shown in the window or not).
+    const openListing = (side, best, price, opts = {}) => page.evaluate((side, best, price, { level = 0, min: low = 984, max: high = 1205, rangeText = true }) => {
         document.querySelector(".listing-modal")?.remove();
         // The game's −/+ move between valid prices: steps of 4 here.
         // Like the game's: a modal container with a close icon first, an Enhancement Level box, coin icons.
         document.body.insertAdjacentHTML("beforeend", `<div class="listing-modal Modal_modalContainer__3B80m"><div class="Modal_modal__x"><div class="MarketplacePanel_header__yahJo">${side} Listing</div>
             <button class="close"><svg><use href="/sprites/misc.svg#close_menu"></use></svg></button>
             <div class="icon"><svg><use href="/sprites/items.svg#cotton_fabric"></use></svg><span>1</span></div>
-            <div>Enhancement Level</div><div><input class="enh" type="text" value="0"></div><div>Tradable range: 984 – 1 205</div>
+            <div>Enhancement Level</div><div><input class="enh" type="text" value="${level}"></div>${rangeText ? "<div>Tradable range: 984 – 1 205</div>" : ""}
             <div>Price (Best ${side} Offer: <span class="MarketplacePanel_bestPrice__x">${best} <svg><use href="/sprites/items.svg#coin"></use></svg></span>)</div>
             <div class="MarketplacePanel_inputContainer__x"><div class="MarketplacePanel_priceInputs__x"><button>Min</button><button>-</button><div class="field">${price}</div><button>+</button><button>Max</button></div></div>
             <button>Post ${side} Listing</button></div></div>`);
@@ -577,12 +578,12 @@ try {
         const input = box.querySelector(".MarketplacePanel_priceInputs__x .field");
         const [min, minus, plus, max] = box.querySelectorAll(".MarketplacePanel_priceInputs__x button");
         const value = () => Number(input.firstChild.nodeValue.replace(/\s/g, ""));
-        const set = (v) => { input.firstChild.nodeValue = String(Math.min(1205, Math.max(984, v))).replace(/\B(?=(\d{3})+(?!\d))/g, " "); };
+        const set = (v) => { input.firstChild.nodeValue = String(Math.min(high, Math.max(low, v))).replace(/\B(?=(\d{3})+(?!\d))/g, " "); };
         minus.onclick = () => set(Math.ceil(value() / 4) * 4 - 4);
         plus.onclick = () => set(Math.floor(value() / 4) * 4 + 4);
-        min.onclick = () => set(984);
-        max.onclick = () => set(1205);
-    }, side, best, price);
+        min.onclick = () => set(low);
+        max.onclick = () => set(high);
+    }, side, best, price, opts);
     const listingBox = () => page.evaluate(() => ({ buttons: [...document.querySelectorAll(".listing-modal .mwia-listprice button")].map((b) => `${b.querySelector("b").textContent} ${b.querySelector("small").textContent}`), info: document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || "", price: document.querySelector(".listing-modal .MarketplacePanel_priceInputs__x .field").textContent.replace(/\s/g, "") }));
     await openListing("Sell", "1 096", "1 092");
     await page.waitForSelector(".listing-modal .mwia-listprice button", { timeout: 4000 }).catch(() => null);
@@ -597,9 +598,29 @@ try {
     await page.waitForFunction(() => /^0 listed cheaper, 9,552 at 1,096/.test(document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     const matched = await listingBox();
     check("match: steps down to the best offer", matched.price === "1096" && /^0 listed cheaper, 9,552 at 1,096/.test(matched.info), JSON.stringify(matched));
+    // A +level: last seen before the books were kept per level, so it asks for the market.
     await page.evaluate(() => { const enh = document.querySelector(".listing-modal input.enh"); enh.value = "3"; enh.dispatchEvent(new Event("input", { bubbles: true })); });
-    await page.waitForFunction(() => /for \+0 items only/.test(document.querySelector(".listing-modal .mwia-listprice")?.textContent || ""), { timeout: 3000 }).catch(() => null);
-    check("an enhanced item gets no price help", /for \+0 items only/.test(await page.$eval(".listing-modal .mwia-listprice", (n) => n.textContent)) && !(await page.$(".listing-modal .mwia-listprice button")));
+    await page.waitForFunction(() => /open Cotton Fabric \+3 on the market/.test(document.querySelector(".listing-modal .mwia-listprice")?.textContent || ""), { timeout: 3000 }).catch(() => null);
+    check("a +level without its order book asks for the market", /open Cotton Fabric \+3 on the market/.test(await page.$eval(".listing-modal .mwia-listprice", (n) => n.textContent)));
+    // The game's book per +level, with each level's tradable range (here not shown in the window).
+    const levelBook = { type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: "/items/cotton_fabric", orderBooks: [
+        fabricBook.marketItemOrderBooks.orderBooks[0], { asks: [], bids: [] }, { asks: [], bids: [] },
+        { asks: [{ price: 5000, quantity: 1 }, { price: 5100, quantity: 1 }, { price: 5200, quantity: 10 }, { price: 9000, quantity: 50 }], bids: [{ price: 3000, quantity: 2 }] },
+    ], priceBandMins: { 0: 984, 3: 4000 }, priceBandMaxs: { 0: 1205, 3: 8000 } } };
+    for (const socket of sockets) socket.send(JSON.stringify(levelBook));
+    await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
+    await openListing("Sell", "5 000", "5 000", { level: 3, min: 4000, max: 8000, rangeText: false });
+    await page.waitForFunction(() => document.querySelectorAll(".listing-modal .mwia-listprice button").length === 2, { timeout: 4000 }).catch(() => null);
+    const plusBox = await listingBox();
+    // 9,000 lies outside +3's range, so the wall is 5,200 (10 of the 12 in range).
+    check("a +level gets its own book and the game's range", JSON.stringify(plusBox.buttons) === JSON.stringify(["Match 5,000", "Wall < 5,200"]) && /^0 listed cheaper, 1 at 5,000/.test(plusBox.info), JSON.stringify(plusBox));
+    await page.click('.listing-modal [data-listprice="1"]');
+    await page.waitForFunction(() => document.querySelector(".listing-modal .MarketplacePanel_priceInputs__x .field").textContent.replace(/\s/g, "") === "5196", { timeout: 4000 }).catch(() => null);
+    check("+level wall: one step under it", (await listingBox()).price === "5196", JSON.stringify(await listingBox()));
+    // The window shows another best price than the book: say the book is old.
+    await openListing("Sell", "4 800", "4 800", { level: 3, min: 4000, max: 8000, rangeText: false });
+    await page.waitForFunction(() => /isn't the window's/.test(document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || ""), { timeout: 4000 }).catch(() => null);
+    check("a book that doesn't match the window says so", /order book's best \(5,000\) isn't the window's/.test((await listingBox()).info), (await listingBox()).info);
     await openListing("Buy", "1 040", "1 044");
     await page.waitForFunction(() => document.querySelectorAll(".listing-modal .mwia-listprice button").length === 2, { timeout: 4000 }).catch(() => null);
     await page.click('.listing-modal [data-listprice="1"]');

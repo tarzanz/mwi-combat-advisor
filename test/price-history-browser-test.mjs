@@ -122,6 +122,21 @@ try {
         };
     }));
     check("fresh market file recorded", recorded === fileTimestamp, String(recorded));
+    // The new hour is stored as changes from the old full hour before it (a key record on a new day).
+    const storedNow = await page.evaluate(() => new Promise((resolve) => {
+        const req = indexedDB.open("mwia-price-history", 1);
+        req.onsuccess = () => {
+            const tx = req.result.transaction(["hourly", "meta"], "readonly");
+            const all = tx.objectStore("hourly").getAll();
+            const items = tx.objectStore("meta").get("items");
+            tx.oncomplete = () => {
+                const last = all.result[all.result.length - 1];
+                const before = all.result[all.result.length - 2];
+                resolve({ idx: last.idx ? last.idx.length : null, count: last.count, key: last.key, newDay: Math.floor(last.hour / 24) !== Math.floor(before.hour / 24), oldFormat: !before.idx });
+            };
+        };
+    }));
+    check("new hours are stored as changes after old full ones", storedNow.idx !== null && storedNow.oldFormat && storedNow.key === storedNow.newDay, JSON.stringify(storedNow));
 
     // The marketplace: the open item's usual price, trend and chart.
     await page.click(".mwia-header [data-action=close]");

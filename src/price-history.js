@@ -1,7 +1,9 @@
 // Price history the script collects itself. While the game is open the market
-// file is fetched every 30 minutes; each item's ask and bid are kept as one
-// point per hour for two weeks, then as one point per day (median, low, high)
-// for a year. Stored in IndexedDB on the game's site, on this device only.
+// file is fetched every 30 minutes; each item's ask and bid – every +level on
+// its own ("/items/rainbow_pot+2") – are kept as one point per hour for two
+// weeks, then as one point per day (median, low, high) for a year. Stored in
+// IndexedDB on the game's site, on this device only, keeping only what changed
+// from one point to the next (see encodeRecord).
 //
 // "Usual" is a median, not a mean: a single odd listing (1 coin, 999M) hardly
 // moves it. Hours count once however often they were sampled, and hours the
@@ -25,6 +27,69 @@ export const MIN_HOURS = 12;
 export const MIN_DAYS = 2;
 
 // ---------- pure helpers (also used by the tests) ----------
+
+// The history's name for an item at a +level: the item itself at +0.
+export const historyKey = (itemHrid, level = 0) => (level ? `${itemHrid}+${level}` : itemHrid);
+
+export const HOURLY_FIELDS = ["a", "b"];
+export const DAILY_FIELDS = ["a", "b", "aLow", "aHigh", "bLow", "bHigh", "n"];
+const hasValue = (v) => Number.isFinite(v) && v !== 0;
+const same = (x, y) => x === y || (Number.isNaN(x) && Number.isNaN(y));
+const emptyOf = (field, count) => (field === "n" ? new Uint8Array(count) : new Float32Array(count).fill(NaN));
+const fieldAt = (array, field, i) => (array && i < array.length ? array[i] : field === "n" ? 0 : NaN);
+
+// A record as stored: only the items whose values differ from the record
+// before it (idx, and each field's values at those items). A key record – the
+// first of its day (hours) or week (days), or one with nothing before it –
+// keeps every item that has a value, so the store can be read from any key
+// record on and old ones deleted a whole day or week at a time. Lossless.
+export function encodeRecord(record, previous, fields, keyOf) {
+    const count = Math.max(0, ...fields.map((f) => record[f]?.length || 0));
+    const key = !previous || keyOf(previous) !== keyOf(record);
+    const idx = [];
+    for (let i = 0; i < count; i++) {
+        const changed = key
+            ? fields.some((f) => hasValue(fieldAt(record[f], f, i)))
+            : fields.some((f) => !same(fieldAt(record[f], f, i), fieldAt(previous[f], f, i)));
+        if (changed) idx.push(i);
+    }
+    const out = { count, key, idx: count < 65536 ? Uint16Array.from(idx) : Uint32Array.from(idx) };
+    for (const [k, v] of Object.entries(record)) if (!fields.includes(k)) out[k] = v;
+    for (const f of fields) {
+        const values = emptyOf(f, idx.length);
+        idx.forEach((i, j) => (values[j] = fieldAt(record[f], f, i)));
+        out[f] = values;
+    }
+    return out;
+}
+
+// Stored records (oldest first, starting at a key record) back to full ones.
+// Records from before this format (full arrays, no idx) are taken as they are.
+export function decodeRecords(stored, fields) {
+    const out = [];
+    let previous = null;
+    for (const s of stored) {
+        if (!s.idx) {
+            out.push(s);
+            previous = s;
+            continue;
+        }
+        const full = {};
+        for (const [k, v] of Object.entries(s)) if (!fields.includes(k) && k !== "idx" && k !== "count" && k !== "key") full[k] = v;
+        for (const f of fields) {
+            const values = emptyOf(f, s.count);
+            if (!s.key && previous) for (let i = 0; i < s.count; i++) values[i] = fieldAt(previous[f], f, i);
+            s.idx.forEach((i, j) => (values[i] = s[f][j]));
+            full[f] = values;
+        }
+        out.push(full);
+        previous = full;
+    }
+    return out;
+}
+
+const dayOf = (r) => Math.floor(r.hour / 24);
+const weekOf = (d) => Math.floor(d.day / 7);
 
 // Weighted median of [value, weight] pairs; null when there are none.
 export function median(pairs) {
@@ -246,11 +311,13 @@ export function loadHistory() {
         const tx = store.db.transaction([HOURLY, META], "readonly");
         const [items, last, hours] = await Promise.all([request(tx.objectStore(META).get("items")), request(tx.objectStore(META).get("last")), request(tx.objectStore(HOURLY).getAll())]);
         const newest = hours.length ? hours[hours.length - 1].hour : 0;
-        store.days = await request(store.db.transaction(DAILY, "readonly").objectStore(DAILY).getAll(IDBKeyRange.lowerBound(Math.floor(newest / 24) - 31)));
+        // From the start of the week, where the daily records' key record is.
+        const fromDay = Math.floor((Math.floor(newest / 24) - 31) / 7) * 7;
+        store.days = decodeRecords(await request(store.db.transaction(DAILY, "readonly").objectStore(DAILY).getAll(IDBKeyRange.lowerBound(fromDay))), DAILY_FIELDS);
         store.items = items || [];
         store.items.forEach((hrid, i) => store.index.set(hrid, i));
         store.last = last ?? null;
-        store.hours = hours;
+        store.hours = decodeRecords(hours, HOURLY_FIELDS);
         store.version++;
     })();
     return store.ready;
@@ -262,25 +329,33 @@ export async function recordSnapshot(marketData, timestamp) {
     await loadHistory();
     if (timestamp && timestamp === store.last) return false;
     const hour = Math.floor(Date.now() / HOUR_MS);
-    for (const hrid of Object.keys(marketData)) {
-        if (!store.index.has(hrid)) {
-            store.index.set(hrid, store.items.length);
-            store.items.push(hrid);
+    // Every +level that has an ask or a bid is an item of its own.
+    const entries = [];
+    for (const [hrid, levels] of Object.entries(marketData)) {
+        for (const [level, entry] of Object.entries(levels || {})) {
+            if (!(entry?.a > 0) && !(entry?.b > 0) && level !== "0") continue;
+            const key = historyKey(hrid, Number(level));
+            if (!store.index.has(key)) {
+                store.index.set(key, store.items.length);
+                store.items.push(key);
+            }
+            entries.push([store.index.get(key), entry]);
         }
     }
     const count = store.items.length;
     const record = { hour, a: new Float32Array(count).fill(NaN), b: new Float32Array(count).fill(NaN) };
-    for (const [hrid, levels] of Object.entries(marketData)) {
-        const entry = levels?.["0"];
-        if (!entry) continue;
-        const i = store.index.get(hrid);
-        if (entry.a > 0) record.a[i] = entry.a;
-        if (entry.b > 0) record.b[i] = entry.b;
+    for (const [i, entry] of entries) {
+        if (entry?.a > 0) record.a[i] = entry.a;
+        if (entry?.b > 0) record.b[i] = entry.b;
     }
     // The newest point of an hour wins.
     store.hours = store.hours.filter((r) => r.hour !== hour);
     store.hours.push(record);
     store.hours.sort((x, y) => x.hour - y.hour);
+    // Stored as the change from the hour before; the hour after (if any) then changes from this one.
+    const pos = store.hours.indexOf(record);
+    const writes = [encodeRecord(record, store.hours[pos - 1] || null, HOURLY_FIELDS, dayOf)];
+    if (store.hours[pos + 1]) writes.push(encodeRecord(store.hours[pos + 1], record, HOURLY_FIELDS, dayOf));
 
     // Whole days older than two weeks become daily points.
     const newest = store.hours[store.hours.length - 1].hour;
@@ -288,14 +363,21 @@ export async function recordSnapshot(marketData, timestamp) {
     const old = store.hours.filter((r) => Math.floor(r.hour / 24) < cutoffDay);
     const rolled = old.length ? rollUpDays(old, count) : [];
     store.hours = store.hours.filter((r) => Math.floor(r.hour / 24) >= cutoffDay);
+    // Each new day as the change from the day before it (whole weeks are deleted, so a week's first day is a key record).
+    const dayWrites = [];
+    let previousDay = store.days[store.days.length - 1] || null;
+    for (const d of rolled) {
+        dayWrites.push(encodeRecord(d, previousDay && previousDay.day < d.day ? previousDay : null, DAILY_FIELDS, weekOf));
+        previousDay = d;
+    }
     store.days = [...store.days, ...rolled].filter((d) => d.day >= Math.floor(newest / 24) - 31).sort((x, y) => x.day - y.day);
     if (store.allDays) store.allDays = [...store.allDays, ...rolled].sort((x, y) => x.day - y.day);
 
     const tx = store.db.transaction([HOURLY, DAILY, META], "readwrite");
-    tx.objectStore(HOURLY).put(record);
+    for (const w of writes) if (Math.floor(w.hour / 24) >= cutoffDay) tx.objectStore(HOURLY).put(w);
     for (const r of old) tx.objectStore(HOURLY).delete(r.hour);
-    for (const d of rolled) tx.objectStore(DAILY).put(d);
-    tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor(newest / 24) - DAILY_DAYS, true));
+    for (const d of dayWrites) tx.objectStore(DAILY).put(d);
+    tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor((Math.floor(newest / 24) - DAILY_DAYS) / 7) * 7, true));
     tx.objectStore(META).put(store.items, "items");
     tx.objectStore(META).put(timestamp ?? null, "last");
     await done(tx);
@@ -309,14 +391,15 @@ export async function recordSnapshot(marketData, timestamp) {
 export const historyVersion = () => store.version;
 
 // The usual price of an item, or null before any data exists for it.
-export function priceSummary(itemHrid) {
+export function priceSummary(itemHrid, level = 0) {
     if (!store.hours.length) return null;
-    const i = store.index.get(itemHrid);
+    const key = historyKey(itemHrid, level);
+    const i = store.index.get(key);
     if (i === undefined) return null;
-    if (!store.summaries.has(itemHrid)) {
-        store.summaries.set(itemHrid, summarize(i, store.hours, store.days, store.hours[store.hours.length - 1].hour));
+    if (!store.summaries.has(key)) {
+        store.summaries.set(key, summarize(i, store.hours, store.days, store.hours[store.hours.length - 1].hour));
     }
-    return store.summaries.get(itemHrid);
+    return store.summaries.get(key);
 }
 
 // Every daily record, for long views (read once, then kept).
@@ -324,16 +407,16 @@ export async function loadAllDays() {
     await loadHistory();
     if (!store.allDays) {
         const tx = store.db.transaction(DAILY, "readonly");
-        store.allDays = await request(tx.objectStore(DAILY).getAll());
+        store.allDays = decodeRecords(await request(tx.objectStore(DAILY).getAll()), DAILY_FIELDS);
     }
     return store.allDays;
 }
 
 // Points of one item for a chart: hourly where kept, daily before that.
 // range: days back. Each point { t: hour, a, b }.
-export async function priceSeries(itemHrid, range) {
+export async function priceSeries(itemHrid, range, level = 0) {
     await loadHistory();
-    const i = store.index.get(itemHrid);
+    const i = store.index.get(historyKey(itemHrid, level));
     if (i === undefined || !store.hours.length) return [];
     const newest = store.hours[store.hours.length - 1].hour;
     const days = range > 31 ? await loadAllDays() : store.days;
@@ -347,8 +430,8 @@ export async function priceSeries(itemHrid, range) {
 }
 
 // Long-range medians (90 days and a year) from the daily points.
-export async function longMedians(itemHrid) {
-    const i = store.index.get(itemHrid);
+export async function longMedians(itemHrid, level = 0) {
+    const i = store.index.get(historyKey(itemHrid, level));
     if (i === undefined) return null;
     const days = await loadAllDays();
     const newestDay = days.length ? days[days.length - 1].day : 0;

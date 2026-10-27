@@ -75,16 +75,42 @@ const normalizeOrder = (order) =>
         ? { price: Number(order[0]) || 0, quantity: Number(order[1]) || 0 }
         : { price: Number(order?.price) || 0, quantity: Number(order?.quantity ?? (order?.orderQuantity ?? 0) - (order?.filledQuantity ?? 0)) || 0 };
 
+// The game sends one book per +level (orderBooks[level]) and each level's
+// tradable range (priceBandMins / priceBandMaxs by level). +0's asks and bids
+// sit on the entry itself; other levels with orders under levels.
 function applyOrderBook(data) {
     const payload = data.marketItemOrderBooks ?? data;
-    const book = payload.orderBooks?.[0] ?? payload.orderBooks?.["0"];
-    if (!payload.itemHrid || !book) return;
-    state.orderBooks.set(payload.itemHrid, {
-        at: Date.now(),
-        asks: (book.asks || []).map(normalizeOrder).filter((o) => o.quantity > 0),
-        bids: (book.bids || []).map(normalizeOrder).filter((o) => o.quantity > 0),
+    if (!payload.itemHrid || !payload.orderBooks) return;
+    const sides = (book) => ({
+        asks: (book?.asks || []).map(normalizeOrder).filter((o) => o.quantity > 0),
+        bids: (book?.bids || []).map(normalizeOrder).filter((o) => o.quantity > 0),
     });
+    const levels = {};
+    const seen = [];
+    for (const [level, book] of Object.entries(payload.orderBooks)) {
+        if (!book) continue;
+        seen.push(Number(level));
+        const both = sides(book);
+        if (Number(level) > 0 && (both.asks.length || both.bids.length)) levels[Number(level)] = both;
+    }
+    const bands = {};
+    for (const level of new Set([...Object.keys(payload.priceBandMins || {}), ...Object.keys(payload.priceBandMaxs || {})])) {
+        const max = Number(payload.priceBandMaxs?.[level]) || 0;
+        bands[Number(level)] = { min: Number(payload.priceBandMins?.[level]) || 0, max: max > 0 ? max : null };
+    }
+    state.orderBooks.set(payload.itemHrid, { at: Date.now(), ...sides(payload.orderBooks[0] ?? payload.orderBooks["0"]), levels, seen, bands });
     saveOrderBooks();
+}
+
+// One +level's order book: { at, asks, bids, range: { min, max } | null }, or
+// null when the item hasn't been opened on the market, or the game sent no
+// book for that +level (an empty book means nobody is at that level).
+export function orderBookAt(itemHrid, level = 0) {
+    const entry = state.orderBooks.get(itemHrid);
+    if (!entry || (level && !entry.seen?.includes(level))) return null;
+    const both = level ? entry.levels[level] || { asks: [], bids: [] } : entry;
+    const band = entry.bands?.[level];
+    return { at: entry.at, asks: both.asks, bids: both.bids, range: band ? { min: band.min, max: band.max ?? Infinity } : null };
 }
 
 const listingDone = (listing) =>
@@ -109,7 +135,7 @@ function applyListings(data) {
 export const state = {
     character: null, // the latest init_character_data, patched by later messages
     items: new Map(), // hash/id -> character item
-    orderBooks: loadOrderBooks(), // itemHrid -> { at, asks, bids } for enhancement level 0, from viewing it on the market
+    orderBooks: loadOrderBooks(), // itemHrid -> { at, asks, bids (+0), levels: { level: { asks, bids } }, seen: [levels sent], bands: { level: { min, max } } }, from viewing it on the market
     updatedAt: 0,
 };
 

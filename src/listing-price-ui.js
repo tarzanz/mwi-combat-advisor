@@ -4,7 +4,7 @@
 // The player still posts the listing with the game's own button.
 
 import { getClientData, itemName, loadClientData } from "./game-data.js";
-import { state } from "./game-state.js";
+import { orderBookAt, state } from "./game-state.js";
 import { esc, parseCoins, shortCoins } from "./format.js";
 import { setReactInput, visible } from "./game-nav.js";
 import { priceSummary, versusUsual } from "./price-history.js";
@@ -108,17 +108,19 @@ function readModal(modal) {
     };
 }
 
-function ownListings(hrid, side) {
+function ownListings(hrid, side, level = 0) {
     return (state.character?.myMarketListings || [])
-        .filter((listing) => listing.itemHrid === hrid && !listing.enhancementLevel && !!listing.isSell === (side === "sell"))
+        .filter((listing) => listing.itemHrid === hrid && (listing.enhancementLevel || 0) === level && !!listing.isSell === (side === "sell"))
         .map((listing) => ({ price: Number(listing.price) || 0, quantity: Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0)) }));
 }
 
 function context(modal) {
     const m = readModal(modal);
-    if (!m || m.error || m.level) return m;
-    const book = state.orderBooks.get(m.hrid) || null;
-    return { ...m, book, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side), best: m.best, range: m.range, summary: priceSummary(m.hrid) }) };
+    if (!m || m.error) return m;
+    const book = orderBookAt(m.hrid, m.level);
+    // The range the window shows, else the one the game sent with the order book.
+    const range = m.range || book?.range || null;
+    return { ...m, book, range, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side, m.level), best: m.best, range, summary: priceSummary(m.hrid, m.level) }) };
 }
 
 function scan() {
@@ -165,7 +167,6 @@ function scan() {
 }
 
 function boxHtml(c) {
-    if (c.level) return `<div class="mwia-listprice-info">Price help is for +0 items only.</div>`;
     const sell = c.side === "sell";
     const buttons = c.suggestions.map((s, i) => {
         const shown = s.kind === "wall" ? `${sell ? "<" : ">"} ${shortCoins(s.price)}` : shortCoins(s.price);
@@ -193,7 +194,10 @@ function infoHtml(c) {
         parts.push(`${num(better)} ${sell ? "listed cheaper" : "bid higher"}${same ? `, ${num(same)} at ${num(price)}` : ""}`);
         const age = Date.now() - c.book.at;
         if (age > BOOK_OLD_MS) parts.push(`order book ${Math.round(age / 60000)} min old`);
-    } else if (!c.book) parts.push(`open ${esc(itemName(c.hrid))} on the market for the order book`);
+        // The book's best offer should be the one the window shows; if not, it is old or not this +level's.
+        const top = (sell ? c.book.asks : c.book.bids)[0]?.price;
+        if (c.best > 0 && top > 0 && top !== c.best) parts.push(`the order book's best (${num(top)}) isn't the window's – open ${esc(itemName(c.hrid))}${c.level ? ` +${c.level}` : ""} on the market again`);
+    } else if (!c.book) parts.push(`open ${esc(itemName(c.hrid))}${c.level ? ` +${c.level}` : ""} on the market for the order book`);
     const vs = price > 0 ? versusUsual(price, c.usual) : null;
     if (vs) parts.push(`${vs.diff >= 0 ? "+" : "−"}${Math.abs(Math.round(vs.diff * 100))}% vs usual ${sell ? "ask" : "bid"} (${num(c.usual)})`);
     else if (!c.usual) parts.push(`usual price after 12 h of prices${c.hours ? ` (${c.hours} so far)` : ""}`);

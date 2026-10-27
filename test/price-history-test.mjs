@@ -1,7 +1,7 @@
 // Checks the price-history maths without a browser: medians, daily roll-up,
 // the usual price and trend of an item, and how a price compares with it.
 // Usage: node test/price-history-test.mjs
-import { historyCsv, median, rollUpDays, summarize, versusUsual, trendArrow, MIN_HOURS } from "../src/price-history.js";
+import { DAILY_FIELDS, HOURLY_FIELDS, decodeRecords, encodeRecord, historyCsv, historyKey, median, rollUpDays, summarize, versusUsual, trendArrow, MIN_HOURS } from "../src/price-history.js";
 import { swingShare } from "../src/skilling.js";
 
 let failures = 0;
@@ -81,6 +81,44 @@ check("CSV export", JSON.stringify(rows) === JSON.stringify([
     `hour,${hour(480002)},a,11,8`,
     `day,${new Date(19990 * 86400000).toISOString().slice(0, 10)},a,9,7,8,12,6,7.5,20`,
 ]) && out.csv.includes(`# Hours with data: ${hour(480000)},${hour(480001)},${hour(480002)}`), JSON.stringify(rows));
+
+// Stored as changes: three days of hours, prices that mostly stand still, an
+// item added on day two, one old full record first – read back exactly.
+const sameArrays = (x, y) => x.length === y.length && [...x].every((v, i) => v === y[i] || (Number.isNaN(v) && Number.isNaN(y[i])));
+const sameRecords = (xs, ys, fields) => xs.length === ys.length && xs.every((x, k) => fields.every((f) => {
+    const n = Math.max(x[f].length, ys[k][f].length);
+    const pad = (arr) => Array.from({ length: n }, (_, i) => (i < arr.length ? arr[i] : f === "n" ? 0 : NaN));
+    return sameArrays(pad(x[f]), pad(ys[k][f]));
+}));
+let seed = 7;
+const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const raw = [];
+for (let h = 0; h < 72; h++) {
+    const count = h < 24 ? 50 : 60;
+    const a = new Float32Array(count).fill(NaN);
+    const b = new Float32Array(count).fill(NaN);
+    for (let i = 0; i < count; i++) {
+        if (i % 5 === 4) continue; // never traded
+        a[i] = i < 10 ? 1000 + Math.floor(rand() * 50) : 5000 + i + (h > 40 && i % 3 === 0 ? 7 : 0); // 10 lively, the rest still
+        if (i % 2 === 0) b[i] = a[i] * 0.9;
+    }
+    raw.push({ hour: 480000 + h, a, b });
+}
+const dayKey = (r) => Math.floor(r.hour / 24);
+const stored = raw.map((r, k) => (k === 0 ? r : encodeRecord(r, raw[k - 1], HOURLY_FIELDS, dayKey)));
+check("hours read back exactly", sameRecords(decodeRecords(stored, HOURLY_FIELDS), raw, HOURLY_FIELDS));
+check("each day starts with a key record", stored.slice(1).every((r) => r.key === (dayKey(r) !== dayKey(raw[stored.indexOf(r) - 1]))));
+const fromDay2 = stored.findIndex((r) => r.hour === 480000 + 24 - (480000 % 24) + 24);
+check("read back from a later day's key record", fromDay2 > 0 && sameRecords(decodeRecords(stored.slice(fromDay2), HOURLY_FIELDS), raw.slice(fromDay2), HOURLY_FIELDS));
+const kept = (list) => list.reduce((sum, r) => sum + (r.idx ? r.idx.length : r.a.length), 0);
+const full = raw.slice(1).reduce((sum, r) => sum + r.a.length, 0);
+check("still prices take little room", kept(stored.slice(1)) < full * 0.35, `${kept(stored.slice(1))} of ${full}`);
+// Days: the same with low, high and the count of hours.
+const daysRaw = rollUpDays(raw, 60).sort((x, y) => x.day - y.day);
+const weekKey = (d) => Math.floor(d.day / 7);
+const daysStored = daysRaw.map((d, k) => encodeRecord(d, daysRaw[k - 1] || null, DAILY_FIELDS, weekKey));
+check("days read back exactly", daysRaw.length >= 3 && sameRecords(decodeRecords(daysStored, DAILY_FIELDS), daysRaw, DAILY_FIELDS) && daysStored[0].key);
+check("a +level has its own name", historyKey("/items/rainbow_pot", 2) === "/items/rainbow_pot+2" && historyKey("/items/rainbow_pot", 0) === "/items/rainbow_pot");
 
 console.log(failures ? `${failures} check(s) failed` : "All checks passed");
 process.exit(failures ? 1 : 0);

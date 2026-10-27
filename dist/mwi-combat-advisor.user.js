@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.31.1
+// @version      0.32.0
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -80,14 +80,33 @@
   var normalizeOrder = (order) => Array.isArray(order) ? { price: Number(order[0]) || 0, quantity: Number(order[1]) || 0 } : { price: Number(order?.price) || 0, quantity: Number(order?.quantity ?? (order?.orderQuantity ?? 0) - (order?.filledQuantity ?? 0)) || 0 };
   function applyOrderBook(data) {
     const payload = data.marketItemOrderBooks ?? data;
-    const book = payload.orderBooks?.[0] ?? payload.orderBooks?.["0"];
-    if (!payload.itemHrid || !book) return;
-    state.orderBooks.set(payload.itemHrid, {
-      at: Date.now(),
-      asks: (book.asks || []).map(normalizeOrder).filter((o) => o.quantity > 0),
-      bids: (book.bids || []).map(normalizeOrder).filter((o) => o.quantity > 0)
+    if (!payload.itemHrid || !payload.orderBooks) return;
+    const sides = (book) => ({
+      asks: (book?.asks || []).map(normalizeOrder).filter((o) => o.quantity > 0),
+      bids: (book?.bids || []).map(normalizeOrder).filter((o) => o.quantity > 0)
     });
+    const levels = {};
+    const seen = [];
+    for (const [level, book] of Object.entries(payload.orderBooks)) {
+      if (!book) continue;
+      seen.push(Number(level));
+      const both = sides(book);
+      if (Number(level) > 0 && (both.asks.length || both.bids.length)) levels[Number(level)] = both;
+    }
+    const bands = {};
+    for (const level of /* @__PURE__ */ new Set([...Object.keys(payload.priceBandMins || {}), ...Object.keys(payload.priceBandMaxs || {})])) {
+      const max = Number(payload.priceBandMaxs?.[level]) || 0;
+      bands[Number(level)] = { min: Number(payload.priceBandMins?.[level]) || 0, max: max > 0 ? max : null };
+    }
+    state.orderBooks.set(payload.itemHrid, { at: Date.now(), ...sides(payload.orderBooks[0] ?? payload.orderBooks["0"]), levels, seen, bands });
     saveOrderBooks();
+  }
+  function orderBookAt(itemHrid, level = 0) {
+    const entry = state.orderBooks.get(itemHrid);
+    if (!entry || level && !entry.seen?.includes(level)) return null;
+    const both = level ? entry.levels[level] || { asks: [], bids: [] } : entry;
+    const band = entry.bands?.[level];
+    return { at: entry.at, asks: both.asks, bids: both.bids, range: band ? { min: band.min, max: band.max ?? Infinity } : null };
   }
   var listingDone = (listing) => !!(listing.isDone || listing.isCancelled || listing.isCanceled || listing.isExpired) || /(cancel|complete|expire|closed|done)/i.test(String(listing.status ?? ""));
   function applyListings(data) {
@@ -110,7 +129,7 @@
     items: /* @__PURE__ */ new Map(),
     // hash/id -> character item
     orderBooks: loadOrderBooks(),
-    // itemHrid -> { at, asks, bids } for enhancement level 0, from viewing it on the market
+    // itemHrid -> { at, asks, bids (+0), levels: { level: { asks, bids } }, seen: [levels sent], bands: { level: { min, max } } }, from viewing it on the market
     updatedAt: 0
   };
   function onStateChange(listener) {
@@ -2467,6 +2486,54 @@ i.mwia-history-bid { background: #7ee2b0; }
   var TREND_BAND = 0.05;
   var MIN_HOURS = 12;
   var MIN_DAYS = 2;
+  var historyKey = (itemHrid, level = 0) => level ? `${itemHrid}+${level}` : itemHrid;
+  var HOURLY_FIELDS = ["a", "b"];
+  var DAILY_FIELDS = ["a", "b", "aLow", "aHigh", "bLow", "bHigh", "n"];
+  var hasValue = (v) => Number.isFinite(v) && v !== 0;
+  var same = (x, y) => x === y || Number.isNaN(x) && Number.isNaN(y);
+  var emptyOf = (field, count2) => field === "n" ? new Uint8Array(count2) : new Float32Array(count2).fill(NaN);
+  var fieldAt = (array, field, i) => array && i < array.length ? array[i] : field === "n" ? 0 : NaN;
+  function encodeRecord(record, previous, fields, keyOf) {
+    const count2 = Math.max(0, ...fields.map((f) => record[f]?.length || 0));
+    const key = !previous || keyOf(previous) !== keyOf(record);
+    const idx = [];
+    for (let i = 0; i < count2; i++) {
+      const changed = key ? fields.some((f) => hasValue(fieldAt(record[f], f, i))) : fields.some((f) => !same(fieldAt(record[f], f, i), fieldAt(previous[f], f, i)));
+      if (changed) idx.push(i);
+    }
+    const out = { count: count2, key, idx: count2 < 65536 ? Uint16Array.from(idx) : Uint32Array.from(idx) };
+    for (const [k, v] of Object.entries(record)) if (!fields.includes(k)) out[k] = v;
+    for (const f of fields) {
+      const values = emptyOf(f, idx.length);
+      idx.forEach((i, j) => values[j] = fieldAt(record[f], f, i));
+      out[f] = values;
+    }
+    return out;
+  }
+  function decodeRecords(stored, fields) {
+    const out = [];
+    let previous = null;
+    for (const s of stored) {
+      if (!s.idx) {
+        out.push(s);
+        previous = s;
+        continue;
+      }
+      const full = {};
+      for (const [k, v] of Object.entries(s)) if (!fields.includes(k) && k !== "idx" && k !== "count" && k !== "key") full[k] = v;
+      for (const f of fields) {
+        const values = emptyOf(f, s.count);
+        if (!s.key && previous) for (let i = 0; i < s.count; i++) values[i] = fieldAt(previous[f], f, i);
+        s.idx.forEach((i, j) => values[i] = s[f][j]);
+        full[f] = values;
+      }
+      out.push(full);
+      previous = full;
+    }
+    return out;
+  }
+  var dayOf = (r) => Math.floor(r.hour / 24);
+  var weekOf = (d) => Math.floor(d.day / 7);
   function median(pairs) {
     const list = pairs.filter(([v, w]) => Number.isFinite(v) && w > 0).sort((x, y) => x[0] - y[0]);
     const total = list.reduce((sum, [, w]) => sum + w, 0);
@@ -2659,11 +2726,12 @@ i.mwia-history-bid { background: #7ee2b0; }
       const tx = store2.db.transaction([HOURLY, META], "readonly");
       const [items, last, hours] = await Promise.all([request(tx.objectStore(META).get("items")), request(tx.objectStore(META).get("last")), request(tx.objectStore(HOURLY).getAll())]);
       const newest = hours.length ? hours[hours.length - 1].hour : 0;
-      store2.days = await request(store2.db.transaction(DAILY, "readonly").objectStore(DAILY).getAll(IDBKeyRange.lowerBound(Math.floor(newest / 24) - 31)));
+      const fromDay = Math.floor((Math.floor(newest / 24) - 31) / 7) * 7;
+      store2.days = decodeRecords(await request(store2.db.transaction(DAILY, "readonly").objectStore(DAILY).getAll(IDBKeyRange.lowerBound(fromDay))), DAILY_FIELDS);
       store2.items = items || [];
       store2.items.forEach((hrid, i) => store2.index.set(hrid, i));
       store2.last = last ?? null;
-      store2.hours = hours;
+      store2.hours = decodeRecords(hours, HOURLY_FIELDS);
       store2.version++;
     })());
     return store2.ready;
@@ -2672,36 +2740,48 @@ i.mwia-history-bid { background: #7ee2b0; }
     await loadHistory();
     if (timestamp && timestamp === store2.last) return false;
     const hour = Math.floor(Date.now() / HOUR_MS);
-    for (const hrid of Object.keys(marketData)) {
-      if (!store2.index.has(hrid)) {
-        store2.index.set(hrid, store2.items.length);
-        store2.items.push(hrid);
+    const entries = [];
+    for (const [hrid, levels] of Object.entries(marketData)) {
+      for (const [level, entry] of Object.entries(levels || {})) {
+        if (!(entry?.a > 0) && !(entry?.b > 0) && level !== "0") continue;
+        const key = historyKey(hrid, Number(level));
+        if (!store2.index.has(key)) {
+          store2.index.set(key, store2.items.length);
+          store2.items.push(key);
+        }
+        entries.push([store2.index.get(key), entry]);
       }
     }
     const count2 = store2.items.length;
     const record = { hour, a: new Float32Array(count2).fill(NaN), b: new Float32Array(count2).fill(NaN) };
-    for (const [hrid, levels] of Object.entries(marketData)) {
-      const entry = levels?.["0"];
-      if (!entry) continue;
-      const i = store2.index.get(hrid);
-      if (entry.a > 0) record.a[i] = entry.a;
-      if (entry.b > 0) record.b[i] = entry.b;
+    for (const [i, entry] of entries) {
+      if (entry?.a > 0) record.a[i] = entry.a;
+      if (entry?.b > 0) record.b[i] = entry.b;
     }
     store2.hours = store2.hours.filter((r) => r.hour !== hour);
     store2.hours.push(record);
     store2.hours.sort((x, y) => x.hour - y.hour);
+    const pos = store2.hours.indexOf(record);
+    const writes = [encodeRecord(record, store2.hours[pos - 1] || null, HOURLY_FIELDS, dayOf)];
+    if (store2.hours[pos + 1]) writes.push(encodeRecord(store2.hours[pos + 1], record, HOURLY_FIELDS, dayOf));
     const newest = store2.hours[store2.hours.length - 1].hour;
     const cutoffDay = Math.floor((newest - HOURLY_DAYS * 24) / 24);
     const old = store2.hours.filter((r) => Math.floor(r.hour / 24) < cutoffDay);
     const rolled = old.length ? rollUpDays(old, count2) : [];
     store2.hours = store2.hours.filter((r) => Math.floor(r.hour / 24) >= cutoffDay);
+    const dayWrites = [];
+    let previousDay = store2.days[store2.days.length - 1] || null;
+    for (const d of rolled) {
+      dayWrites.push(encodeRecord(d, previousDay && previousDay.day < d.day ? previousDay : null, DAILY_FIELDS, weekOf));
+      previousDay = d;
+    }
     store2.days = [...store2.days, ...rolled].filter((d) => d.day >= Math.floor(newest / 24) - 31).sort((x, y) => x.day - y.day);
     if (store2.allDays) store2.allDays = [...store2.allDays, ...rolled].sort((x, y) => x.day - y.day);
     const tx = store2.db.transaction([HOURLY, DAILY, META], "readwrite");
-    tx.objectStore(HOURLY).put(record);
+    for (const w of writes) if (Math.floor(w.hour / 24) >= cutoffDay) tx.objectStore(HOURLY).put(w);
     for (const r of old) tx.objectStore(HOURLY).delete(r.hour);
-    for (const d of rolled) tx.objectStore(DAILY).put(d);
-    tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor(newest / 24) - DAILY_DAYS, true));
+    for (const d of dayWrites) tx.objectStore(DAILY).put(d);
+    tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor((Math.floor(newest / 24) - DAILY_DAYS) / 7) * 7, true));
     tx.objectStore(META).put(store2.items, "items");
     tx.objectStore(META).put(timestamp ?? null, "last");
     await done(tx);
@@ -2711,26 +2791,27 @@ i.mwia-history-bid { background: #7ee2b0; }
     return true;
   }
   var historyVersion = () => store2.version;
-  function priceSummary(itemHrid) {
+  function priceSummary(itemHrid, level = 0) {
     if (!store2.hours.length) return null;
-    const i = store2.index.get(itemHrid);
+    const key = historyKey(itemHrid, level);
+    const i = store2.index.get(key);
     if (i === void 0) return null;
-    if (!store2.summaries.has(itemHrid)) {
-      store2.summaries.set(itemHrid, summarize2(i, store2.hours, store2.days, store2.hours[store2.hours.length - 1].hour));
+    if (!store2.summaries.has(key)) {
+      store2.summaries.set(key, summarize2(i, store2.hours, store2.days, store2.hours[store2.hours.length - 1].hour));
     }
-    return store2.summaries.get(itemHrid);
+    return store2.summaries.get(key);
   }
   async function loadAllDays() {
     await loadHistory();
     if (!store2.allDays) {
       const tx = store2.db.transaction(DAILY, "readonly");
-      store2.allDays = await request(tx.objectStore(DAILY).getAll());
+      store2.allDays = decodeRecords(await request(tx.objectStore(DAILY).getAll()), DAILY_FIELDS);
     }
     return store2.allDays;
   }
-  async function priceSeries(itemHrid, range) {
+  async function priceSeries(itemHrid, range, level = 0) {
     await loadHistory();
-    const i = store2.index.get(itemHrid);
+    const i = store2.index.get(historyKey(itemHrid, level));
     if (i === void 0 || !store2.hours.length) return [];
     const newest = store2.hours[store2.hours.length - 1].hour;
     const days = range > 31 ? await loadAllDays() : store2.days;
@@ -2742,8 +2823,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const r of store2.hours) if (newest - r.hour <= range * 24) points.push({ t: r.hour, a: at(r.a, i), b: at(r.b, i) });
     return points.filter((p) => Number.isFinite(p.a) || Number.isFinite(p.b)).sort((x, y) => x.t - y.t);
   }
-  async function longMedians(itemHrid) {
-    const i = store2.index.get(itemHrid);
+  async function longMedians(itemHrid, level = 0) {
+    const i = store2.index.get(historyKey(itemHrid, level));
     if (i === void 0) return null;
     const days = await loadAllDays();
     const newestDay = days.length ? days[days.length - 1].day : 0;
@@ -5716,12 +5797,12 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function standing(price, levels, side = "sell") {
     let better = 0;
-    let same = 0;
+    let same2 = 0;
     for (const level of levels) {
-      if (level.price === price) same += level.quantity;
+      if (level.price === price) same2 += level.quantity;
       else if (side === "sell" ? level.price < price : level.price > price) better += level.quantity;
     }
-    return { better, same };
+    return { better, same: same2 };
   }
   function listingPrices({ side, book = null, own = [], best = null, range = null, summary = null }) {
     const sell = side === "sell";
@@ -5820,14 +5901,15 @@ i.mwia-history-bid { background: #7ee2b0; }
       range: range ? { min: parseCoins(range[1]), max: parseCoins(range[2]) } : null
     };
   }
-  function ownListings(hrid, side) {
-    return (state.character?.myMarketListings || []).filter((listing) => listing.itemHrid === hrid && !listing.enhancementLevel && !!listing.isSell === (side === "sell")).map((listing) => ({ price: Number(listing.price) || 0, quantity: Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0)) }));
+  function ownListings(hrid, side, level = 0) {
+    return (state.character?.myMarketListings || []).filter((listing) => listing.itemHrid === hrid && (listing.enhancementLevel || 0) === level && !!listing.isSell === (side === "sell")).map((listing) => ({ price: Number(listing.price) || 0, quantity: Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0)) }));
   }
   function context(modal) {
     const m = readModal(modal);
-    if (!m || m.error || m.level) return m;
-    const book = state.orderBooks.get(m.hrid) || null;
-    return { ...m, book, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side), best: m.best, range: m.range, summary: priceSummary(m.hrid) }) };
+    if (!m || m.error) return m;
+    const book = orderBookAt(m.hrid, m.level);
+    const range = m.range || book?.range || null;
+    return { ...m, book, range, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side, m.level), best: m.best, range, summary: priceSummary(m.hrid, m.level) }) };
   }
   function scan5() {
     const modals = listingModals();
@@ -5868,7 +5950,6 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   function boxHtml2(c2) {
-    if (c2.level) return `<div class="mwia-listprice-info">Price help is for +0 items only.</div>`;
     const sell = c2.side === "sell";
     const buttons = c2.suggestions.map((s, i) => {
       const shown = s.kind === "wall" ? `${sell ? "<" : ">"} ${shortCoins(s.price)}` : shortCoins(s.price);
@@ -5889,11 +5970,13 @@ i.mwia-history-bid { background: #7ee2b0; }
     const price = priceIn(c2);
     const parts = [];
     if (price > 0 && c2.book) {
-      const { better, same } = standing(price, c2.levels, c2.side);
-      parts.push(`${num(better)} ${sell ? "listed cheaper" : "bid higher"}${same ? `, ${num(same)} at ${num(price)}` : ""}`);
+      const { better, same: same2 } = standing(price, c2.levels, c2.side);
+      parts.push(`${num(better)} ${sell ? "listed cheaper" : "bid higher"}${same2 ? `, ${num(same2)} at ${num(price)}` : ""}`);
       const age = Date.now() - c2.book.at;
       if (age > BOOK_OLD_MS) parts.push(`order book ${Math.round(age / 6e4)} min old`);
-    } else if (!c2.book) parts.push(`open ${esc(itemName(c2.hrid))} on the market for the order book`);
+      const top = (sell ? c2.book.asks : c2.book.bids)[0]?.price;
+      if (c2.best > 0 && top > 0 && top !== c2.best) parts.push(`the order book's best (${num(top)}) isn't the window's \u2013 open ${esc(itemName(c2.hrid))}${c2.level ? ` +${c2.level}` : ""} on the market again`);
+    } else if (!c2.book) parts.push(`open ${esc(itemName(c2.hrid))}${c2.level ? ` +${c2.level}` : ""} on the market for the order book`);
     const vs = price > 0 ? versusUsual(price, c2.usual) : null;
     if (vs) parts.push(`${vs.diff >= 0 ? "+" : "\u2212"}${Math.abs(Math.round(vs.diff * 100))}% vs usual ${sell ? "ask" : "bid"} (${num(c2.usual)})`);
     else if (!c2.usual) parts.push(`usual price after 12 h of prices${c2.hours ? ` (${c2.hours} so far)` : ""}`);
