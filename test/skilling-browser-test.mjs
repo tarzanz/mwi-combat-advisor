@@ -482,8 +482,9 @@ try {
     // Measured on the top of the Skilling list: what you'd make.
     const topOf = (skill, c = character) => expectRank(c, { skill }).available.find((e) => e.valid && e.goldPerDay > 0)?.hrid || null;
     const listingsOf = (hrid) => Object.entries(marketData[hrid] || {}).filter(([, e]) => e.a > 0).map(([level, e]) => ({ enhancementLevel: Number(level), price: e.a, bid: e.b > 0 ? e.b : null })).sort((a, b) => a.price - b.price);
+    const bidsOf = (hrid) => Object.entries(marketData[hrid] || {}).filter(([, e]) => e.b > 0).map(([level, e]) => ({ enhancementLevel: Number(level), bid: e.b }));
     const expUpgrades = rankUpgrades(skillingCharacter(character, items(character), clientData), clientData, market("ask"), "tailoring", {
-        equipped: equippedNow, owned: ownedNow, houseLevels: {}, gameEquipmentBuffs: character.equipmentActionTypeBuffsMap, listings: listingsOf, actionHrid: topOf("tailoring"),
+        equipped: equippedNow, owned: ownedNow, houseLevels: {}, gameEquipmentBuffs: character.equipmentActionTypeBuffsMap, listings: listingsOf, bids: bidsOf, actionHrid: topOf("tailoring"),
     });
     const upgradeIntro = await page.$eval(".mwia-upgrade-list", (n) => n.closest("section")?.querySelector("p")?.textContent || "").catch(() => "");
     check("upgrades measured on the top of the list", expUpgrades.base.action.hrid === topOf("tailoring") && upgradeIntro.includes(`the top of the list above (now ${expUpgrades.base.action.name}`), upgradeIntro);
@@ -498,7 +499,7 @@ try {
     const whoNow = skillingCharacter(character, items(character), clientData);
     check("tea slots follow the pouch", whoNow.slots[FORAGING] === 2 && whoNow.slots["/action_types/tailoring"] === 2, JSON.stringify(whoNow.slots));
     const tailoringUpgrades = rankUpgrades(whoNow, clientData, market("ask"), "tailoring", {
-        equipped: equippedNow, owned: ownedNow, houseLevels: {}, listings: listingsOf, actionHrid: topOf("tailoring"),
+        equipped: equippedNow, owned: ownedNow, houseLevels: {}, listings: listingsOf, bids: bidsOf, actionHrid: topOf("tailoring"),
     });
     const giant = tailoringUpgrades.upgrades.find((u) => u.itemHrid === "/items/giant_pouch");
     const tailoringRows = await page.$$eval(".mwia-upgrade", (list) => list.map((n) => n.textContent.replace(/\s+/g, " ").trim()));

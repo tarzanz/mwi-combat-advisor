@@ -104,6 +104,13 @@ export function marketListings(itemHrid) {
         .sort((a, b) => a.price - b.price);
 }
 
+// Every +level someone is buying an item at: [{ enhancementLevel, bid }].
+export function marketBids(itemHrid) {
+    return Object.entries(prices?.[itemHrid] || {})
+        .filter(([, entry]) => entry.b > 0)
+        .map(([level, entry]) => ({ enhancementLevel: Number(level), bid: entry.b }));
+}
+
 // What an item is worth when sold: best bid, else the vendor price.
 export function sellValue(itemHrid) {
     if (itemHrid === "/items/coin") return 1;

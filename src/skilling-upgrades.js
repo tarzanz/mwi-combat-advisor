@@ -61,9 +61,16 @@ function skillActions(who, data, skill, actionHrid = null) {
     return chosen ? [chosen] : actions;
 }
 
-// What an item brings back when sold again: the best bid for its level after tax, else the vendor price.
-function resaleValue(itemHrid, offer, data) {
-    return offer.bid > 0 ? offer.bid * (1 - MARKET_TAX) : data.itemDetailMap[itemHrid]?.sellPrice || 0;
+// What an item brings back when sold again: the best bid for its +level after
+// tax; with nobody buying that level, the bid at the nearest lower level (a +2
+// is worth at least a +0, though it has to be listed to sell); else the vendor
+// price. bidLevel: the level whose bid was used, null for the vendor price.
+// bids(hrid): [{ enhancementLevel, bid }] for every level someone is buying.
+function resaleValue(itemHrid, level, ownBid, data, bids = null) {
+    if (ownBid > 0) return { value: ownBid * (1 - MARKET_TAX), bidLevel: level };
+    const lower = (bids?.(itemHrid) || []).filter((b) => b.bid > 0 && b.enhancementLevel < level).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
+    if (lower) return { value: lower.bid * (1 - MARKET_TAX), bidLevel: lower.enhancementLevel };
+    return { value: data.itemDetailMap[itemHrid]?.sellPrice || 0, bidLevel: null };
 }
 
 // What wearing one item instead of another (or nothing) changes on the action
@@ -82,7 +89,7 @@ export function swapGain(who, data, market, skill, current, itemHrid, enhancemen
 // equipped: location -> { itemHrid, enhancementLevel }; owned: itemHrid -> [enhancement levels in the inventory];
 // listings: itemHrid -> [{ enhancementLevel, price }] for sale; houseLevels: houseRoomHrid -> level.
 // listings carry the bid for the level too; actionHrid: the action to measure on.
-export function rankUpgrades(who, data, market, skill, { equipped, owned, listings, houseLevels, sellCap = 0, gameEquipmentBuffs = null, actionHrid = null }) {
+export function rankUpgrades(who, data, market, skill, { equipped, owned, listings, bids = null, houseLevels, sellCap = 0, gameEquipmentBuffs = null, actionHrid = null }) {
     const type = skillType(skill);
     const actions = skillActions(who, data, skill, actionHrid);
     const base = bestDay(actions, who, data, market, sellCap);
@@ -125,7 +132,8 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
             } else after = bestDay(actions, changed, data, market, sellCap);
             const gain = after.goldPerDay - from.goldPerDay;
             if (gain <= 1) continue;
-            const resale = offer.owned ? 0 : resaleValue(item.hrid, offer, data);
+            const sold = offer.owned ? { value: 0, bidLevel: null } : resaleValue(item.hrid, offer.enhancementLevel, offer.bid, data, bids);
+            const resale = sold.value;
             const cost = Math.max(0, offer.price - resale);
             upgrades.push({
                 kind: "item",
@@ -134,6 +142,7 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
                 owned: !!offer.owned,
                 price: offer.price,
                 resale,
+                resaleLevel: sold.bidLevel,
                 cost,
                 replaces: current,
                 gainPerDay: gain,
@@ -207,7 +216,7 @@ export function toolTiers(who, data, market, { equipped, owned, sellCap = 0, act
         const gain = SKILLING_SKILLS.includes(skill) ? swapGain(who, data, market, skill, current, best.itemHrid, 0, sellCap, actionFor(skill)) : null;
         const isOwned = !!owned[best.itemHrid]?.length;
         const price = isOwned ? 0 : market.buy(best.itemHrid);
-        const resale = isOwned ? 0 : resaleValue(best.itemHrid, { bid: market.sell(best.itemHrid).bid }, data);
+        const resale = isOwned ? 0 : resaleValue(best.itemHrid, 0, market.sell(best.itemHrid).bid, data).value;
         notices.push({
             type,
             skill,

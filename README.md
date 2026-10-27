@@ -71,7 +71,7 @@ buy, by simulating *your own* character.
   ones in your inventory – tried in place of what you wear, plus the skill's house room one level up (a pouch with
   more drink slots is measured with the best teas for both the old and the new number of slots); ranked by days
   until it is earned back on what you'd make – the top of the Skilling list with your settings, not an action your
-  coins or the market can't carry – counting what it sells for again at the bid (else the vendor price). Each +level
+  coins or the market can't carry – counting what it sells for again at the bid for its +level (with nobody buying that level, the nearest lower level's bid as a floor; else the vendor price). Each +level
   also shows its step over the next lower level for sale: what the step costs and adds a day, and its own payback.
   🛒 buttons add them to the MWITools cart. If the item stats
   don't add up to the action speed the game reports for your gear, it says so. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which

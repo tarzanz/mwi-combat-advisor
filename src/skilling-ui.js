@@ -1,7 +1,7 @@
 // The Skilling tab: gathering and crafting ranked by gold per day, with the
 // calculation behind every number one tap away.
 
-import { getClientData, itemName, marketEntry, marketListings, pricesStamp } from "./game-data.js";
+import { getClientData, itemName, marketBids, marketEntry, marketListings, pricesStamp } from "./game-data.js";
 import { state } from "./game-state.js";
 import { coinsInput, esc, shortCoins } from "./format.js";
 import { ASK_WINDOW, CALM_SWING, LIQUIDITY, MARKET_TAX, NEAR_LEVELS, PLAN_MODES, SKILLING_SKILLS, WIDE_SPREAD, heldStock, liquidityRating, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
@@ -470,6 +470,7 @@ function upgradeRanking(settings) {
             equipped,
             owned,
             listings: (hrid) => marketListings(hrid),
+            bids: (hrid) => marketBids(hrid),
             houseLevels,
             sellCap: Number(settings.skillingSellCap) || 0,
             gameEquipmentBuffs: state.character.equipmentActionTypeBuffsMap || null,
@@ -509,11 +510,19 @@ function upgradeRowHtml(u) {
     const name = `${esc(itemName(u.itemHrid))}${u.enhancementLevel ? ` <span class="mwia-enh">+${u.enhancementLevel}</span>` : ""}`;
     const replaces = u.replaces ? `replaces ${esc(itemName(u.replaces.itemHrid))}${u.replaces.enhancementLevel ? ` +${u.replaces.enhancementLevel}` : ""}` : "empty slot";
     const cart = u.owned ? "" : `<button class="mwia-cart-btn" data-action="skilling-cart" data-teas="${esc(JSON.stringify([{ hrid: u.itemHrid, quantity: 1, enhancementLevel: u.enhancementLevel }]))}" title="Adds it to the MWITools cart">🛒 Add</button>`;
-    const resale = !u.owned && u.resale > 1 ? ` <span class="mwia-dim">(${coins(u.resale)} back when sold)</span>` : "";
+    const resale = !u.owned && u.resale > 1 ? ` <span class="mwia-dim">(${resaleText(u)})</span>` : "";
     const st = u.step;
     const step = st ? `<small class="mwia-dim">+${st.from} → +${u.enhancementLevel}: ${st.price >= 0 ? "+" : "−"}${coins(Math.abs(st.price))} for +${coins(st.gainPerDay)}/day${st.paybackDays === null ? " – adds nothing" : st.paybackDays === 0 ? " – no extra cost after resale" : ` – the step pays back in ${hoursText(st.paybackDays * 24)}`}</small>` : "";
     return `<div class="mwia-upgrade"><div><b>${name}</b> <span class="mwia-dim">${u.owned ? "you own it" : coins(u.price)}</span>${resale}
         <small>${gain} · ${payback} · ${replaces}${slotsText(u)}</small>${step}</div>${cart}</div>`;
+}
+
+// What it sells for again, and from whose bid when nobody buys its own +level.
+function resaleText(u) {
+    if (u.resaleLevel === u.enhancementLevel) return `${coins(u.resale)} back when sold`;
+    const none = `nobody buys${u.enhancementLevel ? ` +${u.enhancementLevel}` : " it"}`;
+    if (u.resaleLevel === null) return `${coins(u.resale)} back at the shop: ${none}`;
+    return `≥ ${coins(u.resale)} back: ${none}, so +${u.resaleLevel}'s bid – list it to sell`;
 }
 
 // A pouch with more drink slots, and the teas that fill them.

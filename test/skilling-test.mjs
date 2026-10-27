@@ -136,7 +136,12 @@ const needle = (level) => ups.upgrades.find((u) => u.itemHrid === "/items/azure_
 const n0 = needle(0), n3 = needle(3), n5 = needle(5);
 check("upgrades measured on the action given", ups.base.action.hrid === "/actions/tailoring/rough_leather", ups.base?.action.hrid);
 check("payback after resale at the bid", n0 && Math.abs(n0.cost - (1000 - 800 * 0.96)) < 1e-9 && Math.abs(n0.paybackDays - n0.cost / n0.gainPerDay) < 1e-12, JSON.stringify(n0 && { c: n0.cost, d: n0.paybackDays }));
-check("no bid: resale at the vendor price", n5 && Math.abs(n5.resale - data.itemDetailMap["/items/azure_needle"].sellPrice) < 1e-9);
+check("no bid: resale at the vendor price", n5 && Math.abs(n5.resale - data.itemDetailMap["/items/azure_needle"].sellPrice) < 1e-9 && n5.resaleLevel === null && n0.resaleLevel === 0);
+// Nobody buys +5, but someone buys +4 (with nothing listed there): that bid is the floor.
+const needleBids = [{ enhancementLevel: 0, bid: 800 }, { enhancementLevel: 3, bid: 2000 }, { enhancementLevel: 4, bid: 2500 }];
+const upsBids = rankUpgrades(skillingCharacter(character, items, data), data, market, "tailoring", { equipped: {}, owned: {}, houseLevels: {}, listings: (hrid) => (hrid === "/items/azure_needle" ? needleOffers : []), bids: (hrid) => (hrid === "/items/azure_needle" ? needleBids : []), actionHrid: "/actions/tailoring/rough_leather" });
+const b5 = upsBids.upgrades.find((u) => u.itemHrid === "/items/azure_needle" && u.enhancementLevel === 5);
+check("no bid at its +level: the nearest lower level's bid", b5 && Math.abs(b5.resale - 2500 * 0.96) < 1e-9 && b5.resaleLevel === 4 && Math.abs(b5.cost - (9000 - 2500 * 0.96)) < 1e-9, JSON.stringify(b5 && { r: b5.resale, l: b5.resaleLevel }));
 check("a +level's step over the next lower one", n5?.step && n5.step.from === 3 && n5.step.price === 6000 && Math.abs(n5.step.gainPerDay - (n5.gainPerDay - n3.gainPerDay)) < 1e-6 && !n0.step, JSON.stringify(n5?.step));
 
 check("thin margin under 5%", thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.03 }) && !thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.2 }));
