@@ -599,6 +599,11 @@ try {
     const buyBox = await listingBox();
     check("buy listing: one step over the bid wall", JSON.stringify(buyBox.buttons) === JSON.stringify(["Match 1,040", "Wall > 1,000"]) && buyBox.price === "1004" && /^500 bid higher/.test(buyBox.info), JSON.stringify(buyBox));
     await page.evaluate(() => document.querySelector(".listing-modal").remove());
+    // A listing window laid out differently: found by its Post button, and says what it couldn't read.
+    await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", '<div class="odd-modal"><div>Sell Listing</div><div><input value="1 000"></div><button>Post Sell Listing</button></div>'));
+    await page.waitForSelector(".odd-modal .mwia-listprice", { timeout: 4000 }).catch(() => null);
+    check("an unreadable listing window says why", /can't read this window: no price box found/.test(await page.$eval(".odd-modal .mwia-listprice", (n) => n.textContent).catch(() => "")));
+    await page.evaluate(() => document.querySelector(".odd-modal").remove());
 
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {

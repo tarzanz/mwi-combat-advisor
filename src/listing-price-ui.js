@@ -20,7 +20,7 @@ const BOOK_OLD_MS = 10 * 60 * 1000;
 
 const LABELS = { match: "Match", wall: "Wall", usual: "Usual", patient: "Patient" };
 
-const l = { win: null, scanTimer: null, loading: null };
+const l = { win: null, scanTimer: null, loading: null, loadError: null };
 
 const num = (n) => Math.round(n).toLocaleString("en-US");
 // The last number in a text ("Best Sell Offer: 1 096" -> 1096), or null.
@@ -42,12 +42,22 @@ export function startListingPrices(win) {
     }, true);
 }
 
-// Every listing window on screen: the modal holding a price box.
+const POST = /^post (sell|buy) listing$/i;
+// For a note in the window when it can't be read (the script's version shows the update arrived).
+const VERSION = typeof GM_info !== "undefined" ? GM_info.script?.version || "" : "";
+
+// Every listing window on screen: the modal around a price box or a "Post … Listing" button.
 function listingModals() {
     const found = new Set();
-    for (const inputs of document.querySelectorAll(PRICE_INPUTS)) {
-        const modal = inputs.closest(MODAL);
-        if (modal && visible(modal)) found.add(modal);
+    const anchors = [...document.querySelectorAll(PRICE_INPUTS), ...[...document.querySelectorAll("button")].filter((b) => POST.test(b.textContent.trim()))];
+    for (const anchor of anchors) {
+        if (!visible(anchor)) continue;
+        let modal = anchor.closest(MODAL);
+        // No modal class we know: the nearest box around both the price and the Post button.
+        for (let el = anchor.parentElement; !modal && el && el !== document.body; el = el.parentElement) {
+            if ([...el.querySelectorAll("button")].some((b) => POST.test(b.textContent.trim())) && el.querySelector("input")) modal = el;
+        }
+        if (modal) found.add(modal);
     }
     return [...found];
 }
@@ -64,19 +74,23 @@ function scheduleScan() {
     }, SCAN_MS);
 }
 
-// The listing window's item, side and controls, or null for any other window (Buy Now, Sell Now …).
+// The listing window's item, side and controls; null for any other window (Buy Now, Sell Now …),
+// { error } when it is a listing window that can't be read.
 function readModal(modal) {
     const header = modal.querySelector(HEADER)?.textContent || "";
-    const side = /sell listing|sell order/i.test(header) ? "sell" : /buy listing|buy order/i.test(header) ? "buy" : null;
+    const post = [...modal.querySelectorAll("button")].map((b) => POST.exec(b.textContent.trim())).find(Boolean);
+    const said = /sell listing|sell order/i.test(header) ? "sell" : /buy listing|buy order/i.test(header) ? "buy" : null;
+    const side = said || (post ? post[1].toLowerCase() : null);
+    if (!side) return null;
     const inputs = modal.querySelector(PRICE_INPUTS);
     const input = inputs?.querySelector("input");
-    if (!side || !input) return null;
+    if (!input) return { error: `no price box found (inputs: ${modal.querySelectorAll("input").length})` };
     // The item: the first icon that is an item (not the coin or the close button).
     const items = getClientData()?.itemDetailMap || {};
     const hrid = [...modal.querySelectorAll("svg use")]
         .map((use) => "/items/" + (use.getAttribute("href") || use.getAttribute("xlink:href") || "").split("#").pop())
         .find((candidate) => items[candidate] && candidate !== "/items/coin");
-    if (!hrid) return null;
+    if (!hrid) return { error: `no item icon found (icons: ${[...modal.querySelectorAll("svg use")].map((use) => (use.getAttribute("href") || use.getAttribute("xlink:href") || "?").split("/").pop()).join(", ") || "none"})` };
     const text = modal.textContent || "";
     const range = /Tradable range:\s*(\d[\d\s,.]*)\s*[–-]\s*(\d[\d\s,.]*)/i.exec(text);
     // Equipment has an Enhancement Level box: the first input after that label.
@@ -101,7 +115,7 @@ function ownListings(hrid, side) {
 
 function context(modal) {
     const m = readModal(modal);
-    if (!m || m.level) return m;
+    if (!m || m.error || m.level) return m;
     const book = state.orderBooks.get(m.hrid) || null;
     return { ...m, book, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side), best: m.best, range: m.range, summary: priceSummary(m.hrid) }) };
 }
@@ -109,12 +123,22 @@ function context(modal) {
 function scan() {
     const modals = listingModals();
     // The item names come from the game data, which may not be loaded yet after a reload.
-    if (modals.length && !getClientData()) {
-        l.loading ||= loadClientData(l.win).then(scheduleScan, (error) => console.warn("[Combat Advisor] listing prices", error)).finally(() => (l.loading = null));
+    if (modals.length && !getClientData() && !l.loadError) {
+        l.loading ||= loadClientData(l.win)
+            .then(scheduleScan, (error) => {
+                l.loadError = String(error?.message || error);
+                scheduleScan();
+            })
+            .finally(() => (l.loading = null));
         return;
     }
     for (const modal of modals) {
-        const c = context(modal);
+        let c;
+        try {
+            c = getClientData() ? context(modal) : { error: `no game data (${l.loadError})` };
+        } catch (error) {
+            c = { error: String(error?.message || error) };
+        }
         let box = modal.querySelector(".mwia-listprice");
         if (!c) {
             box?.remove();
@@ -123,9 +147,13 @@ function scan() {
         if (!box) {
             box = document.createElement("div");
             box.className = "mwia-listprice";
-            c.inputs.insertAdjacentElement("afterend", box);
+            const inputs = modal.querySelector(PRICE_INPUTS);
+            const post = [...modal.querySelectorAll("button")].find((b) => POST.test(b.textContent.trim()));
+            if (inputs) inputs.insertAdjacentElement("afterend", box);
+            else if (post) post.insertAdjacentElement("beforebegin", box);
+            else modal.appendChild(box);
         }
-        const html = boxHtml(c);
+        const html = c.error ? `<div class="mwia-listprice-info">Combat Advisor ${esc(VERSION)} can't read this window: ${esc(c.error)}. A screenshot of this helps.</div>` : boxHtml(c);
         if (box.dataset.html !== html) {
             box.dataset.html = html;
             box.innerHTML = html;

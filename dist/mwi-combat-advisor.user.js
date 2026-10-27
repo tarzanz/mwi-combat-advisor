@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.29.1
+// @version      0.29.2
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5544,7 +5544,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var SCAN_MS4 = 300;
   var BOOK_OLD_MS = 10 * 60 * 1e3;
   var LABELS = { match: "Match", wall: "Wall", usual: "Usual", patient: "Patient" };
-  var l = { win: null, scanTimer: null, loading: null };
+  var l = { win: null, scanTimer: null, loading: null, loadError: null };
   var num = (n2) => Math.round(n2).toLocaleString("en-US");
   var numberIn = (text) => {
     const found = String(text).match(/\d[\d\s,.]*[kmb]?/gi);
@@ -5562,11 +5562,18 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (event.target.closest?.(MODAL)) scheduleScan5();
     }, true);
   }
+  var POST = /^post (sell|buy) listing$/i;
+  var VERSION = typeof GM_info !== "undefined" ? GM_info.script?.version || "" : "";
   function listingModals() {
     const found = /* @__PURE__ */ new Set();
-    for (const inputs of document.querySelectorAll(PRICE_INPUTS)) {
-      const modal = inputs.closest(MODAL);
-      if (modal && visible(modal)) found.add(modal);
+    const anchors = [...document.querySelectorAll(PRICE_INPUTS), ...[...document.querySelectorAll("button")].filter((b) => POST.test(b.textContent.trim()))];
+    for (const anchor of anchors) {
+      if (!visible(anchor)) continue;
+      let modal = anchor.closest(MODAL);
+      for (let el = anchor.parentElement; !modal && el && el !== document.body; el = el.parentElement) {
+        if ([...el.querySelectorAll("button")].some((b) => POST.test(b.textContent.trim())) && el.querySelector("input")) modal = el;
+      }
+      if (modal) found.add(modal);
     }
     return [...found];
   }
@@ -5583,13 +5590,16 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function readModal(modal) {
     const header = modal.querySelector(HEADER)?.textContent || "";
-    const side = /sell listing|sell order/i.test(header) ? "sell" : /buy listing|buy order/i.test(header) ? "buy" : null;
+    const post = [...modal.querySelectorAll("button")].map((b) => POST.exec(b.textContent.trim())).find(Boolean);
+    const said = /sell listing|sell order/i.test(header) ? "sell" : /buy listing|buy order/i.test(header) ? "buy" : null;
+    const side = said || (post ? post[1].toLowerCase() : null);
+    if (!side) return null;
     const inputs = modal.querySelector(PRICE_INPUTS);
     const input = inputs?.querySelector("input");
-    if (!side || !input) return null;
+    if (!input) return { error: `no price box found (inputs: ${modal.querySelectorAll("input").length})` };
     const items = getClientData()?.itemDetailMap || {};
     const hrid = [...modal.querySelectorAll("svg use")].map((use) => "/items/" + (use.getAttribute("href") || use.getAttribute("xlink:href") || "").split("#").pop()).find((candidate) => items[candidate] && candidate !== "/items/coin");
-    if (!hrid) return null;
+    if (!hrid) return { error: `no item icon found (icons: ${[...modal.querySelectorAll("svg use")].map((use) => (use.getAttribute("href") || use.getAttribute("xlink:href") || "?").split("/").pop()).join(", ") || "none"})` };
     const text = modal.textContent || "";
     const range = /Tradable range:\s*(\d[\d\s,.]*)\s*[–-]\s*(\d[\d\s,.]*)/i.exec(text);
     const label = [...modal.querySelectorAll("*")].find((el) => !el.children.length && /^enhancement level$/i.test(el.textContent.trim()));
@@ -5609,18 +5619,26 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function context(modal) {
     const m = readModal(modal);
-    if (!m || m.level) return m;
+    if (!m || m.error || m.level) return m;
     const book = state.orderBooks.get(m.hrid) || null;
     return { ...m, book, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side), best: m.best, range: m.range, summary: priceSummary(m.hrid) }) };
   }
   function scan4() {
     const modals = listingModals();
-    if (modals.length && !getClientData()) {
-      l.loading || (l.loading = loadClientData(l.win).then(scheduleScan5, (error) => console.warn("[Combat Advisor] listing prices", error)).finally(() => l.loading = null));
+    if (modals.length && !getClientData() && !l.loadError) {
+      l.loading || (l.loading = loadClientData(l.win).then(scheduleScan5, (error) => {
+        l.loadError = String(error?.message || error);
+        scheduleScan5();
+      }).finally(() => l.loading = null));
       return;
     }
     for (const modal of modals) {
-      const c2 = context(modal);
+      let c2;
+      try {
+        c2 = getClientData() ? context(modal) : { error: `no game data (${l.loadError})` };
+      } catch (error) {
+        c2 = { error: String(error?.message || error) };
+      }
       let box = modal.querySelector(".mwia-listprice");
       if (!c2) {
         box?.remove();
@@ -5629,9 +5647,13 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (!box) {
         box = document.createElement("div");
         box.className = "mwia-listprice";
-        c2.inputs.insertAdjacentElement("afterend", box);
+        const inputs = modal.querySelector(PRICE_INPUTS);
+        const post = [...modal.querySelectorAll("button")].find((b) => POST.test(b.textContent.trim()));
+        if (inputs) inputs.insertAdjacentElement("afterend", box);
+        else if (post) post.insertAdjacentElement("beforebegin", box);
+        else modal.appendChild(box);
       }
-      const html = boxHtml2(c2);
+      const html = c2.error ? `<div class="mwia-listprice-info">Combat Advisor ${esc(VERSION)} can't read this window: ${esc(c2.error)}. A screenshot of this helps.</div>` : boxHtml2(c2);
       if (box.dataset.html !== html) {
         box.dataset.html = html;
         box.innerHTML = html;
