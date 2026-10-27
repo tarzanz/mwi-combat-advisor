@@ -41,6 +41,7 @@ import { rememberToggle, renderSkilling, toggleShowAll } from "./skilling-ui.js"
 import { onHistoryChange } from "./price-history-ui.js";
 import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js";
 import { startToolNotice } from "./tool-notice.js";
+import { startTeaSlots } from "./tea-slots.js";
 import { findActionPanel, navDiagnostics, openAction, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 import { startTrain } from "./train-ui.js";
@@ -943,6 +944,7 @@ export function mountUI(win, workerSource) {
     };
     startConsumableGuide(gameDeps);
     startToolNotice(gameDeps);
+    startTeaSlots(gameDeps);
     ui.root = root;
 
     root.addEventListener("click", onClick);

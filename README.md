@@ -89,6 +89,12 @@ buy, by simulating *your own* character.
   allows a higher tier than the tool you wear (or an empty slot): the tool, its price, what it adds a day on what
   you'd make (the top of the skill's Skilling list) and when it pays back, counting a resale at the bid (gathering and production skills), with a 🛒 button each and one for
   all. A tool already in your inventory just says to equip it.
+- **Tea slots on a skill page** – the first job in your queue for that skill decides which teas are right (the same
+  ones the action window suggests: the Skilling tab's best setup with your focus, or the teas you have when nothing
+  scores better). A slot with a wrong tea, or an empty one while a right tea is missing, glows red. Tap it and in the
+  game's tea picker the right teas glow green ("Remove" does when a wrong tea has nothing to replace it). Right teas
+  you don't have are named in the picker, with a 🛒 button that tops all of them up to 8 hours in the MWITools cart.
+  Nothing shows when the skill has no job in the queue.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the
   plan's goals (house level / item quantity) and the Full chain / One step / Buy choice of every step-2 row, works out

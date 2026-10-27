@@ -8,7 +8,7 @@ import path from "node:path";
 import puppeteer from "puppeteer-core";
 import { WebSocketServer } from "ws";
 import { fixtureCharacter } from "./fixture-character.js";
-import { NEAR_LEVELS, PLAN_MODES, RISKY_MARGIN, heldStock, liquidityRating, marketPricer, rankSkilling, skillingCharacter } from "../src/skilling.js";
+import { NEAR_LEVELS, PLAN_MODES, RISKY_MARGIN, heldStock, liquidityRating, marketPricer, rankSkilling, skillingCharacter, usableTeas } from "../src/skilling.js";
 import { rankUpgrades, toolTiers } from "../src/skilling-upgrades.js";
 import { shortCoins } from "../src/format.js";
 
@@ -611,6 +611,68 @@ try {
     await page.waitForSelector(".odd-modal .mwia-listprice", { timeout: 4000 }).catch(() => null);
     check("an unreadable listing window says why", /can't read this window: no price box found/.test(await page.$eval(".odd-modal .mwia-listprice", (n) => n.textContent).catch(() => "")));
     await page.evaluate(() => document.querySelector(".odd-modal").remove());
+
+    // Tea slots on a skill page: the first Tailoring job in the queue decides which teas are right.
+    const TAILORING = "/action_types/tailoring";
+    const teaSlotsMap = { ...character.actionTypeDrinkSlotsMap, [FORAGING]: character.actionTypeDrinkSlotsMap[FORAGING], [TAILORING]: [{ itemHrid: "/items/wisdom_tea" }, null] };
+    for (const socket of sockets) socket.send(JSON.stringify({ type: "action_type_consumable_slots_updated", actionTypeDrinkSlotsMap: teaSlotsMap }));
+    await page.waitForFunction(() => window.lastType === "action_type_consumable_slots_updated");
+    const foragingJob = Object.values(clientData.actionDetailMap).find((a) => a.type === FORAGING).hrid;
+    const queue = [{ id: 901, actionHrid: foragingJob, ordinal: 1 }, { id: 902, actionHrid: topTailoring.hrid, ordinal: 2 }];
+    for (const socket of sockets) socket.send(JSON.stringify({ type: "actions_updated", endCharacterActions: queue }));
+    await page.waitForFunction(() => window.lastType === "actions_updated");
+    const teaEntry = expectRank({ ...character, actionTypeDrinkSlotsMap: teaSlotsMap }, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid);
+    const rightTeas = teaEntry.betterTeas ? teaEntry.best.result.teas : teaEntry.current.teas;
+    const icon = (hrid) => `<svg><use href="/sprites/items.svg#${hrid.split("/").pop()}"></use></svg>`;
+    await page.evaluate((wisdom) => {
+        document.querySelector(".mwia-panel").classList.add("mwia-hidden");
+        document.body.insertAdjacentHTML("beforeend", `<div id="teapage"><div class="title"><span>Tailoring</span> <span>?</span></div><div style="height:300px"></div>
+            <div class="consumables"><div class="label">Consumables</div><div class="row" style="display:flex;gap:4px">
+            <div class="slot" style="width:60px;height:60px">${wisdom}<span>52</span></div><div class="slot" style="width:60px;height:60px"></div><div class="slot" style="width:60px;height:60px">Require Bigger Pouch</div></div></div></div>`);
+    }, icon("/items/wisdom_tea"));
+    await new Promise((r) => setTimeout(r, 800));
+    const slotMarks = () => page.$$eval("#teapage .slot", (list) => list.map((n) => n.dataset.mwiaTea || ""));
+    const marks = await slotMarks();
+    const wisdomRight = rightTeas.includes("/items/wisdom_tea");
+    const missingTeas = rightTeas.filter((hrid) => hrid !== "/items/wisdom_tea");
+    check("a slot with the wrong tea glows red, an empty one when a tea is missing", marks[0] === (wisdomRight ? "" : "wrong") && marks[1] === (missingTeas.length ? "wrong" : "") && marks[2] === "",
+        `${JSON.stringify(marks)} for ${rightTeas.join(",")}`);
+    // The game's tea picker: the right teas glow green; ones you don't have get a cart line.
+    const pickerTeas = usableTeas(clientData, TAILORING);
+    await page.evaluate((html) => document.body.insertAdjacentHTML("beforeend", html),
+        `<div class="ItemSelector_menu__12sEM" id="picker"><div class="ItemSelector_itemList__Qa5lq"><div class="ItemSelector_itemContainer__3olqe"><div>Remove</div></div>${pickerTeas.map((hrid) => `<div class="ItemSelector_itemContainer__3olqe" data-hrid="${hrid}">${icon(hrid)}<span>9</span></div>`).join("")}</div></div>`);
+    await new Promise((r) => setTimeout(r, 800));
+    const green = await page.$$eval("#picker [data-mwia-tea=right]", (list) => list.map((n) => n.dataset.hrid || "remove"));
+    check("the right teas glow green in the picker", JSON.stringify(green.sort()) === JSON.stringify([...missingTeas].sort()) && missingTeas.length > 0, `${green} vs ${missingTeas}`);
+    const haveTea = (hrid) => heldStock(character, items(character), hrid).inventory;
+    const lacking = rightTeas.filter((hrid) => haveTea(hrid) <= 0);
+    const teaNote = await page.$eval("#picker .mwia-tea-note", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
+    check("missing teas are named in the picker", lacking.length > 0 && teaNote.includes(`Missing for ${topTailoring.action.name}`) && lacking.every((hrid) => teaNote.includes(clientData.itemDetailMap[hrid].name)), teaNote);
+    await page.screenshot({ path: path.join(shotDir, "skilling-11-teas.png") });
+    await page.evaluate(() => (window.cart = []));
+    await page.click("#picker [data-tea-cart]");
+    await page.waitForFunction(() => /Cart: added/.test(document.querySelector("#picker .mwia-tea-note")?.textContent || ""), { timeout: 3000 }).catch(() => null);
+    const perTea8 = Math.ceil(8 * teaEntry.current.drinksPerHour);
+    const teaCart = await page.evaluate(() => window.cart);
+    check("8 hours of the right teas go to the cart", rightTeas.every((hrid) => haveTea(hrid) >= perTea8 || teaCart.some((c) => c.itemHrid === hrid && c.quantity === perTea8 - haveTea(hrid))) && teaCart.length === rightTeas.filter((hrid) => haveTea(hrid) < perTea8).length,
+        `${JSON.stringify(teaCart)} × ${perTea8}`);
+    await page.evaluate(() => document.getElementById("picker").remove());
+    // Another layout of the picker: found by its "Remove" choice.
+    await page.evaluate((html) => document.body.insertAdjacentHTML("beforeend", html),
+        `<div id="picker2"><div class="list"><div class="item"><div>Remove</div></div>${pickerTeas.map((hrid) => `<div class="item" data-hrid="${hrid}">${icon(hrid)}</div>`).join("")}</div></div>`);
+    await new Promise((r) => setTimeout(r, 800));
+    const green2 = await page.$$eval("#picker2 [data-mwia-tea=right]", (list) => list.map((n) => n.dataset.hrid || "remove"));
+    check("a picker without the game's classes is found too", JSON.stringify(green2.sort()) === JSON.stringify([...missingTeas].sort()), `${green2}`);
+    await page.evaluate(() => document.getElementById("picker2").remove());
+    // Nothing queued for the skill: no marks.
+    for (const socket of sockets) socket.send(JSON.stringify({ type: "actions_updated", endCharacterActions: [{ ...queue[1], isDone: true }] }));
+    await page.waitForFunction(() => !document.querySelector("#teapage [data-mwia-tea]"), { timeout: 3000 }).catch(() => null);
+    check("no Tailoring job in the queue, no marks", !(await page.$("#teapage [data-mwia-tea]")));
+    // A Consumables row the script can't read says so.
+    await page.evaluate(() => { document.querySelector("#teapage .row").remove(); });
+    await page.waitForSelector("#teapage .mwia-tea-note", { timeout: 3000 }).catch(() => null);
+    check("an unreadable tea row says why", /can't mark the teas – no tea slots/.test(await page.$eval("#teapage .mwia-tea-note", (n) => n.textContent).catch(() => "")));
+    await page.evaluate(() => document.getElementById("teapage").remove());
 
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
