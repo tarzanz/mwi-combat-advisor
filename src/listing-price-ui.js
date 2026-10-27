@@ -20,7 +20,7 @@ const BOOK_OLD_MS = 10 * 60 * 1000;
 
 const LABELS = { match: "Match", wall: "Wall", usual: "Usual", patient: "Patient" };
 
-const l = { win: null, scanTimer: null, loading: null, loadError: null };
+const l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false };
 
 const num = (n) => Math.round(n).toLocaleString("en-US");
 // The last number in a text ("Best Sell Offer: 1 096" -> 1096), or null.
@@ -83,8 +83,9 @@ function readModal(modal) {
     const side = said || (post ? post[1].toLowerCase() : null);
     if (!side) return null;
     const inputs = modal.querySelector(PRICE_INPUTS);
-    const input = inputs?.querySelector("input");
-    if (!input) return { error: `no price box found (inputs: ${modal.querySelectorAll("input").length})` };
+    if (!inputs) return { error: `no price box found (inputs: ${modal.querySelectorAll("input").length})` };
+    // The price shows between the game's −/+ (an input, or just text that only −/+ change).
+    const input = inputs.querySelector("input");
     // The item: the first icon that is an item (not the coin or the close button).
     const items = getClientData()?.itemDetailMap || {};
     const hrid = [...modal.querySelectorAll("svg use")]
@@ -132,6 +133,8 @@ function scan() {
             .finally(() => (l.loading = null));
         return;
     }
+    // −/+ change the price's text without adding nodes: look again while a window is open.
+    if (modals.length) setTimeout(scheduleScan, 700);
     for (const modal of modals) {
         let c;
         try {
@@ -183,7 +186,7 @@ function titleFor(s, c) {
 // Where the price in the box stands: what is offered in front of it, and against the usual price.
 function infoHtml(c) {
     const sell = c.side === "sell";
-    const price = numberIn(c.input.value);
+    const price = priceIn(c);
     const parts = [];
     if (price > 0 && c.book) {
         const { better, same } = standing(price, c.levels, c.side);
@@ -197,33 +200,79 @@ function infoHtml(c) {
     return parts.join(" · ");
 }
 
+// The price in the window now.
+function priceIn(c) {
+    if (c.input) return numberIn(c.input.value);
+    const text = [...c.inputs.childNodes].filter((node) => node.nodeName !== "BUTTON").map((node) => node.textContent).join(" ");
+    return numberIn(text);
+}
+
 function controls(c) {
     const buttons = [...c.inputs.querySelectorAll("button")];
     const by = (pattern) => buttons.find((b) => pattern.test(b.textContent.trim()));
     return { minus: by(/^[-−]$/), plus: by(/^\+$/), min: by(/^min$/i), max: by(/^max$/i) };
 }
 
-// Puts a suggestion in the price box, with the game's own −/+ for the steps
-// (the game knows which prices are valid).
+const MAX_STEPS = 400;
+
+// Clicks one of the game's buttons and waits for the price to show it; the new price, or null if it didn't move.
+async function press(c, button) {
+    const before = priceIn(c);
+    button.click();
+    for (let i = 0; i < 10; i++) {
+        await tick();
+        const now = priceIn(c);
+        if (now !== before) return now;
+    }
+    return null;
+}
+
+// Steps the price with the game's own −/+ (the game knows which prices are
+// valid) to the highest valid price at or under target, or – up: true – the
+// lowest at or over it.
+async function stepTo(c, b, target, up = false) {
+    let price = priceIn(c);
+    for (let i = 0; i < MAX_STEPS && price !== null; i++) {
+        if (price === target) return price;
+        if (price < target) {
+            const next = await press(c, b.plus);
+            if (next === null) return price;
+            if (next > target) return up ? next : press(c, b.minus).then((back) => back ?? next);
+            price = next;
+        } else {
+            const next = await press(c, b.minus);
+            if (next === null) return price;
+            if (next < target) return up ? press(c, b.plus).then((back) => back ?? next) : next;
+            price = next;
+        }
+    }
+    return price;
+}
+
+// Puts a suggestion in the price box: Min/Max at the tradable range's ends,
+// otherwise the game's −/+ step by step (or typed in, where the box takes typing).
 async function apply(modal, index) {
     const c = context(modal);
     const s = c?.suggestions?.[index];
-    if (!s) return;
-    const b = controls(c);
-    if (s.capped === "max" && b.max) b.max.click();
-    else if (s.capped === "min" && b.min) b.min.click();
-    else {
-        setReactInput(c.input, Math.round(s.price));
-        await tick();
-        if (s.step) (s.step < 0 ? b.minus : b.plus)?.click();
-        else if (s.snap && b.plus && b.minus) {
-            // A price from the history may fall between valid prices: up a step and back down lands on one.
-            b.plus.click();
-            await tick();
-            b.minus.click();
-        }
+    if (!s || l.applying) return;
+    l.applying = true;
+    try {
+        const b = controls(c);
+        if (s.capped === "max" && b.max) await press(c, b.max);
+        else if (s.capped === "min" && b.min) await press(c, b.min);
+        else if (b.plus && b.minus) {
+            const target = Math.round(s.price);
+            if (c.input) {
+                setReactInput(c.input, target);
+                await tick();
+            }
+            // Wall: one step past the wall's price; the rest: the valid price nearest under it.
+            const reached = await stepTo(c, b, target, s.step > 0);
+            if (s.step && reached === target) await press(c, s.step < 0 ? b.minus : b.plus);
+        } else if (c.input) setReactInput(c.input, Math.round(s.price));
+    } finally {
+        l.applying = false;
     }
-    await tick();
     scheduleScan();
 }
 
@@ -232,5 +281,5 @@ function onClick(event) {
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
-    apply(button.closest(MODAL), Number(button.dataset.listprice));
+    apply(listingModals().find((modal) => modal.contains(button)), Number(button.dataset.listprice));
 }

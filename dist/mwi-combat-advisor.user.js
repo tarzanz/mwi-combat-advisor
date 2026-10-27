@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.29.2
+// @version      0.29.3
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5544,7 +5544,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var SCAN_MS4 = 300;
   var BOOK_OLD_MS = 10 * 60 * 1e3;
   var LABELS = { match: "Match", wall: "Wall", usual: "Usual", patient: "Patient" };
-  var l = { win: null, scanTimer: null, loading: null, loadError: null };
+  var l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false };
   var num = (n2) => Math.round(n2).toLocaleString("en-US");
   var numberIn = (text) => {
     const found = String(text).match(/\d[\d\s,.]*[kmb]?/gi);
@@ -5595,8 +5595,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     const side = said || (post ? post[1].toLowerCase() : null);
     if (!side) return null;
     const inputs = modal.querySelector(PRICE_INPUTS);
-    const input = inputs?.querySelector("input");
-    if (!input) return { error: `no price box found (inputs: ${modal.querySelectorAll("input").length})` };
+    if (!inputs) return { error: `no price box found (inputs: ${modal.querySelectorAll("input").length})` };
+    const input = inputs.querySelector("input");
     const items = getClientData()?.itemDetailMap || {};
     const hrid = [...modal.querySelectorAll("svg use")].map((use) => "/items/" + (use.getAttribute("href") || use.getAttribute("xlink:href") || "").split("#").pop()).find((candidate) => items[candidate] && candidate !== "/items/coin");
     if (!hrid) return { error: `no item icon found (icons: ${[...modal.querySelectorAll("svg use")].map((use) => (use.getAttribute("href") || use.getAttribute("xlink:href") || "?").split("/").pop()).join(", ") || "none"})` };
@@ -5632,6 +5632,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       }).finally(() => l.loading = null));
       return;
     }
+    if (modals.length) setTimeout(scheduleScan5, 700);
     for (const modal of modals) {
       let c2;
       try {
@@ -5679,7 +5680,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function infoHtml(c2) {
     const sell = c2.side === "sell";
-    const price = numberIn(c2.input.value);
+    const price = priceIn(c2);
     const parts = [];
     if (price > 0 && c2.book) {
       const { better, same } = standing(price, c2.levels, c2.side);
@@ -5692,29 +5693,66 @@ i.mwia-history-bid { background: #7ee2b0; }
     else if (!c2.usual) parts.push(`usual price after 12 h of prices${c2.hours ? ` (${c2.hours} so far)` : ""}`);
     return parts.join(" \xB7 ");
   }
+  function priceIn(c2) {
+    if (c2.input) return numberIn(c2.input.value);
+    const text = [...c2.inputs.childNodes].filter((node) => node.nodeName !== "BUTTON").map((node) => node.textContent).join(" ");
+    return numberIn(text);
+  }
   function controls(c2) {
     const buttons = [...c2.inputs.querySelectorAll("button")];
     const by = (pattern) => buttons.find((b) => pattern.test(b.textContent.trim()));
     return { minus: by(/^[-−]$/), plus: by(/^\+$/), min: by(/^min$/i), max: by(/^max$/i) };
   }
+  var MAX_STEPS = 400;
+  async function press(c2, button) {
+    const before = priceIn(c2);
+    button.click();
+    for (let i = 0; i < 10; i++) {
+      await tick();
+      const now = priceIn(c2);
+      if (now !== before) return now;
+    }
+    return null;
+  }
+  async function stepTo(c2, b, target, up = false) {
+    let price = priceIn(c2);
+    for (let i = 0; i < MAX_STEPS && price !== null; i++) {
+      if (price === target) return price;
+      if (price < target) {
+        const next = await press(c2, b.plus);
+        if (next === null) return price;
+        if (next > target) return up ? next : press(c2, b.minus).then((back) => back ?? next);
+        price = next;
+      } else {
+        const next = await press(c2, b.minus);
+        if (next === null) return price;
+        if (next < target) return up ? press(c2, b.plus).then((back) => back ?? next) : next;
+        price = next;
+      }
+    }
+    return price;
+  }
   async function apply(modal, index) {
     const c2 = context(modal);
     const s = c2?.suggestions?.[index];
-    if (!s) return;
-    const b = controls(c2);
-    if (s.capped === "max" && b.max) b.max.click();
-    else if (s.capped === "min" && b.min) b.min.click();
-    else {
-      setReactInput(c2.input, Math.round(s.price));
-      await tick();
-      if (s.step) (s.step < 0 ? b.minus : b.plus)?.click();
-      else if (s.snap && b.plus && b.minus) {
-        b.plus.click();
-        await tick();
-        b.minus.click();
-      }
+    if (!s || l.applying) return;
+    l.applying = true;
+    try {
+      const b = controls(c2);
+      if (s.capped === "max" && b.max) await press(c2, b.max);
+      else if (s.capped === "min" && b.min) await press(c2, b.min);
+      else if (b.plus && b.minus) {
+        const target = Math.round(s.price);
+        if (c2.input) {
+          setReactInput(c2.input, target);
+          await tick();
+        }
+        const reached = await stepTo(c2, b, target, s.step > 0);
+        if (s.step && reached === target) await press(c2, s.step < 0 ? b.minus : b.plus);
+      } else if (c2.input) setReactInput(c2.input, Math.round(s.price));
+    } finally {
+      l.applying = false;
     }
-    await tick();
     scheduleScan5();
   }
   function onClick6(event) {
@@ -5722,7 +5760,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
-    apply(button.closest(MODAL), Number(button.dataset.listprice));
+    apply(listingModals().find((modal) => modal.contains(button)), Number(button.dataset.listprice));
   }
 
   // src/main.js
