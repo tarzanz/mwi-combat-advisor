@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.37.0
+// @version      0.37.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -6041,11 +6041,12 @@ i.mwia-history-bid { background: #7ee2b0; }
 
   // src/market.js
   var MARKET_RULES = {
-    // An order is behind a wall when this share of everything others offer comes
-    // first (the same share as the Wall price button)…
-    wallShare: WALL_SHARE,
-    // …or more than this many days of sales come first.
+    // An order is behind a wall when more than this many days of sales come first…
     daysAhead: 1,
+    // …or, while how many sell a day is unknown, this share of everything others
+    // offer comes first (the same share as the Wall price button). A thin book
+    // makes the share big however quickly those sell, so sales come first.
+    wallShare: WALL_SHARE,
     // Without an order book: a best price this much better than yours is a wall too.
     bigGap: 0.1,
     // An order book seen on the market within this many hours counts as fresh.
@@ -6090,7 +6091,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       Object.assign(out, { fromBook: true, better: ahead, total, share: total ? ahead / total : 0, daysAhead: perDay2 ? ahead / perDay2 : null, best: levels[0]?.price ?? null, bookAt: book.at });
       if (ahead === 0) out.kind = same2 ? "tied" : "front";
       else {
-        out.kind = out.share >= rules.wallShare || out.daysAhead > rules.daysAhead ? "wall" : "behind";
+        const wall = out.daysAhead !== null ? out.daysAhead > rules.daysAhead : out.share >= rules.wallShare;
+        out.kind = wall ? "wall" : "behind";
         out.gap = out.best ? Math.abs(out.best / price - 1) : null;
       }
     } else {
@@ -6257,8 +6259,13 @@ i.mwia-history-bid { background: #7ee2b0; }
       return 0;
     }
   }
+  function salesTime(days) {
+    if (days >= 1) return `${dec2(days, days < 10 ? 1 : 0)} days`;
+    const hours = days * 24;
+    return hours < 0.1 ? "minutes" : `${dec2(hours, hours < 10 ? 1 : 0)} h`;
+  }
   function statusText(s) {
-    const days = s.daysAhead !== null ? ` \u2013 about ${dec2(s.daysAhead, s.daysAhead < 10 ? 1 : 0)} days of sales` : "";
+    const days = s.daysAhead !== null ? ` \u2013 about ${salesTime(s.daysAhead)} of sales` : "";
     switch (s.kind) {
       case "front":
         return `<span class="mwia-ok">\u2705 first in line</span>${s.fromBook ? "" : ` <span class="mwia-dim">(or sharing the price)</span>`}`;
@@ -6328,8 +6335,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (alerts) html += `<p class="mwia-reco">\u26D4 ${alerts} order${alerts === 1 ? " is" : "s are"} behind a pile of better offers \u2013 unlikely to fill soon. Open ${alerts === 1 ? "it" : "them"} with \u{1F3EA} and pick a new price (the <b>Wall</b> button stops just in front of the pile).</p>`;
       html += `<table class="mwia-table mwia-wide"><thead><tr><th>Side</th><th>Item</th><th class="mwia-num">Left</th><th class="mwia-num">Price</th><th>Standing</th><th></th></tr></thead>
           <tbody>${statuses.map(listingRow).join("")}</tbody></table>
-          <p class="mwia-dim">\u26D4 when at least ${pctAbs(MARKET_RULES.wallShare)} of what others offer, or more than ${MARKET_RULES.daysAhead} day of sales, comes before your order
-          (from the order book, read when you open the item on the market \u2013 fresh for ${MARKET_RULES.bookHours} h), or without one when the best offer is more than
+          <p class="mwia-dim">\u26D4 when more than ${MARKET_RULES.daysAhead} day of sales comes before your order (or, until the price history knows how many sell a day,
+          at least ${pctAbs(MARKET_RULES.wallShare)} of what others offer) \u2013 from the order book, read when you open the item on the market, fresh for ${MARKET_RULES.bookHours} h; or without one when the best offer is more than
           ${pctAbs(MARKET_RULES.bigGap)} better than yours. \u{1F4A4} = nothing ${"sold or bought"} for ${MARKET_RULES.staleHours} h. Prices from the market file (refreshed every 10 min while you have orders).</p>`;
     }
     const trainActions = (() => {
@@ -7583,7 +7590,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION3 = true ? "0.37.0" : "dev";
+  var VERSION3 = true ? "0.37.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;

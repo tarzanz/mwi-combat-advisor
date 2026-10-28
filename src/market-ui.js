@@ -84,8 +84,15 @@ export function marketAlerts() {
     }
 }
 
+// How long the sales in front take: hours under a day, else days.
+function salesTime(days) {
+    if (days >= 1) return `${dec(days, days < 10 ? 1 : 0)} days`;
+    const hours = days * 24;
+    return hours < 0.1 ? "minutes" : `${dec(hours, hours < 10 ? 1 : 0)} h`;
+}
+
 function statusText(s) {
-    const days = s.daysAhead !== null ? ` – about ${dec(s.daysAhead, s.daysAhead < 10 ? 1 : 0)} days of sales` : "";
+    const days = s.daysAhead !== null ? ` – about ${salesTime(s.daysAhead)} of sales` : "";
     switch (s.kind) {
         case "front":
             return `<span class="mwia-ok">✅ first in line</span>${s.fromBook ? "" : ` <span class="mwia-dim">(or sharing the price)</span>`}`;
@@ -163,8 +170,8 @@ export function renderMarket() {
         if (alerts) html += `<p class="mwia-reco">⛔ ${alerts} order${alerts === 1 ? " is" : "s are"} behind a pile of better offers – unlikely to fill soon. Open ${alerts === 1 ? "it" : "them"} with 🏪 and pick a new price (the <b>Wall</b> button stops just in front of the pile).</p>`;
         html += `<table class="mwia-table mwia-wide"><thead><tr><th>Side</th><th>Item</th><th class="mwia-num">Left</th><th class="mwia-num">Price</th><th>Standing</th><th></th></tr></thead>
           <tbody>${statuses.map(listingRow).join("")}</tbody></table>
-          <p class="mwia-dim">⛔ when at least ${pctAbs(MARKET_RULES.wallShare)} of what others offer, or more than ${MARKET_RULES.daysAhead} day of sales, comes before your order
-          (from the order book, read when you open the item on the market – fresh for ${MARKET_RULES.bookHours} h), or without one when the best offer is more than
+          <p class="mwia-dim">⛔ when more than ${MARKET_RULES.daysAhead} day of sales comes before your order (or, until the price history knows how many sell a day,
+          at least ${pctAbs(MARKET_RULES.wallShare)} of what others offer) – from the order book, read when you open the item on the market, fresh for ${MARKET_RULES.bookHours} h; or without one when the best offer is more than
           ${pctAbs(MARKET_RULES.bigGap)} better than yours. 💤 = nothing ${"sold or bought"} for ${MARKET_RULES.staleHours} h. Prices from the market file (refreshed every 10 min while you have orders).</p>`;
     }
 

@@ -28,6 +28,9 @@ const summary = (perDay, usual = { a: 100, b: 90 }) => ({ hours7: 48, a: { med7:
     check("10% cheaper but 2.5 days of sales: wall", slow.kind === "wall" && slow.alert && Math.abs(slow.daysAhead - 2.5) < 1e-9, `${slow.daysAhead}`);
     const quick = listingStatus(sellOrder, { book: book([{ price: 95, quantity: 100 }, { price: 110, quantity: 900 }]), own: [{ price: 100, quantity: 50 }], summary: summary(1000), now });
     check("10% cheaper, sold within hours: no alert", quick.kind === "behind" && !quick.alert, `${quick.daysAhead}`);
+    // A thin book: 37 of 98 cheaper is a big share, but they sell within the hour.
+    const thin = listingStatus(sellOrder, { book: book([{ price: 78, quantity: 37 }, { price: 100, quantity: 320 }, { price: 101, quantity: 38 }, { price: 102, quantity: 23 }]), own: [{ price: 100, quantity: 320 }], summary: summary(1737), now });
+    check("38% of a thin book cheaper but sold within the hour: no alert", thin.kind === "behind" && !thin.alert && thin.share > 0.3, `${thin.kind} share ${thin.share} days ${thin.daysAhead}`);
     const old = listingStatus(sellOrder, { book: book([{ price: 95, quantity: 900 }], [], now - (MARKET_RULES.bookHours + 1) * HOUR), entry: { a: 99 }, own: [{ price: 100, quantity: 50 }], now });
     check("an old order book is not used", !old.fromBook && old.kind === "cheaper" && !old.alert, `${old.kind} gap ${old.gap}`);
 }

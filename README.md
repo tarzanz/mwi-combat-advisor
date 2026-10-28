@@ -144,8 +144,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   Nothing shows when the skill has no job in the queue.
 - **Market** – your own orders and what to sell.
   - *Your orders*: every open sell and buy order with its standing. ✅ first in line (or sharing the price); a few
-    better offers first; ⛔ behind a wall – at least 20% of what others offer (within the tradable range) comes
-    before yours, or more than a day of sales does (from the sales the price history saved). How much comes first
+    better offers first; ⛔ behind a wall – more than a day of sales comes before yours (from the sales the price
+    history saved; until it knows them: at least 20% of what others offer within the tradable range). How much comes first
     is read from the order book, which the game sends when you open the item on the market (🏪), and counts for 6 h;
     without one only the best price is known, and an order is ⛔ when that is more than 10% better than yours. 💤
     marks an order that sold (or bought) nothing for 12 h; a price far below the usual ask (or a bid far above the

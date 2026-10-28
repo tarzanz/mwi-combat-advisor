@@ -6,11 +6,12 @@ import { MIN_HOURS, versusUsual } from "./price-history.js";
 import { MARKET_TAX, WIDE_SPREAD } from "./skilling.js";
 
 export const MARKET_RULES = {
-    // An order is behind a wall when this share of everything others offer comes
-    // first (the same share as the Wall price button)…
-    wallShare: WALL_SHARE,
-    // …or more than this many days of sales come first.
+    // An order is behind a wall when more than this many days of sales come first…
     daysAhead: 1,
+    // …or, while how many sell a day is unknown, this share of everything others
+    // offer comes first (the same share as the Wall price button). A thin book
+    // makes the share big however quickly those sell, so sales come first.
+    wallShare: WALL_SHARE,
     // Without an order book: a best price this much better than yours is a wall too.
     bigGap: 0.1,
     // An order book seen on the market within this many hours counts as fresh.
@@ -71,7 +72,8 @@ export function listingStatus(listing, { entry = null, book = null, own = [], su
         Object.assign(out, { fromBook: true, better: ahead, total, share: total ? ahead / total : 0, daysAhead: perDay ? ahead / perDay : null, best: levels[0]?.price ?? null, bookAt: book.at });
         if (ahead === 0) out.kind = same ? "tied" : "front";
         else {
-            out.kind = out.share >= rules.wallShare || out.daysAhead > rules.daysAhead ? "wall" : "behind";
+            const wall = out.daysAhead !== null ? out.daysAhead > rules.daysAhead : out.share >= rules.wallShare;
+            out.kind = wall ? "wall" : "behind";
             out.gap = out.best ? Math.abs(out.best / price - 1) : null;
         }
     } else {
