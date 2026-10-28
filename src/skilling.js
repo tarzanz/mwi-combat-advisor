@@ -172,7 +172,10 @@ export function teaBuffs(teas, concentration, data) {
 // Listing at the ask is never valued above it: a lone listing far above the
 // usual price (a troll order at 999B) would otherwise look like a fortune.
 // Without history, an ask far above the best bid is valued at WIDE_SPREAD × the bid.
-export function marketPricer(entryOf, data, sellAt = "ask", usualAsk = () => null) {
+// soldOf(hrid): how many sell a day (from the price history), or null. A price
+// from the market then carries it (sold) and the floor: what the rest goes
+// for once the market has taken its day – the bid when listing, else the shop.
+export function marketPricer(entryOf, data, sellAt = "ask", usualAsk = () => null, soldOf = () => null) {
     const cache = new Map();
     const contents = (hrid) => (data.openableLootDropMap?.[hrid] || []).reduce((sum, drop) => sum + meanCount(drop) * (drop.itemHrid === hrid ? 0 : this_.sell(drop.itemHrid).price), 0);
     const vendor = (hrid) => data.itemDetailMap[hrid]?.sellPrice || 0;
@@ -202,12 +205,27 @@ export function marketPricer(entryOf, data, sellAt = "ask", usualAsk = () => nul
             else if (bid) result = { price: bid * (1 - tax), ask, bid, source: "bid", note: sellAt === "ask" ? "noasks" : null };
             else if (ask) result = { price: ask * (1 - tax), ask, bid, source: "ask", note: "nobids" };
             else result = { price: vendor(hrid), ask, bid, source: "vendor", note: vendor(hrid) ? "vendor" : "unsellable" };
-            if (result.source === "bag") result.price /= 10;
+            // A cowbell is a tenth of a bag; the bag's sales aren't its own.
+            if (result.source === "bag") result = { ...result, price: result.price / 10, sold: undefined, floor: undefined };
+            if (result.source === "ask" || result.source === "bid") {
+                result.sold = soldOf(hrid);
+                const floor = result.source === "ask" && bid ? bid * (1 - tax) : vendor(hrid);
+                result.floor = Math.min(floor, result.price);
+            }
             cache.set(hrid, result);
             return result;
         },
     };
     return this_;
+}
+
+// The market takes only so many a day: of made a day, what it doesn't take
+// goes for the floor. Returns the mean price and, when it binds, salesCap
+// { perDay, made, floor }.
+export function salesLimited(sell, made) {
+    if (!Number.isFinite(sell.sold) || sell.sold < 0 || sell.floor === undefined || !(made > sell.sold)) return { price: sell.price, salesCap: null };
+    const share = sell.sold / made;
+    return { price: share * sell.price + (1 - share) * sell.floor, salesCap: { perDay: sell.sold, made, floor: sell.floor } };
 }
 
 const meanCount = (drop) => (Number(drop.dropRate ?? 1) || 0) * ((Number(drop.minCount ?? 1) + Number(drop.maxCount ?? 1)) / 2);
@@ -237,7 +255,8 @@ export function evaluateAction(action, who, data, market, teas = who.drinks[acti
     const addOutput = (itemHrid, count, kind) => {
         if (count <= 0) return;
         const sell = market.sell(itemHrid);
-        outputs.push({ itemHrid, count, kind, price: sell.price, sell, value: count * sell.price });
+        const { price, salesCap } = salesLimited(sell, count * actionsPerHour * HOURS_PER_DAY);
+        outputs.push({ itemHrid, count, kind, price, sell, value: count * price, salesCap });
     };
     const base = action.outputItems?.length ? action.outputItems.map((o) => ({ itemHrid: o.itemHrid, count: o.count })) : (action.dropTable || []).map((d) => ({ itemHrid: d.itemHrid, count: meanCount(d) }));
     for (const output of base) {
@@ -304,6 +323,7 @@ export function evaluateAction(action, who, data, market, teas = who.drinks[acti
         profitPerHour,
         margin,
         mainCount: main?.count || 0,
+        salesCap: main?.salesCap || null,
         xpPerAction,
         xpPerHour: actionsPerHour * xpPerAction,
         valid: missing.length === 0 && !!main && main.sell.note !== "unsellable",
@@ -329,13 +349,8 @@ function teaSetups(data, type, slots, candidates) {
     return setups;
 }
 
-// The market can only take so many of one crafted item a day: past the cap,
-// the action runs only part of the day. Raw materials sell in bulk and aren't capped.
-export function limitSales(result, sellCap) {
-    const made = result.action.function === "/action_functions/production" ? result.mainCount * result.actionsPerHour : 0;
-    const hoursPerDay = sellCap > 0 && made > 0 && made * HOURS_PER_DAY > sellCap ? sellCap / made : HOURS_PER_DAY;
-    return { ...result, hoursPerDay, capped: hoursPerDay < HOURS_PER_DAY, goldPerDay: result.profitPerHour * hoursPerDay, xpPerDay: result.xpPerHour * hoursPerDay };
-}
+// An action run all day.
+export const daily = (result) => ({ ...result, goldPerDay: result.profitPerHour * HOURS_PER_DAY, xpPerDay: result.xpPerHour * HOURS_PER_DAY });
 
 // The tea setup that scores best (gold a day by default), and what each of its teas adds.
 // evaluate(teas, score): the score lets Enhancing and Alchemy pick their target and catalyst by it.
@@ -478,6 +493,11 @@ const MIN_SWING_SHARE = 0.4;
 const HIGH_PRICE_SHARE = 0.5;
 const PRICE_BAND = 0.1;
 
+// About a day of sales: what you hold, have listed and make together, once
+// the price history knows how many sell a day (liquidity.sold); else no limit.
+export const SALES_DAYS = 1;
+const salesDay = (liquidity) => (liquidity?.sold?.enough ? Math.floor(SALES_DAYS * liquidity.sold.perDay) : Infinity);
+
 // How much of the batch to make given the price's swing and where it is now
 // (price: { swing, diff } – the selling side's typical swing and now vs usual).
 export function swingShare(price) {
@@ -489,13 +509,14 @@ export function swingShare(price) {
 }
 
 // How many to make, without opening the market: the planned hours of crafting,
-// less what you already hold or have listed, smaller on a swinging price, and
+// but no more than about a day of the product's sales (salesDay) with what you
+// already hold or have listed counted in, smaller on a swinging price, and
 // no more than the share of your coins the worst market (the product's or a
 // bought material's) allows for materials. The product's order book is shown
 // alongside; a material's, seen lately, caps the job at what was listed.
 // inputMarket(hrid): { liquidity, book } for a material.
 // fill: the job's share of the planned hours – what the ranking goes by.
-export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null, inputMarket = null, now = Date.now() }) {
+export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null, inputMarket = null, now = Date.now() }) {
     // A craft that loses gold still costs coins for its materials (worth it for the XP), so it is planned the same way.
     if ((entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION) || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
@@ -503,9 +524,7 @@ export function suggestCount(entry, { stock, book = null, sellCap = 0, hours = P
     const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
     const product = liquidity || { rating: "thin", known: false };
     const planned = Math.max(1, Math.floor(hours * entry.actionsPerHour));
-    // Your own daily sales limit caps it too.
-    const capUnits = sellCap > 0 ? sellCap : Infinity;
-    const plannedUnits = Math.min(planned * entry.mainCount, capUnits);
+    const plannedUnits = Math.min(planned * entry.mainCount, salesDay(product));
     const held = stock.inventory + stock.listed;
     let count = Math.max(0, Math.ceil((plannedUnits - held) / entry.mainCount - 1e-9));
     const swing = swingShare(price);
@@ -616,12 +635,12 @@ export function enhanceBudget(entry, { hours = PLAN_MODES.away.hours, coinShare 
 }
 
 // How many to make with the whole chain (see chainBuilder) in the planned hours,
-// less what you hold, smaller on a swinging price, and with what the chain still
+// no more than a day of sales with what you hold, smaller on a swinging price, and with what the chain still
 // buys within the share of your coins its worst market allows.
-export function suggestChainCount(entry, chain, { stock, sellCap = 0, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, price = null, liquidity = null, inputMarket = null }) {
+export function suggestChainCount(entry, chain, { stock, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, price = null, liquidity = null, inputMarket = null }) {
     if (!chain || !entry.mainCount || chain.profitPerHour <= 0) return null;
     const planned = Math.max(1, Math.floor(hours / chain.hoursPerAction));
-    const plannedUnits = Math.min(planned * entry.mainCount, sellCap > 0 ? sellCap : Infinity);
+    const plannedUnits = Math.min(planned * entry.mainCount, salesDay(liquidity));
     const held = stock.inventory + stock.listed;
     let count = Math.max(0, Math.ceil((plannedUnits - held) / entry.mainCount - 1e-9));
     const swing = swingShare(price);
@@ -657,7 +676,7 @@ function chainBuilder(who, data, market, teaMode) {
     const runs = new Map();
     const run = (action) => {
         if (!runs.has(action.hrid)) {
-            const plain = (teas) => limitSales(evaluateAction(action, who, data, market, teas), 0);
+            const plain = (teas) => daily(evaluateAction(action, who, data, market, teas));
             runs.set(action.hrid, teaMode === "best" ? bestTeas(action, who, data, market, plain).result : plain(who.drinks[action.type] || []));
         }
         return runs.get(action.hrid);
@@ -771,13 +790,13 @@ function shortlist(candidates, keep = () => false) {
 // The Skilling tab: what the character can do now, ranked by gold, and what unlocks soon.
 // Enhancing and Alchemy are listed only when picked. leveling: { resale(hrid, level),
 // owned(hrid), fixed: { hrid, target } – an action always listed, at the target set in the game }.
-export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1, countLevels = false, leveling: levelingOptions = {} } = {}) {
+export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", plan = null, goldWeight = 1, countLevels = false, leveling: levelingOptions = {} } = {}) {
     const xpOf = levelProgress(who, data, countLevels);
     const evaluator = (action, level) => {
         const target = levelingOptions.fixed?.hrid === action.hrid ? levelingOptions.fixed.target : null;
-        if (action.function === ENHANCE_FUNCTION) return (teas, score) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, sellCap, score, target });
+        if (action.function === ENHANCE_FUNCTION) return (teas, score) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, score, target });
         if (action.function === ALCHEMY_FUNCTION) return (teas, score) => evaluateAlchemy(action, who, data, market, teas, { score });
-        return (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
+        return (teas) => daily(evaluateAction(action, who, data, market, teas, level));
     };
     const wanted = (action) => skill === "all" || action.type === skillType(skill);
     const doable = [];
@@ -815,7 +834,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     const fillOf = (r) => {
         if (!plan) return 1;
         if (r.action.function === ENHANCE_FUNCTION) return enhanceBudget(r, plan)?.fill ?? 1;
-        return suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null, sellCap })?.fill ?? 1;
+        return suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null })?.fill ?? 1;
     };
     for (const { action, evaluate } of doable) {
         const own = (skillRefs[action.type] ||= { gold: 1, xp: XP_FLOOR, cost: Infinity });
@@ -842,7 +861,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         const liquidity = plan?.liquidity?.(shown.action) ?? null;
         // Alchemy's products (coins, essences) aren't stock you are already selling.
         const stock = action.function === ALCHEMY_FUNCTION ? NO_STOCK : plan?.stock(shown.action);
-        const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity, sellCap }) : null;
+        const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity }) : null;
         // Enhancing: what your coins carry.
         const budget = plan ? enhanceBudget(shown, plan) : null;
         // Ranked by what the planned hours give: a job your coins or your stock
@@ -858,7 +877,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
             budget,
             chain: chained,
             // A train that makes the materials too, when that pays at least as well as buying them.
-            chainSuggestion: plan && chained && chained.profitPerHour >= shown.profitPerHour ? suggestChainCount(shown, chained, { ...plan, stock: plan.stock(shown.action), price, liquidity, sellCap }) : null,
+            chainSuggestion: plan && chained && chained.profitPerHour >= shown.profitPerHour ? suggestChainCount(shown, chained, { ...plan, stock: plan.stock(shown.action), price, liquidity }) : null,
             score: score({ skill: shown.skill, valid: shown.valid, goldPerDay: shown.goldPerDay * fill, xpPerDay: shown.xpPerDay * fill }),
             levelsPerDay: countLevels ? levelProgress(who, data, true)(shown) : null,
             thinMargin: !!plan?.hideThinMargins && thinMargin(shown, price?.swing ?? null),

@@ -200,8 +200,6 @@ export function evaluateAlchemy(action, who, data, market, teas, { score = (r) =
             successBuff,
             catalyst,
             wisdom,
-            hoursPerDay: 24,
-            capped: false,
             goldPerDay: profitPerHour * 24,
             xpPerDay: actionsPerHour * xpPerAction * 24,
         };

@@ -14,7 +14,7 @@
 //   Artisan's Crate ((100 + item level) / 120000 for a small one) – checked
 //   against the game's Enhancing window (Cheese Helmet: 10.1% and ~0.087%).
 
-import { MARKET_TAX, teaBuffs, totals } from "./skilling.js";
+import { MARKET_TAX, salesLimited, teaBuffs, totals } from "./skilling.js";
 
 export const ENHANCING = "enhancing";
 const TYPE = "/action_types/enhancing";
@@ -137,10 +137,10 @@ function baseItem(action, market, owned) {
 // Enhancing one item with one tea setup, for every target +1…+20; the target
 // that scores best is returned (gold a day by default), with the others in
 // `targets` for the detail. resale(hrid, level): { price (after tax), source,
-// level, floor, sold (a day, or null) }. The market takes only so many a day –
-// sold, else sellCap (Max sold/day) – the rest goes for the floor price.
+// level, floor, sold (a day, or null) }. The market takes only sold a day; the
+// rest goes for the floor price.
 // target: a fixed target (the one set in the game) instead of the best one.
-export function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score = (r) => r.goldPerDay, sellCap = 0, target: fixedTarget = null } = {}) {
+export function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score = (r) => r.goldPerDay, target: fixedTarget = null } = {}) {
     const buff = totals([...(who.buffs?.[TYPE] || []), ...teaBuffs(teas, who.concentration, data)]);
     const fraction = (type) => buff(type).flat + buff(type).ratio;
     const level = who.levels[SKILL] ?? 1;
@@ -220,14 +220,7 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
         // Per attempt: the materials, and 1/attempts of an item bought and of one sold at +target.
         const perCycle = 1 / attempts;
         const madePerDay = (actionsPerHour / attempts) * 24;
-        const takes = sold.sold ?? (sellCap > 0 ? sellCap : null);
-        let price = sold.price;
-        let salesCap = null;
-        if (takes !== null && madePerDay > takes && sold.floor !== undefined) {
-            const share = takes / madePerDay;
-            price = share * sold.price + (1 - share) * Math.min(sold.floor, sold.price);
-            salesCap = { perDay: takes, made: madePerDay, fromSales: sold.sold !== null && sold.sold !== undefined };
-        }
+        const { price, salesCap } = salesLimited({ ...sold, floor: sold.floor === undefined ? undefined : Math.min(sold.floor, sold.price) }, madePerDay);
         const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
         const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price, sell: sold, value: perCycle * price }, ...drops];
         const revenuePerAction = outputs.reduce((sum, o) => sum + o.value, 0);
@@ -252,8 +245,6 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
             xpPerAction,
             xpPerHour: actionsPerHour * xpPerAction,
             valid: !!base && inputs.length > 0,
-            hoursPerDay: 24,
-            capped: false,
             goldPerDay: profitPerHour * 24,
             xpPerDay: actionsPerHour * xpPerAction * 24,
         };

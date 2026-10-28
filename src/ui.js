@@ -51,7 +51,7 @@ import { startTrain } from "./train-ui.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingMode: "away", skillingGold: 100 };
+const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100 };
 
 const SKILL_NAMES = {
     stamina: "Stamina",
@@ -1044,13 +1044,7 @@ function onClick(event) {
 function onChange(event) {
     const key = event.target.dataset?.setting;
     if (!key) return;
-    if (key === "skillingSellCap") {
-        const text = event.target.value.trim();
-        const value = text === "" ? 0 : parseCoins(text);
-        event.target.classList.toggle("mwia-invalid", value === null);
-        if (value === null) return;
-        ui.settings.skillingSellCap = value;
-    } else if (key === "budget") {
+    if (key === "budget") {
         const value = parseCoins(event.target.value);
         event.target.classList.toggle("mwia-invalid", value === null);
         if (value === null) return;

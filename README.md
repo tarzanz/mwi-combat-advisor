@@ -49,9 +49,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   open to the whole calculation. For each action it also tries every tea
   setup that fits your slots (one, plus what your pouch adds – the same as in combat), shows the one that earns the most and what each of its teas earns above its cost; *Teas:
   Best teas* ranks with those setups. ⚠ marks thin markets (no buy orders, or an ask far above the bid),
-  materials nobody sells and thin margins (a price drop under 5% wipes out the profit). *Max sold/day* sets how many
-  of one crafted item the market takes a day; past it the action only runs part of the day (gathered raw materials
-  are never limited). Crates and caches from rare drops are worth what they hold, a cowbell a tenth of a bag.
+  materials nobody sells and thin margins (a price drop under 5% wipes out the profit). Once the price history has
+  12 hours of sales for an item, the market takes only that many a day: what a whole day of the action makes past
+  them is valued at the bid (when listing; the shop price when selling now), so an item few people buy sinks in the
+  list. An hour with sales counts for at most 3× the median hour with sales, so one big buyer doesn't make a thin
+  item look busy. Crates and caches from rare drops are worth what they hold, a cowbell a tenth of a bag.
   **Plan** sets the job: *Away (8 h)* is careful – materials take at most 60% of your coins on a 🟢 stable market,
   30% on a 🟡 ok one and 10% on a 🔴 thin one, and margins under 5% or under the price's usual swing are left out of
   the list (*Show all* still has them); *Active (1 h)* plans short jobs with 80/50/20% of the coins and shows thin
@@ -60,7 +62,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   lowest ask moved in ≥ 30% of the hours (a sign that it sells and gets relisted); ok with ≥ 75%, ≤ 15% and ≤ ±8%;
   thin otherwise, or with too little history. **How many to make:** for each crafted item a row suggests a count
   without opening the market: the planned hours of crafting, less what you already have in the inventory or on your
-  own sell orders (and within your *Max sold/day*), smaller on a swinging price, and no more than the rating's share
+  own sell orders, never past about a day of the product's sales with those counted in (an item you already hold a
+  day's sales of shows *you hold a day of sales*), smaller on a swinging price, and no more than the rating's share
   of your coins buys materials for (using materials you have first). The materials you still have to buy are rated
   too, and the thinnest market of the product and those materials sets the share. A material you opened on the
   market in the last 12 hours caps the job at what others had listed within 5% of its lowest ask (plus what you
@@ -108,7 +111,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     solve). The +level sells at the lowest ask, never above its usual ask at that level (from the price history), or
     at the bid (*Sell at*) – a listing only counts when a buyer at that +level, its usual ask or its sales back it, so
     a lone listing nobody buys from is ignored; otherwise the nearest lower +level's bid is a floor. The market takes
-    only so many a day (its sales, once collected, else *Max sold/day*): the rest is valued at the floor. An item you
+    only so many a day (its sales, once collected): the rest is valued at the floor. An item you
     have at +0 is used first, valued at its bid. Within your coins as with crafting (*Plan*): the item and the planned
     hours of materials and teas may take the share of your coins that the item's market allows; a row whose item you
     can't afford fades and goes last, one your coins carry only part of the hours ranks by that part. **▶ Enhance to +N** opens Enhancing with the item from your inventory in the slot
@@ -262,8 +265,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
   tested against mock-ups of both.
 - Skilling: the market's rating rests on prices alone – a calm item that sells only a few a day can still look
   stable. The price history now also saves how many were sold each hour (the market file's `v`, with the average
-  trade price `p`), and *How many* shows about how many sell a day once 12 hours of that are collected; the rating
-  doesn't use it yet. *Max sold/day* caps it when you know better.
+  trade price `p`); the sales a day cap how many to make and value what is made past them lower, but the rating
+  doesn't use them yet. Until 12 hours of sales are collected nothing caps a job.
 - Enhancing: no protection (Mirror of Protection, copies) yet, and no Observatory/Enhancer
   upgrades under *Upgrades that pay back*. Alchemy: no Unrefine.
   The ⛓ chain makes every material it can (by the fastest source), even where buying one of them would pay better.

@@ -5,7 +5,7 @@
 // best action); payback = what it costs, less what it sells for again at the
 // bid, / extra gold a day.
 
-import { MARKET_TAX, SKILLING_SKILLS, bestTeas, drinkSlots, evaluateAction, limitSales, skillType, skillingActions } from "./skilling.js";
+import { MARKET_TAX, SKILLING_SKILLS, bestTeas, drinkSlots, daily, evaluateAction, skillType, skillingActions } from "./skilling.js";
 
 const MAX_HOUSE_LEVEL = 8;
 export const UPGRADES_SHOWN = 10;
@@ -32,10 +32,10 @@ const negate = (buffs) => buffs.map((b) => ({ ...b, flatBoost: -b.flatBoost }));
 const location = (itemHrid, data) => "/item_locations/" + (data.itemDetailMap[itemHrid]?.equipmentDetail?.type || "").split("/").pop();
 
 // The skill's best action, gold and XP a day, with these buffs.
-function bestDay(actions, who, data, market, sellCap) {
+function bestDay(actions, who, data, market) {
     let best = null;
     for (const action of actions) {
-        const r = limitSales(evaluateAction(action, who, data, market), sellCap);
+        const r = daily(evaluateAction(action, who, data, market));
         if (r.valid && (!best || r.goldPerDay > best.goldPerDay)) best = r;
     }
     return best;
@@ -43,10 +43,10 @@ function bestDay(actions, who, data, market, sellCap) {
 
 // The same with the best teas for its slots: a pouch with an extra slot only
 // pays off with a tea to put in it, so both sides use the best setup.
-function bestDayWithTeas(actions, who, data, market, sellCap) {
+function bestDayWithTeas(actions, who, data, market) {
     let best = null;
     for (const action of actions) {
-        const evaluate = (teas) => limitSales(evaluateAction(action, who, data, market, teas), sellCap);
+        const evaluate = (teas) => daily(evaluateAction(action, who, data, market, teas));
         const r = bestTeas(action, who, data, market, evaluate).result;
         if (r.valid && (!best || r.goldPerDay > best.goldPerDay)) best = r;
     }
@@ -75,24 +75,24 @@ function resaleValue(itemHrid, level, ownBid, data, bids = null) {
 
 // What wearing one item instead of another (or nothing) changes on the action
 // you'd make (actionHrid, else the skill's best): gold and XP a day, with the teas you have now.
-export function swapGain(who, data, market, skill, current, itemHrid, enhancementLevel = 0, sellCap = 0, actionHrid = null) {
+export function swapGain(who, data, market, skill, current, itemHrid, enhancementLevel = 0, actionHrid = null) {
     const type = skillType(skill);
     const actions = skillActions(who, data, skill, actionHrid);
-    const base = bestDay(actions, who, data, market, sellCap);
+    const base = bestDay(actions, who, data, market);
     if (!base) return null;
     const old = current ? itemSkillBuffs(current.itemHrid, current.enhancementLevel, skill, data) : { buffs: [], concentration: 0 };
     const next = itemSkillBuffs(itemHrid, enhancementLevel, skill, data);
-    const after = bestDay(actions, { ...who, buffs: { ...(who.buffs || {}), [type]: [...(who.buffs?.[type] || []), ...negate(old.buffs), ...next.buffs] }, concentration: who.concentration + next.concentration - old.concentration }, data, market, sellCap);
+    const after = bestDay(actions, { ...who, buffs: { ...(who.buffs || {}), [type]: [...(who.buffs?.[type] || []), ...negate(old.buffs), ...next.buffs] }, concentration: who.concentration + next.concentration - old.concentration }, data, market);
     return { gainPerDay: after.goldPerDay - base.goldPerDay, xpPerDay: after.xpPerDay - base.xpPerDay, bestAction: after.action };
 }
 
 // equipped: location -> { itemHrid, enhancementLevel }; owned: itemHrid -> [enhancement levels in the inventory];
 // listings: itemHrid -> [{ enhancementLevel, price }] for sale; houseLevels: houseRoomHrid -> level.
 // listings carry the bid for the level too; actionHrid: the action to measure on.
-export function rankUpgrades(who, data, market, skill, { equipped, owned, listings, bids = null, houseLevels, sellCap = 0, gameEquipmentBuffs = null, actionHrid = null }) {
+export function rankUpgrades(who, data, market, skill, { equipped, owned, listings, bids = null, houseLevels, gameEquipmentBuffs = null, actionHrid = null }) {
     const type = skillType(skill);
     const actions = skillActions(who, data, skill, actionHrid);
-    const base = bestDay(actions, who, data, market, sellCap);
+    const base = bestDay(actions, who, data, market);
     if (!base) return { base: null, upgrades: [], check: null };
     const withBuffs = (extra, concentration = 0, slots = who.slots[type]) => ({
         ...who,
@@ -126,10 +126,10 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
             let after;
             let from = base;
             if (slotsAfter !== who.slots[type]) {
-                teaBase ||= bestDayWithTeas(actions, who, data, market, sellCap);
+                teaBase ||= bestDayWithTeas(actions, who, data, market);
                 from = teaBase;
-                after = bestDayWithTeas(actions, changed, data, market, sellCap);
-            } else after = bestDay(actions, changed, data, market, sellCap);
+                after = bestDayWithTeas(actions, changed, data, market);
+            } else after = bestDay(actions, changed, data, market);
             const gain = after.goldPerDay - from.goldPerDay;
             if (gain <= 1) continue;
             const sold = offer.owned ? { value: 0, bidLevel: null } : resaleValue(item.hrid, offer.enhancementLevel, offer.bid, data, bids);
@@ -160,7 +160,7 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
     const level = room ? houseLevels[room.hrid] || 0 : MAX_HOUSE_LEVEL;
     if (room && level < MAX_HOUSE_LEVEL) {
         const step = [...(room.actionBuffs || []), ...(room.globalBuffs || [])].map((b) => ({ typeHrid: b.typeHrid, flatBoost: level === 0 ? b.flatBoost : b.flatBoostLevelBonus, ratioBoost: 0 }));
-        const after = bestDay(actions, withBuffs(step), data, market, sellCap);
+        const after = bestDay(actions, withBuffs(step), data, market);
         const costs = room.upgradeCostsMap?.[String(level + 1)] || [];
         const priced = costs.map((c) => ({ itemHrid: c.itemHrid, count: c.count, price: market.buy(c.itemHrid) }));
         const price = priced.some((c) => c.price === null) ? null : priced.reduce((sum, c) => sum + c.count * c.price, 0);
@@ -195,7 +195,7 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
 // a day for the gathering and production skills; price from the cheapest ask.
 // equipped: location -> { itemHrid, enhancementLevel }; owned: itemHrid -> [levels].
 // actionFor(skill): the action to measure a skill on (the top of its Skilling list), or null for its best.
-export function toolTiers(who, data, market, { equipped, owned, sellCap = 0, actionFor = () => null }) {
+export function toolTiers(who, data, market, { equipped, owned, actionFor = () => null }) {
     const tiers = new Map(); // tool type -> [{ itemHrid, skillHrid, level }]
     for (const item of Object.values(data.itemDetailMap)) {
         const detail = item.equipmentDetail;
@@ -213,7 +213,7 @@ export function toolTiers(who, data, market, { equipped, owned, sellCap = 0, act
         const wearing = current ? tools.find((tool) => tool.itemHrid === current.itemHrid) : null;
         if (!best || (wearing && wearing.level >= best.level)) continue;
         const skill = best.skillHrid.split("/").pop();
-        const gain = SKILLING_SKILLS.includes(skill) ? swapGain(who, data, market, skill, current, best.itemHrid, 0, sellCap, actionFor(skill)) : null;
+        const gain = SKILLING_SKILLS.includes(skill) ? swapGain(who, data, market, skill, current, best.itemHrid, 0, actionFor(skill)) : null;
         const isOwned = !!owned[best.itemHrid]?.length;
         const price = isOwned ? 0 : market.buy(best.itemHrid);
         const resale = isOwned ? 0 : resaleValue(best.itemHrid, 0, market.sell(best.itemHrid).bid, data).value;

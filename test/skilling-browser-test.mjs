@@ -291,18 +291,8 @@ try {
     const expBoots = expectRank(character, { skill: "tailoring" }).available.find((e) => e.action.name === "Cotton Boots");
     check("thin-margin warning", expBoots.margin > 0 && expBoots.margin < RISKY_MARGIN && /Thin margin: a [\d.]+% drop/.test(boots?.warn || ""), `${expBoots.margin} ${JSON.stringify(boots)}`);
 
-    // Sales limit: crafted items run only part of the day, gathering is never limited.
-    await page.$eval('[data-setting="skillingSellCap"]', (input) => { input.value = "100"; input.dispatchEvent(new Event("change", { bubbles: true })); });
-    await new Promise((r) => setTimeout(r, 100));
-    const capped = await rows(page);
-    const expCapped = expectRank(character, { skill: "tailoring", sellCap: 100 });
-    check("sales limit caps crafted items", expCapped.available[0].capped && capped[0].name === expCapped.available[0].action.name && capped[0].gold === `${coinText(expCapped.available[0].goldPerDay)}/day` && /h\/day \(sales limit\)/.test(capped[0].sub),
-        `${JSON.stringify(capped[0])} vs ${expCapped.available[0].action.name} ${coinText(expCapped.available[0].goldPerDay)}`);
-    check("sales limit is saved", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-settings")).skillingSellCap === 100));
-    check("gathering is never limited", expectRank(character, { skill: "foraging", sellCap: 100 }).available.every((e) => !e.capped));
-    await page.screenshot({ path: path.join(shotDir, "skilling-4-capped.png") });
-    await page.$eval('[data-setting="skillingSellCap"]', (input) => { input.value = ""; input.dispatchEvent(new Event("change", { bubbles: true })); });
-    await new Promise((r) => setTimeout(r, 100));
+    // Sales a day come from the price history; there is no setting for them.
+    check("no Max sold/day setting", !(await page.$('[data-setting="skillingSellCap"]')));
 
     // Crates and caches are worth what they hold.
     const crate = market("ask").sell("/items/small_artisans_crate");

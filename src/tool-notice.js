@@ -66,7 +66,7 @@ function notices() {
         }
         const who = skillingCharacter(state.character, state.items, data);
         const market = skillingMarket(settings.skillingSellAt);
-        t.notices = toolTiers(who, data, market, { equipped, owned, sellCap: Number(settings.skillingSellCap) || 0, actionFor: (skill) => topActionHrid(settings, skill) });
+        t.notices = toolTiers(who, data, market, { equipped, owned, actionFor: (skill) => topActionHrid(settings, skill) });
         t.key = key;
     }
     return t.notices;

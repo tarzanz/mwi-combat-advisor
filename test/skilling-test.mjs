@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fixtureCharacter } from "./fixture-character.js";
 import { rankUpgrades } from "../src/skilling-upgrades.js";
-import { PLAN_MODES, SKILLING_SKILLS, liquidityRating, marketPricer, rankSkilling, skillingCharacter, suggestChainCount, suggestCount, thinMargin } from "../src/skilling.js";
+import { PLAN_MODES, SKILLING_SKILLS, evaluateAction, liquidityRating, marketPricer, rankSkilling, skillingCharacter, suggestChainCount, suggestCount, thinMargin } from "../src/skilling.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const dataDir = path.join(root, "engine/data");
@@ -53,6 +53,26 @@ for (const goldWeight of [0.1, 0.5, 0.9]) {
 }
 check("the same teas whichever skill the list shows", !differ.length, differ.slice(0, 5).join(", "));
 
+// Made all day past what sells a day: the rest goes for the bid (listing) or the shop (selling now).
+{
+    const who = skillingCharacter(character, items, data);
+    const action = data.actionDetailMap["/actions/tailoring/cotton_robe_top"];
+    const product = action.outputItems[0].itemHrid;
+    const sold = (perDay) => (hrid) => (hrid === product ? perDay : null);
+    const free = evaluateAction(action, who, data, market);
+    const made = free.mainCount * free.actionsPerHour * 24;
+    const few = evaluateAction(action, who, data, marketPricer((hrid) => marketData[hrid]?.[0], data, "ask", () => null, sold(made / 4)));
+    const out = (r) => r.outputs.find((o) => o.itemHrid === product);
+    const ask = out(free).price;
+    const bid = marketData[product][0].b * 0.96;
+    check("a quarter of it sells at the ask, the rest at the bid", !free.salesCap && few.salesCap && Math.abs(out(few).price - (ask / 4 + (3 * bid) / 4)) < 1e-6 && few.profitPerHour < free.profitPerHour, JSON.stringify(few.salesCap));
+    const plenty = evaluateAction(action, who, data, marketPricer((hrid) => marketData[hrid]?.[0], data, "ask", () => null, sold(made * 2)));
+    check("selling more than you make: the full price", !plenty.salesCap && out(plenty).price === ask);
+    const shop = data.itemDetailMap[product].sellPrice;
+    const now = evaluateAction(action, who, data, marketPricer((hrid) => (hrid === product ? { a: 3 * shop, b: 2 * shop } : marketData[hrid]?.[0]), data, "bid", () => null, sold(0)));
+    check("selling now past the bids: the shop price", out(now).price === shop, `${out(now).price}`);
+}
+
 // A listing is never valued above the usual ask, nor (without history) far above the bid.
 const troll = { a: 999999995904, b: 592 };
 const plain = marketPricer(() => troll, data, "ask");
@@ -80,6 +100,14 @@ const held = suggestCount(job, { stock: { inventory: 300, listed: 200, listings:
 check("stock and listings are taken off", held.count === 300 && Math.abs(held.fill - 3 / 8) < 1e-9);
 const done = suggestCount(job, { stock: { inventory: 900, listed: 0, listings: [] }, coins: 1e9, liquidity: stable, ...away });
 check("holding a whole job means nothing to make", done.count === 0 && done.fill === 0);
+// No more than a day of sales, with what you hold counted in.
+const selling = (perDay) => ({ ...stable, sold: { enough: true, perDay } });
+const day = suggestCount(job, { stock: none, coins: 1e9, liquidity: selling(300), ...away });
+check("a day of sales caps the job", day.count === 300 && day.cappedBySales && Math.abs(day.fill - 3 / 8) < 1e-9, JSON.stringify({ c: day.count, f: day.fill }));
+const dayHeld = suggestCount(job, { stock: { inventory: 0, listed: 320, listings: [] }, coins: 1e9, liquidity: selling(300), ...away });
+check("holding a day of sales means nothing to make", dayHeld.count === 0 && dayHeld.fill === 0, String(dayHeld.count));
+const notYet = suggestCount(job, { stock: none, coins: 1e9, liquidity: { ...stable, sold: { enough: false, perDay: 10 } }, ...away });
+check("too few hours of sales: no cap", notYet.count === 800 && !notYet.cappedBySales);
 const poorStable = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, ...away });
 const poorThin = suggestCount(job, { stock: none, coins: 10000, liquidity: { rating: "thin", known: true }, ...away });
 check("a stable market may use 60% of the coins", poorStable.limitedByCoins && poorStable.count === 120, String(poorStable.count));

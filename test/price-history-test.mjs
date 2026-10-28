@@ -139,6 +139,12 @@ const lastHour = raw[raw.length - 1].hour;
 const sold0 = soldPerDay(0, raw, lastHour);
 const expected0 = (raw.filter((r) => r.sold).reduce((sum, r) => sum + (Number.isFinite(r.v[0]) ? r.v[0] : 0), 0) / raw.filter((r) => r.sold).length) * 24;
 check("sold a day from the hours with numbers", sold0.hours === 48 && Math.abs(sold0.perDay - expected0) < 1e-9 && sold0.enough && sold0.price > 0, JSON.stringify(sold0));
+// One big buyer: an hour counts for at most SPIKE × the median hour with sales.
+{
+    const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, sold: true, v: Float32Array.of(h === 5 ? 1000 : h % 2 ? 10 : 0), p: Float32Array.of(NaN) }));
+    const s = soldPerDay(0, hours, 23);
+    check("a spike counts as 3× a usual hour", s.perDay === (11 * 10 + 30) && s.rawPerDay === 11 * 10 + 1000, JSON.stringify(s));
+}
 check("nothing sold reads as 0 a day, no numbers as unknown", soldPerDay(20, raw, lastHour).perDay === 0 && soldPerDay(0, raw.filter((r) => !r.sold), lastHour).perDay === null);
 const day2 = daysRaw.find((d) => d.vn[0] > 0);
 check("days keep the mean sold per hour", !!day2 && day2.vn[0] === 24 && day2.v[0] > 0 && daysRaw[0].vn[0] === 0, day2 ? `${day2.v[0]} ${day2.vn[0]}` : "none");

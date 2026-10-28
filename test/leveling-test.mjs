@@ -139,8 +139,8 @@ check("…and not twice when it does", near(sent.successBonus, 0.006));
     const r = evaluateEnhance(gator, enhancer, data, market, [], { resale: sellHigh, score: (x) => -x.target });
     const share = 2 / r.salesCap.made;
     check("sales past what the market takes go for the floor", r.target === 1 && r.salesCap?.perDay === 2 && near(r.outputs[0].price, share * 1e6 + (1 - share) * 1000), JSON.stringify(r.salesCap));
-    const capped = evaluateEnhance(gator, enhancer, data, market, [], { resale: (h, l) => ({ ...sellHigh(), sold: null }), sellCap: 5, score: (x) => -x.target });
-    check("…or past Max sold/day without sales numbers", capped.salesCap?.perDay === 5 && !capped.salesCap.fromSales);
+    const unknown = evaluateEnhance(gator, enhancer, data, market, [], { resale: () => ({ ...sellHigh(), sold: null }), score: (x) => -x.target });
+    check("…and without sales numbers it all goes for the price", unknown.salesCap === null && unknown.outputs[0].price === 1e6);
 }
 // Coins: the item and the planned hours of materials within the share of your coins.
 {

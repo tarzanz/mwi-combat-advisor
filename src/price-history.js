@@ -292,19 +292,26 @@ function liquidity(i, hours, nowHour) {
     return { hours: observed, both: observed ? both / observed : 0, spread: median(spreads), activity: pairs ? moves / pairs : 0, sold: soldPerDay(i, hours, nowHour) };
 }
 
-// Sold a day over the week: the mean of the hours whose file had the numbers, × 24.
+// One big buyer can make an hour many times the usual one: an hour counts for
+// at most this many times the median hour that sold something.
+export const SPIKE = 3;
+
+// Sold a day over the week: the mean of the hours whose file had the numbers, × 24,
+// each hour capped at SPIKE × the median hour with sales (raw: without the cap).
 export function soldPerDay(i, hours, nowHour) {
-    let counted = 0;
-    let total = 0;
+    const counts = [];
     const prices = [];
     for (const r of hours) {
         if (!r.sold || nowHour - r.hour >= 7 * 24) continue;
-        counted++;
         const v = at(r.v, i);
-        if (Number.isFinite(v)) total += v;
+        counts.push(Number.isFinite(v) ? v : 0);
         if (Number.isFinite(at(r.p, i))) prices.push([at(r.p, i), Number.isFinite(v) ? v : 1]);
     }
-    return { hours: counted, perDay: counted ? (total / counted) * 24 : null, price: median(prices), enough: counted >= MIN_HOURS };
+    const counted = counts.length;
+    const cap = SPIKE * (median(counts.filter((v) => v > 0).map((v) => [v, 1])) ?? 0);
+    const sum = (list) => list.reduce((total, v) => total + v, 0);
+    const perDay = (list) => (counted ? (sum(list) / counted) * 24 : null);
+    return { hours: counted, perDay: perDay(counts.map((v) => Math.min(v, cap))), rawPerDay: perDay(counts), price: median(prices), enough: counted >= MIN_HOURS };
 }
 
 // Every stored price as CSV, to read in a spreadsheet or hand to an AI. Hourly
