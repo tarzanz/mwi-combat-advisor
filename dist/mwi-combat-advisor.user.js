@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.35.1
+// @version      0.36.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1217,16 +1217,16 @@
       (a, b) => a.cost - b.cost || b.delta - a.delta
     );
     const rising = [];
-    for (const p of points) {
+    for (const p2 of points) {
       const last = rising[rising.length - 1];
-      if (last && (p.cost === last.cost || p.delta <= last.delta)) continue;
-      rising.push(p);
+      if (last && (p2.cost === last.cost || p2.delta <= last.delta)) continue;
+      rising.push(p2);
     }
     const slope = (a, b) => (b.delta - a.delta) / (b.cost - a.cost);
     const hull = [];
-    for (const p of rising) {
-      while (hull.length >= 2 && slope(hull[hull.length - 2], hull[hull.length - 1]) <= slope(hull[hull.length - 1], p)) hull.pop();
-      hull.push(p);
+    for (const p2 of rising) {
+      while (hull.length >= 2 && slope(hull[hull.length - 2], hull[hull.length - 1]) <= slope(hull[hull.length - 1], p2)) hull.pop();
+      hull.push(p2);
     }
     const steps = [];
     if (hull[0].candidate) steps.push({ group, to: hull[0].candidate, cost: 0, gain: hull[0].delta, efficiency: Infinity });
@@ -1296,14 +1296,14 @@
       if (step.to.kind === "ability") usedAbilities.add(step.to.hrid);
     }
     let picks = [...chosen.values()];
-    if (picks.some((p) => p.slot === "two_hand")) picks = picks.filter((p) => p.slot !== "off_hand");
-    const isWeapon = (p) => p.slot === "main_hand" || p.slot === "two_hand";
+    if (picks.some((p2) => p2.slot === "two_hand")) picks = picks.filter((p2) => p2.slot !== "off_hand");
+    const isWeapon = (p2) => p2.slot === "main_hand" || p2.slot === "two_hand";
     const starter = analysis.starter && !picks.some(isWeapon) ? analysis.starter : null;
-    if (analysis.starter) picks = picks.map((p) => isWeapon(p) ? { ...p, replaces: analysis.starter.replaces } : p);
-    spent = picks.reduce((sum, p) => sum + p.cost, 0) + (starter?.cost || 0);
+    if (analysis.starter) picks = picks.map((p2) => isWeapon(p2) ? { ...p2, replaces: analysis.starter.replaces } : p2);
+    spent = picks.reduce((sum, p2) => sum + p2.cost, 0) + (starter?.cost || 0);
     const drink = pickConsumable(analysis.drinks, analysis.goal.gold);
     const food = pickConsumable(analysis.food, analysis.goal.gold);
-    if (food.value && picks.some((p) => p.extraFood === food.value.hrid)) food.value = null;
+    if (food.value && picks.some((p2) => p2.extraFood === food.value.hrid)) food.value = null;
     return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max };
   }
   function putConsumable(list, slot, hrid) {
@@ -1830,8 +1830,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     const coins6 = coinCost(kind, detail);
     const drinksPerHour = 12 * who.concentration;
     const teaCosts = teas.map((hrid) => {
-      const p = market.buy(hrid) ?? market.sell(hrid).bid ?? 0;
-      return { itemHrid: hrid, price: p, perHour: p * drinksPerHour };
+      const p2 = market.buy(hrid) ?? market.sell(hrid).bid ?? 0;
+      return { itemHrid: hrid, price: p2, perHour: p2 * drinksPerHour };
     });
     const teaPerHour = teaCosts.reduce((sum, t4) => sum + t4.perHour, 0);
     const essence = { itemHrid: ESSENCE, count: (100 + itemLevel) / 1800 * (1 + fraction("/buff_types/essence_find")) };
@@ -1940,9 +1940,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (level >= itemLevel) return OBSERVATORY_SUCCESS * (level - itemLevel);
     return -0.5 * (1 - level / itemLevel);
   }
-  function enhanceCycles(p, blessed, xpAt) {
+  function enhanceCycles(p2, blessed, xpAt) {
     const reach = [1];
-    for (let L = 1; L <= MAX_TARGET; L++) reach[L] = reach[L - 1] * p[L - 1] * (1 - blessed) + (L >= 2 ? reach[L - 2] * p[L - 2] * blessed : 0);
+    for (let L = 1; L <= MAX_TARGET; L++) reach[L] = reach[L - 1] * p2[L - 1] * (1 - blessed) + (L >= 2 ? reach[L - 2] * p2[L - 2] * blessed : 0);
     const attempts = [0];
     const xp = [0];
     let visits = 0;
@@ -1950,8 +1950,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (let T = 1; T <= MAX_TARGET; T++) {
       const L = T - 1;
       visits += reach[L];
-      gained += reach[L] * (p[L] + FAIL_XP2 * (1 - p[L])) * xpAt[L];
-      const done2 = reach[L] * p[L] + (L >= 1 ? reach[L - 1] * p[L - 1] * blessed : 0);
+      gained += reach[L] * (p2[L] + FAIL_XP2 * (1 - p2[L])) * xpAt[L];
+      const done2 = reach[L] * p2[L] + (L >= 1 ? reach[L - 1] * p2[L - 1] * blessed : 0);
       attempts[T] = done2 > 0 ? visits / done2 : Infinity;
       xp[T] = done2 > 0 ? gained / done2 : Infinity;
     }
@@ -3109,6 +3109,56 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var dayOf = (r) => Math.floor(r.hour / 24);
   var weekOf = (d) => Math.floor(d.day / 7);
+  function encodeChanged(list, dirty, keyField, fields, keyOf) {
+    const out = [];
+    list.forEach((r, i) => {
+      if (dirty.has(r[keyField]) || i > 0 && dirty.has(list[i - 1][keyField])) out.push(encodeRecord(r, list[i - 1] || null, fields, keyOf));
+    });
+    return out;
+  }
+  function snapshotRecord(marketData, hour, items, index) {
+    const entries = [];
+    for (const [hrid, levels] of Object.entries(marketData)) {
+      for (const [level, entry] of Object.entries(levels || {})) {
+        if (!(entry?.a > 0) && !(entry?.b > 0) && !(entry?.v > 0) && level !== "0") continue;
+        const key = historyKey(hrid, Number(level));
+        if (!index.has(key)) {
+          index.set(key, items.length);
+          items.push(key);
+        }
+        entries.push([index.get(key), entry]);
+      }
+    }
+    const count2 = items.length;
+    const record = { hour, a: new Float32Array(count2).fill(NaN), b: new Float32Array(count2).fill(NaN), p: new Float32Array(count2).fill(NaN), v: new Float32Array(count2).fill(NaN), sold: true };
+    for (const [i, entry] of entries) {
+      if (entry?.a > 0) record.a[i] = entry.a;
+      if (entry?.b > 0) record.b[i] = entry.b;
+      if (entry?.p > 0) record.p[i] = entry.p;
+      if (entry?.v > 0) record.v[i] = entry.v;
+    }
+    return record;
+  }
+  function itemMap(keys, items, index) {
+    return keys.map((key) => {
+      if (!index.has(key)) {
+        index.set(key, items.length);
+        items.push(key);
+      }
+      return index.get(key);
+    });
+  }
+  function remapRecord(record, map, count2, fields) {
+    const out = {};
+    for (const [k, v] of Object.entries(record)) if (!fields.includes(k)) out[k] = v;
+    for (const f of fields) {
+      const values = emptyOf(f, count2);
+      const from = record[f];
+      if (from) for (let j = 0; j < from.length && j < map.length; j++) values[map[j]] = from[j];
+      out[f] = values;
+    }
+    return out;
+  }
   function median(pairs) {
     const list = pairs.filter(([v, w]) => Number.isFinite(v) && w > 0).sort((x, y) => x[0] - y[0]);
     const total = list.reduce((sum, [, w]) => sum + w, 0);
@@ -3245,7 +3295,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const id = (hrid) => hrid.replace(/^\/items\//, "");
     const sold = (d, i) => at(d.vn, i) ? `${num2(at(d.v, i) || 0)},${at(d.vn, i)},${num2(at(d.p, i))}` : ",,";
     const lines = [
-      `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on one device.`,
+      `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on this device, and around the clock by your Pi if it is linked.`,
       "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
       `# section hour: an item's row appears when its ask or bid changed since its previous row (in between it stayed the same).`,
       `# Hours with data: ${hours.map((r) => hourText(r.hour)).join(",")}`,
@@ -3295,6 +3345,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     allDays: null,
     // every daily record, loaded on demand
     last: null,
+    pi: null,
+    // what came from the Pi: { epoch, items: its item order, hour, day: the newest received }
+    queue: Promise.resolve(),
+    // changes are written one at a time
     version: 0,
     // bumps on every new snapshot
     summaries: /* @__PURE__ */ new Map()
@@ -3325,13 +3379,14 @@ i.mwia-history-bid { background: #7ee2b0; }
     store2.ready || (store2.ready = (async () => {
       store2.db = await openDb();
       const tx = store2.db.transaction([HOURLY, META], "readonly");
-      const [items, last, hours] = await Promise.all([request(tx.objectStore(META).get("items")), request(tx.objectStore(META).get("last")), request(tx.objectStore(HOURLY).getAll())]);
+      const [items, last, pi, hours] = await Promise.all(["items", "last", "pi"].map((key) => request(tx.objectStore(META).get(key))).concat(request(tx.objectStore(HOURLY).getAll())));
       const newest = hours.length ? hours[hours.length - 1].hour : 0;
       const fromDay = Math.floor((Math.floor(newest / 24) - 31) / 7) * 7;
       store2.days = decodeRecords(await request(store2.db.transaction(DAILY, "readonly").objectStore(DAILY).getAll(IDBKeyRange.lowerBound(fromDay))), DAILY_FIELDS);
       store2.items = items || [];
       store2.items.forEach((hrid, i) => store2.index.set(hrid, i));
       store2.last = last ?? null;
+      store2.pi = pi ?? null;
       store2.hours = decodeRecords(hours, HOURLY_FIELDS);
       store2.version++;
     })());
@@ -3339,59 +3394,80 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   async function recordSnapshot(marketData, timestamp) {
     await loadHistory();
-    if (timestamp && timestamp === store2.last) return false;
-    const hour = Math.floor(Date.now() / HOUR_MS);
-    const entries = [];
-    for (const [hrid, levels] of Object.entries(marketData)) {
-      for (const [level, entry] of Object.entries(levels || {})) {
-        if (!(entry?.a > 0) && !(entry?.b > 0) && !(entry?.v > 0) && level !== "0") continue;
-        const key = historyKey(hrid, Number(level));
-        if (!store2.index.has(key)) {
-          store2.index.set(key, store2.items.length);
-          store2.items.push(key);
-        }
-        entries.push([store2.index.get(key), entry]);
-      }
-    }
+    return serially(async () => {
+      if (timestamp && timestamp === store2.last) return false;
+      const stamped = Math.abs(timestamp * 1e3 - Date.now()) < 3 * HOUR_MS;
+      const hour = Math.floor((stamped ? timestamp * 1e3 : Date.now()) / HOUR_MS);
+      if (store2.pi?.hour >= hour) return false;
+      const record = snapshotRecord(marketData, hour, store2.items, store2.index);
+      await commit([record], [], { last: timestamp ?? null });
+      store2.last = timestamp ?? null;
+      return true;
+    });
+  }
+  async function mergeFromPi(wire, unpack) {
+    await loadHistory();
+    return serially(async () => {
+      let pi = store2.pi && store2.pi.epoch === wire.epoch ? { ...store2.pi, items: [...store2.pi.items] } : { epoch: wire.epoch, items: [], hour: null, day: null };
+      if (wire.itemsFrom !== pi.items.length) throw new Error("the Pi's item list is out of step; it is read again next time");
+      if (!wire.items.length && !wire.hours.length && !wire.days.length && store2.pi) return { hours: 0, days: 0 };
+      pi.items.push(...wire.items);
+      const map = itemMap(pi.items, store2.items, store2.index);
+      const count2 = store2.items.length;
+      const hours = decodeRecords(wire.hours.map(unpack), HOURLY_FIELDS).map((r) => remapRecord(r, map, count2, HOURLY_FIELDS));
+      const days = decodeRecords(wire.days.map(unpack), DAILY_FIELDS).map((d) => remapRecord(d, map, count2, DAILY_FIELDS));
+      for (const r of hours) pi.hour = Math.max(pi.hour ?? -Infinity, r.hour);
+      for (const d of days) pi.day = Math.max(pi.day ?? -Infinity, d.day);
+      await commit(hours, days, { pi });
+      store2.pi = pi;
+      return { hours: hours.length, days: days.length };
+    }).catch((error) => {
+      if (/out of step/.test(error.message)) store2.pi = null;
+      throw error;
+    });
+  }
+  var piReceived = () => store2.pi && { epoch: store2.pi.epoch, items: store2.pi.items.length, hour: store2.pi.hour, day: store2.pi.day };
+  var serially = (job) => store2.queue = store2.queue.then(job, job);
+  async function commit(newHours, newDays, meta) {
     const count2 = store2.items.length;
-    const record = { hour, a: new Float32Array(count2).fill(NaN), b: new Float32Array(count2).fill(NaN), p: new Float32Array(count2).fill(NaN), v: new Float32Array(count2).fill(NaN), sold: true };
-    for (const [i, entry] of entries) {
-      if (entry?.a > 0) record.a[i] = entry.a;
-      if (entry?.b > 0) record.b[i] = entry.b;
-      if (entry?.p > 0) record.p[i] = entry.p;
-      if (entry?.v > 0) record.v[i] = entry.v;
+    const dayKeys = new Set(newDays.map((d) => d.day));
+    const hourKeys = new Set(newHours.map((r) => r.hour));
+    const removed = store2.hours.filter((r) => hourKeys.has(r.hour) || dayKeys.has(dayOf(r)));
+    store2.hours = [...store2.hours.filter((r) => !removed.includes(r)), ...newHours].sort((x, y) => x.hour - y.hour);
+    const gone = removed.filter((r) => !hourKeys.has(r.hour)).map((r) => r.hour);
+    const dirtyHours = new Set(hourKeys);
+    for (const hour of gone) {
+      const next = store2.hours.find((r) => r.hour > hour);
+      if (next) dirtyHours.add(next.hour);
     }
-    store2.hours = store2.hours.filter((r) => r.hour !== hour);
-    store2.hours.push(record);
-    store2.hours.sort((x, y) => x.hour - y.hour);
-    const pos = store2.hours.indexOf(record);
-    const writes = [encodeRecord(record, store2.hours[pos - 1] || null, HOURLY_FIELDS, dayOf)];
-    if (store2.hours[pos + 1]) writes.push(encodeRecord(store2.hours[pos + 1], record, HOURLY_FIELDS, dayOf));
-    const newest = store2.hours[store2.hours.length - 1].hour;
-    const cutoffDay = Math.floor((newest - HOURLY_DAYS * 24) / 24);
-    const old = store2.hours.filter((r) => Math.floor(r.hour / 24) < cutoffDay);
-    const rolled = old.length ? rollUpDays(old, count2) : [];
-    store2.hours = store2.hours.filter((r) => Math.floor(r.hour / 24) >= cutoffDay);
-    const dayWrites = [];
-    let previousDay = store2.days[store2.days.length - 1] || null;
-    for (const d of rolled) {
-      dayWrites.push(encodeRecord(d, previousDay && previousDay.day < d.day ? previousDay : null, DAILY_FIELDS, weekOf));
-      previousDay = d;
-    }
-    store2.days = [...store2.days, ...rolled].filter((d) => d.day >= Math.floor(newest / 24) - 31).sort((x, y) => x.day - y.day);
-    if (store2.allDays) store2.allDays = [...store2.allDays, ...rolled].sort((x, y) => x.day - y.day);
+    const newest = store2.hours.length ? store2.hours[store2.hours.length - 1].hour : null;
+    const cutoffDay = newest === null ? -Infinity : Math.floor((newest - HOURLY_DAYS * 24) / 24);
+    const old = store2.hours.filter((r) => dayOf(r) < cutoffDay);
+    store2.hours = store2.hours.filter((r) => dayOf(r) >= cutoffDay);
+    const summed = new Set([...store2.days, ...store2.allDays || []].map((d) => d.day));
+    const rollable = old.filter((r) => !summed.has(dayOf(r)));
+    const changedDays = [...newDays, ...rollable.length ? rollUpDays(rollable, count2) : []];
+    const changedDayKeys = new Set(changedDays.map((d) => d.day));
+    const hourWrites = encodeChanged(store2.hours, dirtyHours, "hour", HOURLY_FIELDS, dayOf);
+    const windowStart = store2.days.length ? store2.days[0].day : Infinity;
+    if (changedDays.some((d) => d.day < windowStart)) await loadAllDays();
+    const replaceDays = (list) => [...list.filter((d) => !changedDayKeys.has(d.day)), ...changedDays].sort((x, y) => x.day - y.day);
+    const dayList = changedDays.some((d) => d.day < windowStart) ? store2.allDays = replaceDays(store2.allDays) : store2.days = replaceDays(store2.days);
+    if (dayList === store2.days && store2.allDays) store2.allDays = replaceDays(store2.allDays);
+    const dayWrites = encodeChanged(dayList, changedDayKeys, "day", DAILY_FIELDS, weekOf);
+    const newestDay = newest === null ? Math.max(-Infinity, ...dayList.map((d) => d.day)) : Math.floor(newest / 24);
+    store2.days = (store2.allDays || dayList).filter((d) => d.day >= newestDay - 31);
     const tx = store2.db.transaction([HOURLY, DAILY, META], "readwrite");
-    for (const w of writes) if (Math.floor(w.hour / 24) >= cutoffDay) tx.objectStore(HOURLY).put(w);
+    for (const hour of gone) tx.objectStore(HOURLY).delete(hour);
     for (const r of old) tx.objectStore(HOURLY).delete(r.hour);
+    for (const w of hourWrites) tx.objectStore(HOURLY).put(w);
     for (const d of dayWrites) tx.objectStore(DAILY).put(d);
-    tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor((Math.floor(newest / 24) - DAILY_DAYS) / 7) * 7, true));
+    if (Number.isFinite(newestDay)) tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor((newestDay - DAILY_DAYS) / 7) * 7, true));
     tx.objectStore(META).put(store2.items, "items");
-    tx.objectStore(META).put(timestamp ?? null, "last");
+    for (const [key, value] of Object.entries(meta)) tx.objectStore(META).put(value, key);
     await done(tx);
-    store2.last = timestamp ?? null;
     store2.version++;
     store2.summaries.clear();
-    return true;
   }
   var historyVersion = () => store2.version;
   function priceSummary(itemHrid, level = 0) {
@@ -3424,7 +3500,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (newest - t4 <= range * 24) points.push({ t: t4, a: at(d.a, i), b: at(d.b, i) });
     }
     for (const r of store2.hours) if (newest - r.hour <= range * 24) points.push({ t: r.hour, a: at(r.a, i), b: at(r.b, i) });
-    return points.filter((p) => Number.isFinite(p.a) || Number.isFinite(p.b)).sort((x, y) => x.t - y.t);
+    return points.filter((p2) => Number.isFinite(p2.a) || Number.isFinite(p2.b)).sort((x, y) => x.t - y.t);
   }
   async function longMedians(itemHrid, level = 0) {
     const i = store2.index.get(historyKey(itemHrid, level));
@@ -3726,7 +3802,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const bulk = e.bulk > 1 ? ` Each action takes ${e.bulk} at once.` : "";
     const coinsText = e.coinCost ? ` It costs ${coins(e.coinCost)} coins, lost on a failure like the item.` : "";
     const catalyst = e.catalyst.itemHrid ? ` The catalyst is used up only on a success (${coins(e.catalyst.price)} each).` : " No catalyst pays off with your Focus.";
-    return `${dec(e.baseRate * 100, 0)}% base${parts.length ? ` \xD7 (1 ${parts.map((p) => "+ " + p).join(" ")})` : ""} = <b>${dec(e.successRate * 100, 2)}%</b>.${bulk}${coinsText}${catalyst} <span class="mwia-dim">A failure still gives a tenth of the XP.</span>`;
+    return `${dec(e.baseRate * 100, 0)}% base${parts.length ? ` \xD7 (1 ${parts.map((p2) => "+ " + p2).join(" ")})` : ""} = <b>${dec(e.successRate * 100, 2)}%</b>.${bulk}${coinsText}${catalyst} <span class="mwia-dim">A failure still gives a tenth of the XP.</span>`;
   }
   function enhanceSections(e, section) {
     const sections = [];
@@ -3734,7 +3810,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const parts = [e.levelBonus && `level ${dec(e.effectiveLevel, 0)} vs item ${e.requiredLevel}: ${pct(e.levelBonus)}`, e.successBonus && `tool, house and buffs ${pct(e.successBonus)}`].filter(Boolean);
     const rates = e.rates.slice(0, Math.max(e.target, 3)).map((r, L) => `+${L}\u2192+${L + 1} ${dec(r * 100, 1)}%`).join(" \xB7 ");
     sections.push(section("\u{1F3AF} Odds", `${count(e.attempts)} attempts per +${e.target}`, [
-      `Success = the game's rate for the +level \xD7 ${dec(e.multiplier, 3)}${parts.length ? ` (1 ${parts.map((p) => "+ " + p).join(" ")})` : ""}: ${rates}.${e.blessed ? ` Blessed: ${pct(e.blessed).replace("+", "")} of successes jump two levels.` : ""}`,
+      `Success = the game's rate for the +level \xD7 ${dec(e.multiplier, 3)}${parts.length ? ` (1 ${parts.map((p2) => "+ " + p2).join(" ")})` : ""}: ${rates}.${e.blessed ? ` Blessed: ${pct(e.blessed).replace("+", "")} of successes jump two levels.` : ""}`,
       `A failure drops the item to +0. From +0 it takes <b>${count(e.attempts)} attempts</b> on average to reach +${e.target}.`
     ]));
     const levelSpeed = e.levelSpeed ? ` (levels ${pct(e.levelSpeed)})` : "";
@@ -4029,6 +4105,94 @@ i.mwia-history-bid { background: #7ee2b0; }
     return ` \xB7 ${slots}${u.teas?.length ? ` (with ${esc(names(u.teas))} on ${esc(u.bestAction.name)})` : ""}`;
   }
 
+  // src/history-wire.js
+  var TYPES = { f32: Float32Array, u8: Uint8Array, u16: Uint16Array, u32: Uint32Array };
+  var NAMES = new Map(Object.entries(TYPES).map(([name, type]) => [type, name]));
+  function fromBase64(text) {
+    const raw = atob(text);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return bytes;
+  }
+  function unpackRecord(packed) {
+    const out = {};
+    for (const [k, v] of Object.entries(packed)) {
+      const type = v && typeof v === "object" && TYPES[v.t];
+      out[k] = type ? new type(fromBase64(v.d).buffer) : v;
+    }
+    return out;
+  }
+
+  // src/pi-sync.js
+  var CONFIG_KEY = "mwia-pi";
+  var SYNC_EVERY_MS = 15 * 60 * 1e3;
+  var FIRST_SYNC_MS = 3e3;
+  var p = { running: null, tried: 0, status: { ok: null, at: null, error: "", newest: null, piError: null }, listeners: /* @__PURE__ */ new Set() };
+  function readPairing(win2) {
+    const match = /(?:^#|&)mwia-pi=([A-Za-z0-9_-]+)/.exec(win2.location.hash);
+    if (!match) return;
+    try {
+      const { u, k } = JSON.parse(atob(match[1].replace(/-/g, "+").replace(/_/g, "/")));
+      if (typeof u === "string" && /^https?:\/\//.test(u) && typeof k === "string" && k) localStorage.setItem(CONFIG_KEY, JSON.stringify({ url: u.replace(/\/+$/, ""), key: k }));
+    } catch (error) {
+      console.warn("[MWI Advisor] Pi link", error);
+    }
+    const rest = win2.location.hash.replace(/(^#|&)mwia-pi=[^&]*/, "$1").replace(/^#&/, "#");
+    win2.history.replaceState(win2.history.state, "", win2.location.pathname + win2.location.search + (rest === "#" ? "" : rest));
+  }
+  function piConfig() {
+    try {
+      return JSON.parse(localStorage.getItem(CONFIG_KEY) || "null");
+    } catch {
+      return null;
+    }
+  }
+  var piStatus = () => p.status;
+  function onPiSync(listener) {
+    p.listeners.add(listener);
+  }
+  function unlinkPi() {
+    localStorage.removeItem(CONFIG_KEY);
+    p.status = { ok: null, at: null, error: "", newest: null, piError: null };
+    notify(false);
+  }
+  function startPiSync() {
+    setTimeout(syncNow, FIRST_SYNC_MS);
+    setInterval(syncNow, SYNC_EVERY_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && Date.now() - p.tried > SYNC_EVERY_MS) syncNow();
+    });
+  }
+  function notify(added) {
+    for (const listener of p.listeners) listener(added);
+  }
+  function syncNow() {
+    const config = piConfig();
+    if (!config) return Promise.resolve();
+    p.running || (p.running = (async () => {
+      p.tried = Date.now();
+      let added = false;
+      try {
+        await loadHistory();
+        const known = piReceived();
+        const query = new URLSearchParams(known ? { epoch: known.epoch, items: known.items, hour: known.hour ?? "", day: known.day ?? "" } : {});
+        const response = await fetch(`${config.url}/history?${query}`, { headers: { Authorization: `Bearer ${config.key}` }, cache: "no-store", signal: AbortSignal.timeout?.(12e4) });
+        if (response.status === 401) throw new Error("it refused the key \u2013 open a new link from it");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const wire = await response.json();
+        const result = await mergeFromPi(wire, unpackRecord);
+        added = result.hours > 0 || result.days > 0;
+        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null };
+      } catch (error) {
+        p.status = { ...p.status, ok: false, error: error.message || String(error) };
+      } finally {
+        p.running = null;
+      }
+      notify(added);
+    })());
+    return p.running;
+  }
+
   // src/game-nav.js
   var NAV_LINK = '[class*="NavigationBar_navigationLink"]';
   var ACTION_CARD = '[class*="SkillAction_skillAction"]';
@@ -4301,6 +4465,11 @@ i.mwia-history-bid { background: #7ee2b0; }
         for (const listener of h.listeners) listener();
       }).catch((error) => console.warn("[MWI Advisor] price history", error));
     });
+    onPiSync((added) => {
+      scheduleScan(true);
+      if (added) for (const listener of h.listeners) listener();
+    });
+    startPiSync();
     loadHistory().catch((error) => console.warn("[MWI Advisor] price history", error));
     const collect = () => loadPrices(true).catch(() => {
     });
@@ -4350,7 +4519,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     });
     if (!current) return;
     let box = document.querySelector(".mwia-history");
-    const key = `${current.itemHrid}+${current.level}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}`;
+    const key = `${current.itemHrid}+${current.level}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}|${JSON.stringify(piConfig() && piStatus())}`;
     if (box && box.dataset.version === key) return;
     if (!box) {
       box = document.createElement("div");
@@ -4397,7 +4566,23 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     scheduleScan(true);
   }
+  function sourceHtml() {
+    if (!piConfig()) return `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+    const st = piStatus();
+    const time = (t4) => new Date(t4).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const text = st.ok === null ? "Linked to your Pi; reading it\u2026" : st.ok ? `From your Pi: newest prices ${st.newest ? time(st.newest) : "none yet"}, read ${time(st.at)}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}` : `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
+    return `<div class="mwia-history-note">${esc(text)}</div>
+        <div class="mwia-history-ranges"><button data-history-pi="sync">\u21BB Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
+  }
   function onClick(event) {
+    const piButton = event.target.closest?.(".mwia-history [data-history-pi]");
+    if (piButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (piButton.dataset.historyPi === "unlink") unlinkPi();
+      else syncNow();
+      return;
+    }
     const exportButton = event.target.closest?.(".mwia-history [data-history-export]");
     if (exportButton) {
       event.preventDefault();
@@ -4417,7 +4602,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const summary = priceSummary(itemHrid, level);
     const entry = marketEntry(itemHrid, level);
     const head2 = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price${level ? ` <span class="mwia-enh">+${level}</span>` : ""}</b> <span>${text}</span></div>`;
-    const saved = `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+    const saved = sourceHtml();
     const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${exportHtml()}</details>`;
     if (!summary || summary.hours7 < PRELIMINARY_HOURS) {
       return head2(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + more("Export", saved);
@@ -4451,6 +4636,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function progressText(summary) {
     const hoursLeft = Math.max(0, MIN_HOURS - summary.hours7);
+    const open = piConfig() ? "" : " with the game open";
     const daysLeft = Math.max(0, MIN_DAYS - summary.spanDays);
     const parts = [
       hoursLeft ? `${summary.hours7} of ${MIN_HOURS} h` : `${MIN_HOURS} h \u2713`,
@@ -4458,9 +4644,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     ];
     if (daysLeft) {
       const wait = daysLeft * 24;
-      parts.push(`ready in about ${wait < 20 ? Math.max(1, Math.round(wait)) + " h" : Math.round(daysLeft * 10) / 10 + " day" + (daysLeft > 1.05 ? "s" : "")}${hoursLeft ? ` and ${hoursLeft} more h with the game open` : ""}`);
+      parts.push(`ready in about ${wait < 20 ? Math.max(1, Math.round(wait)) + " h" : Math.round(daysLeft * 10) / 10 + " day" + (daysLeft > 1.05 ? "s" : "")}${hoursLeft ? ` and ${hoursLeft} more h${open}` : ""}`);
     } else if (hoursLeft) {
-      parts.push(`${hoursLeft} more h with the game open`);
+      parts.push(`${hoursLeft} more h${open}`);
     }
     return parts.join(" \xB7 ");
   }
@@ -4469,7 +4655,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (points.length < 2) return "";
     const W = 300;
     const H = 64;
-    const values = points.flatMap((p) => [p.a, p.b]).filter(Number.isFinite);
+    const values = points.flatMap((p2) => [p2.a, p2.b]).filter(Number.isFinite);
     const low = Math.min(...values);
     const high = Math.max(...values);
     const t0 = points[0].t;
@@ -4477,7 +4663,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const x = (t4) => (t4 - t0) / span * (W - 4) + 2;
     const y = (v) => high === low ? H / 2 : H - 4 - (v - low) / (high - low) * (H - 8);
     const line = (key, cls) => {
-      const path = points.filter((p) => Number.isFinite(p[key])).map((p) => `${x(p.t).toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
+      const path = points.filter((p2) => Number.isFinite(p2[key])).map((p2) => `${x(p2.t).toFixed(1)},${y(p2[key]).toFixed(1)}`).join(" ");
       return path ? `<polyline class="${cls}" points="${path}"/>` : "";
     };
     const t1 = points[points.length - 1].t;
@@ -5173,12 +5359,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const actions = Object.values(data.actionDetailMap).filter((action) => action.function === "/action_functions/gathering").sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0));
     for (const action of actions) {
       for (const drop of action.dropTable || []) {
-        const p = drop.dropRate ?? 1;
+        const p2 = drop.dropRate ?? 1;
         const low = drop.minCount ?? 1;
         const high = drop.maxCount ?? low;
         const spread = (high + low) / 2;
-        const mean = p * spread;
-        const variance = p * (((high - low + 1) ** 2 - 1) / 12 + spread ** 2) - mean ** 2;
+        const mean = p2 * spread;
+        const variance = p2 * (((high - low + 1) ** 2 - 1) / 12 + spread ** 2) - mean ** 2;
         const best = byItem.get(drop.itemHrid);
         if (mean > 0 && (!best || mean > best.mean)) byItem.set(drop.itemHrid, { action, mean, variance });
       }
@@ -6438,18 +6624,18 @@ i.mwia-history-bid { background: #7ee2b0; }
     return `${esc(state.character.character?.name || "")} \xB7 ${prices2}`;
   }
   function progressHtml() {
-    const p = ui.progress || { done: 0, total: 0, label: "" };
-    const share = p.total ? 100 * p.done / p.total : 0;
-    return `<div class="mwia-progress"><div class="mwia-progress-label"><span>${esc(p.label)} ${p.total ? `${p.done}/${p.total}` : ""}</span>
+    const p2 = ui.progress || { done: 0, total: 0, label: "" };
+    const share = p2.total ? 100 * p2.done / p2.total : 0;
+    return `<div class="mwia-progress"><div class="mwia-progress-label"><span>${esc(p2.label)} ${p2.total ? `${p2.done}/${p2.total}` : ""}</span>
         <button class="mwia-link" data-action="cancel">Cancel</button></div>
         <div class="mwia-bar"><div style="width:${share}%"></div></div></div>`;
   }
   function renderProgress() {
     const node = ui.root?.querySelector(".mwia-progress");
     if (!node) return render2();
-    const p = ui.progress;
-    node.querySelector(".mwia-progress-label span").textContent = `${p.label} ${p.total ? `${p.done}/${p.total}` : ""}`;
-    node.querySelector(".mwia-bar div").style.width = `${p.total ? 100 * p.done / p.total : 0}%`;
+    const p2 = ui.progress;
+    node.querySelector(".mwia-progress-label span").textContent = `${p2.label} ${p2.total ? `${p2.done}/${p2.total}` : ""}`;
+    node.querySelector(".mwia-bar div").style.width = `${p2.total ? 100 * p2.done / p2.total : 0}%`;
   }
   function settingsHtml(fields) {
     const s = ui.settings;
@@ -6721,17 +6907,17 @@ i.mwia-history-bid { background: #7ee2b0; }
         html += `<li>${w.owned ? "Equip" : "Buy"} <b>${gearLabel(w)}</b> ${w.owned ? "from your inventory " : ""}to fight as ${STYLE_NAMES[ui.settings.combatStyle] || "the chosen style"}${w.replaces ? ` \u2013 replaces ${gearLabel(w.replaces)}` : ""}
               ${w.cost ? `for ${coins5(w.cost)}` : "(free)"} <span class="mwia-dim">(everything here was simulated with it)</span> ${cartButton3(starterCart(w))}</li>`;
       }
-      for (const p of plan.picks) {
+      for (const p2 of plan.picks) {
         let what;
-        if (p.kind === "abilityLevel") {
-          what = `${p.books}\xD7 <b>${esc(itemName(p.bookHrid))}</b> and read them: ${esc(abilityName(p.hrid))} level ${p.fromLevel} \u2192 ${p.level}`;
-        } else if (p.kind === "ability") {
-          what = `ability <b>${esc(abilityName(p.hrid))}</b>${p.cost ? ` (buy the book ${esc(itemName(p.bookHrid))})` : ` (level ${p.level})`}`;
+        if (p2.kind === "abilityLevel") {
+          what = `${p2.books}\xD7 <b>${esc(itemName(p2.bookHrid))}</b> and read them: ${esc(abilityName(p2.hrid))} level ${p2.fromLevel} \u2192 ${p2.level}`;
+        } else if (p2.kind === "ability") {
+          what = `ability <b>${esc(abilityName(p2.hrid))}</b>${p2.cost ? ` (buy the book ${esc(itemName(p2.bookHrid))})` : ` (level ${p2.level})`}`;
         } else {
-          what = `<b>${gearLabel(p)}</b> in ${SLOT_NAMES[p.slot]}${p.extraFood ? ` and put <b>${esc(itemName(p.extraFood))}</b> in the new food slot` : ""}`;
+          what = `<b>${gearLabel(p2)}</b> in ${SLOT_NAMES[p2.slot]}${p2.extraFood ? ` and put <b>${esc(itemName(p2.extraFood))}</b> in the new food slot` : ""}`;
         }
-        const replaces = p.replaces ? ` \u2013 replaces ${p.kind === "ability" ? esc(abilityName(p.replaces)) : gearLabel(p.replaces)}` : "";
-        html += `<li>${p.cost ? "Buy" : "Use"} ${what}${replaces}: ${gainText(p)} ${p.cost ? `for ${coins5(p.cost)}` : "(free)"} ${cartButton3(cartItems(p))}</li>`;
+        const replaces = p2.replaces ? ` \u2013 replaces ${p2.kind === "ability" ? esc(abilityName(p2.replaces)) : gearLabel(p2.replaces)}` : "";
+        html += `<li>${p2.cost ? "Buy" : "Use"} ${what}${replaces}: ${gainText(p2)} ${p2.cost ? `for ${coins5(p2.cost)}` : "(free)"} ${cartButton3(cartItems(p2))}</li>`;
       }
       for (const [kind, pick, max] of [["Food", plan.food, plan.foodMax], ["Drink", plan.drink, plan.drinkMax]]) {
         if (!pick) continue;
@@ -7390,6 +7576,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   // src/main.js
   var win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   installSocketHook(win);
+  readPairing(win);
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => mount());
   } else {

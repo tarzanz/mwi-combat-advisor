@@ -1,0 +1,15 @@
+# The key lives in pi/.env (never committed; see .env.example). Data in pi/data/.
+services:
+  mwia-history:
+    build:
+      context: ..
+      dockerfile: pi/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    # The owner of pi/data on the Pi (id -u / id -g); create the folder before the first start.
+    user: "${MWIA_UID:-1000}:${MWIA_GID:-1000}"
+    volumes:
+      - ./data:/data
+    # Only reachable on the Pi itself; the Cloudflare tunnel forwards to it.
+    ports:
+      - "127.0.0.1:8787:8787"

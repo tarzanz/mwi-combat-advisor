@@ -1,0 +1,104 @@
+// MWI Advisor's price history on a Raspberry Pi (or any always-on machine):
+// fetches the game's market file every 10 minutes, keeps every new one, and
+// sends the userscript the hours and days it lacks. No dependencies.
+//
+//   node pi/server.mjs              serve (the default)
+//   node pi/server.mjs rebuild      recompute the history from the raw files
+//   node pi/server.mjs link <url>   print the link that connects a browser (url: this server's https address)
+//   node pi/server.mjs key          print a new random key for MWIA_KEY
+//
+// Settings (environment): MWIA_KEY (required to serve, at least 24 characters),
+// MWIA_DATA (default /data), PORT (default 8787), MWIA_MARKET_URL, MWIA_ORIGINS
+// (the game's sites allowed to read, comma separated).
+
+import http from "node:http";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { gzipSync } from "node:zlib";
+import { openStore } from "./history-store.mjs";
+
+const DATA = process.env.MWIA_DATA || "/data";
+const PORT = Number(process.env.PORT || 8787);
+const KEY = process.env.MWIA_KEY || "";
+const MARKET_URL = process.env.MWIA_MARKET_URL || "https://www.milkywayidle.com/game_data/marketplace.json";
+const ORIGINS = new Set((process.env.MWIA_ORIGINS || "https://www.milkywayidle.com,https://test.milkywayidle.com,https://www.milkywayidlecn.com").split(",").map((o) => o.trim()).filter(Boolean));
+const GAME_URL = "https://www.milkywayidle.com/";
+const POLL_MS = 10 * 60 * 1000;
+
+const log = (...args) => console.log(new Date().toISOString(), ...args);
+const digest = (text) => createHash("sha256").update(text).digest();
+const authorized = (req) => {
+    const header = req.headers.authorization || "";
+    return header.startsWith("Bearer ") && timingSafeEqual(digest(header.slice(7)), digest(KEY));
+};
+
+const [command = "serve", arg] = process.argv.slice(2);
+
+if (command === "key") {
+    console.log(randomBytes(24).toString("base64url"));
+} else if (command === "link") {
+    if (!arg || !/^https:\/\//.test(arg) || !KEY) throw new Error("Usage: MWIA_KEY=… node pi/server.mjs link https://<this server's address>");
+    const pairing = Buffer.from(JSON.stringify({ u: arg.replace(/\/+$/, ""), k: KEY })).toString("base64url");
+    console.log(`${GAME_URL}#mwia-pi=${pairing}`);
+} else if (command === "rebuild") {
+    openStore(DATA).rebuild(log);
+} else if (command === "serve") {
+    serve();
+} else {
+    throw new Error(`Unknown command ${command}`);
+}
+
+function serve() {
+    if (KEY.length < 24) throw new Error("Set MWIA_KEY to a secret of at least 24 characters (node pi/server.mjs key makes one).");
+    const store = openStore(DATA);
+    const health = { lastFetch: null, lastError: null };
+
+    async function poll() {
+        try {
+            const response = await fetch(MARKET_URL, { cache: "no-store", signal: AbortSignal.timeout(60000) });
+            if (!response.ok) throw new Error(`market file: HTTP ${response.status}`);
+            const added = store.addFile(await response.text());
+            health.lastFetch = new Date().toISOString();
+            health.lastError = null;
+            if (added) log("new market file", store.status());
+        } catch (error) {
+            health.lastError = String(error.message || error);
+            log("fetch failed:", health.lastError);
+        }
+    }
+    poll();
+    setInterval(poll, POLL_MS);
+
+    const server = http.createServer((req, res) => {
+        const origin = req.headers.origin;
+        if (origin && ORIGINS.has(origin)) {
+            res.setHeader("Access-Control-Allow-Origin", origin);
+            res.setHeader("Access-Control-Allow-Headers", "Authorization");
+            res.setHeader("Access-Control-Allow-Methods", "GET");
+            res.setHeader("Access-Control-Max-Age", "86400");
+        }
+        res.setHeader("Vary", "Origin");
+        const send = (status, body) => {
+            const text = JSON.stringify(body);
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Cache-Control", "no-store");
+            if (/\bgzip\b/.test(req.headers["accept-encoding"] || "") && text.length > 1024) {
+                res.setHeader("Content-Encoding", "gzip");
+                res.writeHead(status).end(gzipSync(text));
+            } else res.writeHead(status).end(text);
+        };
+        const url = new URL(req.url, "http://localhost");
+        try {
+            if (req.method === "OPTIONS") return res.writeHead(204).end();
+            if (req.method !== "GET") return send(405, { error: "GET only" });
+            // Says whether it runs, not what it holds.
+            if (url.pathname === "/status") return send(200, { ok: true, newest: store.status().newest, lastError: health.lastError });
+            if (url.pathname !== "/history") return send(404, { error: "not found" });
+            if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health } });
+        } catch (error) {
+            log("request failed:", error);
+            return send(500, { error: "server error" });
+        }
+    });
+    server.listen(PORT, () => log(`listening on ${PORT}, data in ${DATA}`, store.status()));
+}

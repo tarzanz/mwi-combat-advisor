@@ -15,7 +15,7 @@ const DAILY = "daily"; // { day, a, b, aLow, aHigh, bLow, bHigh, p, v: Float32Ar
 const META = "meta"; // "items": [hrid, ...] (the index order), "last": the newest file's timestamp
 
 export const HOURLY_DAYS = 14;
-const DAILY_DAYS = 366;
+export const DAILY_DAYS = 366;
 const HOUR_MS = 3600 * 1000;
 export const COLLECT_EVERY_MS = 30 * 60 * 1000;
 // Above or below the usual price by more than this counts as unusual.
@@ -94,8 +94,68 @@ export function decodeRecords(stored, fields) {
     return out;
 }
 
-const dayOf = (r) => Math.floor(r.hour / 24);
-const weekOf = (d) => Math.floor(d.day / 7);
+export const dayOf = (r) => Math.floor(r.hour / 24);
+export const weekOf = (d) => Math.floor(d.day / 7);
+
+// In a list sorted by key, each record whose key is in dirty, and the one after
+// it (its previous changed), encoded against the record before it.
+export function encodeChanged(list, dirty, keyField, fields, keyOf) {
+    const out = [];
+    list.forEach((r, i) => {
+        if (dirty.has(r[keyField]) || (i > 0 && dirty.has(list[i - 1][keyField]))) out.push(encodeRecord(r, list[i - 1] || null, fields, keyOf));
+    });
+    return out;
+}
+
+// One market file as an hourly record. Every +level that has an ask or a bid
+// is an item of its own; new ones are added to items and index.
+export function snapshotRecord(marketData, hour, items, index) {
+    const entries = [];
+    for (const [hrid, levels] of Object.entries(marketData)) {
+        for (const [level, entry] of Object.entries(levels || {})) {
+            if (!(entry?.a > 0) && !(entry?.b > 0) && !(entry?.v > 0) && level !== "0") continue;
+            const key = historyKey(hrid, Number(level));
+            if (!index.has(key)) {
+                index.set(key, items.length);
+                items.push(key);
+            }
+            entries.push([index.get(key), entry]);
+        }
+    }
+    const count = items.length;
+    const record = { hour, a: new Float32Array(count).fill(NaN), b: new Float32Array(count).fill(NaN), p: new Float32Array(count).fill(NaN), v: new Float32Array(count).fill(NaN), sold: true };
+    for (const [i, entry] of entries) {
+        if (entry?.a > 0) record.a[i] = entry.a;
+        if (entry?.b > 0) record.b[i] = entry.b;
+        if (entry?.p > 0) record.p[i] = entry.p;
+        if (entry?.v > 0) record.v[i] = entry.v;
+    }
+    return record;
+}
+
+// Another store's item order (keys) as indexes into items; keys not yet known are added.
+export function itemMap(keys, items, index) {
+    return keys.map((key) => {
+        if (!index.has(key)) {
+            index.set(key, items.length);
+            items.push(key);
+        }
+        return index.get(key);
+    });
+}
+
+// A record over another store's items as one over count items of ours (map from itemMap).
+export function remapRecord(record, map, count, fields) {
+    const out = {};
+    for (const [k, v] of Object.entries(record)) if (!fields.includes(k)) out[k] = v;
+    for (const f of fields) {
+        const values = emptyOf(f, count);
+        const from = record[f];
+        if (from) for (let j = 0; j < from.length && j < map.length; j++) values[map[j]] = from[j];
+        out[f] = values;
+    }
+    return out;
+}
 
 // Weighted median of [value, weight] pairs; null when there are none.
 export function median(pairs) {
@@ -259,7 +319,7 @@ export function historyCsv(items, hours, days, exportedAt = new Date()) {
     // sold_mean, sold_hours, sold_price; empty where no hour of the day had the numbers.
     const sold = (d, i) => (at(d.vn, i) ? `${num(at(d.v, i) || 0)},${at(d.vn, i)},${num(at(d.p, i))}` : ",,");
     const lines = [
-        `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on one device.`,
+        `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on this device, and around the clock by your Pi if it is linked.`,
         "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
         `# section hour: an item's row appears when its ask or bid changed since its previous row (in between it stayed the same).`,
         `# Hours with data: ${hours.map((r) => hourText(r.hour)).join(",")}`,
@@ -313,6 +373,8 @@ const store = {
     days: [], // daily records of the last 30 days, oldest first
     allDays: null, // every daily record, loaded on demand
     last: null,
+    pi: null, // what came from the Pi: { epoch, items: its item order, hour, day: the newest received }
+    queue: Promise.resolve(), // changes are written one at a time
     version: 0, // bumps on every new snapshot
     summaries: new Map(),
 };
@@ -346,7 +408,7 @@ export function loadHistory() {
     store.ready ||= (async () => {
         store.db = await openDb();
         const tx = store.db.transaction([HOURLY, META], "readonly");
-        const [items, last, hours] = await Promise.all([request(tx.objectStore(META).get("items")), request(tx.objectStore(META).get("last")), request(tx.objectStore(HOURLY).getAll())]);
+        const [items, last, pi, hours] = await Promise.all(["items", "last", "pi"].map((key) => request(tx.objectStore(META).get(key))).concat(request(tx.objectStore(HOURLY).getAll())));
         const newest = hours.length ? hours[hours.length - 1].hour : 0;
         // From the start of the week, where the daily records' key record is.
         const fromDay = Math.floor((Math.floor(newest / 24) - 31) / 7) * 7;
@@ -354,76 +416,112 @@ export function loadHistory() {
         store.items = items || [];
         store.items.forEach((hrid, i) => store.index.set(hrid, i));
         store.last = last ?? null;
+        store.pi = pi ?? null;
         store.hours = decodeRecords(hours, HOURLY_FIELDS);
         store.version++;
     })();
     return store.ready;
 }
 
-// Adds one market file, in the hour it was fetched. A file already seen (same
-// timestamp in the file) is skipped.
+// Adds one market file, in the hour of its own timestamp (as the Pi does; the
+// hour it was fetched if the timestamp is missing or far off). A file already
+// seen (same timestamp) is skipped, and so is an hour the Pi has already sent.
 export async function recordSnapshot(marketData, timestamp) {
     await loadHistory();
-    if (timestamp && timestamp === store.last) return false;
-    const hour = Math.floor(Date.now() / HOUR_MS);
-    // Every +level that has an ask or a bid is an item of its own.
-    const entries = [];
-    for (const [hrid, levels] of Object.entries(marketData)) {
-        for (const [level, entry] of Object.entries(levels || {})) {
-            if (!(entry?.a > 0) && !(entry?.b > 0) && !(entry?.v > 0) && level !== "0") continue;
-            const key = historyKey(hrid, Number(level));
-            if (!store.index.has(key)) {
-                store.index.set(key, store.items.length);
-                store.items.push(key);
-            }
-            entries.push([store.index.get(key), entry]);
-        }
-    }
+    return serially(async () => {
+        if (timestamp && timestamp === store.last) return false;
+        const stamped = Math.abs(timestamp * 1000 - Date.now()) < 3 * HOUR_MS;
+        const hour = Math.floor((stamped ? timestamp * 1000 : Date.now()) / HOUR_MS);
+        if (store.pi?.hour >= hour) return false;
+        const record = snapshotRecord(marketData, hour, store.items, store.index);
+        await commit([record], [], { last: timestamp ?? null });
+        store.last = timestamp ?? null;
+        return true;
+    });
+}
+
+// Adds what the Pi sent (see pi/history-store.mjs): its hours and days win
+// over ours where both have one, ours fill in the rest. Its items are mapped
+// onto ours by name. Returns how many hours and days came in.
+export async function mergeFromPi(wire, unpack) {
+    await loadHistory();
+    return serially(async () => {
+        let pi = store.pi && store.pi.epoch === wire.epoch ? { ...store.pi, items: [...store.pi.items] } : { epoch: wire.epoch, items: [], hour: null, day: null };
+        if (wire.itemsFrom !== pi.items.length) throw new Error("the Pi's item list is out of step; it is read again next time");
+        if (!wire.items.length && !wire.hours.length && !wire.days.length && store.pi) return { hours: 0, days: 0 };
+        pi.items.push(...wire.items);
+        const map = itemMap(pi.items, store.items, store.index);
+        const count = store.items.length;
+        const hours = decodeRecords(wire.hours.map(unpack), HOURLY_FIELDS).map((r) => remapRecord(r, map, count, HOURLY_FIELDS));
+        const days = decodeRecords(wire.days.map(unpack), DAILY_FIELDS).map((d) => remapRecord(d, map, count, DAILY_FIELDS));
+        for (const r of hours) pi.hour = Math.max(pi.hour ?? -Infinity, r.hour);
+        for (const d of days) pi.day = Math.max(pi.day ?? -Infinity, d.day);
+        await commit(hours, days, { pi });
+        store.pi = pi;
+        return { hours: hours.length, days: days.length };
+    }).catch((error) => {
+        // Read everything again next time rather than stay stuck.
+        if (/out of step/.test(error.message)) store.pi = null;
+        throw error;
+    });
+}
+
+// What the Pi has sent so far (for the next request), or null.
+export const piReceived = () => store.pi && { epoch: store.pi.epoch, items: store.pi.items.length, hour: store.pi.hour, day: store.pi.day };
+
+const serially = (job) => (store.queue = store.queue.then(job, job));
+
+// Puts hourly and daily records into the store and the database: each replaces
+// one of the same hour or day, a day also replaces the hours of that day. Then
+// whole days older than two weeks become daily points, as always.
+async function commit(newHours, newDays, meta) {
     const count = store.items.length;
-    const record = { hour, a: new Float32Array(count).fill(NaN), b: new Float32Array(count).fill(NaN), p: new Float32Array(count).fill(NaN), v: new Float32Array(count).fill(NaN), sold: true };
-    for (const [i, entry] of entries) {
-        if (entry?.a > 0) record.a[i] = entry.a;
-        if (entry?.b > 0) record.b[i] = entry.b;
-        if (entry?.p > 0) record.p[i] = entry.p;
-        if (entry?.v > 0) record.v[i] = entry.v;
+    const dayKeys = new Set(newDays.map((d) => d.day));
+    const hourKeys = new Set(newHours.map((r) => r.hour));
+    const removed = store.hours.filter((r) => hourKeys.has(r.hour) || dayKeys.has(dayOf(r)));
+    store.hours = [...store.hours.filter((r) => !removed.includes(r)), ...newHours].sort((x, y) => x.hour - y.hour);
+    const gone = removed.filter((r) => !hourKeys.has(r.hour)).map((r) => r.hour);
+    // Stored as the change from the hour before; the hour after a new or removed one is written again.
+    const dirtyHours = new Set(hourKeys);
+    for (const hour of gone) {
+        const next = store.hours.find((r) => r.hour > hour);
+        if (next) dirtyHours.add(next.hour);
     }
-    // The newest point of an hour wins.
-    store.hours = store.hours.filter((r) => r.hour !== hour);
-    store.hours.push(record);
-    store.hours.sort((x, y) => x.hour - y.hour);
-    // Stored as the change from the hour before; the hour after (if any) then changes from this one.
-    const pos = store.hours.indexOf(record);
-    const writes = [encodeRecord(record, store.hours[pos - 1] || null, HOURLY_FIELDS, dayOf)];
-    if (store.hours[pos + 1]) writes.push(encodeRecord(store.hours[pos + 1], record, HOURLY_FIELDS, dayOf));
 
     // Whole days older than two weeks become daily points.
-    const newest = store.hours[store.hours.length - 1].hour;
-    const cutoffDay = Math.floor((newest - HOURLY_DAYS * 24) / 24);
-    const old = store.hours.filter((r) => Math.floor(r.hour / 24) < cutoffDay);
-    const rolled = old.length ? rollUpDays(old, count) : [];
-    store.hours = store.hours.filter((r) => Math.floor(r.hour / 24) >= cutoffDay);
-    // Each new day as the change from the day before it (whole weeks are deleted, so a week's first day is a key record).
-    const dayWrites = [];
-    let previousDay = store.days[store.days.length - 1] || null;
-    for (const d of rolled) {
-        dayWrites.push(encodeRecord(d, previousDay && previousDay.day < d.day ? previousDay : null, DAILY_FIELDS, weekOf));
-        previousDay = d;
-    }
-    store.days = [...store.days, ...rolled].filter((d) => d.day >= Math.floor(newest / 24) - 31).sort((x, y) => x.day - y.day);
-    if (store.allDays) store.allDays = [...store.allDays, ...rolled].sort((x, y) => x.day - y.day);
+    const newest = store.hours.length ? store.hours[store.hours.length - 1].hour : null;
+    const cutoffDay = newest === null ? -Infinity : Math.floor((newest - HOURLY_DAYS * 24) / 24);
+    const old = store.hours.filter((r) => dayOf(r) < cutoffDay);
+    store.hours = store.hours.filter((r) => dayOf(r) >= cutoffDay);
+    // Hours that come late for a day already summed up here (from a Pi that was behind) leave that day as it is.
+    const summed = new Set([...store.days, ...(store.allDays || [])].map((d) => d.day));
+    const rollable = old.filter((r) => !summed.has(dayOf(r)));
+    const changedDays = [...newDays, ...(rollable.length ? rollUpDays(rollable, count) : [])];
+    const changedDayKeys = new Set(changedDays.map((d) => d.day));
+    const hourWrites = encodeChanged(store.hours, dirtyHours, "hour", HOURLY_FIELDS, dayOf);
+
+    // Each changed day as the change from the day before it (whole weeks are deleted, so a week's first day is a key record).
+    // A day before the ones kept in memory needs them all, to write the day after it again.
+    const windowStart = store.days.length ? store.days[0].day : Infinity;
+    if (changedDays.some((d) => d.day < windowStart)) await loadAllDays();
+    const replaceDays = (list) => [...list.filter((d) => !changedDayKeys.has(d.day)), ...changedDays].sort((x, y) => x.day - y.day);
+    const dayList = changedDays.some((d) => d.day < windowStart) ? (store.allDays = replaceDays(store.allDays)) : (store.days = replaceDays(store.days));
+    if (dayList === store.days && store.allDays) store.allDays = replaceDays(store.allDays);
+    const dayWrites = encodeChanged(dayList, changedDayKeys, "day", DAILY_FIELDS, weekOf);
+    const newestDay = newest === null ? Math.max(-Infinity, ...dayList.map((d) => d.day)) : Math.floor(newest / 24);
+    store.days = (store.allDays || dayList).filter((d) => d.day >= newestDay - 31);
 
     const tx = store.db.transaction([HOURLY, DAILY, META], "readwrite");
-    for (const w of writes) if (Math.floor(w.hour / 24) >= cutoffDay) tx.objectStore(HOURLY).put(w);
+    for (const hour of gone) tx.objectStore(HOURLY).delete(hour);
     for (const r of old) tx.objectStore(HOURLY).delete(r.hour);
+    for (const w of hourWrites) tx.objectStore(HOURLY).put(w);
     for (const d of dayWrites) tx.objectStore(DAILY).put(d);
-    tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor((Math.floor(newest / 24) - DAILY_DAYS) / 7) * 7, true));
+    if (Number.isFinite(newestDay)) tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor((newestDay - DAILY_DAYS) / 7) * 7, true));
     tx.objectStore(META).put(store.items, "items");
-    tx.objectStore(META).put(timestamp ?? null, "last");
+    for (const [key, value] of Object.entries(meta)) tx.objectStore(META).put(value, key);
     await done(tx);
-    store.last = timestamp ?? null;
     store.version++;
     store.summaries.clear();
-    return true;
 }
 
 // Bumps when new prices are recorded (for caches that depend on the history).

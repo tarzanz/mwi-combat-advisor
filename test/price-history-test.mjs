@@ -1,8 +1,9 @@
 // Checks the price-history maths without a browser: medians, daily roll-up,
 // the usual price and trend of an item, and how a price compares with it.
 // Usage: node test/price-history-test.mjs
-import { DAILY_FIELDS, HOURLY_FIELDS, decodeRecords, encodeRecord, historyCsv, historyKey, median, rollUpDays, soldPerDay, summarize, versusUsual, trendArrow, MIN_HOURS } from "../src/price-history.js";
+import { DAILY_FIELDS, HOURLY_FIELDS, dayOf, decodeRecords, encodeChanged, encodeRecord, historyCsv, itemMap, remapRecord, snapshotRecord, historyKey, median, rollUpDays, soldPerDay, summarize, versusUsual, trendArrow, MIN_HOURS } from "../src/price-history.js";
 import { swingShare } from "../src/skilling.js";
+import { packRecord, unpackRecord } from "../src/history-wire.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
@@ -142,6 +143,34 @@ check("nothing sold reads as 0 a day, no numbers as unknown", soldPerDay(20, raw
 const day2 = daysRaw.find((d) => d.vn[0] > 0);
 check("days keep the mean sold per hour", !!day2 && day2.vn[0] === 24 && day2.v[0] > 0 && daysRaw[0].vn[0] === 0, day2 ? `${day2.v[0]} ${day2.vn[0]}` : "none");
 check("a +level has its own name", historyKey("/items/rainbow_pot", 2) === "/items/rainbow_pot+2" && historyKey("/items/rainbow_pot", 0) === "/items/rainbow_pot");
+
+// A market file as a record: each +level with an ask, bid or sales is an item; new ones are added.
+const snapItems = ["/items/b"];
+const snapIndex = new Map([["/items/b", 0]]);
+const snap = snapshotRecord({ "/items/a": { 0: { a: 10, b: -1, p: 9, v: 4 }, 2: { a: -1, b: -1 }, 3: { a: 50, b: 40 } }, "/items/b": { 0: { a: -1, b: 5 } } }, 7, snapItems, snapIndex);
+check("a market file as a record", JSON.stringify(snapItems) === JSON.stringify(["/items/b", "/items/a", "/items/a+3"]) && snap.hour === 7 && snap.sold && snap.a[1] === 10 && Number.isNaN(snap.b[1]) && snap.v[1] === 4 && snap.p[1] === 9 && Number.isNaN(snap.a[0]) && snap.b[0] === 5 && snap.a[2] === 50, JSON.stringify(snapItems));
+
+// Written again: what changed and the record after it, so the stored changes still read back.
+const changedHours = raw.slice(0, 30).map((r) => ({ ...r }));
+const storedHours = new Map(changedHours.map((r, k) => [r.hour, encodeRecord(r, changedHours[k - 1] || null, HOURLY_FIELDS, dayOf)]));
+changedHours[10] = { ...changedHours[10], a: changedHours[10].a.map((v) => v + 1) };
+changedHours.splice(20, 1);
+storedHours.delete(raw[20].hour);
+const rewrites = encodeChanged(changedHours, new Set([raw[10].hour, raw[21].hour]), "hour", HOURLY_FIELDS, dayOf);
+for (const w of rewrites) storedHours.set(w.hour, w);
+check("changed records and the ones after them are written again", rewrites.map((w) => w.hour).join() === [10, 11, 21, 22].map((k) => raw[k].hour).join() && sameRecords(decodeRecords([...storedHours.values()].sort((x, y) => x.hour - y.hour), HOURLY_FIELDS), changedHours, HOURLY_FIELDS), rewrites.map((w) => w.hour).join());
+
+// Another store's items mapped onto ours by name.
+const ourItems = ["/items/x", "/items/y"];
+const ourIndex = new Map([["/items/x", 0], ["/items/y", 1]]);
+const map = itemMap(["/items/y", "/items/z"], ourItems, ourIndex);
+const moved = remapRecord({ hour: 3, sold: true, a: new Float32Array([5, 6]), b: new Float32Array([NaN, 2]) }, map, ourItems.length, HOURLY_FIELDS);
+check("records over another item order", JSON.stringify(map) === "[1,2]" && ourItems[2] === "/items/z" && Number.isNaN(moved.a[0]) && moved.a[1] === 5 && moved.a[2] === 6 && moved.b[2] === 2 && Number.isNaN(moved.v[1]) && moved.sold && moved.hour === 3);
+
+// As JSON and back, NaN and all.
+const wired = encodeRecord(raw[30], raw[29], HOURLY_FIELDS, dayOf);
+const back = unpackRecord(JSON.parse(JSON.stringify(packRecord(wired))));
+check("records as JSON and back", back.idx instanceof wired.idx.constructor && sameArrays(back.idx, wired.idx) && HOURLY_FIELDS.every((f) => sameArrays(back[f], wired[f])) && back.key === wired.key && back.count === wired.count && back.hour === wired.hour);
 
 console.log(failures ? `${failures} check(s) failed` : "All checks passed");
 process.exit(failures ? 1 : 0);

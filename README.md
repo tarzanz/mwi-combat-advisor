@@ -192,6 +192,14 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   **⬇ Export all prices** in the box prepares every stored price as one CSV (hourly rows only where an item's price
   changed, daily rows with low/high, and per day how many sold an hour and at what price – for the last two weeks
   too, in rows of their own), then **Download CSV** or **📋 Copy** – to read in a spreadsheet or hand to an AI.
+- **Your own Pi** (optional) – a small server in `pi/` (Docker, e.g. on a Raspberry Pi behind a Cloudflare Tunnel)
+  collects the market file around the clock and keeps every one of them as a backup. Each device is linked once by
+  opening the link it prints (`…milkywayidle.com/#mwia-pi=…`, a QR code on the phone); from then on the device reads
+  the hours it lacks every 15 minutes (the first time a few MB, then about 25 kB an hour). Its hours replace the ones
+  the device saved, the device's fill in where it has none – so the device simply goes on saving prices while the Pi
+  is down. The key stays on the Pi and in the browser's storage for the game's site, never in the repository; the
+  Pi only answers the game's sites with the key, and nothing can be written to it. The price box says where the
+  prices come from, with **Read the Pi now** and **Unlink the Pi**. Setup: [pi/README.md](pi/README.md).
 - **Listing prices** – the game's *Sell Listing* and *Buy Listing* windows get price buttons under the price box:
   **Match** (the best offer now), **Wall** (one price step in front of the first level in the order book holding a
   fifth of everything others offer within the tradable range – passing the small undercuts, staying in front of the
@@ -271,6 +279,8 @@ node test/price-history-test.mjs                          # price-history maths 
 node test/leveling-test.mjs                               # Enhancing and Alchemy rules in Node
 node test/market-test.mjs                                 # Market tab rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
+node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
+node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, Pi down, unlink
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox
 ```

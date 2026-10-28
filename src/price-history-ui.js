@@ -4,6 +4,7 @@
 import { loadPrices, marketEntry, onPricesLoaded } from "./game-data.js";
 import { COLLECT_EVERY_MS, MIN_DAYS, MIN_HOURS, exportHistory, longMedians, loadHistory, priceSeries, priceSummary, recordSnapshot, trendArrow, versusUsual } from "./price-history.js";
 import { esc, shortCoins } from "./format.js";
+import { onPiSync, piConfig, piStatus, startPiSync, syncNow, unlinkPi } from "./pi-sync.js";
 import { visible } from "./game-nav.js";
 
 const CURRENT_ITEM = '[class*="MarketplacePanel_currentItem"]';
@@ -35,6 +36,12 @@ export function startPriceHistory(win) {
             })
             .catch((error) => console.warn("[MWI Advisor] price history", error));
     });
+    // Linked to a Pi: its hours come in as well, and replace the ones collected here.
+    onPiSync((added) => {
+        scheduleScan(true);
+        if (added) for (const listener of h.listeners) listener();
+    });
+    startPiSync();
     loadHistory().catch((error) => console.warn("[MWI Advisor] price history", error));
     const collect = () => loadPrices(true).catch(() => {});
     setTimeout(collect, FIRST_COLLECT_MS);
@@ -92,7 +99,7 @@ async function scan() {
     });
     if (!current) return;
     let box = document.querySelector(".mwia-history");
-    const key = `${current.itemHrid}+${current.level}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}`;
+    const key = `${current.itemHrid}+${current.level}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}|${JSON.stringify(piConfig() && piStatus())}`;
     if (box && box.dataset.version === key) return;
     if (!box) {
         box = document.createElement("div");
@@ -146,7 +153,28 @@ async function onExport(kind) {
     scheduleScan(true);
 }
 
+// Where the prices come from: this device, or the linked Pi (with this device filling in).
+function sourceHtml() {
+    if (!piConfig()) return `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+    const st = piStatus();
+    const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const text =
+        st.ok === null ? "Linked to your Pi; reading it…"
+        : st.ok ? `From your Pi: newest prices ${st.newest ? time(st.newest) : "none yet"}, read ${time(st.at)}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}`
+        : `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
+    return `<div class="mwia-history-note">${esc(text)}</div>
+        <div class="mwia-history-ranges"><button data-history-pi="sync">↻ Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
+}
+
 function onClick(event) {
+    const piButton = event.target.closest?.(".mwia-history [data-history-pi]");
+    if (piButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (piButton.dataset.historyPi === "unlink") unlinkPi();
+        else syncNow();
+        return;
+    }
     const exportButton = event.target.closest?.(".mwia-history [data-history-export]");
     if (exportButton) {
         event.preventDefault();
@@ -169,7 +197,7 @@ async function historyHtml(itemHrid, level = 0) {
     const summary = priceSummary(itemHrid, level);
     const entry = marketEntry(itemHrid, level);
     const head = (text) => `<div class="mwia-history-head"><b>📈 Usual price${level ? ` <span class="mwia-enh">+${level}</span>` : ""}</b> <span>${text}</span></div>`;
-    const saved = `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+    const saved = sourceHtml();
     const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${exportHtml()}</details>`;
     if (!summary || summary.hours7 < PRELIMINARY_HOURS) {
         return head(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + more("Export", saved);
@@ -220,6 +248,8 @@ function readyText(summary) {
 // hours of prices, spread over at least two days.
 function progressText(summary) {
     const hoursLeft = Math.max(0, MIN_HOURS - summary.hours7);
+    // A linked Pi collects around the clock.
+    const open = piConfig() ? "" : " with the game open";
     const daysLeft = Math.max(0, MIN_DAYS - summary.spanDays);
     const parts = [
         hoursLeft ? `${summary.hours7} of ${MIN_HOURS} h` : `${MIN_HOURS} h ✓`,
@@ -227,9 +257,9 @@ function progressText(summary) {
     ];
     if (daysLeft) {
         const wait = daysLeft * 24;
-        parts.push(`ready in about ${wait < 20 ? Math.max(1, Math.round(wait)) + " h" : Math.round(daysLeft * 10) / 10 + " day" + (daysLeft > 1.05 ? "s" : "")}${hoursLeft ? ` and ${hoursLeft} more h with the game open` : ""}`);
+        parts.push(`ready in about ${wait < 20 ? Math.max(1, Math.round(wait)) + " h" : Math.round(daysLeft * 10) / 10 + " day" + (daysLeft > 1.05 ? "s" : "")}${hoursLeft ? ` and ${hoursLeft} more h${open}` : ""}`);
     } else if (hoursLeft) {
-        parts.push(`${hoursLeft} more h with the game open`);
+        parts.push(`${hoursLeft} more h${open}`);
     }
     return parts.join(" · ");
 }
