@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Combat Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.33.2
+// @version      0.33.3
 // @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1456,6 +1456,8 @@
 polyline.mwia-history-ask { stroke: #f2a65b; }
 polyline.mwia-history-bid { stroke: #7ee2b0; }
 .mwia-history-scale { display: flex; justify-content: space-between; }
+.mwia-history-plot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 6px; }
+.mwia-history-y { flex-direction: column; text-align: right; }
 .mwia-history-ranges { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .mwia-history-ranges button { background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 2px 8px; font: 11px sans-serif; cursor: pointer; }
 .mwia-history-ranges button.mwia-active { background: #4c5bd4; }
@@ -4193,7 +4195,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const node = [...document.querySelectorAll(CURRENT_ITEM)].find(visible);
     const href = node?.querySelector("svg use")?.getAttribute("href") || node?.querySelector("svg use")?.getAttribute("xlink:href") || "";
     const id = href.split("#")[1];
-    return node && id ? { node, itemHrid: "/items/" + id } : null;
+    if (!node || !id) return null;
+    const badge = [...node.querySelectorAll("*")].find((el) => !el.children.length && /^\+\d{1,2}$/.test(el.textContent.trim()));
+    return { node, itemHrid: "/items/" + id, level: badge ? Number(badge.textContent.trim().slice(1)) : 0 };
   }
   function fullWidthRow(node) {
     const panel = node.closest('[class*="MarketplacePanel_marketplacePanel"]') || document.body;
@@ -4205,20 +4209,20 @@ i.mwia-history-bid { background: #7ee2b0; }
   async function scan() {
     const current = currentItem();
     document.querySelectorAll(".mwia-history").forEach((box2) => {
-      if (!current || box2.dataset.item !== current.itemHrid || !document.contains(box2)) box2.remove();
+      if (!current || box2.dataset.item !== `${current.itemHrid}+${current.level}` || !document.contains(box2)) box2.remove();
     });
     if (!current) return;
     let box = document.querySelector(".mwia-history");
-    const key = `${current.itemHrid}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}`;
+    const key = `${current.itemHrid}+${current.level}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}`;
     if (box && box.dataset.version === key) return;
     if (!box) {
       box = document.createElement("div");
       box.className = "mwia-history";
       fullWidthRow(current.node).insertAdjacentElement("beforebegin", box);
     }
-    box.dataset.item = current.itemHrid;
+    box.dataset.item = `${current.itemHrid}+${current.level}`;
     box.dataset.version = key;
-    box.innerHTML = await historyHtml(current.itemHrid);
+    box.innerHTML = await historyHtml(current.itemHrid, current.level);
   }
   function exportHtml() {
     const e = h.exported;
@@ -4271,11 +4275,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     h.range = Number(button.dataset.range);
     scheduleScan(true);
   }
-  async function historyHtml(itemHrid) {
+  async function historyHtml(itemHrid, level = 0) {
     await loadHistory();
-    const summary = priceSummary(itemHrid);
-    const entry = marketEntry(itemHrid);
-    const head2 = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price</b> <span>${text}</span></div>`;
+    const summary = priceSummary(itemHrid, level);
+    const entry = marketEntry(itemHrid, level);
+    const head2 = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price${level ? ` <span class="mwia-enh">+${level}</span>` : ""}</b> <span>${text}</span></div>`;
     const saved = `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
     const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${exportHtml()}</details>`;
     if (!summary || summary.hours7 < PRELIMINARY_HOURS) {
@@ -4294,8 +4298,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     const brief = (label, now, side) => `${label} <b>${now > 0 ? shortCoins(now) : "\u2013"}</b> ${versusText(now, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
     const swing = summary.a.swing ?? summary.b.swing;
     const line = `<div class="mwia-history-sum">${brief("Ask", askNow, summary.a)} \xB7 ${brief("Bid", bidNow, summary.b)}${swing !== null ? ` \xB7 <span title="Half of the week's prices lie within this share of the 7-day median">swings \xB1${Math.round(swing * 100)}%</span>` : ""}</div>`;
-    const points = h.open ? await priceSeries(itemHrid, h.range) : [];
-    const long = h.open && h.range > 31 ? await longMedians(itemHrid) : null;
+    const points = h.open ? await priceSeries(itemHrid, h.range, level) : [];
+    const long = h.open && h.range > 31 ? await longMedians(itemHrid, level) : null;
     const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "\u2013"}, bid ${long.b90 ? shortCoins(long.b90) : "\u2013"} \xB7 1 year: ask ${long.a365 ? shortCoins(long.a365) : "\u2013"}, bid ${long.b365 ? shortCoins(long.b365) : "\u2013"} (${long.days} days of data)</div>` : "";
     const preliminary = !summary.enough;
     return (preliminary ? head2(`<b class="mwia-history-prelim">preliminary</b> \xB7 ${readyText(summary)}`) : head2(`7-day median \xB7 ${summary.spanDays.toFixed(0)} days of data`)) + line + more(
@@ -4323,6 +4327,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return parts.join(" \xB7 ");
   }
+  var dateText = (t4) => new Date(t4 * 3600 * 1e3).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   function chartSvg(points) {
     if (points.length < 2) return "";
     const W = 300;
@@ -4338,8 +4343,10 @@ i.mwia-history-bid { background: #7ee2b0; }
       const path = points.filter((p) => Number.isFinite(p[key])).map((p) => `${x(p.t).toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
       return path ? `<polyline class="${cls}" points="${path}"/>` : "";
     };
-    return `<svg class="mwia-history-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${line("b", "mwia-history-bid")}${line("a", "mwia-history-ask")}</svg>
-        <div class="mwia-history-scale"><span>${esc(shortCoins(low))}</span><span>${esc(shortCoins(high))}</span></div>`;
+    const t1 = points[points.length - 1].t;
+    return `<div class="mwia-history-plot"><div class="mwia-history-scale mwia-history-y"><span>${esc(shortCoins(high))}</span><span>${esc(shortCoins(low))}</span></div>
+        <svg class="mwia-history-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${line("b", "mwia-history-bid")}${line("a", "mwia-history-ask")}</svg>
+        <span></span><div class="mwia-history-scale mwia-history-x"><span>${dateText(t0)}</span><span>${dateText((t0 + t1) / 2)}</span><span>${dateText(t1)}</span></div></div>`;
   }
 
   // src/consumable-guide.js

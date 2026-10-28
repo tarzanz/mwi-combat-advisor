@@ -26,6 +26,8 @@ character.characterSkills.push({ skillHrid: "/skills/tailoring", level: 20, expe
 const ITEM = "/items/linen_boots";
 const marketData = {};
 for (const item of Object.values(clientData.itemDetailMap)) marketData[item.hrid] = { 0: { a: 3 * (item.sellPrice || 1), b: item.sellPrice || 1 } };
+// Linen Boots +3 has its own market and history.
+marketData[ITEM][3] = { a: 9500, b: 8000 };
 const askNow = marketData[ITEM][0].a;
 const usualAsk = Math.round(askNow / 1.3);
 const usualBid = marketData[ITEM][0].b;
@@ -93,10 +95,10 @@ try {
         let n = 0;
         // Linen Gloves: only the last 18 hours, every hour – enough hours, too few days.
         for (let age = 10 * 24; age >= 0; age -= age < 18 ? 1 : 2) {
-            tx.objectStore("hourly").put({ hour: nowHour - age, a: new Float32Array([usualAsk, age < 18 ? 500 : NaN]), b: new Float32Array([usualBid, age < 18 ? 400 : NaN]) });
+            tx.objectStore("hourly").put({ hour: nowHour - age, a: new Float32Array([usualAsk, age < 18 ? 500 : NaN, 9000]), b: new Float32Array([usualBid, age < 18 ? 400 : NaN, 8000]) });
             n++;
         }
-        tx.objectStore("meta").put([item, "/items/linen_gloves"], "items");
+        tx.objectStore("meta").put([item, "/items/linen_gloves", item + "+3"], "items");
         await new Promise((r) => (tx.oncomplete = r));
         db.close();
         return n;
@@ -163,6 +165,9 @@ try {
     await page.click(".mwia-history-more summary");
     await page.waitForFunction(() => document.querySelectorAll(".mwia-history polyline").length === 2, { timeout: 4000 }).catch(() => null);
     check("marketplace chart drawn when unfolded", await page.$$eval(".mwia-history polyline", (lines) => lines.length === 2) && await page.$eval(".mwia-history details", (d) => d.open));
+    // Axes: the highest price at the top and the lowest at the bottom, dates along the bottom.
+    const axes = await page.$eval(".mwia-history", (n) => ({ y: [...n.querySelectorAll(".mwia-history-y span")].map((s) => s.textContent), x: [...n.querySelectorAll(".mwia-history-x span")].map((s) => s.textContent), yTop: n.querySelector(".mwia-history-y span")?.getBoundingClientRect().top, yBottom: n.querySelector(".mwia-history-y span:last-child")?.getBoundingClientRect().top }));
+    check("chart: prices up the side, dates along the bottom", axes.y[0] === shortCoins(askNow) && axes.y[1] === shortCoins(usualBid) && axes.yTop < axes.yBottom && axes.x.length === 3 && axes.x.every((d) => /^[A-Z][a-z]{2} \d{1,2}$/.test(d)), JSON.stringify(axes));
     await page.screenshot({ path: path.join(shotDir, "history-1-market.png") });
     // Export: prepare, then copy the CSV.
     await browser.defaultBrowserContext().overridePermissions(url, ["clipboard-read", "clipboard-write", "clipboard-sanitized-write"]).catch(() => null);
@@ -177,6 +182,14 @@ try {
     await page.click('.mwia-history [data-range="365"]');
     await new Promise((r) => setTimeout(r, 600));
     check("1-year view", await page.$eval('.mwia-history [data-range="365"]', (b) => b.classList.contains("mwia-active")));
+
+    // A +level: its own prices and history, from the "+3" on the icon.
+    await page.evaluate(() => {
+        document.querySelector('[class*="MarketplacePanel_currentItem"]').innerHTML = '<svg><use href="/sprites/items.svg#linen_boots"></use></svg><div><span>+3</span></div><span>2084</span>';
+    });
+    await page.waitForFunction(() => /\+3/.test(document.querySelector(".mwia-history-head")?.textContent || ""), { timeout: 4000 }).catch(() => null);
+    const plus = await page.$eval(".mwia-history", (n) => ({ head: n.querySelector(".mwia-history-head")?.textContent.replace(/\s+/g, " "), sum: n.querySelector(".mwia-history-sum")?.textContent.replace(/\s+/g, " ").trim() })).catch(() => ({}));
+    check("a +level shows its own prices", /Usual price \+3/.test(plus.head || "") && plus.sum?.startsWith(`Ask ${shortCoins(9500)} +6% usual`) && plus.sum.includes(`Bid ${shortCoins(8000)} +0% usual`), JSON.stringify(plus));
 
     // An item with enough hours but not two days shows preliminary numbers.
     await page.evaluate(() => {

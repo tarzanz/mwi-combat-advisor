@@ -149,10 +149,10 @@ buy, by simulating *your own* character.
   of an item on its own (one point per hour for two weeks, then one per day for a year; in the browser's IndexedDB, on
   that device only, keeping only what changed since the point before, so prices that stand still take no room), and how
   many of each sold that hour and at what average price, as the market file says. In the game's
-  marketplace a box under the open item shows one summary line – ask and bid now against their usual price, trend and
+  marketplace a box under the open item (at the +level on its icon) shows one summary line – ask and bid now against their usual price, trend and
   typical swing – and folds open (*Chart and details*) to the price now against its usual price – the median of the last 7 and 30
   days, so one odd listing hardly moves it – with ±%, a trend arrow (this week's median against last week's) and a
-  chart of ask and bid for 30 days or a year (plus 90-day and 1-year medians). The Skilling tab warns when a product
+  chart of ask and bid for 30 days or a year (prices up the side, dates along the bottom) (plus 90-day and 1-year medians). The Skilling tab warns when a product
   sells more than 10% above or below its usual price, or a material costs more than 10% above it. Until an item has
   12 hours over 2 days of data the box says how far it has come and roughly when it is ready; from 2 hours on it
   already shows its numbers, marked *preliminary* (the Skilling tab warns only once both are reached). Prices that

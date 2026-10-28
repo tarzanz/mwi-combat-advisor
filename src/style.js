@@ -141,6 +141,8 @@ export const CSS = `
 polyline.mwia-history-ask { stroke: #f2a65b; }
 polyline.mwia-history-bid { stroke: #7ee2b0; }
 .mwia-history-scale { display: flex; justify-content: space-between; }
+.mwia-history-plot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 6px; }
+.mwia-history-y { flex-direction: column; text-align: right; }
 .mwia-history-ranges { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .mwia-history-ranges button { background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 2px 8px; font: 11px sans-serif; cursor: pointer; }
 .mwia-history-ranges button.mwia-active { background: #4c5bd4; }

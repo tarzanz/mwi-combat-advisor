@@ -64,12 +64,15 @@ function scheduleScan(force = false) {
     }, SCAN_MS);
 }
 
-// The item open in the marketplace, from its icon (…#cedar_water_staff).
+// The item open in the marketplace, from its icon (…#cedar_water_staff), and
+// its +level from the "+6" on the icon (none: +0).
 function currentItem() {
     const node = [...document.querySelectorAll(CURRENT_ITEM)].find(visible);
     const href = node?.querySelector("svg use")?.getAttribute("href") || node?.querySelector("svg use")?.getAttribute("xlink:href") || "";
     const id = href.split("#")[1];
-    return node && id ? { node, itemHrid: "/items/" + id } : null;
+    if (!node || !id) return null;
+    const badge = [...node.querySelectorAll("*")].find((el) => !el.children.length && /^\+\d{1,2}$/.test(el.textContent.trim()));
+    return { node, itemHrid: "/items/" + id, level: badge ? Number(badge.textContent.trim().slice(1)) : 0 };
 }
 
 // The item's icon sits in a row with the buy/sell buttons; the box goes above
@@ -85,20 +88,20 @@ function fullWidthRow(node) {
 async function scan() {
     const current = currentItem();
     document.querySelectorAll(".mwia-history").forEach((box) => {
-        if (!current || box.dataset.item !== current.itemHrid || !document.contains(box)) box.remove();
+        if (!current || box.dataset.item !== `${current.itemHrid}+${current.level}` || !document.contains(box)) box.remove();
     });
     if (!current) return;
     let box = document.querySelector(".mwia-history");
-    const key = `${current.itemHrid}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}`;
+    const key = `${current.itemHrid}+${current.level}|${h.range}|${h.open}|${h.exported ? "ready" : ""}|${h.status}`;
     if (box && box.dataset.version === key) return;
     if (!box) {
         box = document.createElement("div");
         box.className = "mwia-history";
         fullWidthRow(current.node).insertAdjacentElement("beforebegin", box);
     }
-    box.dataset.item = current.itemHrid;
+    box.dataset.item = `${current.itemHrid}+${current.level}`;
     box.dataset.version = key;
-    box.innerHTML = await historyHtml(current.itemHrid);
+    box.innerHTML = await historyHtml(current.itemHrid, current.level);
 }
 
 // Export: one tap prepares the CSV, then Download and Copy act on it at once
@@ -160,11 +163,12 @@ function onClick(event) {
 }
 
 // The box: a one-line summary, with the table, chart and export folded under it.
-async function historyHtml(itemHrid) {
+// Each +level has its own prices, saved since +levels were added to the history.
+async function historyHtml(itemHrid, level = 0) {
     await loadHistory();
-    const summary = priceSummary(itemHrid);
-    const entry = marketEntry(itemHrid);
-    const head = (text) => `<div class="mwia-history-head"><b>📈 Usual price</b> <span>${text}</span></div>`;
+    const summary = priceSummary(itemHrid, level);
+    const entry = marketEntry(itemHrid, level);
+    const head = (text) => `<div class="mwia-history-head"><b>📈 Usual price${level ? ` <span class="mwia-enh">+${level}</span>` : ""}</b> <span>${text}</span></div>`;
     const saved = `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
     const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${exportHtml()}</details>`;
     if (!summary || summary.hours7 < PRELIMINARY_HOURS) {
@@ -184,8 +188,8 @@ async function historyHtml(itemHrid) {
     const brief = (label, now, side) => `${label} <b>${now > 0 ? shortCoins(now) : "–"}</b> ${versusText(now, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
     const swing = summary.a.swing ?? summary.b.swing;
     const line = `<div class="mwia-history-sum">${brief("Ask", askNow, summary.a)} · ${brief("Bid", bidNow, summary.b)}${swing !== null ? ` · <span title="Half of the week's prices lie within this share of the 7-day median">swings ±${Math.round(swing * 100)}%</span>` : ""}</div>`;
-    const points = h.open ? await priceSeries(itemHrid, h.range) : [];
-    const long = h.open && h.range > 31 ? await longMedians(itemHrid) : null;
+    const points = h.open ? await priceSeries(itemHrid, h.range, level) : [];
+    const long = h.open && h.range > 31 ? await longMedians(itemHrid, level) : null;
     const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "–"}, bid ${long.b90 ? shortCoins(long.b90) : "–"} · 1 year: ask ${long.a365 ? shortCoins(long.a365) : "–"}, bid ${long.b365 ? shortCoins(long.b365) : "–"} (${long.days} days of data)</div>` : "";
     const preliminary = !summary.enough;
     return (
@@ -230,7 +234,9 @@ function progressText(summary) {
     return parts.join(" · ");
 }
 
-// Two lines, ask and bid, scaled together.
+// Two lines, ask and bid, scaled together: prices up the side (highest at the
+// top, lowest at the bottom), dates along the bottom.
+const dateText = (t) => new Date(t * 3600 * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 function chartSvg(points) {
     if (points.length < 2) return "";
     const W = 300;
@@ -246,6 +252,8 @@ function chartSvg(points) {
         const path = points.filter((p) => Number.isFinite(p[key])).map((p) => `${x(p.t).toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
         return path ? `<polyline class="${cls}" points="${path}"/>` : "";
     };
-    return `<svg class="mwia-history-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${line("b", "mwia-history-bid")}${line("a", "mwia-history-ask")}</svg>
-        <div class="mwia-history-scale"><span>${esc(shortCoins(low))}</span><span>${esc(shortCoins(high))}</span></div>`;
+    const t1 = points[points.length - 1].t;
+    return `<div class="mwia-history-plot"><div class="mwia-history-scale mwia-history-y"><span>${esc(shortCoins(high))}</span><span>${esc(shortCoins(low))}</span></div>
+        <svg class="mwia-history-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${line("b", "mwia-history-bid")}${line("a", "mwia-history-ask")}</svg>
+        <span></span><div class="mwia-history-scale mwia-history-x"><span>${dateText(t0)}</span><span>${dateText((t0 + t1) / 2)}</span><span>${dateText(t1)}</span></div></div>`;
 }
