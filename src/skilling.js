@@ -750,10 +750,12 @@ function shortlist(candidates, keep = () => false) {
 }
 
 // The Skilling tab: what the character can do now, ranked by gold, and what unlocks soon.
-// Enhancing and Alchemy are listed only when picked. leveling: { resale(hrid, level), owned(hrid) }.
+// Enhancing and Alchemy are listed only when picked. leveling: { resale(hrid, level),
+// owned(hrid), fixed: { hrid, target } – an action always listed, at the target set in the game }.
 export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1, leveling: levelingOptions = {} } = {}) {
     const evaluator = (action, level) => {
-        if (action.function === ENHANCE_FUNCTION) return (teas, score) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, sellCap, score });
+        const target = levelingOptions.fixed?.hrid === action.hrid ? levelingOptions.fixed.target : null;
+        if (action.function === ENHANCE_FUNCTION) return (teas, score) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, sellCap, score, target });
         if (action.function === ALCHEMY_FUNCTION) return (teas, score) => evaluateAlchemy(action, who, data, market, teas, { score });
         return (teas) => limitSales(evaluateAction(action, who, data, market, teas, level), sellCap);
     };
@@ -774,7 +776,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     // Any item can be enhanced or alchemised; a level below the item's only lowers the odds.
     const levelingList = skill === ENHANCING || skill === ALCHEMY;
     // Items you have always stay on the shortlist.
-    const owned = (c) => (levelingOptions.owned?.(c.action.itemHrid) || 0) > 0;
+    const owned = (c) => (levelingOptions.owned?.(c.action.itemHrid) || 0) > 0 || c.action.hrid === levelingOptions.fixed?.hrid;
     if (skill === ENHANCING) doable.push(...shortlist(enhancingActions(data, market, levelingOptions.owned).map((action) => ({ action, evaluate: evaluator(action) })), owned));
     if (skill === ALCHEMY) doable.push(...shortlist(alchemyActions(data, market).map((action) => ({ action, evaluate: evaluator(action) })), owned));
     // The focus compares each action with the most gold and XP any action can

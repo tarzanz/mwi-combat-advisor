@@ -1,6 +1,7 @@
 // Marks the tea slots on a skill page: the first job in the queue for that
 // skill decides which teas are right (the Skilling tab's best setup for it,
-// with your focus). A slot with the wrong tea – or empty while a right one
+// with your focus; for Enhancing and Alchemy the item in that job, and the
+// target set for it). A slot with the wrong tea – or empty while a right one
 // is missing – glows red; in the game's tea picker the right teas glow green,
 // and teas you don't have get a line with a cart button for 8 hours of them.
 
@@ -8,8 +9,8 @@ import { getClientData, itemName, pricesStamp } from "./game-data.js";
 import { onStateChange, state } from "./game-state.js";
 import { esc } from "./format.js";
 import { visible } from "./game-nav.js";
-import { SKILLING_SKILLS, heldStock } from "./skilling.js";
-import { skillingAdvice, topActionKey } from "./skilling-ui.js";
+import { LEVELING_SKILLS, SKILLING_SKILLS, heldStock } from "./skilling.js";
+import { adviceName, itemOfHash, skillingAdvice, topActionKey } from "./skilling-ui.js";
 
 const SCAN_MS = 300;
 // The advice is worked out again at most this often while nothing else changes
@@ -26,6 +27,7 @@ const VERSION = typeof GM_info !== "undefined" ? GM_info.script?.version || "" :
 const t = { deps: null, scanTimer: null, loading: null, key: "", at: 0, advice: null, status: "" };
 
 const skillLabel = (skill) => skill.charAt(0).toUpperCase() + skill.slice(1);
+const SKILLS = [...SKILLING_SKILLS, ...LEVELING_SKILLS];
 const have = (hrid) => heldStock(state.character, state.items, hrid).inventory;
 const iconItem = (element) => {
     const use = element.querySelector("svg use");
@@ -67,13 +69,13 @@ export function findSlots(doc = document) {
     const box = doc.querySelector(SLOTS);
     if (!label && !(box && visible(box))) return null;
     // The page's skill: the nearest heading above the slots that names one.
-    const headings = leaves(doc.body, (text) => SKILLING_SKILLS.includes(text.toLowerCase())).filter((el) => visible(el) && !ours(el) && !el.closest(NAV));
+    const headings = leaves(doc.body, (text) => SKILLS.includes(text.toLowerCase())).filter((el) => visible(el) && !ours(el) && !el.closest(NAV));
     let skill = null;
     for (let node = (label || box).parentElement; node && node !== doc.body && !skill; node = node.parentElement) {
         const heading = headings.find((el) => node.contains(el));
         if (heading) skill = heading.textContent.trim().toLowerCase();
     }
-    if (!skill) return null; // combat, enhancing, alchemy …
+    if (!skill) return null; // combat …
     const row = box && visible(box) ? box : label.nextElementSibling;
     const slots = row ? [...row.children].filter((el) => visible(el) && !ours(el)) : [];
     if (!slots.length) return { skill, error: `no tea slots next to "Consumables" (${row ? row.tagName.toLowerCase() : "nothing"} after the label)` };
@@ -105,11 +107,13 @@ function adviceFor(skill) {
     if (!job) return null;
     const settings = t.deps.settings();
     const drinks = (state.character.actionTypeDrinkSlotsMap?.[type] || []).map((slot) => slot?.itemHrid || null);
-    const key = [job.actionHrid, JSON.stringify(drinks), pricesStamp(), topActionKey(settings)].join("|");
+    // Enhancing and Alchemy: the item in the job and the target set for it.
+    const item = LEVELING_SKILLS.includes(skill) ? { itemHrid: itemOfHash(job.primaryItemHash), target: job.enhancingMaxLevel } : null;
+    const key = [job.actionHrid, JSON.stringify(item), JSON.stringify(drinks), pricesStamp(), topActionKey(settings)].join("|");
     if (t.key !== key || Date.now() - t.at > REFRESH_MS) {
-        const entry = skillingAdvice(job.actionHrid, settings);
+        const entry = skillingAdvice(job.actionHrid, settings, item);
         // As in the action window: keep the teas you have unless another setup scores better.
-        t.advice = entry && { action: entry.action, entry, teas: entry.betterTeas ? entry.best.result.teas : entry.current.teas, drinks };
+        t.advice = entry && { action: entry.action, name: adviceName(entry), entry, teas: entry.betterTeas ? entry.best.result.teas : entry.current.teas, drinks };
         t.key = key;
         t.at = Date.now();
     }
@@ -139,7 +143,7 @@ function scan() {
             const hrid = inSlots[i];
             const wrong = hrid ? !right.has(hrid) : empty-- > 0;
             if (wrong) {
-                mark(slot, "wrong", hrid ? `Not for ${advice.action.name}: ${advice.teas.length ? "use " + advice.teas.map(itemName).join(", ") : "no tea pays"}` : `Empty: put in ${missing.map(itemName).join(" or ")}`);
+                mark(slot, "wrong", hrid ? `Not for ${advice.name}: ${advice.teas.length ? "use " + advice.teas.map(itemName).join(", ") : "no tea pays"}` : `Empty: put in ${missing.map(itemName).join(" or ")}`);
                 marked.add(slot);
             }
         });
@@ -151,7 +155,7 @@ function scan() {
                 // Green: a right tea not in a slot yet, or "Remove" when a wrong tea has nothing to replace it.
                 const good = hrid ? right.has(hrid) && !inSlots.includes(hrid) : /^remove$/i.test(item.textContent.trim()) && anyWrong && !missing.length;
                 if (good) {
-                    mark(item, "right", hrid ? `Right for ${advice.action.name}` : "Take the wrong tea out");
+                    mark(item, "right", hrid ? `Right for ${advice.name}` : "Take the wrong tea out");
                     marked.add(item);
                 }
             }
@@ -194,7 +198,7 @@ function noteHtml(advice) {
     const button = items.length
         ? `<button class="mwia-guide-cart" data-tea-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">🛒 ${TEA_HOURS} h of teas</button>`
         : "";
-    return `<div><b>Missing for ${esc(advice.action.name)}:</b> ${esc(lacking.map(itemName).join(", "))}</div>
+    return `<div><b>Missing for ${esc(advice.name)}:</b> ${esc(lacking.map(itemName).join(", "))}</div>
         <div class="mwia-dim">${TEA_HOURS} h is ${perTea} of each (${skillLabel(advice.action.type.split("/").pop())} job first in your queue).</div>
         ${button}${t.status ? `<div class="mwia-guide-status">${esc(t.status)}</div>` : ""}`;
 }

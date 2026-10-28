@@ -50,27 +50,42 @@ export function skillingSettingsHtml(s) {
 
 // The last few rankings (the tab's skill, and the one open in the game's action window).
 const rankings = new Map();
-const KEPT_RANKINGS = 3;
+const KEPT_RANKINGS = 4;
 
-function ranking(settings) {
-    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, planMode(settings), goldShare(settings), historyVersion()].join("|");
+// fixed: { hrid, target } – an Enhancing or Alchemy action always listed, at the target set in the game.
+function ranking(settings, fixed = null) {
+    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, planMode(settings), goldShare(settings), historyVersion(), JSON.stringify(fixed)].join("|");
     if (!rankings.has(key)) {
-        rankings.set(key, computeRanking(settings));
+        rankings.set(key, computeRanking(settings, fixed));
         while (rankings.size > KEPT_RANKINGS) rankings.delete(rankings.keys().next().value);
     }
     return rankings.get(key);
 }
 
 // One action's row, worked out with the tab's settings but always within its own
-// skill, so the advice doesn't depend on which skill the tab shows.
-export function skillingAdvice(actionHrid, settings) {
+// skill, so the advice doesn't depend on which skill the tab shows. Enhancing
+// and Alchemy also need the item (job: { itemHrid, target }): the row for it,
+// at the target set in the game.
+export function skillingAdvice(actionHrid, settings, job = null) {
     const skill = actionHrid.split("/")[2];
+    if (LEVELING_SKILLS.includes(skill)) {
+        if (!job?.itemHrid) return null;
+        const hrid = `${actionHrid}#${job.itemHrid}`;
+        const fixed = { hrid, target: skill === "enhancing" ? Number(job.target) || null : null };
+        return ranking({ ...settings, skillingSkill: skill }, fixed).available.find((entry) => entry.hrid === hrid) || null;
+    }
     if (!SKILLING_SKILLS.includes(skill)) return null;
     const result = ranking({ ...settings, skillingSkill: skill });
     return result.available.find((entry) => entry.hrid === actionHrid) || null;
 }
 
-function computeRanking(settings) {
+// "Tome Of Healing → +6" for Enhancing; the action's name otherwise.
+export const adviceName = (entry) => entry.action.name + (entry.target ? ` → +${entry.target}` : "");
+
+// The item in a game item key ("<character>::<location>::/items/x::<+level>").
+export const itemOfHash = (hash) => String(hash || "").split("::")[2] || null;
+
+function computeRanking(settings, fixed = null) {
     const data = getClientData();
     {
         const who = skillingCharacter(state.character, state.items, data);
@@ -86,7 +101,7 @@ function computeRanking(settings) {
             liquidity: (action) => (action.outputItems?.[0]?.itemHrid === COIN ? COIN_MARKET : liquidityRating(action.outputItems?.[0]?.itemHrid ? priceSummary(action.outputItems[0].itemHrid) : null)),
             inputMarket: (hrid) => ({ liquidity: liquidityRating(priceSummary(hrid)), book: state.orderBooks.get(hrid) || null }),
         };
-        const leveling = { resale: (hrid, level) => plusResale(hrid, level, settings.skillingSellAt, data), owned: (hrid) => have(hrid) };
+        const leveling = { resale: (hrid, level) => plusResale(hrid, level, settings.skillingSellAt, data), owned: (hrid) => have(hrid), fixed };
         const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100, leveling });
         for (const entry of [...result.available, ...result.upcoming]) {
             entry.warnings = [...entry.warnings, ...(isEnhance(entry) ? enhanceWarnings(entry) : priceWarnings(entry))];

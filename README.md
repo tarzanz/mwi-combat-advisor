@@ -123,7 +123,8 @@ buy, by simulating *your own* character.
   all. A tool already in your inventory just says to equip it.
 - **Tea slots on a skill page** – the first job in your queue for that skill decides which teas are right (the same
   ones the action window suggests: the Skilling tab's best setup with your focus, or the teas you have when nothing
-  scores better). A slot with a wrong tea, or an empty one while a right tea is missing, glows red. Tap it and in the
+  scores better). On the Enhancing and Alchemy pages it is the item in that job, and for Enhancing the target set
+  for it; the Enhancing and Alchemy windows get the same tea box, for the item in the slot (and the target or tab). A slot with a wrong tea, or an empty one while a right tea is missing, glows red. Tap it and in the
   game's tea picker the right teas glow green ("Remove" does when a wrong tea has nothing to replace it). Right teas
   you don't have are named in the picker, with a 🛒 button that tops all of them up to 8 hours in the MWITools cart.
   Nothing shows when the skill has no job in the queue.
@@ -219,7 +220,7 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
   trade price `p`), and *How many* shows about how many sell a day once 12 hours of that are collected; the rating
   doesn't use it yet. *Max sold/day* caps it when you know better.
 - Enhancing: no protection (Mirror of Protection, copies) yet, and no Observatory/Enhancer
-  upgrades under *Upgrades that pay back*. Alchemy: no Unrefine. Neither has the tea box in the game's action window.
+  upgrades under *Upgrades that pay back*. Alchemy: no Unrefine.
   The ⛓ chain makes every material it can (by the fastest source), even where buying one of them would pay better.
 - The phone layout has been tested at iPhone size in desktop Firefox, not on a real phone. Keep the screen on while
   an analysis runs: a phone pauses the page in the background.

@@ -230,6 +230,21 @@ async function waitFor(find, timeoutMs) {
 
 const visiblePanel = (selector) => [...document.querySelectorAll(selector)].find(visible) || null;
 
+// The Enhancing and Alchemy windows on screen: the item in the slot, the
+// target set (Enhancing) and the selected tab (Alchemy), as the game holds them.
+export function levelingPanels() {
+    const out = [];
+    for (const [kind, selector, method] of [["enhancing", ENHANCING_PANEL, "enhancingMaxLevelChanged"], ["alchemy", ALCHEMY_PANEL, "selectAlchemyItemHandler"]]) {
+        for (const panel of document.querySelectorAll(selector)) {
+            if (!visible(panel)) continue;
+            const held = componentWith(panel, method)?.state || {};
+            const tab = kind === "alchemy" ? [...document.querySelectorAll(TABS)].find((t) => visible(t) && t.getAttribute("aria-selected") === "true" && /^(Coinify|Decompose|Transmute)$/.test(clean(t.textContent))) : null;
+            out.push({ panel, kind, itemHash: held.primaryItemHash || null, target: held.enhancingMaxLevel ?? null, tab: tab ? clean(tab.textContent) : null, buttons: panel.querySelector(BUTTONS) });
+        }
+    }
+    return out;
+}
+
 // Opens Enhancing with the item (one you have at +0) and the target level set.
 // Without the item in the inventory it only opens the Enhancing page. Returns
 // "item", "page" or false.

@@ -1,13 +1,14 @@
-// A box in the game's action window: which teas (skilling) or coffees and food
-// (combat) to have in the slots for this action, as the advisor worked them
-// out, with a button that puts what you lack in the MWITools cart.
+// A box in the game's action window: which teas (skilling, Enhancing and
+// Alchemy – for the item in the slot) or coffees and food (combat) to have in
+// the slots for this action, as the advisor worked them out, with a button
+// that puts what you lack in the MWITools cart.
 
 import { actionName, getClientData, itemName, pricesStamp } from "./game-data.js";
 import { onStateChange, state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
-import { findActionPanel, openActionPanels, setReactInput } from "./game-nav.js";
+import { findActionPanel, levelingPanels, openActionPanels, setReactInput } from "./game-nav.js";
 import { heldStock } from "./skilling.js";
-import { skillingAdvice, slotsLine } from "./skilling-ui.js";
+import { adviceName, itemOfHash, skillingAdvice, slotsLine } from "./skilling-ui.js";
 
 const SCAN_MS = 400;
 const COMBAT = "/action_types/combat";
@@ -78,32 +79,45 @@ function actionByName(name) {
 function scan() {
     const shown = new Set();
     const panels = openActionPanels();
-    if (panels.length && (!getClientData() || !pricesStamp())) {
+    const leveling = levelingPanels();
+    if ((panels.length || leveling.length) && (!getClientData() || !pricesStamp())) {
         g.loading ||= g.deps.prepare().then(scheduleScan, (error) => console.warn("[Combat Advisor] action window", error)).finally(() => (g.loading = null));
         return;
     }
     for (const { panel, name, buttons } of panels) {
         const action = actionByName(name);
         if (!action) continue;
-        const html = action.type === COMBAT ? combatHtml(action, panelTier(panel)) : skillingHtml(action);
-        if (!html) continue;
-        let box = panel.querySelector(".mwia-guide-box");
-        if (!box) {
-            box = document.createElement("div");
-            box.className = "mwia-guide-box";
-            if (buttons) buttons.insertAdjacentElement("beforebegin", box);
-            else panel.appendChild(box);
-        }
-        shown.add(box);
-        const status = g.statuses.get(action.hrid);
-        const full = html + (status ? `<div class="mwia-guide-status">${esc(status)}</div>` : "");
-        if (box.dataset.action !== action.hrid || box.dataset.html !== full) {
-            box.dataset.action = action.hrid;
-            box.dataset.html = full;
-            box.innerHTML = full;
-        }
+        const html = action.type === COMBAT ? combatHtml(action, panelTier(panel)) : skillingHtml(state.character ? skillingAdvice(action.hrid, g.deps.settings()) : null);
+        if (html) shown.add(placeBox(panel, buttons, action.hrid, html));
+    }
+    // Enhancing and Alchemy: the teas for the item in the slot (and the target set).
+    for (const { panel, kind, itemHash, target, tab, buttons } of leveling) {
+        const itemHrid = itemOfHash(itemHash);
+        if (!itemHrid || !state.character || (kind === "alchemy" && !tab)) continue;
+        const actionHrid = kind === "enhancing" ? "/actions/enhancing/enhance" : `/actions/alchemy/${tab.toLowerCase()}`;
+        const html = skillingHtml(skillingAdvice(actionHrid, g.deps.settings(), { itemHrid, target }));
+        if (html) shown.add(placeBox(panel, buttons, `${actionHrid}#${itemHrid}+${target ?? ""}`, html));
     }
     document.querySelectorAll(".mwia-guide-box").forEach((box) => shown.has(box) || box.remove());
+}
+
+// The box above the window's buttons, kept as it is while nothing changes.
+function placeBox(panel, buttons, key, html) {
+    let box = panel.querySelector(".mwia-guide-box");
+    if (!box) {
+        box = document.createElement("div");
+        box.className = "mwia-guide-box";
+        if (buttons) buttons.insertAdjacentElement("beforebegin", box);
+        else panel.appendChild(box);
+    }
+    const status = g.statuses.get(key);
+    const full = html + (status ? `<div class="mwia-guide-status">${esc(status)}</div>` : "");
+    if (box.dataset.action !== key || box.dataset.html !== full) {
+        box.dataset.action = key;
+        box.dataset.html = full;
+        box.innerHTML = full;
+    }
+    return box;
 }
 
 const head = (title, note) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note}</span></div>`;
@@ -119,9 +133,8 @@ function cartButton(items, label) {
     return `<button class="mwia-guide-cart" data-guide-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(title)}">${label}</button>`;
 }
 
-function skillingHtml(action) {
+function skillingHtml(entry) {
     const settings = g.deps.settings();
-    const entry = state.character ? skillingAdvice(action.hrid, settings) : null;
     if (!entry) return "";
     // Another setup that only ties with yours is no reason to swap.
     const best = entry.betterTeas ? entry.best.result.teas : entry.current.teas;
@@ -154,7 +167,7 @@ function skillingHtml(action) {
     const label = plan?.items.length ? `🛒 Teas for ${plan.hours < 1 ? Math.max(1, Math.round(plan.hours * 60)) + " min" : Math.round(plan.hours * 10) / 10 + " h"}` : "🛒 Teas for 1 day";
     const focus = Number(settings.skillingGold ?? 100);
     return (
-        head("🍵 Teas", `Combat Advisor · ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP · ${focus}% gold`}`) +
+        head("🍵 Teas", `Combat Advisor${entry.action.itemHrid ? ` · ${esc(adviceName(entry))}` : ""} · ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP · ${focus}% gold`}`) +
         (lines.length ? `<ul class="mwia-guide-list">${lines.join("")}</ul>` : "") +
         `<div class="mwia-guide-note">${verdict} ${slotsLine(entry)}</div>` +
         cartButton(items, label)

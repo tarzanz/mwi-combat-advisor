@@ -143,7 +143,7 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
     box.innerHTML = tabs + '<div class="SkillActionDetail_' + kind + 'Component__q"><input type="text"></div>';
     document.body.appendChild(box);
     const comp = { state: { primaryItemHash: hash },
-      enhancingMaxLevelChanged: (e) => { window.enhanceTarget = e.target.value; },
+      enhancingMaxLevelChanged: (e) => { window.enhanceTarget = e.target.value; comp.state.enhancingMaxLevel = Number(e.target.value); },
       selectEnhancingItemHandler: (h) => { comp.state.primaryItemHash = h; },
       // Changing the tab empties the slot, as a fresh window would.
       selectAlchemyItemHandler: (h) => { comp.state.primaryItemHash = h; window.alchemyItem = h; },
@@ -768,6 +768,10 @@ try {
     await page.waitForFunction(() => window.enhanceTarget !== undefined, { timeout: 5000 }).catch(() => null);
     const enhCall = await page.evaluate(() => ({ hash: window.enhanceCall, target: window.enhanceTarget }));
     check("▶ Enhance opens the item with the target", enhCall.hash === `1::/item_locations/inventory::${topEnhance.action.itemHrid}::0` && enhCall.target === String(enhRow.target), JSON.stringify(enhCall));
+    // The game's Enhancing window then gets the tea box for that item and target.
+    await page.waitForSelector(".lvl .mwia-guide-box", { timeout: 3000 }).catch(() => null);
+    const enhBox = await page.$eval(".lvl .mwia-guide-box", (n) => n.textContent).catch(() => "");
+    check("Enhancing window: tea box for the item and target", /🍵 Teas/.test(enhBox) && enhBox.includes(`${topEnhance.action.name} → +${enhRow.target}`), enhBox.slice(0, 200));
 
     // Alchemy: coinify, decompose and transmute, with the odds.
     await page.click(".mwia-launcher");
@@ -810,7 +814,39 @@ try {
     await clickLevel(notOwned.hrid);
     await page.waitForFunction(() => /buy it first/.test(document.querySelector(".mwia-notice")?.textContent || ""), { timeout: 8000 }).catch(() => null);
     check("▶ without the item opens the page and says to buy it first", /buy it first/.test((await lvlState()).notice || ""), JSON.stringify(await lvlState()));
+    // The Alchemy window (Transmute tab, Donut in the slot) has its tea box too.
+    if (trans) {
+        await page.waitForSelector(".lvl .mwia-guide-box", { timeout: 3000 }).catch(() => null);
+        const alcBox = await page.$eval(".lvl .mwia-guide-box", (n) => n.textContent).catch(() => "");
+        check("Alchemy window: tea box for the tab's action and item", /🍵 Teas/.test(alcBox) && alcBox.includes("Transmute Donut"), alcBox.slice(0, 200));
+    }
     await page.evaluate(() => document.querySelector(".lvl")?.remove());
+
+    // Tea slots on the Enhancing page: the first Enhancing job in the queue (its item and target) decides.
+    const ENH = "/action_types/enhancing";
+    const enhSlots = { ...teaSlotsMap, [ENH]: [{ itemHrid: "/items/wisdom_tea" }, null] };
+    for (const socket of sockets) socket.send(JSON.stringify({ type: "action_type_consumable_slots_updated", actionTypeDrinkSlotsMap: enhSlots }));
+    await page.waitForFunction(() => window.lastType === "action_type_consumable_slots_updated");
+    const enhJob = { id: 903, actionHrid: "/actions/enhancing/enhance", primaryItemHash: `1::/item_locations/inventory::${LONE}::0`, enhancingMaxLevel: 5, ordinal: 1 };
+    for (const socket of sockets) socket.send(JSON.stringify({ type: "actions_updated", endCharacterActions: [enhJob] }));
+    await page.waitForFunction(() => window.lastType === "actions_updated");
+    const enhHrid = `/actions/enhancing/enhance#${LONE}`;
+    const enhAdvice = expectRank({ ...character, actionTypeDrinkSlotsMap: enhSlots }, { skill: "enhancing", teaMode: settingsNow.skillingTeas, sellAt: settingsNow.skillingSellAt, mode: settingsNow.skillingMode, goldWeight: Number(settingsNow.skillingGold) / 100, leveling: { resale, owned: ownedOf(character), fixed: { hrid: enhHrid, target: 5 } } }).available.find((e) => e.hrid === enhHrid);
+    const enhRight = enhAdvice.betterTeas ? enhAdvice.best.result.teas : enhAdvice.current.teas;
+    await page.evaluate((wisdom) => {
+        document.querySelector(".mwia-panel").classList.add("mwia-hidden");
+        document.body.insertAdjacentHTML("beforeend", `<div id="enhpage"><div class="title"><span>Enhancing</span> <span>?</span></div>
+            <div class="consumables"><div class="label">Consumables</div><div class="row" style="display:flex;gap:4px">
+            <div class="slot" style="width:60px;height:60px">${wisdom}<span>52</span></div><div class="slot" style="width:60px;height:60px"></div><div class="slot" style="width:60px;height:60px">Require Bigger Pouch</div></div></div></div>`);
+    }, icon("/items/wisdom_tea"));
+    await new Promise((r) => setTimeout(r, 900));
+    const enhMarks = await page.$$eval("#enhpage .slot", (list) => list.map((n) => n.dataset.mwiaTea || ""));
+    const enhMissing = enhRight.filter((hrid) => hrid !== "/items/wisdom_tea");
+    check("Enhancing page: slots marked for the queued item and target", enhAdvice.target === 5 && enhMarks[0] === (enhRight.includes("/items/wisdom_tea") ? "" : "wrong") && enhMarks[1] === (enhMissing.length ? "wrong" : "") && enhMarks[2] === "",
+        `${JSON.stringify(enhMarks)} for ${enhRight.join(",")} (+${enhAdvice.target})`);
+    const enhTitles = await page.$$eval("#enhpage .slot[data-mwia-tea]", (list) => list.map((n) => n.title));
+    check("…named with the target", enhTitles.filter((x) => x.startsWith("Not for")).every((x) => x.includes("→ +5")), JSON.stringify(enhTitles));
+    await page.evaluate(() => document.getElementById("enhpage").remove());
 
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {

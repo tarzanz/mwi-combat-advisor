@@ -139,7 +139,8 @@ function baseItem(action, market, owned) {
 // `targets` for the detail. resale(hrid, level): { price (after tax), source,
 // level, floor, sold (a day, or null) }. The market takes only so many a day –
 // sold, else sellCap (Max sold/day) – the rest goes for the floor price.
-export function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score = (r) => r.goldPerDay, sellCap = 0 } = {}) {
+// target: a fixed target (the one set in the game) instead of the best one.
+export function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score = (r) => r.goldPerDay, sellCap = 0, target: fixedTarget = null } = {}) {
     const buff = totals([...(who.buffs?.[TYPE] || []), ...teaBuffs(teas, who.concentration, data)]);
     const fraction = (type) => buff(type).flat + buff(type).ratio;
     const level = who.levels[SKILL] ?? 1;
@@ -261,6 +262,7 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
     }
     let best = results[0];
     for (const r of results) if (score(r) > score(best) + 1e-12) best = r;
+    if (fixedTarget) best = results.find((r) => r.target === Math.min(MAX_TARGET, fixedTarget)) || best;
     best.targets = results.map((r) => ({ target: r.target, attempts: r.attempts, goldPerDay: r.goldPerDay, xpPerDay: r.xpPerDay, coinsPerXp: r.coinsPerXp, sell: r.outputs[0].sell }));
     return best;
 }
