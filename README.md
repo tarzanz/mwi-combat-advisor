@@ -142,6 +142,21 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   game's tea picker the right teas glow green ("Remove" does when a wrong tea has nothing to replace it). Right teas
   you don't have are named in the picker, with a 🛒 button that tops all of them up to 8 hours in the MWITools cart.
   Nothing shows when the skill has no job in the queue.
+- **Market** – your own orders and what to sell.
+  - *Your orders*: every open sell and buy order with its standing. ✅ first in line (or sharing the price); a few
+    better offers first; ⛔ behind a wall – at least 20% of what others offer (within the tradable range) comes
+    before yours, or more than a day of sales does (from the sales the price history saved). How much comes first
+    is read from the order book, which the game sends when you open the item on the market (🏪), and counts for 6 h;
+    without one only the best price is known, and an order is ⛔ when that is more than 10% better than yours. 💤
+    marks an order that sold (or bought) nothing for 12 h; a price far below the usual ask (or a bid far above the
+    usual bid) is flagged too. Any ⛔ puts a red dot on the 🧭 button. While you have orders the market file is read
+    every 10 minutes (when the game is open).
+  - *Sell from your inventory*: what is worth selling, by value after the 4% tax: **Sell now** at the bid when
+    listing would gain under 5%, else **List** at the lowest ask (never above the week's usual ask, or 1.5× the bid
+    without history), with a note when buyers pay well above usual, the price is well below usual, it is more
+    than a day of sales, or some are already listed. Teas, food and drinks in any slot, materials for your queued
+    actions (and the item being enhanced and its materials) or a running train, coins, untradable items and what
+    you pin with 📌 are never offered; amounts under 10k wait behind *Show all*.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the
   plan's goals (house level / item quantity) and the Full chain / One step / Buy choice of every step-2 row, works out
@@ -253,6 +268,7 @@ node test/train-browser-test.mjs /tmp                     # plan train against a
 node test/skilling-browser-test.mjs /tmp                  # Skilling tab against a mock game and market
 node test/price-history-test.mjs                          # price-history maths in Node
 node test/leveling-test.mjs                               # Enhancing and Alchemy rules in Node
+node test/market-test.mjs                                 # Market tab rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox

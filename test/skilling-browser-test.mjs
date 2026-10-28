@@ -865,6 +865,43 @@ try {
     check("…named with the target", enhTitles.filter((x) => x.startsWith("Not for")).every((x) => x.includes("→ +5")), JSON.stringify(enhTitles));
     await page.evaluate(() => document.getElementById("enhpage").remove());
 
+    // Market tab: an order behind a wall of cheaper offers gets ⛔ and a red dot on 🧭.
+    {
+        const WALL_ITEM = marketData["/items/lumber"]?.[0]?.a ? "/items/lumber" : Object.keys(marketData).find((h) => marketData[h][0]?.a > 100);
+        const price = marketData[WALL_ITEM][0].a;
+        const wallListing = { id: 77, itemHrid: WALL_ITEM, enhancementLevel: 0, isSell: true, price, orderQuantity: 100, filledQuantity: 0, status: "/market_order_status/active" };
+        for (const socket of sockets) socket.send(JSON.stringify({ type: "market_listings_updated", endMarketListings: [wallListing] }));
+        const wallBook = { type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: WALL_ITEM, orderBooks: [{
+            asks: [{ price: Math.round(price * 0.9), quantity: 500 }, { price, quantity: 100 }, { price: Math.round(price * 1.2), quantity: 400 }], bids: [] }] } };
+        for (const socket of sockets) socket.send(JSON.stringify(wallBook));
+        await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
+        await page.waitForFunction(() => document.querySelector(".mwia-launcher")?.classList.contains("mwia-has-alert"), { timeout: 5000 }).catch(() => {});
+        check("market: a red dot on 🧭 for an order behind a wall", await page.$eval(".mwia-launcher", (n) => n.classList.contains("mwia-has-alert")));
+        if (await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden"))) await page.click(".mwia-launcher");
+        await page.click('[data-tab="market"]');
+        await page.waitForFunction(() => /Your orders/.test(document.querySelector(".mwia-body")?.innerText || ""), { timeout: 10000 });
+        let text = await page.$eval(".mwia-body", (n) => n.innerText);
+        const name = clientData.itemDetailMap[WALL_ITEM].name;
+        check("market: the order shows ⛔ with how much is in front", new RegExp(`${name}[\\s\\S]*⛔ 500 cheaper first – 56% of the offer`).test(text), text.slice(0, 600));
+        const productName = clientData.itemDetailMap[PRODUCT].name;
+        const sellPart = () => text.slice(text.indexOf("Sell from your inventory"));
+        // 5 boots are worth under 10k: shown under "Show all".
+        check("market: small amounts wait behind Show all", !new RegExp(`${productName}\\s+5\\s`).test(sellPart()) && /Show all \(\d+ under 10(\.0)?k\)/.test(sellPart()), sellPart().slice(0, 300));
+        await page.click('[data-action="market-all"]');
+        text = await page.$eval(".mwia-body", (n) => n.innerText);
+        check("market: inventory to sell lists the product with advice", new RegExp(`${productName}\\s+5\\s`).test(sellPart()) && /(Sell now|List) at/.test(sellPart()), sellPart().slice(0, 400));
+        const keepIndex = await page.$$eval('[data-action="market-keep"]', (buttons, hrid) => buttons.findIndex((b) => b.dataset.item === hrid), PRODUCT);
+        await page.evaluate((i) => document.querySelectorAll('[data-action="market-keep"]')[i].click(), keepIndex);
+        text = await page.$eval(".mwia-body", (n) => n.innerText);
+        const keep = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-keep") || "[]"));
+        check("market: 📌 keeps an item out of the list", !new RegExp(`${productName}\\s+5\\s`).test(sellPart()) && /Kept, not offered/.test(text) && keep.includes(PRODUCT + "#0"), JSON.stringify(keep));
+        await page.screenshot({ path: path.join(shotDir, "skilling-9-market.png") });
+        // The order fills: the dot goes away.
+        for (const socket of sockets) socket.send(JSON.stringify({ type: "market_listings_updated", endMarketListings: [{ ...wallListing, filledQuantity: 100, isDone: true }] }));
+        await page.waitForFunction(() => !document.querySelector(".mwia-launcher")?.classList.contains("mwia-has-alert"), { timeout: 5000 }).catch(() => {});
+        check("market: the dot goes once the order is filled", !(await page.$eval(".mwia-launcher", (n) => n.classList.contains("mwia-has-alert"))));
+    }
+
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
     await browser.close();

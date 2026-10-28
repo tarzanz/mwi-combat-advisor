@@ -30,6 +30,7 @@ import {
     itemName,
     loadClientData,
     loadPrices,
+    onPricesLoaded,
     pricesAge,
 } from "./game-data.js";
 import { onStateChange, state } from "./game-state.js";
@@ -47,6 +48,7 @@ import { startTeaSlots } from "./tea-slots.js";
 import { findActionPanel, inventoryItemHash, navDiagnostics, openAction, openAlchemy, openEnhancing, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 import { startTrain } from "./train-ui.js";
+import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 
 const SETTINGS_KEY = "mwia-settings";
 const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingSellCap: 0, skillingMode: "away", skillingGold: 100 };
@@ -99,6 +101,8 @@ const ui = {
     skillingLoad: null, // { loading, error } while the Skilling tab fetches game data and prices
     returnRow: null, // Skilling row to scroll back to when the panel opens again
     marketWatch: null, // timer waiting for the marketplace to close
+    marketLoading: null, // promise while the Market tab loads game data and prices
+    launcher: null, // the 🧭 button
 };
 
 const MARKET_PANEL = '[class*="MarketplacePanel_marketplacePanel"]';
@@ -295,15 +299,57 @@ function render() {
     ui.cartItems = new Map();
     let html = "";
     if (ui.error) html += `<div class="mwia-error">${esc(ui.error)}</div>`;
-    if (ui.notice && (ui.tab === "upgrades" || ui.tab === "skilling")) html += `<div class="mwia-notice mwia-notice-${ui.notice.level}">${esc(ui.notice.text)}</div>`;
+    if (ui.notice && (ui.tab === "upgrades" || ui.tab === "skilling" || ui.tab === "market")) html += `<div class="mwia-notice mwia-notice-${ui.notice.level}">${esc(ui.notice.text)}</div>`;
     if (ui.busy) html += progressHtml();
     if (ui.tab === "overview") html += renderOverview();
     else if (ui.tab === "zones") html += renderZones();
     else if (ui.tab === "upgrades") html += renderUpgrades();
     else if (ui.tab === "skilling") html += renderSkillingTab();
+    else if (ui.tab === "market") html += renderMarketTab();
     else html += renderGuide();
     body.innerHTML = html;
     labelTableCells(body);
+    updateAlertDot();
+}
+
+function renderMarketTab() {
+    if (!state.character) {
+        return `<p>The script hasn't seen your character yet. It reads it when the game connects, so <b>reload the page (F5)</b> with the script enabled.</p>`;
+    }
+    if (getClientData() && pricesAge() !== null) return renderMarket();
+    if (!ui.marketLoading) {
+        ui.marketLoading = Promise.all([loadClientData(ui.win), loadPrices()])
+            .catch((error) => (ui.error = error.message || String(error)))
+            .finally(() => {
+                ui.marketLoading = null;
+                if (ui.tab === "market") render();
+            });
+    }
+    return `<p>Loading the game data and market prices…</p>`;
+}
+
+// A red dot on the 🧭 button while one of your orders sits behind a wall of better offers.
+function updateAlertDot() {
+    if (!ui.launcher) return;
+    const alerts = marketAlerts();
+    ui.launcher.classList.toggle("mwia-has-alert", alerts > 0);
+    ui.launcher.title = alerts ? `MWI Advisor – ${alerts} market order${alerts === 1 ? "" : "s"} behind a wall of better offers` : "MWI Advisor";
+}
+
+// While you have orders, the market file is read every MARKET_REFRESH_MS so their standing stays current.
+const MARKET_REFRESH_MS = 10 * 60 * 1000;
+const MARKET_FIRST_CHECK_MS = 60 * 1000;
+
+async function refreshMarket() {
+    if (!(state.character?.myMarketListings || []).length) return;
+    try {
+        await loadClientData(ui.win);
+        await loadPrices(true);
+    } catch {
+        // tried again next time
+    }
+    updateAlertDot();
+    if (!ui.root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "market") render();
 }
 
 function statusLine() {
@@ -911,6 +957,8 @@ function onClick(event) {
     const target = event.target.closest("[data-action],[data-tab]");
     if (!target || !ui.root.contains(target)) return;
     if (target.dataset.tab) {
+        // A notice belongs to the tab it came from.
+        if (ui.tab !== target.dataset.tab) ui.notice = null;
         ui.tab = target.dataset.tab;
         render();
         return;
@@ -970,6 +1018,23 @@ function onClick(event) {
         case "cart-add":
             sendToCart(target.dataset.cart);
             break;
+        case "market-open":
+            if (openMarketplace(ui.win, target.dataset.item, Number(target.dataset.level) || 0)) {
+                ui.root.classList.add("mwia-hidden");
+                returnAfterMarket();
+            } else {
+                ui.notice = { level: "warn", text: "Could not open the marketplace automatically. Open it yourself and pick the item." };
+                render();
+            }
+            break;
+        case "market-keep":
+            toggleKeep(target.dataset.item, target.dataset.level);
+            render();
+            break;
+        case "market-all":
+            toggleShowAllMarket();
+            render();
+            break;
         case "cancel":
             ui.pool?.cancel();
             break;
@@ -1021,6 +1086,13 @@ function onChange(event) {
     }
 }
 
+// Game messages come in bursts: work out the dot once they settle.
+let dotTimer = null;
+function scheduleDot() {
+    clearTimeout(dotTimer);
+    dotTimer = setTimeout(updateAlertDot, 500);
+}
+
 export function mountUI(win, workerSource) {
     ui.win = win;
     ui.workerSource = workerSource;
@@ -1036,6 +1108,7 @@ export function mountUI(win, workerSource) {
     button.textContent = "🧭";
     document.body.appendChild(button);
     makeDraggable(button);
+    ui.launcher = button;
 
     const root = document.createElement("div");
     root.className = "mwia-panel mwia-hidden";
@@ -1049,6 +1122,7 @@ export function mountUI(win, workerSource) {
         <button class="mwia-tab" data-tab="zones">Where to fight</button>
         <button class="mwia-tab" data-tab="upgrades">Upgrades</button>
         <button class="mwia-tab" data-tab="skilling">Skilling</button>
+        <button class="mwia-tab" data-tab="market">Market</button>
         <button class="mwia-tab" data-tab="guide">Guide</button>
       </nav>
       <div class="mwia-body"></div>`;
@@ -1099,5 +1173,9 @@ export function mountUI(win, workerSource) {
         if (!root.classList.contains("mwia-hidden") && !ui.busy) {
             root.querySelector(".mwia-status").innerHTML = statusLine();
         }
+        scheduleDot();
     });
+    onPricesLoaded(() => scheduleDot());
+    setTimeout(refreshMarket, MARKET_FIRST_CHECK_MS);
+    setInterval(refreshMarket, MARKET_REFRESH_MS);
 }

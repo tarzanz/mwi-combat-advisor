@@ -10,6 +10,11 @@ export const CSS = `
   box-shadow: 0 2px 8px rgba(0,0,0,.4); touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .mwia-launcher:hover { background: #333b63; }
+.mwia-launcher.mwia-has-alert::after {
+  content: ""; position: absolute; top: -2px; right: -2px; width: 11px; height: 11px;
+  border-radius: 50%; background: #e5484d; border: 2px solid #171b2e;
+}
+.mwia-alert-row td { background: rgba(229,72,77,.08); }
 .mwia-panel {
   position: fixed; top: 48px; right: 44px; z-index: 1000;
   width: min(880px, calc(100vw - 58px)); max-height: calc(100vh - 64px);

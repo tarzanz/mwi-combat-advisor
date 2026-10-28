@@ -346,6 +346,12 @@ function scheduleScan() {
     });
 }
 
+// The actions a running train still has ahead (the Market tab keeps their materials).
+export function trainActionsLeft() {
+    if (!t.train) return [];
+    return trainStops(t.train).slice(t.train.index || 0).map((stop) => stop.actionHrid).filter(Boolean);
+}
+
 export function mountPlanTrain(win) {
     t.win = win;
     t.root = document.createElement("div");

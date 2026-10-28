@@ -300,12 +300,12 @@ export async function openAlchemy(itemHash, tabLabel, count, timeoutMs = 4000) {
 
 // Opens the marketplace on an item: through MWITools' public API when it is
 // installed, else the game's own "go to marketplace" handler.
-export function openMarketplace(win, itemHrid) {
+export function openMarketplace(win, itemHrid, level = 0) {
     try {
         const api = win.MWITools?.shopping;
-        if (typeof api?.openMarketplace === "function" && api.openMarketplace(itemHrid, 0)) return true;
+        if (typeof api?.openMarketplace === "function" && api.openMarketplace(itemHrid, level)) return true;
     } catch {
         // fall back to the game's handler
     }
-    return /called/.test(callReactHandler(["handleGoToMarketplace"], [itemHrid, 0]));
+    return /called/.test(callReactHandler(["handleGoToMarketplace"], [itemHrid, level]));
 }
