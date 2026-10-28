@@ -9,7 +9,8 @@
 //
 // Settings (environment): MWIA_KEY (required to serve, at least 24 characters),
 // MWIA_DATA (default /data), PORT (default 8787), MWIA_MARKET_URL, MWIA_ORIGINS
-// (the game's sites allowed to read, comma separated).
+// (the game's sites allowed to read, comma separated), MWIA_LOG_REQUESTS (0: don't
+// log each request; the key is never logged).
 
 import http from "node:http";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -23,9 +24,29 @@ const MARKET_URL = process.env.MWIA_MARKET_URL || "https://www.milkywayidle.com/
 const ORIGINS = new Set((process.env.MWIA_ORIGINS || "https://www.milkywayidle.com,https://test.milkywayidle.com,https://www.milkywayidlecn.com").split(",").map((o) => o.trim()).filter(Boolean));
 const GAME_URL = "https://www.milkywayidle.com/";
 const POLL_MS = 10 * 60 * 1000;
+const LOG_REQUESTS = process.env.MWIA_LOG_REQUESTS !== "0";
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 const digest = (text) => createHash("sha256").update(text).digest();
+// One line per request: what was asked, the answer, and who asked (never the key).
+// The container's own health check (/status from inside) is left out.
+const logRequest = (req, res, url, started) => {
+    const local = !req.headers["cf-ray"] && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
+    if (local && url.pathname === "/status") return;
+    const history = url.pathname === "/history";
+    const fields = {
+        // What the browser already had: nothing (it gets everything), or its newest hour and day.
+        from: history && !url.searchParams.get("epoch") ? "start" : null,
+        hour: history && url.searchParams.get("hour"),
+        day: history && url.searchParams.get("day"),
+        key: req.headers.authorization ? (res.statusCode === 401 ? "wrong" : "ok") : "none",
+        origin: req.headers.origin,
+        country: req.headers["cf-ipcountry"],
+        agent: req.headers["user-agent"] && JSON.stringify(req.headers["user-agent"].slice(0, 160)),
+    };
+    const details = Object.entries(fields).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(" ");
+    log(`${req.method} ${url.pathname} ${res.statusCode} ${Date.now() - started} ms ${details}`);
+};
 const authorized = (req) => {
     const header = req.headers.authorization || "";
     return header.startsWith("Bearer ") && timingSafeEqual(digest(header.slice(7)), digest(KEY));
@@ -87,6 +108,10 @@ function serve() {
             } else res.writeHead(status).end(text);
         };
         const url = new URL(req.url, "http://localhost");
+        if (LOG_REQUESTS) {
+            const started = Date.now();
+            res.on("finish", () => logRequest(req, res, url, started));
+        }
         try {
             if (req.method === "OPTIONS") return res.writeHead(204).end();
             if (req.method !== "GET") return send(405, { error: "GET only" });
