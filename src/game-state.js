@@ -274,7 +274,7 @@ function handle(data) {
         try {
             listener(data.type, data);
         } catch (error) {
-            console.error("[Combat Advisor]", error);
+            console.error("[MWI Advisor]", error);
         }
     }
 }
@@ -285,7 +285,7 @@ function onMessage(event) {
     try {
         handle(JSON.parse(raw));
     } catch (error) {
-        console.error("[Combat Advisor] Could not parse message", error);
+        console.error("[MWI Advisor] Could not parse message", error);
     }
 }
 

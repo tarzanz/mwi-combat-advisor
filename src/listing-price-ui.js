@@ -69,7 +69,7 @@ function scheduleScan() {
         try {
             scan();
         } catch (error) {
-            console.warn("[Combat Advisor] listing prices", error);
+            console.warn("[MWI Advisor] listing prices", error);
         }
     }, SCAN_MS);
 }
@@ -158,7 +158,7 @@ function scan() {
             else if (post) post.insertAdjacentElement("beforebegin", box);
             else modal.appendChild(box);
         }
-        const html = c.error ? `<div class="mwia-listprice-info">Combat Advisor ${esc(VERSION)} can't read this window: ${esc(c.error)}. A screenshot of this helps.</div>` : boxHtml(c);
+        const html = c.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION)} can't read this window: ${esc(c.error)}. A screenshot of this helps.</div>` : boxHtml(c);
         if (box.dataset.html !== html) {
             box.dataset.html = html;
             box.innerHTML = html;

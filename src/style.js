@@ -4,8 +4,9 @@ export const NARROW = "(max-width: 700px), (max-height: 500px)";
 export const CSS = `
 .mwia-launcher {
   position: fixed; right: 44px; bottom: 74px; z-index: 999;
-  padding: 6px 12px; border-radius: 16px; border: 1px solid #5b6bb0;
-  background: #262c4a; color: #e8ebff; font: 600 13px/1.2 sans-serif; cursor: pointer;
+  width: 36px; height: 36px; padding: 0; border-radius: 50%; border: 1px solid #5b6bb0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(38,44,74,.85); color: #e8ebff; font: 18px/1 sans-serif; cursor: pointer;
   box-shadow: 0 2px 8px rgba(0,0,0,.4); touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .mwia-launcher:hover { background: #333b63; }
@@ -197,7 +198,7 @@ i.mwia-history-bid { background: #7ee2b0; }
 /* Touch screens: bigger targets, and 16px inputs so iOS doesn't zoom in on focus. */
 @media (hover: none), (pointer: coarse) {
   .mwia-panel button, .mwia-train button, .mwia-train-start { touch-action: manipulation; }
-  .mwia-launcher { padding: 9px 14px; font-size: 14px; }
+  .mwia-launcher { width: 44px; height: 44px; font-size: 22px; }
   .mwia-tab { padding: 10px 12px; }
   .mwia-link { padding: 6px 10px; }
   .mwia-btn { padding: 10px 16px; }

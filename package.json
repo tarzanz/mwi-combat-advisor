@@ -1,7 +1,7 @@
 {
   "name": "mwi-combat-advisor",
-  "version": "0.33.3",
-  "description": "Userscript: combat advisor for Milky Way Idle",
+  "version": "0.34.0",
+  "description": "Userscript: combat, skilling and market advisor for Milky Way Idle",
   "scripts": {
     "build": "node build.mjs",
     "test": "node test/run-tests.mjs"

@@ -178,12 +178,15 @@ if (process.env.SERVE_ONLY) {
 let failures = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
 
-const browser = await puppeteer.launch({ browser: "firefox", executablePath: "/usr/bin/firefox", headless: true });
+const executablePath = process.env.BROWSER_PATH || "/usr/bin/firefox";
+const firefox = /firefox/.test(executablePath);
+const browser = await puppeteer.launch({ browser: firefox ? "firefox" : "chrome", executablePath, headless: true, args: firefox ? [] : ["--no-sandbox"] });
 try {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
-    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    // Chromium reports the mock page's missing item sprites and favicon; Firefox doesn't.
+    page.on("console", (m) => { if (m.type() === "error" && !/\/sprites\/|favicon/.test(m.location()?.url || "")) errors.push(m.text() + " " + (m.location()?.url || "")); });
     await page.setViewport(MOBILE ? { width: 390, height: 844 } : { width: 1300, height: 900 });
     await page.goto(url);
     await page.waitForFunction(() => window.lastType === "init_character_data", { timeout: 10000 });

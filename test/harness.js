@@ -4,7 +4,10 @@ import { fill } from "../src/data-shim.js";
 import { runSim } from "../src/sim-core.js";
 import { engineTables, loadClientData, loadPrices } from "../src/game-data.js";
 import { buildProfile, toDTO, slotCounts } from "../src/profile.js";
-import { analyzeZones, analyzeUpgrades as analyzeRaw, rateUpgrades, buildPlan, verifyPlan, pickBestZone, xpValue, isSpawnCapped, MAX_ENCOUNTERS_PER_HOUR, uncertainCandidates, refineUncertain, CONFIDENCE_LEVEL } from "../src/analysis.js";
+import { analyzeZones, analyzeUpgrades as analyzeRaw, rateUpgrades, buildPlan, verifyPlan, pickBestZone, xpValue, isSpawnCapped, MAX_ENCOUNTERS_PER_HOUR, uncertainCandidates, refineUncertain, CONFIDENCE_LEVEL, switchStyle } from "../src/analysis.js";
+import { fractionalLevel, levelsPerDay, nextPouchGoal } from "../src/levels.js";
+import { levelProgress } from "../src/skilling.js";
+import { styleOfItem, weaponStyle } from "../src/profile.js";
 import { studentTCdf, confidenceAboveZero, confidenceGreater } from "../src/stats.js";
 import { fixtureCharacter } from "./fixture-character.js";
 
@@ -206,6 +209,49 @@ check("Welch t-test matches a hand calculation", Math.abs(confidenceGreater([1, 
     plus4.delta = 0.03; plus5.delta = 0.036;
     const p = buildPlan({ goal: synthGoal, emptyAbilitySlots: [], gear: [plus5, plus4], abilities: [], drinks: [], food: [] }, 2_000_000, "all");
     check("plan: a pricier option that is better only by luck is not bought", p.picks[0]?.enhancementLevel === 4, p.picks.map((x) => "+" + x.enhancementLevel).join(","));
+}
+
+// Total level: XP counted as levels, and fighting with another style.
+{
+    const table = clientData.levelExperienceTable;
+    check("fractional level", fractionalLevel(table, table[10]) === 10 && Math.abs(fractionalLevel(table, (table[10] + table[11]) / 2) - 10.5) < 1e-9);
+    const day = 5000;
+    check("the same XP gives more levels in a low skill", levelsPerDay(table, table[5], day) > 3 * levelsPerDay(table, table[60], day),
+        `${levelsPerDay(table, table[5], day).toFixed(2)} vs ${levelsPerDay(table, table[60], day).toFixed(3)}`);
+    check("next pouch goal at 709 is 750", nextPouchGoal(709, data)?.level === 750 && nextPouchGoal(709, data).hrid === "/items/giant_pouch");
+    const who = { levels: { "/skills/milking": 10, "/skills/tailoring": 80 }, experience: {} };
+    const xpOf = levelProgress(who, data, true);
+    check("skilling: levels rank a low skill above a high one for the same XP", xpOf({ skill: "/skills/milking", xpPerDay: day }) > xpOf({ skill: "/skills/tailoring", xpPerDay: day }));
+    check("skilling: without count levels it is plain XP", levelProgress(who, data, false)({ skill: "/skills/milking", xpPerDay: day }) === day);
+
+    check("fixture fights with magic", weaponStyle(profile, data) === "magic");
+    const same = switchStyle(profile, "magic", 1e6);
+    check("same style: no starter weapon", same.starter === null && same.profile === profile);
+    const ranged = switchStyle(profile, "ranged", 2_000_000);
+    const starterItem = ranged.starter && data.itemDetailMap[ranged.starter.hrid];
+    check("ranged: a starter bow or crossbow that trains Ranged", styleOfItem(starterItem) === "ranged" && starterItem.equipmentDetail.combatStats.primaryTraining === "/skills/ranged" && weaponStyle(ranged.profile, data) === "ranged",
+        ranged.starter && `${ranged.starter.hrid} ${ranged.starter.cost}`);
+    check("ranged: the staff is gone", !ranged.profile.equipment.main_hand || ranged.profile.equipment.main_hand.hrid !== "/items/birch_water_staff");
+    check("no weapon within budget is reported", switchStyle(profile, "ranged", 0).missing === "ranged");
+    const melee = switchStyle(profile, "melee", 2_000_000);
+    check("melee: the starter trains Melee", data.itemDetailMap[melee.starter.hrid].equipmentDetail.combatStats.primaryTraining === "/skills/melee", melee.starter.hrid);
+
+    const quick = { hours: 1, seeds: 2, goldWeight: 0, budget: 2_000_000 - ranged.starter.cost, maxTier: 0, starter: ranged.starter };
+    const zone = { zoneHrid: "/actions/combat/fly", tier: 0 };
+    const raw = await analyzeRaw(pool, ranged.profile, zone, quick);
+    const asXp = rateUpgrades(raw, quick);
+    const asLevels = rateUpgrades(raw, { ...quick, countLevels: true });
+    check("ranged: only ranged weapons are tested", asXp.gear.filter((c) => ["main_hand", "two_hand"].includes(c.slot)).every((c) => styleOfItem(data.itemDetailMap[c.hrid]) === "ranged"));
+    check("ranged: ranged XP is earned", (raw.base.xp.ranged || 0) > 0, `${Math.round(raw.base.xp.ranged || 0)} ranged xp/h`);
+    check("count levels: the value is levels per hour", raw.base.levels > 0 && xpValue(raw.base, { countLevels: true }) === raw.base.levels && xpValue(raw.base, {}) === raw.base.xpTotal,
+        `${(raw.base.levels * 24).toFixed(2)} levels/day`);
+    const plan = buildPlan(asLevels, quick.budget + ranged.starter.cost, "all");
+    const weaponPick = plan.picks.find((p) => p.slot === "main_hand" || p.slot === "two_hand");
+    check("plan: the starter is bought unless a better weapon replaces it", weaponPick ? plan.starter === null : plan.starter?.hrid === ranged.starter.hrid);
+    check("plan: the starter is counted in what is spent", plan.spent === plan.picks.reduce((sum, p) => sum + p.cost, 0) + (plan.starter?.cost || 0));
+    // A focus charm on the lowest skill should gain more levels than on Ranged itself... at Ranged 1 the opposite: Ranged's own levels are cheapest.
+    const charms = asLevels.gear.filter((c) => c.slot === "charm").map((c) => `${c.hrid.split("/").pop()} ${(c.deltaPct * 100).toFixed(0)}%`);
+    log("   count levels, ranged charms: " + charms.slice(0, 4).join(", "));
 }
 
 // Encounters are capped at one per 3 s; a strong setup in the easiest zone hits that cap.

@@ -256,7 +256,7 @@ export function historyCsv(items, hours, days, exportedAt = new Date()) {
     const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
     const id = (hrid) => hrid.replace(/^\/items\//, "");
     const lines = [
-        `# MWI Combat Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on one device.`,
+        `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on one device.`,
         "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
         `# section hour: an item's row appears when its ask or bid changed since its previous row (in between it stayed the same).`,
         `# Hours with data: ${hours.map((r) => hourText(r.hour)).join(",")}`,

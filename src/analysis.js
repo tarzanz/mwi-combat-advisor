@@ -2,7 +2,8 @@
 
 import { askPrice, combatZones, expectedLootPerKill, getClientData, marketListings, sellValue } from "./game-data.js";
 import { confidenceGreater } from "./stats.js";
-import { GEAR_TYPES, cloneProfile, equip, meetsRequirements, slotCounts, toDTO } from "./profile.js";
+import { GEAR_TYPES, cloneProfile, equip, meetsRequirements, slotCounts, styleOfItem, toDTO, weaponOf, weaponStyle } from "./profile.js";
+import { levelsPerHour } from "./levels.js";
 
 // Many short runs (each with its own random seed) rather than a few long ones: the
 // same total time, but the spread between runs tells how sure a result is.
@@ -32,22 +33,19 @@ export const SPENDING = {
     all: { label: "All in", minPctPerMillion: 0 },
 };
 
-// Stats that only help melee or ranged fighters.
-const NON_MAGIC_STATS = new Set([
-    "stabAccuracy",
-    "slashAccuracy",
-    "smashAccuracy",
-    "rangedAccuracy",
-    "stabDamage",
-    "slashDamage",
-    "smashDamage",
-    "rangedDamage",
-    "meleeExperience",
-    "rangedExperience",
-    "defensiveDamage",
-    "physicalAmplify",
-    "armorPenetration",
-]);
+// Offensive stats that only help one style; a piece whose only bonuses belong
+// to other styles isn't worth simulating. Defensive stats help everyone.
+const STYLE_STATS = {
+    melee: ["stabAccuracy", "slashAccuracy", "smashAccuracy", "stabDamage", "slashDamage", "smashDamage", "meleeExperience", "defensiveDamage"],
+    ranged: ["rangedAccuracy", "rangedDamage", "rangedExperience"],
+    magic: ["magicAccuracy", "magicDamage", "magicExperience"],
+};
+const PHYSICAL_STATS = ["physicalAmplify", "armorPenetration"];
+
+function offStyleStats(style) {
+    const own = new Set([...STYLE_STATS[style], ...(style === "magic" ? [] : PHYSICAL_STATS)]);
+    return new Set([...Object.values(STYLE_STATS).flat(), ...PHYSICAL_STATS].filter((stat) => !own.has(stat)));
+}
 
 // ---------- the goal: a mix of XP and gold ----------
 //
@@ -59,20 +57,22 @@ const NON_MAGIC_STATS = new Set([
 
 const MIN_GOLD_REF = 1000; // coins/h; keeps tiny loot values from blowing up the scale
 
-export function xpValue(result) {
-    return result.xpTotal;
+// Combat XP/h, or with "count levels" the total levels it gives an hour.
+export function xpValue(result, settings) {
+    return settings?.countLevels && result.levels !== null && result.levels !== undefined ? result.levels : result.xpTotal;
 }
 
 export function makeGoal(settings, reference) {
     return {
+        countLevels: !!settings.countLevels,
         gold: Math.min(1, Math.max(0, Number(settings.goldWeight) || 0)),
-        xpRef: Math.max(1, reference.xp),
+        xpRef: Math.max(settings.countLevels ? 1e-6 : 1, reference.xp),
         goldRef: Math.max(MIN_GOLD_REF, reference.gold),
     };
 }
 
 export function score(result, goal) {
-    return ((1 - goal.gold) * xpValue(result)) / goal.xpRef + (goal.gold * result.profit) / goal.goldRef;
+    return ((1 - goal.gold) * xpValue(result, goal)) / goal.xpRef + (goal.gold * result.profit) / goal.goldRef;
 }
 
 // Deaths per hour you accept. A death costs 150 s of waiting, which is already part
@@ -90,7 +90,7 @@ export function zoneGoal(zoneResults, settings) {
     const safe = zoneResults.filter((z) => acceptable(z.result, settings));
     const pool = safe.length ? safe : zoneResults;
     return makeGoal(settings, {
-        xp: Math.max(...pool.map((z) => xpValue(z.result))),
+        xp: Math.max(...pool.map((z) => xpValue(z.result, settings))),
         gold: Math.max(...pool.map((z) => z.result.loot)),
     });
 }
@@ -137,10 +137,19 @@ export function isSpawnCapped(result) {
     return result.encounters >= 0.85 * MAX_ENCOUNTERS_PER_HOUR;
 }
 
-function enrich(result, tier) {
+// Levels an hour the XP gives, from where each combat skill is now (null without the level table).
+function combatLevelsPerHour(result, profile) {
+    const table = getClientData()?.levelExperienceTable;
+    if (!Array.isArray(table) || !profile) return null;
+    const skills = {};
+    for (const [skill, level] of Object.entries(profile.levels)) skills[skill] = { level, xp: profile.allExperience?.["/skills/" + skill] ?? null };
+    return levelsPerHour(table, skills, result.xp);
+}
+
+function enrich(result, tier, profile) {
     const loot = lootValue(result, tier);
     const cost = consumableCost(result);
-    return { ...result, loot, cost, profit: loot - cost, killsTotal: Object.values(result.kills).reduce((a, b) => a + b, 0) };
+    return { ...result, loot, cost, profit: loot - cost, levels: combatLevelsPerHour(result, profile), killsTotal: Object.values(result.kills).reduce((a, b) => a + b, 0) };
 }
 
 // Simulates each { profile, seeds } item; every run is tagged with its seed index.
@@ -158,15 +167,15 @@ async function simulateRuns(pool, items, zone, hours, onProgress) {
     }
     const results = await pool.runAll(jobs, onProgress);
     let next = 0;
-    return items.map((item) => item.seeds.map((seed) => ({ ...enrich(results[next++], zone.tier), seed })));
+    return items.map((item) => item.seeds.map((seed) => ({ ...enrich(results[next++], zone.tier, item.profile), seed })));
 }
 
-const summarize = (runs, tier) => enrich(average(runs), tier);
+const summarize = (runs, tier, profile) => enrich(average(runs), tier, profile);
 
 async function simulateVariants(pool, variants, zone, settings, onProgress) {
     const seeds = Array.from({ length: settings.seeds }, (_, i) => i);
     const runs = await simulateRuns(pool, variants.map((v) => ({ profile: v.profile, seeds })), zone, settings.hours, onProgress);
-    return variants.map((variant, i) => ({ ...variant, result: summarize(runs[i], zone.tier), runs: runs[i] }));
+    return variants.map((variant, i) => ({ ...variant, result: summarize(runs[i], zone.tier, variant.profile), runs: runs[i] }));
 }
 
 export async function analyzeZones(pool, profile, settings, onProgress) {
@@ -181,7 +190,7 @@ export async function analyzeZones(pool, profile, settings, onProgress) {
     const hours = Math.max(1, settings.hours / 2);
     const jobs = variants.map((v) => ({ player, zoneHrid: v.zone.zoneHrid, tier: v.zone.tier, hours, seed: seedFor(0), extraBuffs: profile.extraBuffs }));
     const results = await pool.runAll(jobs, onProgress);
-    return variants.map((v, i) => ({ ...v, result: enrich(results[i], v.zone.tier) }));
+    return variants.map((v, i) => ({ ...v, result: enrich(results[i], v.zone.tier, profile) }));
 }
 
 export function pickBestZone(zoneResults, settings) {
@@ -193,12 +202,47 @@ export function pickBestZone(zoneResults, settings) {
 
 // ---------- candidates ----------
 
-function isUsefulForMage(stats) {
-    return Object.entries(stats || {}).some(([key, value]) => typeof value === "number" && value > 0 && !NON_MAGIC_STATS.has(key) && key !== "attackInterval");
+// Fighting with another style starts from a weapon for it that trains the style's
+// own skill: the best one you own, else the cheapest you can wear on the market.
+// Better weapons of the style are then tested like any other upgrade.
+export function switchStyle(profile, style, budget) {
+    const data = getClientData();
+    if (!style || style === weaponStyle(profile, data)) return { profile, starter: null };
+    const fits = (item) =>
+        styleOfItem(item) === style &&
+        item.equipmentDetail.combatStats.primaryTraining === "/skills/" + style &&
+        meetsRequirements(profile, item.equipmentDetail.levelRequirements);
+    const weapons = new Map(Object.values(data.itemDetailMap).filter(fits).map((item) => [item.hrid, item]));
+    const owned = profile.inventory
+        .filter((i) => weapons.has(i.hrid))
+        .sort((a, b) => (weapons.get(b.hrid).itemLevel || 0) - (weapons.get(a.hrid).itemLevel || 0) || b.enhancementLevel - a.enhancementLevel)[0];
+    let starter = null;
+    if (owned) {
+        starter = { hrid: owned.hrid, enhancementLevel: owned.enhancementLevel, cost: 0, owned: true };
+    } else {
+        for (const item of weapons.values()) {
+            const price = askPrice(item.hrid, 0);
+            if (price === null || price > budget) continue;
+            if (!starter || price < starter.cost) starter = { hrid: item.hrid, enhancementLevel: 0, cost: price, owned: false };
+        }
+    }
+    if (!starter) return { profile, starter: null, missing: style };
+    const variant = cloneProfile(profile);
+    starter.slot = data.itemDetailMap[starter.hrid].equipmentDetail.type.split("/").pop();
+    starter.replaces = weaponOf(profile);
+    equip(variant, starter.slot, { hrid: starter.hrid, enhancementLevel: starter.enhancementLevel });
+    // A shield or book in the off hand stays; a two-handed weapon takes both hands.
+    return { profile: variant, starter };
+}
+
+function isUsefulFor(style, stats) {
+    const offStyle = offStyleStats(style);
+    return Object.entries(stats || {}).some(([key, value]) => typeof value === "number" && value > 0 && !offStyle.has(key) && key !== "attackInterval");
 }
 
 function gearCandidates(profile, budget) {
     const data = getClientData();
+    const style = weaponStyle(profile, data);
     const candidates = [];
     for (const item of Object.values(data.itemDetailMap)) {
         const detail = item.equipmentDetail;
@@ -208,8 +252,8 @@ function gearCandidates(profile, budget) {
         if (!meetsRequirements(profile, detail.levelRequirements)) continue;
         const stats = detail.combatStats || {};
         if (type === "main_hand" || type === "two_hand") {
-            if (!(stats.combatStyleHrids || []).includes("/combat_styles/magic")) continue;
-        } else if (!isUsefulForMage(stats)) {
+            if (styleOfItem(item) !== style) continue;
+        } else if (!isUsefulFor(style, stats)) {
             continue;
         }
         if (type === "off_hand" && profile.equipment.two_hand) continue;
@@ -434,7 +478,7 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
     const seeds = (n) => Array.from({ length: n }, (_, i) => i);
     const items = [{ profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR) }, ...candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds) }))];
     const runs = await simulateRuns(pool, items, zone, settings.hours, onProgress);
-    const simulated = [{ profile }, ...candidates].map((v, i) => ({ ...v, result: summarize(runs[i], zone.tier), runs: runs[i] }));
+    const simulated = [{ profile }, ...candidates].map((v, i) => ({ ...v, result: summarize(runs[i], zone.tier, v.profile), runs: runs[i] }));
     const slots = slotCounts(profile, getClientData());
     const emptyAbilitySlots = [];
     for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
@@ -443,6 +487,7 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
         hours: settings.hours,
         seedsPerRound: settings.seeds,
         emptyAbilitySlots,
+        starter: settings.starter || null,
         baseProfile: profile,
         base: simulated[0].result,
         baseRuns: simulated[0].runs,
@@ -476,7 +521,7 @@ export async function refineUncertain(pool, raw, settings, onProgress) {
     const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
     targets.forEach((c, i) => {
         c.runs = [...c.runs, ...runs[i]];
-        c.result = summarize(c.runs, raw.zone.tier);
+        c.result = summarize(c.runs, raw.zone.tier, c.profile);
     });
     return targets.length;
 }
@@ -485,7 +530,7 @@ export async function refineUncertain(pool, raw, settings, onProgress) {
 // an analysis instantly without simulating again.
 export function rateUpgrades(raw, settings) {
     const { base } = raw;
-    const goal = makeGoal(settings, { xp: xpValue(base), gold: base.loot });
+    const goal = makeGoal(settings, { xp: xpValue(base, settings), gold: base.loot });
     const baseScore = score(base, goal);
     const baseScores = raw.baseRuns.map((r) => score(r, goal));
 
@@ -501,7 +546,7 @@ export function rateUpgrades(raw, settings) {
             deltaPct: delta, // scores are already fractions of the reference
             confidence,
             significant: confidence >= CONFIDENCE_LEVEL,
-            xpDelta: xpValue(c.result) - xpValue(base),
+            xpDelta: xpValue(c.result, settings) - xpValue(base, settings),
             profitDelta: c.result.profit - base.profit,
             // A change that makes you die noticeably more often is never recommended, whatever the
             // gain – unless you accept rare deaths and it stays within that limit.
@@ -596,6 +641,8 @@ const STOP_TOLERANCE = 0.005; // half a percent of the reference
 // Shopping list within the budget, treating it as a multiple-choice knapsack:
 // every slot can move up its hull one step at a time, best XP-per-coin step first.
 export function buildPlan(analysis, budget, spending = "balanced") {
+    // A weapon for a new style comes first; a better weapon on the list replaces it.
+    budget -= analysis.starter?.cost || 0;
     const minGain = 0.01;
     const minEfficiency = (SPENDING[spending] || SPENDING.balanced).minPctPerMillion / 100 / 1e6;
     const usable = (c) => c.significant && c.safe && c.delta > 0;
@@ -637,12 +684,16 @@ export function buildPlan(analysis, budget, spending = "balanced") {
     }
     let picks = [...chosen.values()];
     if (picks.some((p) => p.slot === "two_hand")) picks = picks.filter((p) => p.slot !== "off_hand");
-    spent = picks.reduce((sum, p) => sum + p.cost, 0);
+    const isWeapon = (p) => p.slot === "main_hand" || p.slot === "two_hand";
+    const starter = analysis.starter && !picks.some(isWeapon) ? analysis.starter : null;
+    // A better weapon of the new style is bought instead of the starter: it replaces the weapon you wear.
+    if (analysis.starter) picks = picks.map((p) => (isWeapon(p) ? { ...p, replaces: analysis.starter.replaces } : p));
+    spent = picks.reduce((sum, p) => sum + p.cost, 0) + (starter?.cost || 0);
 
     const drink = pickConsumable(analysis.drinks, analysis.goal.gold);
     const food = pickConsumable(analysis.food, analysis.goal.gold);
     if (food.value && picks.some((p) => p.extraFood === food.value.hrid)) food.value = null;
-    return { picks, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max };
+    return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max };
 }
 
 function putConsumable(list, slot, hrid) { // hrid null empties the slot

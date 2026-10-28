@@ -14,6 +14,8 @@ const [marketFile, shotDir, mwitoolsFile] = process.argv.slice(2);
 const dataDir = path.join(root, "engine/data");
 const clientData = {};
 for (const f of readdirSync(dataDir)) clientData[f.replace(".json", "")] = JSON.parse(readFileSync(path.join(dataDir, f), "utf8"));
+// The simulator repo has no level table; a synthetic one like the game's lets "Count levels" work.
+clientData.levelExperienceTable ??= Array.from({ length: 201 }, (_, level) => Math.round(30 * level ** 2.2));
 const userscript = readFileSync(path.join(root, "dist/mwi-combat-advisor.user.js"), "utf8");
 const MOBILE = !!process.env.MOBILE;
 const TOUCH_STUB = `<script>{ const real = window.matchMedia.bind(window);
@@ -86,12 +88,14 @@ let failures = 0;
 const document_has_progress = (text) => /Testing upgrades|Simulating zones/.test(text);
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
 
-const browser = await puppeteer.launch({ browser: "firefox", executablePath: "/usr/bin/firefox", headless: true });
+const executablePath = process.env.BROWSER_PATH || "/usr/bin/firefox";
+const firefox = /firefox/.test(executablePath);
+const browser = await puppeteer.launch({ browser: firefox ? "firefox" : "chrome", executablePath, headless: true, args: firefox ? [] : ["--no-sandbox"] });
 try {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
-    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    page.on("console", (m) => { if (m.type() === "error" && !/favicon/.test(m.location()?.url || "")) errors.push(m.text() + " " + (m.location()?.url || "")); });
     await page.setViewport(MOBILE ? { width: 390, height: 844 } : { width: 1300, height: 1000 });
     await page.goto(url);
     await page.waitForFunction(() => window.lastType === "items_updated", { timeout: 10000 });
@@ -114,6 +118,8 @@ try {
         const saved = await page.evaluate(() => localStorage.getItem("mwia-launcher-pos"));
         check("launcher can be dragged without opening the panel", Math.abs(after.y - (before.y - 210)) < 3 && !opened && !!saved, `${before.y} → ${after.y}, opened ${opened}`);
     }
+    const launcher = await page.$eval(".mwia-launcher", (n) => n.getBoundingClientRect().toJSON());
+    check("launcher is a small round button, still easy to tap", launcher.width >= 36 && launcher.width <= 44 && launcher.height === launcher.width, `${launcher.width}×${launcher.height}`);
     await page.click(".mwia-launcher");
     await page.waitForSelector(".mwia-panel:not(.mwia-hidden) .mwia-grid", { timeout: 10000 });
     if (MOBILE) {
@@ -127,6 +133,8 @@ try {
     check("overview shows levels", /Magic\s+21/.test(overview));
     check("overview reflects items_updated (Linen Gloves on hands)", /Hands\s+Linen Gloves/.test(overview));
     check("overview has tips", /Tips for your character/.test(overview));
+    check("overview shows the total level and the next pouch", /Total level \d+/.test(overview) && /unlocks the Medium Pouch|unlocks the \w+ Pouch/.test(overview), overview.split("\n").find((l) => /levels to/.test(l)));
+    check("overview suggests training an untrained style", /Ranged is only level 1/.test(overview));
     await page.screenshot({ path: path.join(shotDir, "1-overview.png") });
 
     await page.click('[data-tab="zones"]');
@@ -202,6 +210,13 @@ try {
     check("zones tab has the slider and profit column", await page.$eval(".mwia-body", (n) => !!n.querySelector('[data-setting="goldWeight"]') && (/Match/.test(n.innerText) || !!n.querySelector('td[data-label="Match"]'))));
     await page.click('[data-tab="upgrades"]');
 
+    // Count levels: re-rates without a new run, labels in levels.
+    await page.$eval('[data-setting="countLevels"]', (n) => { n.checked = true; n.dispatchEvent(new Event("change", { bubbles: true })); });
+    const levelText = await page.$eval(".mwia-body", (n) => n.innerText);
+    const levelLine = levelText.split("\n").find((l) => l.startsWith("Zone:")) || "";
+    check("count levels re-rates in levels/day without a new run", /Now: \d+\.\d\d Levels\/day/.test(levelLine) && !document_has_progress(levelText), levelLine);
+    await page.$eval('[data-setting="countLevels"]', (n) => { n.checked = false; n.dispatchEvent(new Event("change", { bubbles: true })); });
+
     if (mwitoolsFile) {
         const ready = await page.waitForFunction(() => window.MWITools?.shopping?.ready, { timeout: 30000 }).then(() => true).catch(() => false);
         check("MWITools shopping API present and ready", ready, await page.evaluate(() => JSON.stringify({ api: !!window.MWITools?.shopping, ready: window.MWITools?.shopping?.ready })));
@@ -232,6 +247,21 @@ try {
         await page.waitForSelector(".mwia-notice-bad", { timeout: 5000 });
         check("without MWITools a click explains why", /cart was not found/.test(await page.$eval(".mwia-notice", (n) => n.textContent)));
     }
+    // Fight as Ranged: a bow or crossbow is put first on the shopping list, zones are simulated with it.
+    await page.click('[data-tab="zones"]');
+    await page.select('[data-setting="combatStyle"]', "ranged");
+    await page.click('[data-action="zones"]');
+    await page.waitForSelector(".mwia-reco", { timeout: 120000 });
+    const rangedZones = await page.$eval(".mwia-body", (n) => n.innerText);
+    check("ranged: zones simulated with a ranged weapon", /Simulated with (Wooden|Birch|Cedar) (Bow|Crossbow)/.test(rangedZones), rangedZones.split("\n").find((l) => l.startsWith("Simulated with")));
+    await page.click('[data-tab="upgrades"]');
+    await page.click('[data-action="upgrades"]');
+    await page.waitForFunction(() => document.querySelector(".mwia-body")?.innerText.includes("Recommended shopping list") && !document.querySelector(".mwia-progress"), { timeout: 300000 });
+    const rangedUpgrades = await page.$eval(".mwia-body", (n) => n.innerText);
+    check("ranged: the plan starts with a weapon for the style", /(Buy|Equip) (Wooden|Birch|Cedar) (Bow|Crossbow)[^\n]*to fight as Ranged|Buy (Wooden|Birch|Cedar) (Bow|Crossbow)[^\n]* in (Weapon|Two-hand)/.test(rangedUpgrades),
+        rangedUpgrades.slice(rangedUpgrades.indexOf("Recommended shopping list"), rangedUpgrades.indexOf("Recommended shopping list") + 300));
+    check("ranged: a better bow replaces the staff you wear, not the starter", !/replaces Wooden (Bow|Crossbow)/.test(rangedUpgrades));
+    await page.screenshot({ path: path.join(shotDir, "7-ranged.png") });
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
     await browser.close();

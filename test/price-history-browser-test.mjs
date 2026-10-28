@@ -178,7 +178,7 @@ try {
     await page.click('.mwia-history [data-history-export="copy"]');
     await page.waitForFunction(() => /Copied|Could not copy/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 3000 }).catch(() => null);
     const copied = await page.evaluate(() => navigator.clipboard.readText().catch((e) => "error " + e.message));
-    check("export copies the CSV", copied.startsWith("# MWI Combat Advisor price history") && copied.includes(`,linen_boots,${usualAsk},${usualBid}`) && /\nhour,\d{4}-\d\d-\d\dT\d\d,linen_gloves,500,400\n/.test(copied), copied.slice(0, 200));
+    check("export copies the CSV", copied.startsWith("# MWI Advisor price history") && copied.includes(`,linen_boots,${usualAsk},${usualBid}`) && /\nhour,\d{4}-\d\d-\d\dT\d\d,linen_gloves,500,400\n/.test(copied), copied.slice(0, 200));
     await page.click('.mwia-history [data-range="365"]');
     await new Promise((r) => setTimeout(r, 600));
     check("1-year view", await page.$eval('.mwia-history [data-range="365"]', (b) => b.classList.contains("mwia-active")));

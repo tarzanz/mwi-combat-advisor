@@ -38,7 +38,7 @@ function scheduleScan() {
         try {
             scan();
         } catch (error) {
-            console.warn("[Combat Advisor] tool notice", error);
+            console.warn("[MWI Advisor] tool notice", error);
         }
     }, SCAN_MS);
 }
@@ -75,7 +75,7 @@ function notices() {
 function scan() {
     const grid = state.character ? equipmentGrid() : null;
     if (grid && (!getClientData() || !pricesStamp())) {
-        t.loading ||= t.deps.prepare().then(scheduleScan, (error) => console.warn("[Combat Advisor] tool notice", error)).finally(() => (t.loading = null));
+        t.loading ||= t.deps.prepare().then(scheduleScan, (error) => console.warn("[MWI Advisor] tool notice", error)).finally(() => (t.loading = null));
         return;
     }
     const list = grid ? notices() : [];
@@ -113,7 +113,7 @@ function rowHtml(n) {
 
 function boxHtml(list) {
     const buyable = list.filter((n) => !n.owned && n.price !== null);
-    return `<div class="mwia-guide-head"><b>⬆ Better tools unlocked</b> <span>Combat Advisor</span></div>
+    return `<div class="mwia-guide-head"><b>⬆ Better tools unlocked</b> <span>MWI Advisor</span></div>
         <ul class="mwia-tool-list">${list.map(rowHtml).join("")}</ul>
         ${buyable.length > 1 ? cartButton(buyable.map((n) => ({ hrid: n.itemHrid, quantity: 1 })), `🛒 Add all ${buyable.length} (${coins(buyable.reduce((sum, n) => sum + n.price, 0))})`) : ""}
         ${t.status ? `<div class="mwia-guide-status">${esc(t.status)}</div>` : ""}

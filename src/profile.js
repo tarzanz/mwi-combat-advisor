@@ -32,6 +32,37 @@ function emptyTriggers(list) {
     }));
 }
 
+// Combat styles by the weapon: melee covers stab, slash and smash.
+export const STYLES = {
+    magic: ["/combat_styles/magic"],
+    ranged: ["/combat_styles/ranged"],
+    melee: ["/combat_styles/stab", "/combat_styles/slash", "/combat_styles/smash"],
+};
+export const STYLE_NAMES = { magic: "Magic", ranged: "Ranged", melee: "Melee" };
+
+// The style a weapon fights with (null for anything that isn't a weapon).
+export function styleOfItem(item) {
+    const first = item?.equipmentDetail?.combatStats?.combatStyleHrids?.[0];
+    return Object.keys(STYLES).find((style) => STYLES[style].includes(first)) || null;
+}
+
+export function weaponOf(profile) {
+    return profile.equipment.main_hand || profile.equipment.two_hand || null;
+}
+
+// Without a weapon the game punches (smash), which is melee.
+export function weaponStyle(profile, data) {
+    const weapon = weaponOf(profile);
+    return (weapon && styleOfItem(data.itemDetailMap[weapon.hrid])) || "melee";
+}
+
+// The skills a style's kills train: 30% to the weapon's skill, 70% split over these
+// (or all to the charm's focus skill when it is one of them).
+export function styleSkills(style, data) {
+    const map = data.combatStyleDetailMap?.[STYLES[style][0]]?.skillExpMap;
+    return map ? Object.keys(map).map((hrid) => hrid.split("/").pop()) : ["stamina", "intelligence", "attack", "defense", style];
+}
+
 export function combatLevel(levels) {
     const { stamina, intelligence, attack, melee, defense, ranged, magic } = levels;
     return 0.1 * (stamina + intelligence + attack + defense + Math.max(melee, ranged, magic)) + 0.5 * Math.max(attack, defense, melee, ranged, magic);
@@ -39,7 +70,11 @@ export function combatLevel(levels) {
 
 export function buildProfile(character, items, data) {
     const allLevels = {};
-    for (const skill of character.characterSkills || []) allLevels[skill.skillHrid] = skill.level;
+    const allExperience = {};
+    for (const skill of character.characterSkills || []) {
+        allLevels[skill.skillHrid] = skill.level;
+        allExperience[skill.skillHrid] = skill.experience ?? null;
+    }
     const levels = {};
     for (const skill of COMBAT_SKILLS) levels[skill] = allLevels["/skills/" + skill] ?? 1;
     const totalLevel =
@@ -120,6 +155,7 @@ export function buildProfile(character, items, data) {
         name: character.character?.name || "",
         levels,
         allLevels,
+        allExperience,
         totalLevel,
         equipment,
         inventory,

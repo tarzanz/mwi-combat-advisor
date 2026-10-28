@@ -64,7 +64,7 @@ function scheduleScan() {
         try {
             scan();
         } catch (error) {
-            console.warn("[Combat Advisor] action window", error);
+            console.warn("[MWI Advisor] action window", error);
         }
     }, SCAN_MS);
 }
@@ -81,7 +81,7 @@ function scan() {
     const panels = openActionPanels();
     const leveling = levelingPanels();
     if ((panels.length || leveling.length) && (!getClientData() || !pricesStamp())) {
-        g.loading ||= g.deps.prepare().then(scheduleScan, (error) => console.warn("[Combat Advisor] action window", error)).finally(() => (g.loading = null));
+        g.loading ||= g.deps.prepare().then(scheduleScan, (error) => console.warn("[MWI Advisor] action window", error)).finally(() => (g.loading = null));
         return;
     }
     for (const { panel, name, buttons } of panels) {
@@ -167,7 +167,7 @@ function skillingHtml(entry) {
     const label = plan?.items.length ? `🛒 Teas for ${plan.hours < 1 ? Math.max(1, Math.round(plan.hours * 60)) + " min" : Math.round(plan.hours * 10) / 10 + " h"}` : "🛒 Teas for 1 day";
     const focus = Number(settings.skillingGold ?? 100);
     return (
-        head("🍵 Teas", `Combat Advisor${entry.action.itemHrid ? ` · ${esc(adviceName(entry))}` : ""} · ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP · ${focus}% gold`}`) +
+        head("🍵 Teas", `MWI Advisor${entry.action.itemHrid ? ` · ${esc(adviceName(entry))}` : ""} · ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP · ${focus}% gold`}`) +
         (lines.length ? `<ul class="mwia-guide-list">${lines.join("")}</ul>` : "") +
         `<div class="mwia-guide-note">${verdict} ${slotsLine(entry)}</div>` +
         cartButton(items, label)
@@ -196,7 +196,7 @@ function fightsHtml(action, setup, tier) {
 function combatHtml(action, tier = null) {
     const setup = combatSetups()[action.hrid];
     if (!setup) {
-        return head("☕ Drinks and food", "Combat Advisor") + `<div class="mwia-guide-note">No advice for ${esc(action.name)} yet: in the advisor, pick it as the zone under <b>Upgrades</b> and press <b>Analyze upgrades</b>.</div>`;
+        return head("☕ Drinks and food", "MWI Advisor") + `<div class="mwia-guide-note">No advice for ${esc(action.name)} yet: in the advisor, pick it as the zone under <b>Upgrades</b> and press <b>Analyze upgrades</b>.</div>`;
     }
     const hours = Math.max(0, (Date.now() - setup.at) / 3600000);
     const age = hours < 1 ? "less than an hour ago" : hours < 48 ? `${Math.round(hours)} h ago` : `${Math.round(hours / 24)} days ago`;
@@ -221,7 +221,7 @@ function combatHtml(action, tier = null) {
     const need = (hrid) => (picked ? Math.ceil((setup.perHour?.[hrid] || 0) * picked) : perDay(hrid));
     const items = all.filter((hrid) => have(hrid) < need(hrid)).map((hrid) => ({ hrid, quantity: need(hrid) - have(hrid) }));
     return (
-        head("☕ Drinks and food", `Combat Advisor · ${esc(actionName(action.hrid))}${setup.tier ? ` T${setup.tier}` : ""}, analysed ${age}`) +
+        head("☕ Drinks and food", `MWI Advisor · ${esc(actionName(action.hrid))}${setup.tier ? ` T${setup.tier}` : ""}, analysed ${age}`) +
         part("Drinks", setup.drinks, drinksNow) +
         part("Food", setup.food, foodNow) +
         `<div class="mwia-guide-note">${done ? "✓ Your slots match the advice." : "Set your slots as above before you start."}</div>` +

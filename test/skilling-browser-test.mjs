@@ -8,7 +8,7 @@ import path from "node:path";
 import puppeteer from "puppeteer-core";
 import { WebSocketServer } from "ws";
 import { fixtureCharacter } from "./fixture-character.js";
-import { NEAR_LEVELS, PLAN_MODES, RISKY_MARGIN, heldStock, liquidityRating, marketPricer, rankSkilling, skillingCharacter, usableTeas } from "../src/skilling.js";
+import { NEAR_LEVELS, PLAN_MODES, RISKY_MARGIN, heldStock, levelProgress, liquidityRating, marketPricer, rankSkilling, skillingCharacter, usableTeas } from "../src/skilling.js";
 import { rankUpgrades, toolTiers } from "../src/skilling-upgrades.js";
 import { shortCoins } from "../src/format.js";
 
@@ -493,6 +493,23 @@ try {
     // XP within the coins: a job they keep short counts for its share of the hours.
     const byXp = [...expXp].filter((e) => e.valid).sort((a, b) => b.xpPerDay * (b.suggestion?.fill ?? 1) - a.xpPerDay * (a.suggestion?.fill ?? 1))[0];
     check("XP focus ranks by XP", xpRows[0]?.name === expXp[0].action.name && expXp[0].hrid === byXp.hrid && /XP only/.test(await page.$eval(".mwia-focus-text", (n) => n.textContent)), `${xpRows[0]?.name} vs ${byXp.action.name}`);
+    // Count levels: the same XP is worth more levels in a low skill; rows show levels a day.
+    await page.$eval('[data-setting="countLevels"]', (n) => { n.checked = true; n.dispatchEvent(new Event("change", { bubbles: true })); });
+    await new Promise((r) => setTimeout(r, 100));
+    const levelRows = await rows(page);
+    const expLevels = expectRank(character, { skill: "tailoring", goldWeight: 0, countLevels: true }).available;
+    const levelNums = await page.$$eval(".mwia-skill-nums", (n) => n.map((x) => x.textContent));
+    check("count levels: rows rank by levels and show lvl/day", levelRows[0]?.name === expLevels[0].action.name && levelNums.some((t) => /\d\.\d\d lvl\/day/.test(t)) && expLevels[0].levelsPerDay > 0,
+        `${levelRows[0]?.name} vs ${expLevels[0].action.name}; ${levelNums[0]}`);
+    const allSkills = expectRank(character, { skill: "all", goldWeight: 0, countLevels: true }).available.filter((e) => e.valid);
+    // Ranked by the levels the planned job gives: a job your coins keep short counts for its share.
+    const toLevels = levelProgress(skillingCharacter(character, items(character), clientData), clientData, true);
+    const levelsOf = (e) => toLevels({ skill: e.skill, xpPerDay: e.xpPerDay * (e.suggestion?.fill ?? 1) });
+    const most = [...allSkills].sort((a, b) => levelsOf(b) - levelsOf(a))[0];
+    check("count levels: the top action gives the most levels, not the most XP", allSkills[0].hrid === most.hrid && allSkills.some((e) => e.xpPerDay > allSkills[0].xpPerDay),
+        `${allSkills[0].action.name} ${levelsOf(allSkills[0]).toFixed(2)} lvl/day, ${Math.round(allSkills[0].xpPerDay)} XP/day; most ${most.action.name}`);
+    await page.$eval('[data-setting="countLevels"]', (n) => { n.checked = false; n.dispatchEvent(new Event("change", { bubbles: true })); });
+    await new Promise((r) => setTimeout(r, 100));
     const foragingXp = expectRank(character, { skill: "foraging", goldWeight: 0 }).available[0];
     check("XP focus picks XP teas", foragingXp.best.result.teas.includes("/items/wisdom_tea"), foragingXp.best.result.teas.join(","));
     await page.$eval('[data-setting="skillingGold"]', (input) => { input.value = "100"; input.dispatchEvent(new Event("change", { bubbles: true })); });

@@ -45,6 +45,8 @@ export function skillingSettingsHtml(s) {
       <label class="mwia-focus" title="Rank by gold per day, XP per day, or a mix. Each counts as a share of the most any action in the list gives. The best teas follow the same focus.">
         Focus: <span class="mwia-focus-text">${focusLabel(goldShare(s))}</span>
         <span class="mwia-focus-row">XP <input type="range" min="0" max="100" step="10" value="${goldShare(s)}" data-setting="skillingGold"> Gold</span></label>
+      <label title="Count the XP as the levels it gives the skill from where it is now: a low skill's levels are cheap, so this is the fastest way up in total level. Counted over a day of training.">
+        Total level <span class="mwia-focus-row"><input type="checkbox" data-setting="countLevels" ${s.countLevels ? "checked" : ""}> Count levels, not XP</span></label>
     </div>`;
 }
 
@@ -54,7 +56,7 @@ const KEPT_RANKINGS = 4;
 
 // fixed: { hrid, target } – an Enhancing or Alchemy action always listed, at the target set in the game.
 function ranking(settings, fixed = null) {
-    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, planMode(settings), goldShare(settings), historyVersion(), JSON.stringify(fixed)].join("|");
+    const key = [state.updatedAt, pricesStamp(), settings.skillingSkill, settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, planMode(settings), goldShare(settings), !!settings.countLevels, historyVersion(), JSON.stringify(fixed)].join("|");
     if (!rankings.has(key)) {
         rankings.set(key, computeRanking(settings, fixed));
         while (rankings.size > KEPT_RANKINGS) rankings.delete(rankings.keys().next().value);
@@ -102,7 +104,7 @@ function computeRanking(settings, fixed = null) {
             inputMarket: (hrid) => ({ liquidity: liquidityRating(priceSummary(hrid)), book: state.orderBooks.get(hrid) || null }),
         };
         const leveling = { resale: (hrid, level) => plusResale(hrid, level, settings.skillingSellAt, data), owned: (hrid) => have(hrid), fixed };
-        const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100, leveling });
+        const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, sellCap: Number(settings.skillingSellCap) || 0, plan, goldWeight: goldShare(settings) / 100, countLevels: !!settings.countLevels, leveling });
         for (const entry of [...result.available, ...result.upcoming]) {
             entry.warnings = [...entry.warnings, ...(isEnhance(entry) ? enhanceWarnings(entry) : priceWarnings(entry))];
             if (isAlchemy(entry) && entry.suggestion) entry.suggestion.verb = ALCHEMY_KINDS[entry.action.kind].name.toLowerCase();
@@ -302,7 +304,7 @@ function rowHtml(entry, best, upcoming = false, first = false) {
     const faded = !entry.valid || (!leveling && day <= 0) || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
     return `<details class="mwia-skill-row${(best || (leveling && first)) && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">→ +${entry.target}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
-        <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day</span></span></summary>
+        <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day${entry.levelsPerDay !== null && entry.levelsPerDay !== undefined ? ` · ${dec(entry.levelsPerDay, 2)} lvl/day` : ""}</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
 }
 
@@ -634,7 +636,7 @@ export function topActionHrid(settings, skill) {
 }
 
 // What the top action depends on, for caches.
-export const topActionKey = (settings) => [settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, planMode(settings), goldShare(settings), historyVersion()].join("|");
+export const topActionKey = (settings) => [settings.skillingSellAt, settings.skillingTeas, settings.skillingSellCap, planMode(settings), goldShare(settings), !!settings.countLevels, historyVersion()].join("|");
 
 function upgradeRanking(settings) {
     const skill = settings.skillingSkill;

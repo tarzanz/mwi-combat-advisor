@@ -1,9 +1,23 @@
-# MWI Combat Advisor
+# MWI Advisor
 
-Userscript for [Milky Way Idle](https://www.milkywayidle.com) that tells a (magic) fighter where to fight and what to
-buy, by simulating *your own* character.
+Userscript for [Milky Way Idle](https://www.milkywayidle.com) that tells you where to fight and what to buy (magic,
+ranged or melee, by simulating *your own* character), what to make and sell, how to level and which teas to drink.
+(It started as *MWI Combat Advisor*; the install and update link is unchanged.)
 
-- **Overview** – your levels, gear, abilities, food/drinks and rule-based tips (empty slots, non-magic gear, …).
+- **Overview** – your levels, gear, abilities, food/drinks and rule-based tips (empty slots, armour that hurts your
+  style's accuracy, a focus charm for your lowest combat skill, a style you hardly trained, …). *Total level* says how
+  many levels are left to the next pouch (Medium at 250, Large at 500, Giant at 750 – one more drink slot) and lists
+  every skill by the XP its next level needs, cheapest first.
+- **Fight as** – Magic, Ranged or Melee, or whatever your weapon is. Another style than your weapon's starts from the
+  best weapon for it in your inventory, else the cheapest you can wear on the market (one that trains the style's own
+  skill: a bow or crossbow, a sword or mace, a staff). Zones and upgrades are simulated with it, it heads the shopping
+  list, and better weapons of the style, armour and charms that suit it are tested as upgrades (a better weapon on
+  the list is bought instead of it).
+- **Count levels, not XP** (Where to fight, Upgrades, Skilling) – the XP is counted as the levels it gives each skill
+  from where it is now, over a day of training. Each level needs more XP than the one before, so XP in a low skill (a
+  style at level 1, a gathering skill at 45) buys far more levels than in a high one: the fastest way up in total
+  level. Zones and upgrades show *Levels/day*, Skilling rows add *lvl/day*; the focus slider weighs levels against gold
+  as it does XP. A focus charm on your lowest combat skill is measured the same way. Ticking it re-ranks instantly.
 - **Focus slider (XP ↔ Gold)** – rank zones and upgrades by XP/h, by profit/h (loot at bid price minus food and
   drink cost), or a mix. Both are measured as a share of a reference (your current setup, or the best zone), so the
   slider simply weights them. Running costs are part of profit, so expensive drinks drop out under a gold focus by
@@ -172,7 +186,8 @@ buy, by simulating *your own* character.
   level's order book, history and tradable range (the range the game sends with the order book when the window
   doesn't show it); open the item at that level on the market first.
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
-  screens a tap shows the hints that a mouse would show on hover (dotted underline), the **⚔ Advisor** button can be
+  screens a tap shows the hints that a mouse would show on hover (dotted underline), the round **🧭** button (44 px on a
+  touch screen, 36 px with a mouse) can be
   dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact
   (current stop and buttons only; ▸ shows the list) and ⇅ moves it between the top and bottom of the screen.
 
@@ -184,7 +199,7 @@ The script never buys, equips or queues anything by itself; you always click the
    the Firefox add-on store.
 2. Open <https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js> and
    confirm the install. Updates come from the same link; "check for updates" in the script manager fetches them.
-3. Reload the game. A **⚔ Advisor** button appears at the bottom right.
+3. Reload the game. A small round **🧭** button appears at the bottom right (drag it anywhere on a phone).
 
 Pasting `dist/mwi-combat-advisor.user.js` into a new script works too, but then updates are manual.
 
@@ -209,6 +224,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 ## Limitations
 
 - Solo combat only (no parties, no dungeons/labyrinth). Guild buffs are not modelled by the engine.
+- *Fight as* picks one starter weapon; other weapons of the style are tested as upgrades within the budget left after
+  it. Levels are counted over a day at today's rate, so a skill you would level past in an hour is still worth a lot.
 - At most five enhancement levels per item are tested (those where a higher level also costs more).
 - Ability level-ups need the game's `levelExperienceTable`; if the client lacks it they are skipped (the panel says so).
 - New food/drinks use the game's default triggers; your own trigger settings are used for things you already have.
@@ -238,7 +255,7 @@ node test/price-history-test.mjs                          # price-history maths 
 node test/leveling-test.mjs                               # Enhancing and Alchemy rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
-BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # in Chromium instead of Firefox
+BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox
 ```
 
 Installed scripts update from `dist/` on `main`, so a release is: bump `version` in `package.json`, `npm run build`,

@@ -324,7 +324,7 @@ function injectStartButtons() {
         button.type = "button";
         button.className = "mwia-train-start";
         button.textContent = "🚂 Plan train";
-        button.title = "Combat Advisor: walk through these production steps in order, with counts filled in";
+        button.title = "MWI Advisor: walk through these production steps in order, with counts filled in";
         button.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();

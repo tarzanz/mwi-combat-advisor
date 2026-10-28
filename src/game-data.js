@@ -17,7 +17,7 @@ function readClientData(win) {
             if (data && data.itemDetailMap) return data;
         }
     } catch (error) {
-        console.warn("[Combat Advisor] localStorageUtil failed", error);
+        console.warn("[MWI Advisor] localStorageUtil failed", error);
     }
     return null;
 }
@@ -33,7 +33,7 @@ export async function loadClientData(win) {
             const response = await fetch(FALLBACK_DATA_URL + table + ".json");
             if (response.ok) data[table] = await response.json();
         } catch (error) {
-            console.warn("[Combat Advisor] Could not fetch", table, error);
+            console.warn("[MWI Advisor] Could not fetch", table, error);
         }
         if (!data[table]) data[table] = table === "abilitySlotsLevelRequirementList" ? [0, 1, 1, 20, 50, 90] : {};
     }
@@ -69,7 +69,7 @@ export async function loadPrices(force = false) {
         try {
             listener(prices, json.timestamp);
         } catch (error) {
-            console.error("[Combat Advisor]", error);
+            console.error("[MWI Advisor]", error);
         }
     }
     return prices;

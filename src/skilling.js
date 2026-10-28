@@ -5,6 +5,7 @@
 // Alchemy have their own rules (enhancing.js, alchemy.js) and join the list
 // when picked.
 
+import { experienceOf, levelsPerDay } from "./levels.js";
 import { ALCHEMY, ALCHEMY_FUNCTION, alchemyActions, evaluateAlchemy } from "./alchemy.js";
 import { ENHANCE_FUNCTION, ENHANCING, enhancingActions, evaluateEnhance } from "./enhancing.js";
 
@@ -354,18 +355,36 @@ export function bestTeas(action, who, data, market, evaluate, score = (r) => r.g
 }
 
 // XP ↔ gold focus: each counts as a share of the most any action in the list gives.
-function focusScore(goldWeight, refs) {
-    return (r) => (goldWeight * r.goldPerDay) / refs.gold + ((1 - goldWeight) * r.xpPerDay) / refs.xp;
+// xpOf: XP a day, or the levels it gives (see levelProgress).
+const XP_PER_DAY = (r) => r.xpPerDay;
+function focusScore(goldWeight, refs, xpOf = XP_PER_DAY) {
+    return (r) => (goldWeight * r.goldPerDay) / refs.gold + ((1 - goldWeight) * xpOf(r)) / refs.xp;
+}
+
+// Total level: a day's XP counted as the levels it gives the action's skill from
+// where it is now, so a low skill's cheap levels rank first. Plain XP without the table.
+export function levelProgress(who, data, countLevels) {
+    const table = data.levelExperienceTable;
+    if (!countLevels || !Array.isArray(table)) return XP_PER_DAY;
+    return (r) => {
+        const level = who.levels[r.skill] ?? 1;
+        return levelsPerDay(table, experienceOf(table, who.experience[r.skill], level), r.xpPerDay);
+    };
 }
 
 // Levelling (Enhancing, Alchemy): time against money. Money is the coins per
 // XP against the cheapest in the list, time the days per XP against the
 // fastest; the focus weighs the two, so "Gold only" is the cheapest way to the
 // XP and "XP only" the fastest, whatever it costs.
-export const coinsPerXp = (r) => (r.valid && r.xpPerDay > 0 ? -r.goldPerDay / r.xpPerDay : Infinity);
-function timeMoneyScore(goldWeight, refs) {
+export const coinsPerXp = (r) => coinsPer(r, XP_PER_DAY);
+// Coins per XP, or per level when counting levels.
+const coinsPer = (r, xpOf) => (r.valid && xpOf(r) > 0 ? -r.goldPerDay / xpOf(r) : Infinity);
+function timeMoneyScore(goldWeight, refs, xpOf = XP_PER_DAY) {
     const costScale = Math.max(1e-9, Math.abs(Number.isFinite(refs.cost) ? refs.cost : 1));
-    return (r) => (r.xpPerDay > 0 && r.valid !== false ? -((goldWeight * -r.goldPerDay) / r.xpPerDay / costScale + ((1 - goldWeight) * refs.xp) / r.xpPerDay) : -Infinity);
+    return (r) => {
+        const xp = xpOf(r);
+        return xp > 0 && r.valid !== false ? -((goldWeight * -r.goldPerDay) / xp / costScale + ((1 - goldWeight) * refs.xp) / xp) : -Infinity;
+    };
 }
 
 // Teas to buy for a job: the best setup's teas for as many hours as the job
@@ -752,7 +771,8 @@ function shortlist(candidates, keep = () => false) {
 // The Skilling tab: what the character can do now, ranked by gold, and what unlocks soon.
 // Enhancing and Alchemy are listed only when picked. leveling: { resale(hrid, level),
 // owned(hrid), fixed: { hrid, target } – an action always listed, at the target set in the game }.
-export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1, leveling: levelingOptions = {} } = {}) {
+export function rankSkilling(who, data, market, { skill = "all", teaMode = "current", sellCap = 0, plan = null, goldWeight = 1, countLevels = false, leveling: levelingOptions = {} } = {}) {
+    const xpOf = levelProgress(who, data, countLevels);
     const evaluator = (action, level) => {
         const target = levelingOptions.fixed?.hrid === action.hrid ? levelingOptions.fixed.target : null;
         if (action.function === ENHANCE_FUNCTION) return (teas, score) => evaluateEnhance(action, who, data, market, teas, { ...levelingOptions, sellCap, score, target });
@@ -787,7 +807,9 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     // is what the planned hours give within your coins (stock aside, so making
     // the item doesn't move the scale): an action your coins can't carry
     // doesn't set it.
-    const refs = { gold: 1, xp: 1 };
+    // Levels a day are small numbers; the floor only keeps an empty list from dividing by zero.
+    const XP_FLOOR = countLevels ? 1e-6 : 1;
+    const refs = { gold: 1, xp: XP_FLOOR };
     const skillRefs = {};
     const NO_STOCK = { inventory: 0, listed: 0, listings: [] };
     const fillOf = (r) => {
@@ -796,19 +818,19 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         return suggestCount(r, { ...plan, stock: NO_STOCK, book: null, price: plan.price?.(r.action) ?? null, liquidity: plan.liquidity?.(r.action) ?? null, sellCap })?.fill ?? 1;
     };
     for (const { action, evaluate } of doable) {
-        const own = (skillRefs[action.type] ||= { gold: 1, xp: 1, cost: Infinity });
+        const own = (skillRefs[action.type] ||= { gold: 1, xp: XP_FLOOR, cost: Infinity });
         // Levelling: "gold" is the cheapest coins per XP, not the most gold a day.
-        const gold = bestTeas(action, who, data, market, evaluate, leveling(action) ? (r) => -coinsPerXp(r) : (r) => r.goldPerDay).result;
-        const xp = bestTeas(action, who, data, market, evaluate, (r) => r.xpPerDay).result;
+        const gold = bestTeas(action, who, data, market, evaluate, leveling(action) ? (r) => -coinsPer(r, xpOf) : (r) => r.goldPerDay).result;
+        const xp = bestTeas(action, who, data, market, evaluate, xpOf).result;
         const goldDay = gold.valid ? gold.goldPerDay * fillOf(gold) : 0;
-        const xpDay = xp.valid ? xp.xpPerDay * fillOf(xp) : 0;
+        const xpDay = xp.valid ? xpOf({ ...xp, xpPerDay: xp.xpPerDay * fillOf(xp) }) : 0;
         for (const r of [refs, own]) {
             r.gold = Math.max(r.gold, goldDay);
             r.xp = Math.max(r.xp, xpDay);
-            if (leveling(action)) r.cost = Math.min(r.cost, coinsPerXp(gold));
+            if (leveling(action)) r.cost = Math.min(r.cost, coinsPer(gold, xpOf));
         }
     }
-    const scoreFor = (r) => (levelingList ? timeMoneyScore(goldWeight, r) : focusScore(goldWeight, r));
+    const scoreFor = (r) => (levelingList ? timeMoneyScore(goldWeight, r, xpOf) : focusScore(goldWeight, r, xpOf));
     const score = scoreFor(refs);
     const chain = chainBuilder(who, data, market, teaMode);
     const available = doable.map(({ action, evaluate }) => {
@@ -837,7 +859,8 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
             chain: chained,
             // A train that makes the materials too, when that pays at least as well as buying them.
             chainSuggestion: plan && chained && chained.profitPerHour >= shown.profitPerHour ? suggestChainCount(shown, chained, { ...plan, stock: plan.stock(shown.action), price, liquidity, sellCap }) : null,
-            score: score({ goldPerDay: shown.goldPerDay * fill, xpPerDay: shown.xpPerDay * fill }),
+            score: score({ skill: shown.skill, valid: shown.valid, goldPerDay: shown.goldPerDay * fill, xpPerDay: shown.xpPerDay * fill }),
+            levelsPerDay: countLevels ? levelProgress(who, data, true)(shown) : null,
             thinMargin: !!plan?.hideThinMargins && thinMargin(shown, price?.swing ?? null),
             teaSlots: who.slots[action.type],
             pouch: who.pouch,

@@ -48,10 +48,10 @@ function thirdPartyNotices() {
 const UPDATE_URL = "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js";
 
 const header = `// ==UserScript==
-// @name         MWI Combat Advisor
+// @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
 // @version      ${pkg.version}
-// @description  Recommends zones, gear, abilities, food and drinks for Milky Way Idle combat by simulating your own character.
+// @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
 // @match        https://www.milkywayidlecn.com/*

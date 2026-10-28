@@ -33,9 +33,9 @@ export function startPriceHistory(win) {
                 scheduleScan(true);
                 for (const listener of h.listeners) listener();
             })
-            .catch((error) => console.warn("[Combat Advisor] price history", error));
+            .catch((error) => console.warn("[MWI Advisor] price history", error));
     });
-    loadHistory().catch((error) => console.warn("[Combat Advisor] price history", error));
+    loadHistory().catch((error) => console.warn("[MWI Advisor] price history", error));
     const collect = () => loadPrices(true).catch(() => {});
     setTimeout(collect, FIRST_COLLECT_MS);
     setInterval(collect, COLLECT_EVERY_MS);

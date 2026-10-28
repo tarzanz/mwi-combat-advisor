@@ -57,7 +57,7 @@ function scheduleScan() {
         try {
             scan();
         } catch (error) {
-            console.warn("[Combat Advisor] tea slots", error);
+            console.warn("[MWI Advisor] tea slots", error);
         }
     }, SCAN_MS);
 }
@@ -123,7 +123,7 @@ function adviceFor(skill) {
 function scan() {
     const found = state.character ? findSlots() : null;
     if (found && !found.error && (!getClientData() || !pricesStamp())) {
-        t.loading ||= t.deps.prepare().then(scheduleScan, (error) => console.warn("[Combat Advisor] tea slots", error)).finally(() => (t.loading = null));
+        t.loading ||= t.deps.prepare().then(scheduleScan, (error) => console.warn("[MWI Advisor] tea slots", error)).finally(() => (t.loading = null));
         return;
     }
     const advice = found && !found.error && getClientData() ? adviceFor(found.skill) : null;
@@ -131,7 +131,7 @@ function scan() {
     let note = null;
     let noteAt = null;
     if (found?.error) {
-        note = `<span class="mwia-dim">Combat Advisor${VERSION ? " " + VERSION : ""}: can't mark the teas – ${esc(found.error)}.</span>`;
+        note = `<span class="mwia-dim">MWI Advisor${VERSION ? " " + VERSION : ""}: can't mark the teas – ${esc(found.error)}.</span>`;
         noteAt = (leaves(document.body, (text) => LABEL.test(text)).find(visible) || {}).parentElement;
     } else if (advice) {
         const right = new Set(advice.teas);
