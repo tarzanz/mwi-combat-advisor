@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.36.0
+// @version      0.37.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1434,6 +1434,15 @@
   border-radius: 50%; background: #e5484d; border: 2px solid #171b2e;
 }
 .mwia-alert-row td { background: rgba(229,72,77,.08); }
+.mwia-version {
+  align-self: center; margin-left: 5px; font: 400 9px/1 sans-serif; color: #aab3d9; opacity: .6;
+  text-decoration: none; white-space: nowrap; cursor: default;
+}
+.mwia-version-old {
+  color: #ff5c5c; opacity: 1; font-weight: 700; cursor: pointer; text-shadow: 0 0 5px rgba(255,70,70,.8);
+  animation: mwia-version-glow 2s ease-in-out infinite alternate;
+}
+@keyframes mwia-version-glow { from { text-shadow: 0 0 2px rgba(255,70,70,.4); } to { text-shadow: 0 0 7px rgba(255,70,70,.95); } }
 .mwia-panel {
   position: fixed; top: 48px; right: 44px; z-index: 1000;
   width: min(880px, calc(100vw - 58px)); max-height: calc(100vh - 64px);
@@ -7573,6 +7582,80 @@ i.mwia-history-bid { background: #7ee2b0; }
     apply(listingModals().find((modal) => modal.contains(button)), Number(button.dataset.listprice));
   }
 
+  // src/version-tag.js
+  var VERSION3 = true ? "0.37.0" : "dev";
+  var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
+  var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
+  var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
+  var SCAN_MS6 = 400;
+  var NAME = '[class*="Header_characterInfo"] [class*="Header_name__"]';
+  var NAME_ROW = '[class*="CharacterName_characterName__"]';
+  var versionTag = { latest: null, checked: 0, scanTimer: null };
+  function isNewer(a, b) {
+    const pa = String(a).split(".").map(Number);
+    const pb = String(b).split(".").map(Number);
+    if (pa.some(Number.isNaN) || pb.some(Number.isNaN)) return false;
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+    }
+    return false;
+  }
+  function startVersionTag() {
+    new MutationObserver((records) => {
+      if (records.every((r) => r.target.closest?.(".mwia-version"))) return;
+      scheduleScan7();
+    }).observe(document.body, { childList: true, subtree: true });
+    scheduleScan7();
+    if (!LATEST_URL || VERSION3 === "dev") return;
+    checkLatest();
+    setInterval(checkLatest, CHECK_EVERY_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && Date.now() - versionTag.checked > CHECK_EVERY_MS) checkLatest();
+    });
+  }
+  async function checkLatest() {
+    versionTag.checked = Date.now();
+    try {
+      const response = await fetch(LATEST_URL, { cache: "no-store", signal: AbortSignal.timeout?.(3e4) });
+      if (!response.ok) return;
+      const latest = (await response.json()).version;
+      if (typeof latest === "string") versionTag.latest = latest;
+      scan6();
+    } catch {
+    }
+  }
+  function scheduleScan7() {
+    if (versionTag.scanTimer) return;
+    versionTag.scanTimer = setTimeout(() => {
+      versionTag.scanTimer = null;
+      scan6();
+    }, SCAN_MS6);
+  }
+  function scan6() {
+    const name = document.querySelector(NAME);
+    if (!name) return;
+    const row = name.querySelector(NAME_ROW) || name;
+    let tag = row.querySelector(".mwia-version");
+    if (!tag) {
+      tag = document.createElement("a");
+      tag.className = "mwia-version";
+      tag.target = "_blank";
+      tag.rel = "noopener";
+      tag.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (!tag.classList.contains("mwia-version-old")) event.preventDefault();
+      });
+      row.appendChild(tag);
+    }
+    const old = versionTag.latest && isNewer(versionTag.latest, VERSION3);
+    const text = old ? `v${VERSION3} \u2013 update` : `v${VERSION3}`;
+    if (tag.textContent !== text) tag.textContent = text;
+    tag.classList.toggle("mwia-version-old", Boolean(old));
+    tag.title = old ? `MWI Advisor v${versionTag.latest} is out (you have v${VERSION3}): tap to update` : `MWI Advisor v${VERSION3}`;
+    if (old) tag.href = UPDATE_URL;
+    else tag.removeAttribute("href");
+  }
+
   // src/main.js
   var win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   installSocketHook(win);
@@ -7587,6 +7670,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     mountPlanTrain(win);
     startPriceHistory(win);
     startListingPrices(win);
+    startVersionTag();
   }
 })();
 

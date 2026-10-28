@@ -214,6 +214,10 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   touch screen, 36 px with a mouse) can be
   dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact
   (current stop and buttons only; ▸ shows the list) and ⇅ moves it between the top and bottom of the screen.
+- **Version and updates** – the script's version stands in tiny letters next to your character's name at the top of
+  the game. At start (and every 6 hours while the game stays open) the script reads the newest version number from
+  GitHub (`package.json`, a few hundred bytes); if there is a newer one the number glows red with *– update*, and a
+  tap opens the install link so the script manager can update it. Reload the game afterwards.
 
 The script never buys, equips or queues anything by itself; you always click the game's own buttons.
 
@@ -281,6 +285,7 @@ node test/market-test.mjs                                 # Market tab rules in 
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
 node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, Pi down, unlink
+node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox
 ```

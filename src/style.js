@@ -15,6 +15,15 @@ export const CSS = `
   border-radius: 50%; background: #e5484d; border: 2px solid #171b2e;
 }
 .mwia-alert-row td { background: rgba(229,72,77,.08); }
+.mwia-version {
+  align-self: center; margin-left: 5px; font: 400 9px/1 sans-serif; color: #aab3d9; opacity: .6;
+  text-decoration: none; white-space: nowrap; cursor: default;
+}
+.mwia-version-old {
+  color: #ff5c5c; opacity: 1; font-weight: 700; cursor: pointer; text-shadow: 0 0 5px rgba(255,70,70,.8);
+  animation: mwia-version-glow 2s ease-in-out infinite alternate;
+}
+@keyframes mwia-version-glow { from { text-shadow: 0 0 2px rgba(255,70,70,.4); } to { text-shadow: 0 0 7px rgba(255,70,70,.95); } }
 .mwia-panel {
   position: fixed; top: 48px; right: 44px; z-index: 1000;
   width: min(880px, calc(100vw - 58px)); max-height: calc(100vh - 64px);

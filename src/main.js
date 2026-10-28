@@ -5,6 +5,7 @@ import { mountPlanTrain } from "./train-ui.js";
 import { startPriceHistory } from "./price-history-ui.js";
 import { startListingPrices } from "./listing-price-ui.js";
 import { readPairing } from "./pi-sync.js";
+import { startVersionTag } from "./version-tag.js";
 
 const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
@@ -23,4 +24,5 @@ function mount() {
     mountPlanTrain(win);
     startPriceHistory(win);
     startListingPrices(win);
+    startVersionTag();
 }

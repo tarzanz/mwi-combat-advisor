@@ -76,6 +76,7 @@ await build({
     banner: { js: header },
     footer: { js: thirdPartyNotices() },
     legalComments: "none",
+    define: { __MWIA_VERSION__: JSON.stringify(pkg.version), __MWIA_UPDATE_URL__: JSON.stringify(UPDATE_URL) },
     plugins: [
         {
             name: "worker-source",
