@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.35.0
+// @version      0.35.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -3243,13 +3243,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
     const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
     const id = (hrid) => hrid.replace(/^\/items\//, "");
+    const sold = (d, i) => at(d.vn, i) ? `${num2(at(d.v, i) || 0)},${at(d.vn, i)},${num2(at(d.p, i))}` : ",,";
     const lines = [
       `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on one device.`,
       "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
       `# section hour: an item's row appears when its ask or bid changed since its previous row (in between it stayed the same).`,
       `# Hours with data: ${hours.map((r) => hourText(r.hour)).join(",")}`,
       `# section day (older than ${HOURLY_DAYS} days): the day's median ask and bid, their low and high, and how many hours had data.`,
-      "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours"
+      "# sold_mean = how many were traded per hour (the market file's v, an hour's count), the mean over the sold_hours hours of the day that",
+      "#   had the numbers (0 = none traded; \xD7 24 for a day); sold_price = the median of the hours' average trade price (p).",
+      "#   On day rows, and in section sold for the hourly days (only items that traded).",
+      "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours,sold_mean,sold_hours,sold_price"
     ];
     const previous = /* @__PURE__ */ new Map();
     for (const r of hours) {
@@ -3260,10 +3264,15 @@ i.mwia-history-bid { background: #7ee2b0; }
         lines.push(`hour,${hourText(r.hour)},${id(hrid)},${pair}`);
       });
     }
+    for (const d of rollUpDays(hours.filter((r) => r.sold), items.length)) {
+      items.forEach((hrid, i) => {
+        if (at(d.v, i) > 0) lines.push(`sold,${dayText(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
+      });
+    }
     for (const d of days) {
       items.forEach((hrid, i) => {
         if (!at(d.n, i)) return;
-        lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)}`);
+        lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)},${sold(d, i)}`);
       });
     }
     return { csv: lines.join("\n") + "\n", items: items.length, hours: hours.length, days: days.length };

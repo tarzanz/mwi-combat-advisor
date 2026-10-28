@@ -64,22 +64,30 @@ const high = swingShare({ swing: 0.15, diff: 0.2 });
 check("high now on a swinging market halves it again", high.high && Math.abs(high.share - 0.4) < 1e-9 && !swingShare({ swing: 0.03, diff: 0.2 }).high);
 check("low now is pointed out, not cut", swingShare({ swing: 0.03, diff: -0.2 }).low && swingShare({ swing: 0.03, diff: -0.2 }).share === 1);
 
-// CSV export: hourly rows only where a price changed; daily rows with low/high/hours.
+// CSV export: hourly rows only where a price changed; what sold per day for the
+// hourly days (only items that traded); daily rows with low/high/hours and what sold.
 const csvHours = [
     { hour: 480000, a: new Float32Array([10, NaN]), b: new Float32Array([8, NaN]) },
-    { hour: 480001, a: new Float32Array([10, 5]), b: new Float32Array([8, NaN]) },
-    { hour: 480002, a: new Float32Array([11, 5]), b: new Float32Array([8, NaN]) },
+    { hour: 480001, a: new Float32Array([10, 5]), b: new Float32Array([8, NaN]), p: new Float32Array([10, NaN]), v: new Float32Array([3, NaN]), sold: true },
+    { hour: 480002, a: new Float32Array([11, 5]), b: new Float32Array([8, NaN]), p: new Float32Array([NaN, NaN]), v: new Float32Array([NaN, NaN]), sold: true },
 ];
-const csvDays = [{ day: 19990, a: new Float32Array([9, NaN]), b: new Float32Array([7, NaN]), aLow: new Float32Array([8, NaN]), aHigh: new Float32Array([12, NaN]), bLow: new Float32Array([6, NaN]), bHigh: new Float32Array([7.5, NaN]), n: new Uint8Array([20, 0]) }];
+const csvDays = [
+    { day: 19990, a: new Float32Array([9, NaN]), b: new Float32Array([7, NaN]), aLow: new Float32Array([8, NaN]), aHigh: new Float32Array([12, NaN]), bLow: new Float32Array([6, NaN]), bHigh: new Float32Array([7.5, NaN]), n: new Uint8Array([20, 0]) },
+    { day: 19991, a: new Float32Array([9, 4]), b: new Float32Array([7, NaN]), aLow: new Float32Array([8, 4]), aHigh: new Float32Array([12, 4]), bLow: new Float32Array([6, NaN]), bHigh: new Float32Array([7.5, NaN]), n: new Uint8Array([20, 5]), p: new Float32Array([9.5, NaN]), v: new Float32Array([2.25, 0]), vn: new Uint8Array([20, 20]) },
+];
 const out = historyCsv(["/items/a", "/items/b"], csvHours, csvDays, new Date(0));
 const rows = out.csv.trim().split("\n").filter((l) => !l.startsWith("#"));
 const hour = (h) => new Date(h * 3600000).toISOString().slice(0, 13);
+const day = (d) => new Date(d * 86400000).toISOString().slice(0, 10);
 check("CSV export", JSON.stringify(rows) === JSON.stringify([
-    "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours",
+    "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours,sold_mean,sold_hours,sold_price",
     `hour,${hour(480000)},a,10,8`,
     `hour,${hour(480001)},b,5,`,
     `hour,${hour(480002)},a,11,8`,
-    `day,${new Date(19990 * 86400000).toISOString().slice(0, 10)},a,9,7,8,12,6,7.5,20`,
+    `sold,${day(20000)},a,,,,,,,,1.5,2,10`,
+    `day,${day(19990)},a,9,7,8,12,6,7.5,20,,,`,
+    `day,${day(19991)},a,9,7,8,12,6,7.5,20,2.25,20,9.5`,
+    `day,${day(19991)},b,4,,4,4,,,5,0,20,`,
 ]) && out.csv.includes(`# Hours with data: ${hour(480000)},${hour(480001)},${hour(480002)}`), JSON.stringify(rows));
 
 // Stored as changes: three days of hours, prices that mostly stand still, an

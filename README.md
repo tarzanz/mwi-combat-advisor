@@ -190,7 +190,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   it all sells; when it is also more than 10% above its usual price now the batch is halved again, to sell while it
   lasts; more than 10% below says waiting may pay. A ⚠ warns when the margin is smaller than the price's usual swing.
   **⬇ Export all prices** in the box prepares every stored price as one CSV (hourly rows only where an item's price
-  changed, daily rows with low/high), then **Download CSV** or **📋 Copy** – to read in a spreadsheet or hand to an AI.
+  changed, daily rows with low/high, and per day how many sold an hour and at what price – for the last two weeks
+  too, in rows of their own), then **Download CSV** or **📋 Copy** – to read in a spreadsheet or hand to an AI.
 - **Listing prices** – the game's *Sell Listing* and *Buy Listing* windows get price buttons under the price box:
   **Match** (the best offer now), **Wall** (one price step in front of the first level in the order book holding a
   fifth of everything others offer within the tradable range – passing the small undercuts, staying in front of the

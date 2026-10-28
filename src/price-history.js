@@ -249,19 +249,25 @@ export function soldPerDay(i, hours, nowHour) {
 
 // Every stored price as CSV, to read in a spreadsheet or hand to an AI. Hourly
 // rows only where an item's ask or bid changed since its previous row, so the
-// file stays small; the hours that have data are listed in the header.
+// file stays small; the hours that have data are listed in the header. What
+// was sold is given per day only (an hourly count would double the file).
 export function historyCsv(items, hours, days, exportedAt = new Date()) {
     const num = (v) => (Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "");
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
     const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
     const id = (hrid) => hrid.replace(/^\/items\//, "");
+    // sold_mean, sold_hours, sold_price; empty where no hour of the day had the numbers.
+    const sold = (d, i) => (at(d.vn, i) ? `${num(at(d.v, i) || 0)},${at(d.vn, i)},${num(at(d.p, i))}` : ",,");
     const lines = [
         `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on one device.`,
         "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
         `# section hour: an item's row appears when its ask or bid changed since its previous row (in between it stayed the same).`,
         `# Hours with data: ${hours.map((r) => hourText(r.hour)).join(",")}`,
         `# section day (older than ${HOURLY_DAYS} days): the day's median ask and bid, their low and high, and how many hours had data.`,
-        "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours",
+        "# sold_mean = how many were traded per hour (the market file's v, an hour's count), the mean over the sold_hours hours of the day that",
+        "#   had the numbers (0 = none traded; × 24 for a day); sold_price = the median of the hours' average trade price (p).",
+        "#   On day rows, and in section sold for the hourly days (only items that traded).",
+        "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours,sold_mean,sold_hours,sold_price",
     ];
     const previous = new Map();
     for (const r of hours) {
@@ -272,10 +278,16 @@ export function historyCsv(items, hours, days, exportedAt = new Date()) {
             lines.push(`hour,${hourText(r.hour)},${id(hrid)},${pair}`);
         });
     }
+    // The hourly days summed up the way they will be once they become daily points.
+    for (const d of rollUpDays(hours.filter((r) => r.sold), items.length)) {
+        items.forEach((hrid, i) => {
+            if (at(d.v, i) > 0) lines.push(`sold,${dayText(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
+        });
+    }
     for (const d of days) {
         items.forEach((hrid, i) => {
             if (!at(d.n, i)) return;
-            lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num(at(list, i))).join(",")},${at(d.n, i)}`);
+            lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num(at(list, i))).join(",")},${at(d.n, i)},${sold(d, i)}`);
         });
     }
     return { csv: lines.join("\n") + "\n", items: items.length, hours: hours.length, days: days.length };
