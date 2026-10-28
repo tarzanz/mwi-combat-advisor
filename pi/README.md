@@ -34,13 +34,14 @@ hours replace theirs, theirs fill in where the Pi has none (while it was down).
    use `http://mwia-history:8787`). Keep caching off for it (the server sends
    `Cache-Control: no-store`). Optional: a Cloudflare rate-limit rule on the hostname.
 3. **Link each browser** (phone, computer): print the link and open it once in the
-   browser where you play (a QR code is easiest on the phone):
+   browser where you play:
    ```sh
    docker compose exec mwia-history node pi/server.mjs link https://mwi-history.example.com
-   docker compose exec mwia-history node pi/server.mjs link https://mwi-history.example.com | qrencode -t ansiutf8
    ```
-   The game opens, the script saves address and key and takes them out of the
-   address bar. In the marketplace, the price box (*Chart and details*) then says
+   It must open in *that* browser, with the userscript manager: tapping it in a chat
+   app may open Safari or an in-app browser instead, so copy it and paste it into the
+   address bar. The game opens, the script saves address and key and takes them out
+   of the address bar. The link carries the key: wherever it is pasted keeps it too. In the marketplace, the price box (*Chart and details*) then says
    *From your Pi …*, with **Read the Pi now** and **Unlink the Pi**.
 
 ## Run it
