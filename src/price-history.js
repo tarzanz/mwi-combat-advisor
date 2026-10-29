@@ -297,7 +297,8 @@ function liquidity(i, hours, nowHour) {
 export const SPIKE = 3;
 
 // Sold a day over the week: the mean of the hours whose file had the numbers, × 24,
-// each hour capped at SPIKE × the median hour with sales (raw: without the cap).
+// each hour capped at SPIKE × the median hour with sales (raw: without the cap);
+// selling: the share of those hours that sold something.
 export function soldPerDay(i, hours, nowHour) {
     const counts = [];
     const prices = [];
@@ -311,7 +312,7 @@ export function soldPerDay(i, hours, nowHour) {
     const cap = SPIKE * (median(counts.filter((v) => v > 0).map((v) => [v, 1])) ?? 0);
     const sum = (list) => list.reduce((total, v) => total + v, 0);
     const perDay = (list) => (counted ? (sum(list) / counted) * 24 : null);
-    return { hours: counted, perDay: perDay(counts.map((v) => Math.min(v, cap))), rawPerDay: perDay(counts), price: median(prices), enough: counted >= MIN_HOURS };
+    return { hours: counted, perDay: perDay(counts.map((v) => Math.min(v, cap))), rawPerDay: perDay(counts), selling: counted ? counts.filter((v) => v > 0).length / counted : null, price: median(prices), enough: counted >= MIN_HOURS };
 }
 
 // Every stored price as CSV, to read in a spreadsheet or hand to an AI. Hourly

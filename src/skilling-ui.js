@@ -565,13 +565,14 @@ function liquidityText(l) {
         `a buyer and a seller in ${share(l.both)} of the hours`,
         `spread ${dec(l.spread * 100, 1)}%`,
         `price swings ±${dec(l.swing * 100, 1)}%`,
-        `the lowest ask moved in ${share(l.activity)} of the hours`,
     ];
+    const sales = l.sold?.enough;
+    parts.push(sales ? `something sold in ${share(l.sold.selling)} of the hours` : `the lowest ask moved in ${share(l.activity)} of the hours`);
     const s = LIQUIDITY.stable;
     const spikes = l.sold?.enough && l.sold.rawPerDay > l.sold.perDay * 1.1 ? `; ${soldText(l.sold.rawPerDay)} counting a few big hours in full` : "";
     const sold = l.sold?.enough ? ` About <b>${soldText(l.sold.perDay)} sold a day</b> (${l.sold.hours} hours of sales${spikes}).` : "";
-    const note = l.sold?.enough ? "" : " The rating rests on prices; sales a day show once 12 hours of them are collected.";
-    return `${RATING[l.rating]} over the last ${l.hours} hours of prices: ${parts.join(", ")}.${sold} <span class="mwia-dim">Stable needs ≥ ${share(s.both)}, ≤ ${share(s.spread)}, ≤ ±${share(s.swing)} and ≥ ${share(s.activity)}.${note}</span>`;
+    const note = sales ? "" : " Until 12 hours of sales are collected, how often the lowest ask moves stands in for them.";
+    return `${RATING[l.rating]} over the last ${l.hours} hours of prices: ${parts.join(", ")}.${sold} <span class="mwia-dim">Stable needs ≥ ${share(s.both)}, ≤ ${share(s.spread)}, ≤ ±${share(s.swing)} and ≥ ${share(sales ? s.selling : s.activity)}; ok ≥ ${share(LIQUIDITY.ok.both)}, ≤ ${share(LIQUIDITY.ok.spread)}, ≤ ±${share(LIQUIDITY.ok.swing)}${sales ? ` and ≥ ${share(LIQUIDITY.ok.selling)}` : ""}.${note}</span>`;
 }
 
 const ago = (at) => hoursText((Date.now() - at) / 3600000);

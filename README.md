@@ -58,8 +58,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   30% on a 🟡 ok one and 10% on a 🔴 thin one, and margins under 5% or under the price's usual swing are left out of
   the list (*Show all* still has them); *Active (1 h)* plans short jobs with 80/50/20% of the coins and shows thin
   margins with a ⚠. The market's rating comes from the last 7 days of collected prices (at least 12 hours): stable
-  when there was both a buyer and a seller in ≥ 90% of the hours, the spread was ≤ 5%, the price swung ≤ ±3% and the
-  lowest ask moved in ≥ 30% of the hours (a sign that it sells and gets relisted); ok with ≥ 75%, ≤ 15% and ≤ ±8%;
+  when there was both a buyer and a seller in ≥ 90% of the hours, the spread was ≤ 5%, the price swung ≤ ±3% and
+  something sold in ≥ 75% of the hours; ok with ≥ 75%, ≤ 15%, ≤ ±8% and sales in ≥ 30% of the hours (until 12 hours
+  of sales are collected, the lowest ask moving in ≥ 30% of the hours stands in for stable, and ok has no such need);
   thin otherwise, or with too little history. **How many to make:** for each crafted item a row suggests a count
   without opening the market: the planned hours of crafting, less what you already have in the inventory or on your
   own sell orders, never past about a day of the product's sales with those counted in (an item you already hold a
@@ -263,10 +264,10 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - Results are estimates – a few percent either way is normal.
 - The plan train relies on the class names of the MWITools planning tab and the game's action pages; it has only been
   tested against mock-ups of both.
-- Skilling: the market's rating rests on prices alone – a calm item that sells only a few a day can still look
-  stable. The price history now also saves how many were sold each hour (the market file's `v`, with the average
-  trade price `p`); the sales a day cap how many to make and value what is made past them lower, but the rating
-  doesn't use them yet. Until 12 hours of sales are collected nothing caps a job.
+- Skilling: until the price history has 12 hours of an item's sales, its rating rests on prices alone – a calm item
+  that sells only a few a day can still look stable. The price history saves how many were sold each hour (the market file's `v`, with the average
+  trade price `p`); the sales a day cap how many to make, value what is made past them lower and, by how often
+  something sells, rate the market. Until 12 hours of sales are collected nothing caps a job.
 - Enhancing: no protection (Mirror of Protection, copies) yet, and no Observatory/Enhancer
   upgrades under *Upgrades that pay back*. Alchemy: no Unrefine.
   The ⛓ chain makes every material it can (by the fastest source), even where buying one of them would pay better.

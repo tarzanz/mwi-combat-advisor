@@ -144,6 +144,7 @@ check("sold a day from the hours with numbers", sold0.hours === 48 && Math.abs(s
     const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, sold: true, v: Float32Array.of(h === 5 ? 1000 : h % 2 ? 10 : 0), p: Float32Array.of(NaN) }));
     const s = soldPerDay(0, hours, 23);
     check("a spike counts as 3× a usual hour", s.perDay === (11 * 10 + 30) && s.rawPerDay === 11 * 10 + 1000, JSON.stringify(s));
+    check("sold something in half the hours", s.selling === 0.5, String(s.selling));
 }
 check("nothing sold reads as 0 a day, no numbers as unknown", soldPerDay(20, raw, lastHour).perDay === 0 && soldPerDay(0, raw.filter((r) => !r.sold), lastHour).perDay === null);
 const day2 = daysRaw.find((d) => d.vn[0] > 0);

@@ -87,6 +87,12 @@ const summary = (l, swing) => ({ liquidity: { hours: 40, ...l }, a: { swing } })
 check("stable market", liquidityRating(summary({ both: 1, spread: 0.02, activity: 0.6 }, 0.01)).rating === "stable");
 check("ok market", liquidityRating(summary({ both: 0.85, spread: 0.08, activity: 0.1 }, 0.05)).rating === "ok");
 check("thin market", liquidityRating(summary({ both: 0.5, spread: 0.3, activity: 0.1 }, 0.2)).rating === "thin");
+// With 12 hours of sales, how often it sells replaces how often the lowest ask moved.
+const sales = (selling) => ({ sold: { enough: true, selling, perDay: 100 } });
+check("sales in most hours: stable, though the ask stood still", liquidityRating(summary({ both: 1, spread: 0.02, activity: 0, ...sales(0.8) }, 0.01)).rating === "stable");
+check("sales in a few hours: thin, though the ask moved a lot", liquidityRating(summary({ both: 1, spread: 0.02, activity: 0.9, ...sales(0.2) }, 0.01)).rating === "thin");
+check("sales in some hours: ok", liquidityRating(summary({ both: 1, spread: 0.02, activity: 0.9, ...sales(0.5) }, 0.01)).rating === "ok");
+check("too few hours of sales: the ask's moves still count", liquidityRating(summary({ both: 1, spread: 0.02, activity: 0.6, sold: { enough: false, selling: 0 } }, 0.01)).rating === "stable");
 check("too little history counts as thin", liquidityRating({ liquidity: { hours: 5, both: 1, spread: 0.01, activity: 1 }, a: { swing: 0 } }).rating === "thin" && !liquidityRating(null).known);
 
 // How many: the planned hours less your stock, within the coins the rating allows.

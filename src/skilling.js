@@ -452,11 +452,13 @@ function breakEvenPrice(entry) {
 }
 
 // A product's market, rated from the week's prices: "stable" (nearly always a
-// buyer and a seller, a tight spread, a calm price that moves often), "ok", or
-// "thin" (anything else, and too little history to tell).
+// buyer and a seller, a tight spread, a calm price, and sales in most hours),
+// "ok", or "thin" (anything else, and too little history to tell). selling: the
+// share of hours that sold something, once the history has 12 hours of sales;
+// before that, activity – how often the lowest ask moved – stands in for it.
 export const LIQUIDITY = {
-    stable: { both: 0.9, spread: 0.05, swing: 0.03, activity: 0.3 },
-    ok: { both: 0.75, spread: 0.15, swing: 0.08, activity: 0 },
+    stable: { both: 0.9, spread: 0.05, swing: 0.03, selling: 0.75, activity: 0.3 },
+    ok: { both: 0.75, spread: 0.15, swing: 0.08, selling: 0.3, activity: 0 },
 };
 const LIQUIDITY_HOURS = 12;
 const RATING_ORDER = { thin: 0, ok: 1, stable: 2 };
@@ -467,7 +469,8 @@ export function liquidityRating(summary) {
     const l = summary?.liquidity;
     const swing = summary?.a?.swing;
     if (!l || l.hours < LIQUIDITY_HOURS || l.spread === null || swing === null) return { rating: "thin", known: false, ...l, swing: swing ?? null };
-    const meets = (t) => l.both >= t.both && l.spread <= t.spread && swing <= t.swing && l.activity >= t.activity;
+    const sales = l.sold?.enough ? l.sold.selling : null;
+    const meets = (t) => l.both >= t.both && l.spread <= t.spread && swing <= t.swing && (sales !== null ? sales >= t.selling : l.activity >= t.activity);
     return { rating: meets(LIQUIDITY.stable) ? "stable" : meets(LIQUIDITY.ok) ? "ok" : "thin", known: true, ...l, swing };
 }
 

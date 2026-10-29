@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.38.0
+// @version      0.39.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -2484,8 +2484,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others) / main.count / (1 - MARKET_TAX);
   }
   var LIQUIDITY = {
-    stable: { both: 0.9, spread: 0.05, swing: 0.03, activity: 0.3 },
-    ok: { both: 0.75, spread: 0.15, swing: 0.08, activity: 0 }
+    stable: { both: 0.9, spread: 0.05, swing: 0.03, selling: 0.75, activity: 0.3 },
+    ok: { both: 0.75, spread: 0.15, swing: 0.08, selling: 0.3, activity: 0 }
   };
   var LIQUIDITY_HOURS = 12;
   var RATING_ORDER = { thin: 0, ok: 1, stable: 2 };
@@ -2494,7 +2494,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     const l2 = summary?.liquidity;
     const swing = summary?.a?.swing;
     if (!l2 || l2.hours < LIQUIDITY_HOURS || l2.spread === null || swing === null) return { rating: "thin", known: false, ...l2, swing: swing ?? null };
-    const meets = (t4) => l2.both >= t4.both && l2.spread <= t4.spread && swing <= t4.swing && l2.activity >= t4.activity;
+    const sales = l2.sold?.enough ? l2.sold.selling : null;
+    const meets = (t4) => l2.both >= t4.both && l2.spread <= t4.spread && swing <= t4.swing && (sales !== null ? sales >= t4.selling : l2.activity >= t4.activity);
     return { rating: meets(LIQUIDITY.stable) ? "stable" : meets(LIQUIDITY.ok) ? "ok" : "thin", known: true, ...l2, swing };
   }
   var PLAN_MODES = {
@@ -3296,7 +3297,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const cap2 = SPIKE * (median(counts.filter((v) => v > 0).map((v) => [v, 1])) ?? 0);
     const sum = (list) => list.reduce((total, v) => total + v, 0);
     const perDay2 = (list) => counted ? sum(list) / counted * 24 : null;
-    return { hours: counted, perDay: perDay2(counts.map((v) => Math.min(v, cap2))), rawPerDay: perDay2(counts), price: median(prices2), enough: counted >= MIN_HOURS };
+    return { hours: counted, perDay: perDay2(counts.map((v) => Math.min(v, cap2))), rawPerDay: perDay2(counts), selling: counted ? counts.filter((v) => v > 0).length / counted : null, price: median(prices2), enough: counted >= MIN_HOURS };
   }
   function historyCsv(items, hours, days, exportedAt = /* @__PURE__ */ new Date()) {
     const num2 = (v) => Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "";
@@ -3979,14 +3980,15 @@ i.mwia-history-bid { background: #7ee2b0; }
     const parts = [
       `a buyer and a seller in ${share(l2.both)} of the hours`,
       `spread ${dec(l2.spread * 100, 1)}%`,
-      `price swings \xB1${dec(l2.swing * 100, 1)}%`,
-      `the lowest ask moved in ${share(l2.activity)} of the hours`
+      `price swings \xB1${dec(l2.swing * 100, 1)}%`
     ];
+    const sales = l2.sold?.enough;
+    parts.push(sales ? `something sold in ${share(l2.sold.selling)} of the hours` : `the lowest ask moved in ${share(l2.activity)} of the hours`);
     const s = LIQUIDITY.stable;
     const spikes = l2.sold?.enough && l2.sold.rawPerDay > l2.sold.perDay * 1.1 ? `; ${soldText(l2.sold.rawPerDay)} counting a few big hours in full` : "";
     const sold = l2.sold?.enough ? ` About <b>${soldText(l2.sold.perDay)} sold a day</b> (${l2.sold.hours} hours of sales${spikes}).` : "";
-    const note = l2.sold?.enough ? "" : " The rating rests on prices; sales a day show once 12 hours of them are collected.";
-    return `${RATING[l2.rating]} over the last ${l2.hours} hours of prices: ${parts.join(", ")}.${sold} <span class="mwia-dim">Stable needs \u2265 ${share(s.both)}, \u2264 ${share(s.spread)}, \u2264 \xB1${share(s.swing)} and \u2265 ${share(s.activity)}.${note}</span>`;
+    const note = sales ? "" : " Until 12 hours of sales are collected, how often the lowest ask moves stands in for them.";
+    return `${RATING[l2.rating]} over the last ${l2.hours} hours of prices: ${parts.join(", ")}.${sold} <span class="mwia-dim">Stable needs \u2265 ${share(s.both)}, \u2264 ${share(s.spread)}, \u2264 \xB1${share(s.swing)} and \u2265 ${share(sales ? s.selling : s.activity)}; ok \u2265 ${share(LIQUIDITY.ok.both)}, \u2264 ${share(LIQUIDITY.ok.spread)}, \u2264 \xB1${share(LIQUIDITY.ok.swing)}${sales ? ` and \u2265 ${share(LIQUIDITY.ok.selling)}` : ""}.${note}</span>`;
   }
   var ago = (at2) => hoursText((Date.now() - at2) / 36e5);
   var soldText = (n2) => n2 >= 10 ? Math.round(n2).toLocaleString("en-US") : dec(n2, 1);
@@ -7592,7 +7594,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION3 = true ? "0.38.0" : "dev";
+  var VERSION3 = true ? "0.39.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
