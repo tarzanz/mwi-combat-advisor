@@ -56,7 +56,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   item look busy. Crates and caches from rare drops are worth what they hold, a cowbell a tenth of a bag.
   **Plan** sets the job: *Away (8 h)* is careful – materials take at most 60% of your coins on a 🟢 stable market,
   30% on a 🟡 ok one and 10% on a 🔴 thin one, and margins under 5% or under the price's usual swing are left out of
-  the list (*Show all* still has them); *Active (1 h)* plans short jobs with 80/50/20% of the coins and shows thin
+  the list (*Show all* still has them); *Medium (2 h)* plans jobs for when you look in now and then with 70/40/15%
+  of the coins, and *Active (30 min)* short jobs while you play with 80/50/20%; both show thin
   margins with a ⚠. The market's rating comes from the last 7 days of collected prices (at least 12 hours): stable
   when there was both a buyer and a seller in ≥ 90% of the hours, the spread was ≤ 5%, the price swung ≤ ±3% and
   something sold in ≥ 75% of the hours; ok with ≥ 75%, ≤ 15%, ≤ ±8% and sales in ≥ 30% of the hours (until 12 hours

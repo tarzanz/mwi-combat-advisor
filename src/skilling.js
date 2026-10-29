@@ -475,11 +475,13 @@ export function liquidityRating(summary) {
 }
 
 // Away: a defensive job of about 8 hours, a small share of the coins unless the
-// market is stable and liquid, and thin margins left out. Active: short jobs,
-// more of the coins, thin margins shown.
+// market is stable and liquid, and thin margins left out. Medium: 2 h jobs while
+// you look in now and then. Active: half-hour jobs while you play, the most of
+// the coins. Both show thin margins.
 export const PLAN_MODES = {
     away: { hours: 8, coinShare: { stable: 0.6, ok: 0.3, thin: 0.1 }, hideThinMargins: true },
-    active: { hours: 1, coinShare: { stable: 0.8, ok: 0.5, thin: 0.2 }, hideThinMargins: false },
+    medium: { hours: 2, coinShare: { stable: 0.7, ok: 0.4, thin: 0.15 }, hideThinMargins: false },
+    active: { hours: 0.5, coinShare: { stable: 0.8, ok: 0.5, thin: 0.2 }, hideThinMargins: false },
 };
 
 // A margin under RISKY_MARGIN, or smaller than the price's usual swing, can vanish on an ordinary day.

@@ -364,14 +364,19 @@ try {
     }, second.hrid);
     check("closing the market brings the panel back on the same open row", back.shown && back.open && back.inView, JSON.stringify(back));
 
-    // Active: 1 h jobs, 20% of the coins on a thin market, thin margins shown.
+    // Active: half-hour jobs, 20% of the coins on a thin market, thin margins shown.
     await select(page, "skillingMode", "active");
     const expActive = expectRank(character, { skill: "tailoring", mode: "active" }).available;
     const activeRows = await rows(page);
     const activeTop = expActive.find((e) => e.hrid === topTailoring.hrid).suggestion;
-    check("active mode plans 1 h jobs", activeTop.plannedHours === 1 && activeTop.coinShare === 0.2 && activeRows.find((r) => r.name === topTailoring.action.name)?.sub.includes(`make ${activeTop.count.toLocaleString("en-US")}`), JSON.stringify({ count: activeTop.count }));
+    check("active mode plans half-hour jobs", activeTop.plannedHours === 0.5 && activeTop.coinShare === 0.2 && activeRows.find((r) => r.name === topTailoring.action.name)?.sub.includes(`make ${activeTop.count.toLocaleString("en-US")}`), JSON.stringify({ count: activeTop.count }));
     check("active mode shows thin margins", activeRows.some((r) => r.name === "Cotton Boots") && expActive.every((e) => !e.thinMargin));
     check("plan mode is saved", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-settings")).skillingMode === "active"));
+    // Medium: 2 h jobs, 15% of the coins on a thin market, thin margins shown.
+    await select(page, "skillingMode", "medium");
+    const mediumTop = expectRank(character, { skill: "tailoring", mode: "medium" }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
+    const mediumRows = await rows(page);
+    check("medium mode plans 2 h jobs", mediumTop.plannedHours === 2 && mediumTop.coinShare === 0.15 && mediumRows.find((r) => r.name === topTailoring.action.name)?.sub.includes(`make ${mediumTop.count.toLocaleString("en-US")}`) && mediumRows.some((r) => r.name === "Cotton Boots"), JSON.stringify({ count: mediumTop.count }));
     await select(page, "skillingMode", "away");
     const awayRows = await rows(page);
     const awayExp = expectRank(character, { skill: "tailoring" }).available;

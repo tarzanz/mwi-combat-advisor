@@ -119,7 +119,9 @@ const poorThin = suggestCount(job, { stock: none, coins: 10000, liquidity: { rat
 check("a stable market may use 60% of the coins", poorStable.limitedByCoins && poorStable.count === 120, String(poorStable.count));
 check("a thin market only 10%", poorThin.limitedByCoins && poorThin.count === 20, String(poorThin.count));
 const active = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, ...PLAN_MODES.active });
-check("active: 1 h jobs and more of the coins", active.count === 100 && active.plannedHours === 1, String(active.count));
+check("active: half-hour jobs", active.count === 50 && active.plannedHours === 0.5, String(active.count));
+const medium = suggestCount(job, { stock: none, coins: 10000, liquidity: { rating: "thin", known: true }, ...PLAN_MODES.medium });
+check("medium: 2 h jobs, 15% of the coins on a thin market", medium.plannedHours === 2 && medium.limitedByCoins && medium.count === 30, String(medium.count));
 // With a plan, the focus scale is what the planned hours give within the coins:
 // with little coins, a craft that loses gold doesn't top a 90%-gold list on its XP.
 {

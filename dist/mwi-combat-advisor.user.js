@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.39.0
+// @version      0.40.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -2500,7 +2500,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var PLAN_MODES = {
     away: { hours: 8, coinShare: { stable: 0.6, ok: 0.3, thin: 0.1 }, hideThinMargins: true },
-    active: { hours: 1, coinShare: { stable: 0.8, ok: 0.5, thin: 0.2 }, hideThinMargins: false }
+    medium: { hours: 2, coinShare: { stable: 0.7, ok: 0.4, thin: 0.15 }, hideThinMargins: false },
+    active: { hours: 0.5, coinShare: { stable: 0.8, ok: 0.5, thin: 0.2 }, hideThinMargins: false }
   };
   function thinMargin(entry, swing = null) {
     if (!(entry.costPerAction > 0) || entry.margin === null || !(entry.profitPerHour > 0)) return false;
@@ -3538,12 +3539,12 @@ i.mwia-history-bid { background: #7ee2b0; }
   var skillLabel = (skill) => skill.charAt(0).toUpperCase() + skill.slice(1);
   var skillOf = (entry) => entry.skill.split("/").pop();
   var names = (teas) => teas.map(itemName).join(", ");
-  var planMode = (s) => s.skillingMode === "active" ? "active" : "away";
+  var planMode = (s) => PLAN_MODES[s.skillingMode] ? s.skillingMode : "away";
   var goldShare = (s) => s.skillingGold === void 0 || s.skillingGold === "" ? 100 : Number(s.skillingGold);
   var focusLabel = (gold) => gold === 0 ? "XP only" : gold === 100 ? "Gold only" : `${100 - gold}% XP \xB7 ${gold}% gold`;
   function hoursText(hours) {
     if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`;
-    if (hours < 48) return `${dec(hours, hours < 10 ? 1 : 0)} h`;
+    if (hours < 48) return `${dec(hours, hours < 10 && Math.round(hours * 10) % 10 ? 1 : 0)} h`;
     return `${dec(hours / 24, hours < 240 ? 1 : 0)} days`;
   }
   function skillingSettingsHtml(s) {
@@ -3552,7 +3553,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       <label>Skill <select data-setting="skillingSkill">${option("all", "All skills", s.skillingSkill)}${SKILLING_SKILLS.map((k) => option(k, skillLabel(k), s.skillingSkill)).join("")}<optgroup label="Levelling (costs gold)">${LEVELING_SKILLS.map((k) => option(k, skillLabel(k), s.skillingSkill)).join("")}</optgroup></select></label>
       <label title="Products are listed at the cheapest ask (you wait for a buyer) or sold instantly to the best bid. The 4% market tax is taken off either way.">Sell at <select data-setting="skillingSellAt">${option("ask", "Ask (list it)", s.skillingSellAt)}${option("bid", "Bid (sell now)", s.skillingSellAt)}</select></label>
       <label title="Rank with the teas you have in the skill's drink slots now, or with the setup that earns the most.">Teas <select data-setting="skillingTeas">${option("current", "My current teas", s.skillingTeas)}${option("best", "Best teas", s.skillingTeas)}</select></label>
-      <label title="Away: a careful job of about ${PLAN_MODES.away.hours} h, little of your coins unless the market is stable, thin margins left out. Active: ${PLAN_MODES.active.hours} h jobs, more of your coins, thin margins shown.">Plan <select data-setting="skillingMode">${option("away", `Away (${PLAN_MODES.away.hours} h)`, planMode(s))}${option("active", `Active (${PLAN_MODES.active.hours} h)`, planMode(s))}</select></label>
+      <label title="Away: a careful job of about ${hoursText(PLAN_MODES.away.hours)}, little of your coins unless the market is stable, thin margins left out. Medium: ${hoursText(PLAN_MODES.medium.hours)} jobs while you look in now and then. Active: ${hoursText(PLAN_MODES.active.hours)} jobs while you play, the most of your coins. Medium and Active show thin margins.">Plan <select data-setting="skillingMode">${[["away", "Away"], ["medium", "Medium"], ["active", "Active"]].map(([mode, name]) => option(mode, `${name} (${hoursText(PLAN_MODES[mode].hours)})`, planMode(s))).join("")}</select></label>
       <label class="mwia-focus" title="Rank by gold per day, XP per day, or a mix. Each counts as a share of the most any action in the list gives. The best teas follow the same focus.">
         Focus: <span class="mwia-focus-text">${focusLabel(goldShare(s))}</span>
         <span class="mwia-focus-row">XP <input type="range" min="0" max="100" step="10" value="${goldShare(s)}" data-setting="skillingGold"> Gold</span></label>
@@ -3705,7 +3706,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const thin = available.length - listed.length;
     const shown = view.showAll ? available : listed.slice(0, SHORT_LIST);
     const mode = PLAN_MODES[planMode(settings)];
-    html += `<section><h3>Best now</h3><p class="mwia-dim">${settings.skillingSkill === "enhancing" ? "Ranked by your Focus: XP per day against what it costs." : `Ranked by what a ${mode.hours} h job gives: the amount is what your coins, your stock and the market allow \u2013 no need to open the market.`}</p>`;
+    html += `<section><h3>Best now</h3><p class="mwia-dim">${settings.skillingSkill === "enhancing" ? "Ranked by your Focus: XP per day against what it costs." : `Ranked by what a ${hoursText(mode.hours)} job gives: the amount is what your coins, your stock and the market allow \u2013 no need to open the market.`}</p>`;
     if (!available.length) html += `<p class="mwia-dim">Nothing to do in this skill at your level.</p>`;
     html += `<div class="mwia-skill-list">${shown.map((entry, i) => rowHtml(entry, i === 0 && entry.valid && entry.profitPerHour > 0 && !entry.thinMargin, false, i === 0)).join("")}</div>`;
     if (available.length > shown.length || view.showAll) {
@@ -7594,7 +7595,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION3 = true ? "0.39.0" : "dev";
+  var VERSION3 = true ? "0.40.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
