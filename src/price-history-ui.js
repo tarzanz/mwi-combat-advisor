@@ -162,7 +162,10 @@ function sourceHtml() {
         st.ok === null ? "Linked to your Pi; reading it…"
         : st.ok ? `From your Pi: newest prices ${st.newest ? time(st.newest) : "none yet"}, read ${time(st.at)}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}`
         : `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
-    return `<div class="mwia-history-note">${esc(text)}</div>
+    // Your orders, when the Pi takes them: how the last send went.
+    const orders = st.orders;
+    const ordersText = !orders ? "" : orders.error ? ` Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.` : orders.at ? ` Your orders: ${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"}, sent ${time(orders.at)}.` : "";
+    return `<div class="mwia-history-note">${esc(text + ordersText)}</div>
         <div class="mwia-history-ranges"><button data-history-pi="sync">↻ Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
 }
 

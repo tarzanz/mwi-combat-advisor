@@ -1,7 +1,8 @@
 // End-to-end check of a browser linked to the Pi: a real pi/server.mjs with
 // its own history, a browser with history of its own, then the link from the
 // Pi, the merge (the Pi's hours win, the browser's fill in), the next hour
-// only, the Pi down (the browser goes on collecting) and unlinking.
+// only, your market orders sent to it (with what a listing window said), the
+// Pi down (the browser goes on collecting) and unlinking.
 // Usage: node test/pi-sync-browser-test.mjs <screenshot-dir>
 // BROWSER_PATH picks another browser (Chromium).
 import { spawn } from "node:child_process";
@@ -22,6 +23,9 @@ const clientData = {};
 for (const f of readdirSync(dataDir)) clientData[f.replace(".json", "")] = JSON.parse(readFileSync(path.join(dataDir, f), "utf8"));
 const userscript = readFileSync(path.join(root, "dist/mwi-combat-advisor.user.js"), "utf8");
 const character = fixtureCharacter();
+// One sell order open from the start.
+const order = (id, filled, extra = {}) => ({ id, itemHrid: "/items/linen_boots", enhancementLevel: 0, isSell: true, price: 700, orderQuantity: 10, filledQuantity: filled, status: "/market_order_status/active", ...extra });
+character.myMarketListings = [order(1, 0)];
 
 let failures = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
@@ -71,7 +75,12 @@ const server = http.createServer((req, res) => {
         res.end();
     }
 });
-new WebSocketServer({ server }).on("connection", (socket) => socket.send(JSON.stringify(character)));
+const sockets = [];
+new WebSocketServer({ server }).on("connection", (socket) => {
+    sockets.push(socket);
+    socket.send(JSON.stringify(character));
+});
+const sendAll = (message) => sockets.forEach((socket) => socket.readyState === 1 && socket.send(JSON.stringify(message)));
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
@@ -81,7 +90,7 @@ const PI_PORT = 20000 + Math.floor(Math.random() * 20000);
 const piUrl = `http://127.0.0.1:${PI_PORT}`;
 let pi = null;
 async function startPi() {
-    pi = spawn("node", [path.join(root, "pi/server.mjs")], { env: { ...process.env, MWIA_KEY: KEY, MWIA_DATA: piData, PORT: String(PI_PORT), MWIA_MARKET_URL: `${origin}/game_data/marketplace.json`, MWIA_ORIGINS: origin }, stdio: "ignore" });
+    pi = spawn("node", [path.join(root, "pi/server.mjs")], { env: { ...process.env, MWIA_KEY: KEY, MWIA_DATA: piData, PORT: String(PI_PORT), MWIA_MARKET_URL: `${origin}/game_data/marketplace.json`, MWIA_ORIGINS: origin, MWIA_ORDERS: "1" }, stdio: "ignore" });
     const want = new Date((fileHour * 3600 + 360) * 1000).toISOString();
     for (let k = 0; k < 50; k++) {
         const st = await fetch(piUrl + "/status").then((r) => r.json()).catch(() => null);
@@ -172,6 +181,31 @@ try {
     const told = await page.$eval(".mwia-history", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
     check("the box says the prices come from the Pi", /From your Pi: newest prices \d\d?:\d\d( [AP]M)?, read \d\d?:\d\d( [AP]M)?\./.test(told) && /Read the Pi now/.test(told), told.slice(-200));
     await page.screenshot({ path: path.join(shotDir, "pi-1-linked.png") });
+
+    // Your orders on the Pi: the one open from the start, sent after the first read.
+    const piOrders = () => readdirSync(path.join(piData, "orders")).flatMap((f) => readFileSync(path.join(piData, "orders", f), "utf8").trim().split("\n")).filter(Boolean).map((l) => JSON.parse(l));
+    for (let k = 0; k < 40 && !piOrders().length; k++) await new Promise((r) => setTimeout(r, 200));
+    const sent = piOrders();
+    check("the order open at the start is on the Pi, once", sent.length === 1 && sent[0].order.id === 1 && sent[0].kind === "seen" && /^[0-9a-f]{16} \S+$/.test(sent[0].device) && sent[0].raw.price === 700, JSON.stringify(sent));
+    // A sell listing window for Linen Boots, then a new order from it and the first one filling.
+    await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", `<div class="listing-modal Modal_modalContainer__x"><div class="MarketplacePanel_header__x">Sell Listing</div>
+        <div><svg><use href="/sprites/items.svg#linen_boots"></use></svg></div><div>Price (Best Sell Offer: <span class="MarketplacePanel_bestPrice__x">700</span>)</div>
+        <div class="MarketplacePanel_priceInputs__x"><button>-</button><div class="field">700</div><button>+</button></div>
+        <div>Quantity (You Have: 6)</div><div><input class="qty" value="6"></div><button>Post Sell Listing</button></div>`));
+    await page.waitForSelector(".listing-modal .mwia-listprice button", { timeout: 4000 }).catch(() => null);
+    await page.click('.listing-modal [data-listprice="0"]');
+    await new Promise((r) => setTimeout(r, 400));
+    await page.evaluate(() => document.querySelector(".listing-modal").remove());
+    sendAll({ type: "market_listings_updated", endMarketListings: [order(2, 0, { orderQuantity: 6 }), order(1, 4)] });
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("mwia-order-queue") || "[]").length === 2, { timeout: 4000 }).catch(() => null);
+    await page.$eval('.mwia-history [data-history-pi="sync"]', (b) => b.click());
+    for (let k = 0; k < 40 && piOrders().length < 3; k++) await new Promise((r) => setTimeout(r, 200));
+    const all = piOrders();
+    const placed = all.find((e) => e.order.id === 2);
+    check("a new order and a fill are sent; the new one with what the window said", all.length === 3 && all.some((e) => e.order.id === 1 && e.order.filled === 4) && placed?.prediction?.quantity === 6 && placed.prediction.clicked === "match" && placed.prediction.buttons.some((b) => b.h === 24), JSON.stringify(placed));
+    await page.waitForFunction(() => /Your orders: all on the Pi, sent \d/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
+    const ordersTold = await page.$eval(".mwia-history", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
+    check("the box says your orders are on the Pi", /Your orders: all on the Pi, sent \d\d?:\d\d/.test(ordersTold) && (await page.evaluate(() => localStorage.getItem("mwia-order-queue"))) === "[]", ordersTold.slice(-200));
 
     // The next hour: only it is sent.
     await stopPi();

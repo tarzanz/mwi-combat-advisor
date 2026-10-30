@@ -5,11 +5,14 @@ import { mountPlanTrain } from "./train-ui.js";
 import { startPriceHistory } from "./price-history-ui.js";
 import { startListingPrices } from "./listing-price-ui.js";
 import { readPairing } from "./pi-sync.js";
+import { startOrderLog } from "./order-log.js";
 import { startVersionTag } from "./version-tag.js";
 
 const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
 installSocketHook(win);
+// Your market orders, for the Pi: listening from the start, so the first full list isn't missed.
+startOrderLog();
 // A link from the Pi (…#mwia-pi=…) links this browser to it.
 readPairing(win);
 

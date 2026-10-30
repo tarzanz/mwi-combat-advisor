@@ -14,7 +14,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { DAILY_DAYS, DAILY_FIELDS, HOURLY_DAYS, HOURLY_FIELDS, dayOf, encodeRecord, rollUpDays, snapshotRecord, weekOf } from "../src/price-history.js";
+import { DAILY_DAYS, DAILY_FIELDS, HOURLY_DAYS, HOURLY_FIELDS, dayOf, encodeRecord, historyCsv, rollUpDays, snapshotRecord, weekOf } from "../src/price-history.js";
 import { packRecord, unpackRecord } from "../src/history-wire.js";
 
 const writeAtomic = (file, data) => {
@@ -130,6 +130,9 @@ export function openStore(dataDir) {
         newest: s.last ? new Date(s.last * 1000).toISOString() : null,
     });
 
+    // Everything as CSV, with what sold in each hour (the browser's export gives it per day).
+    const csv = () => historyCsv(s.items, s.hours, s.days, new Date(), { hourlySold: true }).csv;
+
     load();
-    return { addFile, rebuild, since, status };
+    return { addFile, rebuild, since, status, csv };
 }

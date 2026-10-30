@@ -9,6 +9,7 @@ import { orderBookAt, state } from "./game-state.js";
 import { esc, parseCoins, shortCoins } from "./format.js";
 import { setReactInput, visible } from "./game-nav.js";
 import { isTouch, showTip } from "./touch.js";
+import { PREDICTION_MS, notePrediction } from "./order-log.js";
 import { historyVersion, priceSummary, recentHours, versusUsual } from "./price-history.js";
 import { CONFIDENCE, FILLED, listingPrices, standing } from "./listing-price.js";
 
@@ -23,7 +24,8 @@ const BOOK_OLD_MS = 10 * 60 * 1000;
 const LABELS = { match: "Match", wall: "Wall" };
 const label = (s) => (s.kind === "horizon" ? `<${s.horizon}h` : LABELS[s.kind]);
 
-const l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false, cache: { key: null, prices: null } };
+// clicked: the last price button used, { key: side|item|level, kind } – it goes with the order to the Pi.
+const l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false, cache: { key: null, prices: null }, clicked: null };
 
 const num = (n) => Math.round(n).toLocaleString("en-US");
 // The last number in a text ("Best Sell Offer: 1 096" -> 1096), or null.
@@ -175,6 +177,7 @@ function scan() {
             else if (post) post.insertAdjacentElement("beforebegin", box);
             else modal.appendChild(box);
         }
+        if (!c.error) notePrediction(prediction(c));
         const html = c.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION)} can't read this window: ${esc(c.error)}. A screenshot of this helps.</div>` : boxHtml(c);
         if (box.dataset.html !== html) {
             box.dataset.html = html;
@@ -198,6 +201,25 @@ function titleFor(s, c) {
     if (s.kind === "match") return `The best ${sell ? "sell" : "buy"} offer now: ${num(s.price)}${cap}.`;
     if (s.kind === "wall") return `One step ${sell ? "under" : "over"} ${num(s.wall.quantity)} at ${num(s.price)}, the first level with a fifth of all ${sell ? "listed" : "bid"}; ${num(s.wall.ahead)} lie in front of it.`;
     return horizonTitle(s, c);
+}
+
+// What the buttons say, for an order placed from this window (see order-log.js).
+function prediction(c) {
+    const key = `${c.side}|${c.hrid}|${c.level}`;
+    const button = (s) => (s.kind === "horizon" ? { h: s.horizon, price: s.price, under: !!s.under, chance: s.chance ?? null, windows: s.windows ?? null, need: s.need ?? null, why: s.why ?? null } : { kind: s.kind, price: s.price });
+    return {
+        side: c.side,
+        item: c.hrid,
+        level: c.level,
+        quantity: c.quantity,
+        best: c.best,
+        othersBest: c.book ? (c.levels[0]?.price ?? null) : null,
+        bookAt: c.book?.at ?? null,
+        takenPerHour: c.taken?.perHour ?? null,
+        usual: c.usual,
+        buttons: c.suggestions.map(button),
+        clicked: l.clicked?.key === key && Date.now() - l.clicked.at < PREDICTION_MS ? l.clicked.kind : null,
+    };
 }
 
 // What a horizon button rests on, or why it has no price.
@@ -291,6 +313,7 @@ async function apply(modal, index) {
     const c = context(modal);
     const s = c?.suggestions?.[index];
     if (!s || s.price === null || l.applying) return;
+    l.clicked = { key: `${c.side}|${c.hrid}|${c.level}`, kind: s.kind === "horizon" ? `<${s.horizon}h` : s.kind, at: Date.now() };
     l.applying = true;
     try {
         const b = controls(c);

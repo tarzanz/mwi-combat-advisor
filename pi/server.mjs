@@ -1,21 +1,25 @@
 // MWI Advisor's price history on a Raspberry Pi (or any always-on machine):
 // fetches the game's market file every 10 minutes, keeps every new one, and
-// sends the userscript the hours and days it lacks. No dependencies.
+// sends the userscript the hours and days it lacks. With MWIA_ORDERS=1 it also
+// keeps what your devices send about your own market orders (order-store.mjs).
+// No dependencies.
 //
 //   node pi/server.mjs              serve (the default)
 //   node pi/server.mjs rebuild      recompute the history from the raw files
+//   node pi/server.mjs csv          print the history as CSV, with what sold every hour
 //   node pi/server.mjs link <url>   print the link that connects a browser (url: this server's https address)
 //   node pi/server.mjs key          print a new random key for MWIA_KEY
 //
 // Settings (environment): MWIA_KEY (required to serve, at least 24 characters),
 // MWIA_DATA (default /data), PORT (default 8787), MWIA_MARKET_URL, MWIA_ORIGINS
-// (the game's sites allowed to read, comma separated), MWIA_LOG_REQUESTS (0: don't
-// log each request; the key is never logged).
+// (the game's sites allowed to read, comma separated), MWIA_ORDERS (1: take your
+// devices' order events), MWIA_LOG_REQUESTS (0: don't log each request; the key is never logged).
 
 import http from "node:http";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { openStore } from "./history-store.mjs";
+import { MAX_EVENTS, openOrderStore } from "./order-store.mjs";
 
 const DATA = process.env.MWIA_DATA || "/data";
 const PORT = Number(process.env.PORT || 8787);
@@ -25,6 +29,9 @@ const ORIGINS = new Set((process.env.MWIA_ORIGINS || "https://www.milkywayidle.c
 const GAME_URL = "https://www.milkywayidle.com/";
 const POLL_MS = 10 * 60 * 1000;
 const LOG_REQUESTS = process.env.MWIA_LOG_REQUESTS !== "0";
+const ORDERS = process.env.MWIA_ORDERS === "1";
+// A request with order events may be at most this big.
+const MAX_BODY = 1024 * 1024;
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 const digest = (text) => createHash("sha256").update(text).digest();
@@ -39,6 +46,7 @@ const logRequest = (req, res, url, started) => {
         from: history && !url.searchParams.get("epoch") ? "start" : null,
         hour: history && url.searchParams.get("hour"),
         day: history && url.searchParams.get("day"),
+        events: res.mwiaEvents,
         key: req.headers.authorization ? (res.statusCode === 401 ? "wrong" : "ok") : "none",
         origin: req.headers.origin,
         country: req.headers["cf-ipcountry"],
@@ -62,6 +70,8 @@ if (command === "key") {
     console.log(`${GAME_URL}#mwia-pi=${pairing}`);
 } else if (command === "rebuild") {
     openStore(DATA).rebuild(log);
+} else if (command === "csv") {
+    process.stdout.write(openStore(DATA).csv());
 } else if (command === "serve") {
     serve();
 } else {
@@ -71,6 +81,7 @@ if (command === "key") {
 function serve() {
     if (KEY.length < 24) throw new Error("Set MWIA_KEY to a secret of at least 24 characters (node pi/server.mjs key makes one).");
     const store = openStore(DATA);
+    const orders = ORDERS ? openOrderStore(DATA) : null;
     const health = { lastFetch: null, lastError: null };
 
     async function poll() {
@@ -89,12 +100,31 @@ function serve() {
     poll();
     setInterval(poll, POLL_MS);
 
-    const server = http.createServer((req, res) => {
+    // The request's body as JSON, or null when it is too big.
+    const readJson = (req) => new Promise((resolve, reject) => {
+        const chunks = [];
+        let size = 0;
+        req.on("data", (chunk) => {
+            size += chunk.length;
+            if (size <= MAX_BODY) chunks.push(chunk);
+        });
+        req.on("end", () => {
+            if (size > MAX_BODY) return resolve(null);
+            try {
+                resolve(JSON.parse(Buffer.concat(chunks).toString() || "null"));
+            } catch (error) {
+                reject(Object.assign(error, { status: 400 }));
+            }
+        });
+        req.on("error", reject);
+    });
+
+    const server = http.createServer(async (req, res) => {
         const origin = req.headers.origin;
         if (origin && ORIGINS.has(origin)) {
             res.setHeader("Access-Control-Allow-Origin", origin);
-            res.setHeader("Access-Control-Allow-Headers", "Authorization");
-            res.setHeader("Access-Control-Allow-Methods", "GET");
+            res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+            res.setHeader("Access-Control-Allow-Methods", ORDERS ? "GET, POST" : "GET");
             res.setHeader("Access-Control-Max-Age", "86400");
         }
         res.setHeader("Vary", "Origin");
@@ -114,16 +144,27 @@ function serve() {
         }
         try {
             if (req.method === "OPTIONS") return res.writeHead(204).end();
-            if (req.method !== "GET") return send(405, { error: "GET only" });
+            // Your devices' order events: the only thing written from outside, and only when switched on.
+            if (req.method === "POST" && url.pathname === "/orders" && orders) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                const body = await readJson(req);
+                if (!body) return send(413, { error: "too big" });
+                if (!Array.isArray(body.events) || body.events.length > MAX_EVENTS) return send(400, { error: `events: a list of at most ${MAX_EVENTS}` });
+                const result = orders.add(body.device, body.events);
+                res.mwiaEvents = `${result.accepted}+${result.duplicates}dup${result.rejected ? `+${result.rejected}bad` : ""}`;
+                return send(200, result);
+            }
+            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders" : "GET only" });
             // Says whether it runs, not what it holds.
             if (url.pathname === "/status") return send(200, { ok: true, newest: store.status().newest, lastError: health.lastError });
             if (url.pathname !== "/history") return send(404, { error: "not found" });
             if (!authorized(req)) return send(401, { error: "wrong or missing key" });
-            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health } });
+            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health, orders: orders ? orders.status() : null } });
         } catch (error) {
+            if (error.status === 400) return send(400, { error: "not JSON" });
             log("request failed:", error);
             return send(500, { error: "server error" });
         }
     });
-    server.listen(PORT, () => log(`listening on ${PORT}, data in ${DATA}`, store.status()));
+    server.listen(PORT, () => log(`listening on ${PORT}, data in ${DATA}`, store.status(), orders ? { orders: orders.status() } : "orders off"));
 }

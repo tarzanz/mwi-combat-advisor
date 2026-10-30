@@ -4,17 +4,26 @@
 // replace the ones collected here; these fill in where it has none (while it
 // was down, say). Linked once per device by opening the link the server
 // prints (…milkywayidle.com/#mwia-pi=…); address and key stay in this
-// browser's storage for the game's site, across script updates.
+// browser's storage for the game's site, across script updates. When the Pi
+// takes them (MWIA_ORDERS=1), the events of your own market orders go to it
+// too (order-log.js): after each sync, and a minute after a change.
 
 import { loadHistory, mergeFromPi, piReceived } from "./price-history.js";
 import { unpackRecord } from "./history-wire.js";
+import { deviceName, dropQueued, onOrderEvents, queuedOrders } from "./order-log.js";
 
 const CONFIG_KEY = "mwia-pi";
 const SYNC_EVERY_MS = 15 * 60 * 1000;
 const FIRST_SYNC_MS = 3000;
+const ORDERS_AFTER_MS = 60 * 1000;
+// Order events per request, and requests per send.
+const ORDER_BATCH = 100;
+const ORDER_BATCHES = 10;
 
-// status: ok (null before the first try), at: the last good sync, error, newest: the Pi's newest file, piError: its own last fetch error.
-const p = { running: null, tried: 0, status: { ok: null, at: null, error: "", newest: null, piError: null }, listeners: new Set() };
+// status: ok (null before the first try), at: the last good sync, error, newest: the Pi's newest file, piError: its own last fetch error,
+// orders: null (the Pi doesn't take them) or { at: the last send, sent: in it, waiting, error }.
+const NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null };
+const p = { running: null, sending: null, ordersTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: new Set() };
 
 // A link from the server: saves its address and key, then takes them out of the address bar.
 export function readPairing(win) {
@@ -47,11 +56,15 @@ export function onPiSync(listener) {
 
 export function unlinkPi() {
     localStorage.removeItem(CONFIG_KEY);
-    p.status = { ok: null, at: null, error: "", newest: null, piError: null };
+    p.status = { ...NO_STATUS };
     notify(false);
 }
 
 export function startPiSync() {
+    onOrderEvents(() => {
+        clearTimeout(p.ordersTimer);
+        if (p.status.orders) p.ordersTimer = setTimeout(sendOrders, ORDERS_AFTER_MS);
+    });
     setTimeout(syncNow, FIRST_SYNC_MS);
     setInterval(syncNow, SYNC_EVERY_MS);
     // Phones pause timers in the background: catch up on return.
@@ -80,7 +93,9 @@ export function syncNow() {
             const wire = await response.json();
             const result = await mergeFromPi(wire, unpackRecord);
             added = result.hours > 0 || result.days > 0;
-            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null };
+            const takesOrders = !!wire.status?.orders;
+            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null };
+            if (takesOrders) await sendOrders();
         } catch (error) {
             p.status = { ...p.status, ok: false, error: error.message || String(error) };
         } finally {
@@ -89,4 +104,37 @@ export function syncNow() {
         notify(added);
     })();
     return p.running;
+}
+
+// Sends the queued order events, a batch at a time; each batch leaves the queue once the Pi has it.
+export function sendOrders() {
+    const config = piConfig();
+    if (!config || !p.status.orders) return Promise.resolve();
+    p.sending ||= (async () => {
+        let sent = 0;
+        let error = "";
+        try {
+            for (let k = 0; k < ORDER_BATCHES; k++) {
+                const events = queuedOrders().slice(0, ORDER_BATCH);
+                if (!events.length) break;
+                const response = await fetch(`${config.url}/orders`, {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ device: deviceName(), events }),
+                    cache: "no-store",
+                    signal: AbortSignal.timeout?.(60000),
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                dropQueued(events.map((event) => event.uid));
+                sent += events.length;
+            }
+        } catch (e) {
+            error = e.message || String(e);
+        } finally {
+            p.sending = null;
+        }
+        p.status = { ...p.status, orders: { at: Date.now(), sent, waiting: queuedOrders().length, error } };
+        notify(false);
+    })();
+    return p.sending;
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.41.0
+// @version      0.42.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -82,8 +82,8 @@
     const payload = data.marketItemOrderBooks ?? data;
     if (!payload.itemHrid || !payload.orderBooks) return;
     const sides = (book) => ({
-      asks: (book?.asks || []).map(normalizeOrder).filter((o) => o.quantity > 0),
-      bids: (book?.bids || []).map(normalizeOrder).filter((o) => o.quantity > 0)
+      asks: (book?.asks || []).map(normalizeOrder).filter((o2) => o2.quantity > 0),
+      bids: (book?.bids || []).map(normalizeOrder).filter((o2) => o2.quantity > 0)
     });
     const levels = {};
     const seen = [];
@@ -1798,7 +1798,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (a.transmuteDropTable?.length && a.transmuteSuccessRate > 0) kinds.push("transmute");
       for (const kind of kinds) {
         const k = ALCHEMY_KINDS[kind];
-        const main = kind === "coinify" ? COIN : successOutputs(kind, detail).filter((o) => o.itemHrid !== detail.hrid).sort((x, y) => y.count - x.count)[0]?.itemHrid;
+        const main = kind === "coinify" ? COIN : successOutputs(kind, detail).filter((o2) => o2.itemHrid !== detail.hrid).sort((x, y) => y.count - x.count)[0]?.itemHrid;
         list.push({
           hrid: `${k.hrid}#${detail.hrid}`,
           name: `${k.name} ${detail.name}`,
@@ -1861,20 +1861,20 @@ i.mwia-history-bid { background: #7ee2b0; }
         outputs.push({ itemHrid, count: count2, kind: kindOf, price: sell.price, sell, value: count2 * sell.price });
       };
       let selfBack = 0;
-      for (const o of successOutputs(kind, detail)) {
-        if (o.itemHrid === action.itemHrid) selfBack += o.count * bulk * successRate;
-        else add(o.itemHrid, o.count * bulk * successRate, "product");
+      for (const o2 of successOutputs(kind, detail)) {
+        if (o2.itemHrid === action.itemHrid) selfBack += o2.count * bulk * successRate;
+        else add(o2.itemHrid, o2.count * bulk * successRate, "product");
       }
       add(essence.itemHrid, essence.count, "essence");
       add(rare.itemHrid, rare.count, "rare");
       const inputs = [{ itemHrid: action.itemHrid, count: bulk - selfBack, price, value: (bulk - selfBack) * (price || 0) }];
       if (coins6) inputs.push({ itemHrid: COIN, count: coins6, price: 1, value: coins6 });
       if (catalyst.itemHrid) inputs.push({ itemHrid: catalyst.itemHrid, count: successRate, price: catalyst.price, value: successRate * catalyst.price, catalyst: true });
-      const revenuePerAction = outputs.reduce((sum, o) => sum + o.value, 0);
+      const revenuePerAction = outputs.reduce((sum, o2) => sum + o2.value, 0);
       const costPerAction = inputs.reduce((sum, i) => sum + i.value, 0);
       const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
       const xpPerAction = xpBase * (successRate + FAIL_XP * (1 - successRate));
-      const main = outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
+      const main = outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
       const warnings = [];
       if (main && main.sell.note) warnings.push({ kind: main.sell.note, itemHrid: main.itemHrid, ask: main.sell.ask, bid: main.sell.bid });
       const r = {
@@ -2094,7 +2094,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       const { price, salesCap } = salesLimited({ ...sold, floor: sold.floor === void 0 ? void 0 : Math.min(sold.floor, sold.price) }, madePerDay);
       const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
       const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price, sell: sold, value: perCycle * price }, ...drops];
-      const revenuePerAction = outputs.reduce((sum, o) => sum + o.value, 0);
+      const revenuePerAction = outputs.reduce((sum, o2) => sum + o2.value, 0);
       const costPerAction = costPerAttempt + (itemIn ? itemIn.value : 0);
       const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
       const xpPerAction = cycles.xp[target] / attempts;
@@ -2328,7 +2328,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       const { price, salesCap } = salesLimited(sell, count2 * actionsPerHour * HOURS_PER_DAY);
       outputs.push({ itemHrid, count: count2, kind, price, sell, value: count2 * price, salesCap });
     };
-    const base = action.outputItems?.length ? action.outputItems.map((o) => ({ itemHrid: o.itemHrid, count: o.count })) : (action.dropTable || []).map((d) => ({ itemHrid: d.itemHrid, count: meanCount2(d) }));
+    const base = action.outputItems?.length ? action.outputItems.map((o2) => ({ itemHrid: o2.itemHrid, count: o2.count })) : (action.dropTable || []).map((d) => ({ itemHrid: d.itemHrid, count: meanCount2(d) }));
     for (const output of base) {
       const count2 = output.count * (1 + quantity);
       const processed = products?.get(output.itemHrid);
@@ -2350,13 +2350,13 @@ i.mwia-history-bid { background: #7ee2b0; }
       const price = market.buy(hrid) ?? market.sell(hrid).bid ?? 0;
       return { itemHrid: hrid, price, perHour: price * drinksPerHour };
     });
-    const revenuePerAction = outputs.reduce((sum, o) => sum + o.value, 0);
+    const revenuePerAction = outputs.reduce((sum, o2) => sum + o2.value, 0);
     const costPerAction = inputs.reduce((sum, i) => sum + i.value, 0);
     const teaPerHour = teaCosts.reduce((sum, t4) => sum + t4.perHour, 0);
     const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
     const margin = revenuePerAction > 0 ? profitPerHour / (actionsPerHour * revenuePerAction) : null;
     const xpPerAction = (action.experienceGain?.value || 0) * (1 + fraction(BUFF.wisdom));
-    const main = outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
+    const main = outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
     const warnings = [];
     if (missing.length) warnings.push({ kind: "noinput", items: missing });
     if (main && main.sell.note) warnings.push({ kind: main.sell.note, itemHrid: main.itemHrid, ask: main.sell.ask, bid: main.sell.bid });
@@ -2472,14 +2472,14 @@ i.mwia-history-bid { background: #7ee2b0; }
   var ASK_WINDOW = 0.05;
   function othersNearLowestAsk(book, stock) {
     if (!book?.asks.length) return { quantity: 0, lowest: null };
-    const lowest = Math.min(...book.asks.map((o) => o.price));
+    const lowest = Math.min(...book.asks.map((o2) => o2.price));
     const top = lowest * (1 + ASK_WINDOW);
-    const near = book.asks.filter((o) => o.price <= top).reduce((sum, o) => sum + o.quantity, 0);
+    const near = book.asks.filter((o2) => o2.price <= top).reduce((sum, o2) => sum + o2.quantity, 0);
     const mine = (stock.listings || []).filter((l2) => l2.price > 0 && l2.price <= top).reduce((sum, l2) => sum + l2.quantity, 0);
     return { quantity: Math.max(0, near - mine), lowest };
   }
   function breakEvenPrice(entry) {
-    const main = entry.outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0];
+    const main = entry.outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0];
     if (!main) return null;
     const others = entry.revenuePerAction - main.value;
     return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others) / main.count / (1 - MARKET_TAX);
@@ -2524,7 +2524,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins6 = Infinity, have: have4 = () => 0, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now = Date.now() }) {
     if (entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
-    const profitableBids = book ? book.bids.filter((o) => o.price >= breakEven).reduce((sum, o) => sum + o.quantity, 0) : null;
+    const profitableBids = book ? book.bids.filter((o2) => o2.price >= breakEven).reduce((sum, o2) => sum + o2.quantity, 0) : null;
     const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
     const product = liquidity2 || { rating: "thin", known: false };
     const planned = Math.max(1, Math.floor(hours * entry.actionsPerHour));
@@ -2650,7 +2650,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function chainBuilder(who, data, market, teaMode) {
     const sources = /* @__PURE__ */ new Map();
     for (const action of skillingActions(data)) {
-      const made = action.outputItems?.length ? action.outputItems.map((o) => o.itemHrid) : (action.dropTable || []).map((d) => d.itemHrid);
+      const made = action.outputItems?.length ? action.outputItems.map((o2) => o2.itemHrid) : (action.dropTable || []).map((d) => d.itemHrid);
       for (const hrid of made) {
         if (!sources.has(hrid)) sources.set(hrid, []);
         sources.get(hrid).push(action);
@@ -2672,7 +2672,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       for (const action of sources.get(itemHrid) || []) {
         if ((who.levels[action.levelRequirement.skillHrid] ?? 1) < action.levelRequirement.level) continue;
         const r = run(action);
-        const out = r.outputs.find((o) => o.itemHrid === itemHrid && o.kind === "product");
+        const out = r.outputs.find((o2) => o2.itemHrid === itemHrid && o2.kind === "product");
         if (!out || out.count <= 0) continue;
         const inner = materials2(r, /* @__PURE__ */ new Set([...seen, itemHrid]));
         if (!inner) continue;
@@ -3003,7 +3003,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     for (const u of upgrades) {
       if (u.kind !== "item") continue;
-      const lower = upgrades.filter((o) => o.kind === "item" && o.itemHrid === u.itemHrid && o.enhancementLevel < u.enhancementLevel).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
+      const lower = upgrades.filter((o2) => o2.kind === "item" && o2.itemHrid === u.itemHrid && o2.enhancementLevel < u.enhancementLevel).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
       if (!lower) continue;
       const gain = u.gainPerDay - lower.gainPerDay;
       const cost = u.cost - lower.cost;
@@ -3301,7 +3301,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const perDay2 = (list) => counted ? sum(list) / counted * 24 : null;
     return { hours: counted, perDay: perDay2(counts.map((v) => Math.min(v, cap2))), rawPerDay: perDay2(counts), selling: counted ? counts.filter((v) => v > 0).length / counted : null, price: median(prices2), enough: counted >= MIN_HOURS };
   }
-  function historyCsv(items, hours, days, exportedAt = /* @__PURE__ */ new Date()) {
+  function historyCsv(items, hours, days, exportedAt = /* @__PURE__ */ new Date(), { hourlySold = false } = {}) {
     const num2 = (v) => Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "";
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
     const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
@@ -3315,7 +3315,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       `# section day (older than ${HOURLY_DAYS} days): the day's median ask and bid, their low and high, and how many hours had data.`,
       "# sold_mean = how many were traded per hour (the market file's v, an hour's count), the mean over the sold_hours hours of the day that",
       "#   had the numbers (0 = none traded; \xD7 24 for a day); sold_price = the median of the hours' average trade price (p).",
-      "#   On day rows, and in section sold for the hourly days (only items that traded).",
+      hourlySold ? "#   On day rows; in section sold one row per hour that had the numbers and an item that traded (sold_mean = that hour's count, sold_hours = 1)." : "#   On day rows, and in section sold for the hourly days (only items that traded).",
       "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours,sold_mean,sold_hours,sold_price"
     ];
     const previous = /* @__PURE__ */ new Map();
@@ -3327,7 +3327,14 @@ i.mwia-history-bid { background: #7ee2b0; }
         lines.push(`hour,${hourText(r.hour)},${id(hrid)},${pair}`);
       });
     }
-    for (const d of rollUpDays(hours.filter((r) => r.sold), items.length)) {
+    if (hourlySold) {
+      for (const r of hours.filter((r2) => r2.sold)) {
+        items.forEach((hrid, i) => {
+          if (at(r.v, i) > 0) lines.push(`sold,${hourText(r.hour)},${id(hrid)},,,,,,,,${num2(at(r.v, i))},1,${num2(at(r.p, i))}`);
+        });
+      }
+    }
+    for (const d of hourlySold ? [] : rollUpDays(hours.filter((r) => r.sold), items.length)) {
       items.forEach((hrid, i) => {
         if (at(d.v, i) > 0) lines.push(`sold,${dayText(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
       });
@@ -3674,7 +3681,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function priceWarnings(entry) {
     const warnings = [];
-    const main = entry.outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0];
+    const main = entry.outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0];
     if (main && (main.sell.source === "ask" || main.sell.source === "bid")) {
       const summary = priceSummary(main.itemHrid);
       const side = main.sell.source === "ask" ? "a" : "b";
@@ -3795,10 +3802,10 @@ i.mwia-history-bid { background: #7ee2b0; }
       `${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} ${isAlchemy(e) ? "for the item" : "needed"}${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) \u2192 <b>${dec(e.actionsPerHour, 0)} actions/h</b>.`
     ]));
     const gold = [];
-    const outputs = e.outputs.filter((o) => o.value > 0 || o.kind === "product").map((o) => {
-      const capped2 = o.sell.capped === "usual" ? `usual ask; ${coins(o.sell.ask)} now` : o.sell.capped === "spread" ? `${dec(WIDE_SPREAD, 1)}\xD7 bid; ask ${coins(o.sell.ask)}` : o.sell.source;
-      const how = o.sell.source === "ask" || o.sell.source === "bid" ? ` <span class="mwia-dim">(${capped2} \u2212${dec(MARKET_TAX * 100, 0)}%)</span>` : o.sell.source === "vendor" || o.sell.source === "contents" ? ` <span class="mwia-dim">(${o.sell.source})</span>` : "";
-      return `${count(o.count)} \xD7 ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}${how}`;
+    const outputs = e.outputs.filter((o2) => o2.value > 0 || o2.kind === "product").map((o2) => {
+      const capped2 = o2.sell.capped === "usual" ? `usual ask; ${coins(o2.sell.ask)} now` : o2.sell.capped === "spread" ? `${dec(WIDE_SPREAD, 1)}\xD7 bid; ask ${coins(o2.sell.ask)}` : o2.sell.source;
+      const how = o2.sell.source === "ask" || o2.sell.source === "bid" ? ` <span class="mwia-dim">(${capped2} \u2212${dec(MARKET_TAX * 100, 0)}%)</span>` : o2.sell.source === "vendor" || o2.sell.source === "contents" ? ` <span class="mwia-dim">(${o2.sell.source})</span>` : "";
+      return `${count(o2.count)} \xD7 ${esc(itemName(o2.itemHrid))} @ ${coins(o2.price)}${how}`;
     });
     const boosts = [e.quantity && `quantity ${pct(e.quantity)}`, e.processing && `processing ${pct(e.processing)}`].filter(Boolean).join(", ");
     gold.push(`<b>Each action gives</b>${boosts ? ` (${boosts})` : ""}: ${outputs.join(" \xB7 ")} = ${coins(e.revenuePerAction)}`);
@@ -3811,7 +3818,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const hours = " \xD7 24";
     gold.push(`(${coins(e.revenuePerAction)} \u2212 ${coins(e.costPerAction)}) \xD7 ${dec(e.actionsPerHour, 0)}${e.teas.length ? ` \u2212 ${coins(e.teaPerHour)}` : ""} = ${coins(e.profitPerHour)}/h${hours} = <b>${coins(e.goldPerDay)}/day</b>`);
-    const capped = e.salesCap && e.outputs.find((o) => o.salesCap === e.salesCap);
+    const capped = e.salesCap && e.outputs.find((o2) => o2.salesCap === e.salesCap);
     if (capped) gold.push(salesCapText(e.salesCap, esc(itemName(capped.itemHrid)), capped.price));
     sections.push(section("\u{1F4B0} Gold", `${coins(e.profitPerHour)}/h${e.margin !== null ? ` \xB7 margin ${dec(e.margin * 100, 1)}%` : ""}`, gold));
     if (e.chain) sections.push(section("\u26D3 Yourself", `${coins(e.chain.profitPerHour)}/h making the materials`, [chainHtml(e)]));
@@ -3844,7 +3851,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const base = e.base.owned ? `one you have (worth ${coins(e.base.price)} at the bid)` : `bought at ${coins(e.base.price)}`;
     sections.push(section("\u{1F4B0} Gold", `${coins(e.profitPerHour)}/h`, [
       `<b>Each attempt uses</b> ${mats} = ${coins(e.costPerAttempt)}.`,
-      `<b>Each attempt may drop</b> ${e.outputs.slice(1).map((o) => `${count(o.count)} \xD7 ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}`).join(" \xB7 ")} = ${coins(e.dropsPerAttempt)}.`,
+      `<b>Each attempt may drop</b> ${e.outputs.slice(1).map((o2) => `${count(o2.count)} \xD7 ${esc(itemName(o2.itemHrid))} @ ${coins(o2.price)}`).join(" \xB7 ")} = ${coins(e.dropsPerAttempt)}.`,
       `<b>Each +${e.target}</b> (one per ${count(e.attempts)} attempts): the item ${base}, sold at ${sold} for ${coins(sell.price)} after tax.${sell.sold !== null && sell.sold !== void 0 ? ` About ${soldText(sell.sold)} +${e.target} sell a day; you'd make ${count(e.itemsPerHour * 24)}.` : ""}`,
       e.salesCap ? `<span class="mwia-warn">The market takes about ${soldText(e.salesCap.perDay)} a day; the rest of the ${count(e.salesCap.made)} you'd make go for ${coins(e.salesCap.floor)} (the ${sell.floorLevel === null ? "shop" : `+${sell.floorLevel} bid`}): ${coins(e.outputs[0].price)} each on average.</span>` : "",
       budgetText(e.budget),
@@ -4150,11 +4157,124 @@ i.mwia-history-bid { background: #7ee2b0; }
     return out;
   }
 
+  // src/order-log.js
+  var SEEN_KEY = "mwia-order-seen";
+  var QUEUE_KEY = "mwia-order-queue";
+  var DEVICE_KEY = "mwia-device";
+  var MAX_QUEUE = 500;
+  var PREDICTION_MS = 15 * 60 * 1e3;
+  var DONE_KEEP_MS = 30 * 24 * 3600 * 1e3;
+  var o = { shown: /* @__PURE__ */ new Map(), listeners: /* @__PURE__ */ new Set() };
+  function normalize(listing) {
+    const raw = {};
+    for (const [key, value] of Object.entries(listing)) if (value === null || ["string", "number", "boolean"].includes(typeof value)) raw[key] = value;
+    const order = {
+      id: listing.id,
+      item: listing.itemHrid,
+      level: Number(listing.enhancementLevel) || 0,
+      side: listing.isSell ? "sell" : "buy",
+      price: Number(listing.price) || 0,
+      quantity: Number(listing.orderQuantity) || 0,
+      filled: Number(listing.filledQuantity) || 0,
+      status: listing.status ?? null,
+      done: listingDone(listing)
+    };
+    return { order, raw };
+  }
+  var signature = (order) => `${order.filled}|${order.status}|${order.done}`;
+  var randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
+  function orderEvents(listings, seen = {}, { full = false, now = Date.now(), predictionFor: predictionFor2 = () => null, newId = randomId } = {}) {
+    const next = { ...seen };
+    const events = [];
+    const present = /* @__PURE__ */ new Set();
+    for (const listing of listings || []) {
+      if (!listing || listing.id === void 0 || listing.id === null) continue;
+      const { order, raw } = normalize(listing);
+      present.add(String(order.id));
+      const before = next[order.id];
+      const sig = signature(order);
+      if (before?.sig === sig) continue;
+      const event = { uid: newId(), at: now, kind: "seen", order, raw };
+      if (!before) {
+        const prediction2 = predictionFor2(order);
+        if (prediction2) event.prediction = prediction2;
+      }
+      events.push(event);
+      next[order.id] = { sig, at: now, done: order.done, order: order.done ? void 0 : order };
+    }
+    for (const [id, entry] of Object.entries(next)) {
+      if (full && !entry.done && !present.has(id)) {
+        events.push({ uid: newId(), at: now, kind: "gone", order: entry.order ?? { id } });
+        next[id] = { sig: "gone", at: now, done: true };
+      }
+      if (next[id].done && now - next[id].at > DONE_KEEP_MS) delete next[id];
+    }
+    return { events, seen: next };
+  }
+  function notePrediction(snapshot, now = Date.now()) {
+    o.shown.set(`${snapshot.side}|${snapshot.item}|${snapshot.level}`, { ...snapshot, shownAt: now });
+  }
+  function predictionFor(order, now = Date.now()) {
+    const shown = o.shown.get(`${order.side}|${order.item}|${order.level}`);
+    return shown && now - shown.shownAt <= PREDICTION_MS ? shown : null;
+  }
+  var readJson = (key, fallback) => {
+    try {
+      return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  var writeJson = (key, value) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+    }
+  };
+  function deviceName() {
+    let id = readJson(DEVICE_KEY, null);
+    if (!id) writeJson(DEVICE_KEY, id = randomId());
+    const kind = /iPhone|iPad|Android|Windows|Mac|Linux/.exec(navigator.userAgent)?.[0] || "other";
+    return `${id} ${kind}`;
+  }
+  var queuedOrders = () => readJson(QUEUE_KEY, []);
+  function dropQueued(uids) {
+    const sent = new Set(uids);
+    writeJson(QUEUE_KEY, queuedOrders().filter((event) => !sent.has(event.uid)));
+  }
+  function onOrderEvents(listener) {
+    o.listeners.add(listener);
+  }
+  function observe(listings, full) {
+    const { events, seen } = orderEvents(listings, readJson(SEEN_KEY, {}), { full, predictionFor });
+    writeJson(SEEN_KEY, seen);
+    if (!events.length) return;
+    writeJson(QUEUE_KEY, [...queuedOrders(), ...events].slice(-MAX_QUEUE));
+    for (const listener of o.listeners) listener(events.length);
+  }
+  function startOrderLog() {
+    onStateChange((type, data) => {
+      try {
+        if (type === "init_character_data") observe(data.myMarketListings || [], true);
+        else if (type === "market_listings_updated") {
+          const full = data.myMarketListings ?? data.marketListings;
+          observe(Array.isArray(full) ? full : data.endMarketListings || [], Array.isArray(full));
+        }
+      } catch (error) {
+        console.warn("[MWI Advisor] order log", error);
+      }
+    });
+  }
+
   // src/pi-sync.js
   var CONFIG_KEY = "mwia-pi";
   var SYNC_EVERY_MS = 15 * 60 * 1e3;
   var FIRST_SYNC_MS = 3e3;
-  var p = { running: null, tried: 0, status: { ok: null, at: null, error: "", newest: null, piError: null }, listeners: /* @__PURE__ */ new Set() };
+  var ORDERS_AFTER_MS = 60 * 1e3;
+  var ORDER_BATCH = 100;
+  var ORDER_BATCHES = 10;
+  var NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null };
+  var p = { running: null, sending: null, ordersTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: /* @__PURE__ */ new Set() };
   function readPairing(win2) {
     const match = /(?:^#|&)mwia-pi=([A-Za-z0-9_-]+)/.exec(win2.location.hash);
     if (!match) return;
@@ -4180,10 +4300,14 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function unlinkPi() {
     localStorage.removeItem(CONFIG_KEY);
-    p.status = { ok: null, at: null, error: "", newest: null, piError: null };
+    p.status = { ...NO_STATUS };
     notify(false);
   }
   function startPiSync() {
+    onOrderEvents(() => {
+      clearTimeout(p.ordersTimer);
+      if (p.status.orders) p.ordersTimer = setTimeout(sendOrders, ORDERS_AFTER_MS);
+    });
     setTimeout(syncNow, FIRST_SYNC_MS);
     setInterval(syncNow, SYNC_EVERY_MS);
     document.addEventListener("visibilitychange", () => {
@@ -4209,7 +4333,9 @@ i.mwia-history-bid { background: #7ee2b0; }
         const wire = await response.json();
         const result = await mergeFromPi(wire, unpackRecord);
         added = result.hours > 0 || result.days > 0;
-        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null };
+        const takesOrders = !!wire.status?.orders;
+        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null };
+        if (takesOrders) await sendOrders();
       } catch (error) {
         p.status = { ...p.status, ok: false, error: error.message || String(error) };
       } finally {
@@ -4218,6 +4344,37 @@ i.mwia-history-bid { background: #7ee2b0; }
       notify(added);
     })());
     return p.running;
+  }
+  function sendOrders() {
+    const config = piConfig();
+    if (!config || !p.status.orders) return Promise.resolve();
+    p.sending || (p.sending = (async () => {
+      let sent = 0;
+      let error = "";
+      try {
+        for (let k = 0; k < ORDER_BATCHES; k++) {
+          const events = queuedOrders().slice(0, ORDER_BATCH);
+          if (!events.length) break;
+          const response = await fetch(`${config.url}/orders`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ device: deviceName(), events }),
+            cache: "no-store",
+            signal: AbortSignal.timeout?.(6e4)
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          dropQueued(events.map((event) => event.uid));
+          sent += events.length;
+        }
+      } catch (e) {
+        error = e.message || String(e);
+      } finally {
+        p.sending = null;
+      }
+      p.status = { ...p.status, orders: { at: Date.now(), sent, waiting: queuedOrders().length, error } };
+      notify(false);
+    })());
+    return p.sending;
   }
 
   // src/game-nav.js
@@ -4598,7 +4755,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const st = piStatus();
     const time = (t4) => new Date(t4).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const text = st.ok === null ? "Linked to your Pi; reading it\u2026" : st.ok ? `From your Pi: newest prices ${st.newest ? time(st.newest) : "none yet"}, read ${time(st.at)}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}` : `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
-    return `<div class="mwia-history-note">${esc(text)}</div>
+    const orders = st.orders;
+    const ordersText = !orders ? "" : orders.error ? ` Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.` : orders.at ? ` Your orders: ${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"}, sent ${time(orders.at)}.` : "";
+    return `<div class="mwia-history-note">${esc(text + ordersText)}</div>
         <div class="mwia-history-ranges"><button data-history-pi="sync">\u21BB Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
   }
   function onClick(event) {
@@ -5635,11 +5794,11 @@ i.mwia-history-bid { background: #7ee2b0; }
       return;
     }
     const plan = readPlanningTab(document, data);
-    const signature = JSON.stringify([plan.goals, [...plan.policies], pricesAge() !== null && Date.now() - pricesAge()]);
-    const fresh = signature === c.signature && Date.now() - c.at < RECOMPUTE_MS;
+    const signature2 = JSON.stringify([plan.goals, [...plan.policies], pricesAge() !== null && Date.now() - pricesAge()]);
+    const fresh = signature2 === c.signature && Date.now() - c.at < RECOMPUTE_MS;
     const missing = [...steps].some((step) => !step.querySelector(".mwia-plan-cost")) || document.querySelector(".planning-calculate-bar") && !document.querySelector(".mwia-plan-costs");
     if (fresh && !missing) return;
-    c.signature = signature;
+    c.signature = signature2;
     c.at = Date.now();
     const owned = inventoryCounts(state.items);
     const houseLevels = {};
@@ -6292,26 +6451,26 @@ i.mwia-history-bid { background: #7ee2b0; }
   var coins4 = (n2) => (n2 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n2));
   var pctAbs = (fraction) => `${dec2(Math.abs(fraction) * 100, fraction && Math.abs(fraction) < 0.1 ? 1 : 0)}%`;
   var label = (hrid, level) => esc(itemName(hrid)) + (level ? ` <span class="mwia-enh">+${level}</span>` : "");
-  function readJson(key, fallback) {
+  function readJson2(key, fallback) {
     try {
       return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
     } catch {
       return fallback;
     }
   }
-  function writeJson(key, value) {
+  function writeJson2(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch {
     }
   }
-  var keepSet = () => new Set(readJson(KEEP_KEY, []));
+  var keepSet = () => new Set(readJson2(KEEP_KEY, []));
   function toggleKeep(hrid, level) {
     const keep = keepSet();
     const key = keepKey(hrid, Number(level) || 0);
     if (keep.has(key)) keep.delete(key);
     else keep.add(key);
-    writeJson(KEEP_KEY, [...keep]);
+    writeJson2(KEEP_KEY, [...keep]);
   }
   function toggleShowAllMarket() {
     view2.showAll = !view2.showAll;
@@ -6319,8 +6478,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   var openListings = () => (state.character?.myMarketListings || []).filter((listing) => remaining(listing) > 0);
   function listingStatuses(now = Date.now()) {
     const listings = openListings();
-    const fills = trackFills(listings, readJson(FILLS_KEY, {}), now);
-    writeJson(FILLS_KEY, fills);
+    const fills = trackFills(listings, readJson2(FILLS_KEY, {}), now);
+    writeJson2(FILLS_KEY, fills);
     return listings.map((listing) => {
       const level = Number(listing.enhancementLevel) || 0;
       const own = listings.filter((other) => other.itemHrid === listing.itemHrid && (Number(other.enhancementLevel) || 0) === level && !!other.isSell === !!listing.isSell).map((other) => ({ price: Number(other.price) || 0, quantity: remaining(other) }));
@@ -7447,7 +7606,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var BOOK_OLD_MS = 10 * 60 * 1e3;
   var LABELS = { match: "Match", wall: "Wall" };
   var label2 = (s) => s.kind === "horizon" ? `<${s.horizon}h` : LABELS[s.kind];
-  var l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false, cache: { key: null, prices: null } };
+  var l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false, cache: { key: null, prices: null }, clicked: null };
   var num = (n2) => Math.round(n2).toLocaleString("en-US");
   var numberIn = (text) => {
     const found = String(text).match(/\d[\d\s,.]*[kmb]?/gi);
@@ -7568,6 +7727,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         else if (post) post.insertAdjacentElement("beforebegin", box);
         else modal.appendChild(box);
       }
+      if (!c2.error) notePrediction(prediction(c2));
       const html = c2.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION2)} can't read this window: ${esc(c2.error)}. A screenshot of this helps.</div>` : boxHtml2(c2);
       if (box.dataset.html !== html) {
         box.dataset.html = html;
@@ -7589,6 +7749,23 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (s.kind === "match") return `The best ${sell ? "sell" : "buy"} offer now: ${num(s.price)}${cap2}.`;
     if (s.kind === "wall") return `One step ${sell ? "under" : "over"} ${num(s.wall.quantity)} at ${num(s.price)}, the first level with a fifth of all ${sell ? "listed" : "bid"}; ${num(s.wall.ahead)} lie in front of it.`;
     return horizonTitle(s, c2);
+  }
+  function prediction(c2) {
+    const key = `${c2.side}|${c2.hrid}|${c2.level}`;
+    const button = (s) => s.kind === "horizon" ? { h: s.horizon, price: s.price, under: !!s.under, chance: s.chance ?? null, windows: s.windows ?? null, need: s.need ?? null, why: s.why ?? null } : { kind: s.kind, price: s.price };
+    return {
+      side: c2.side,
+      item: c2.hrid,
+      level: c2.level,
+      quantity: c2.quantity,
+      best: c2.best,
+      othersBest: c2.book ? c2.levels[0]?.price ?? null : null,
+      bookAt: c2.book?.at ?? null,
+      takenPerHour: c2.taken?.perHour ?? null,
+      usual: c2.usual,
+      buttons: c2.suggestions.map(button),
+      clicked: l.clicked?.key === key && Date.now() - l.clicked.at < PREDICTION_MS ? l.clicked.kind : null
+    };
   }
   function horizonTitle(s, c2) {
     const sell = c2.side === "sell";
@@ -7664,6 +7841,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const c2 = context(modal);
     const s = c2?.suggestions?.[index];
     if (!s || s.price === null || l.applying) return;
+    l.clicked = { key: `${c2.side}|${c2.hrid}|${c2.level}`, kind: s.kind === "horizon" ? `<${s.horizon}h` : s.kind, at: Date.now() };
     l.applying = true;
     try {
       const b = controls(c2);
@@ -7693,7 +7871,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION3 = true ? "0.41.0" : "dev";
+  var VERSION3 = true ? "0.42.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -7769,6 +7947,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   // src/main.js
   var win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   installSocketHook(win);
+  startOrderLog();
   readPairing(win);
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => mount());

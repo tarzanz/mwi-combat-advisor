@@ -203,8 +203,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   the hours it lacks every 15 minutes (the first time a few MB, then about 25 kB an hour). Its hours replace the ones
   the device saved, the device's fill in where it has none – so the device simply goes on saving prices while the Pi
   is down. The key stays on the Pi and in the browser's storage for the game's site, never in the repository; the
-  Pi only answers the game's sites with the key, and nothing can be written to it. The price box says where the
-  prices come from, with **Read the Pi now** and **Unlink the Pi**. Setup: [pi/README.md](pi/README.md).
+  Pi only answers the game's sites with the key, and nothing but your order events (when switched on) can be written to it. The price box says where the
+  prices come from, with **Read the Pi now** and **Unlink the Pi**. Switched on there (`MWIA_ORDERS=1`), each device
+  also sends what it sees of your own market orders – placed, filled, done, and for one placed from a listing
+  window what its price buttons said – so the listing prices can be judged later; the box says whether they're all
+  on the Pi. Setup: [pi/README.md](pi/README.md).
 - **Listing prices** – the game's *Sell Listing* and *Buy Listing* windows get price buttons under the price box:
   **Match** (the best offer now), **Wall** (one price step in front of the first level in the order book holding a
   fifth of everything others offer within the tradable range – passing the small undercuts, staying in front of the

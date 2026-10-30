@@ -113,7 +113,7 @@ export function orderBookAt(itemHrid, level = 0) {
     return { at: entry.at, asks: both.asks, bids: both.bids, range: band ? { min: band.min, max: band.max ?? Infinity } : null };
 }
 
-const listingDone = (listing) =>
+export const listingDone = (listing) =>
     !!(listing.isDone || listing.isCancelled || listing.isCanceled || listing.isExpired) || /(cancel|complete|expire|closed|done)/i.test(String(listing.status ?? ""));
 
 // The player's own market orders: a full list, or only the changed ones.

@@ -318,8 +318,9 @@ export function soldPerDay(i, hours, nowHour) {
 // Every stored price as CSV, to read in a spreadsheet or hand to an AI. Hourly
 // rows only where an item's ask or bid changed since its previous row, so the
 // file stays small; the hours that have data are listed in the header. What
-// was sold is given per day only (an hourly count would double the file).
-export function historyCsv(items, hours, days, exportedAt = new Date()) {
+// was sold is given per day (an hourly count would make the file three times
+// as big), or with hourlySold (the Pi's) per hour.
+export function historyCsv(items, hours, days, exportedAt = new Date(), { hourlySold = false } = {}) {
     const num = (v) => (Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "");
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
     const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
@@ -334,7 +335,9 @@ export function historyCsv(items, hours, days, exportedAt = new Date()) {
         `# section day (older than ${HOURLY_DAYS} days): the day's median ask and bid, their low and high, and how many hours had data.`,
         "# sold_mean = how many were traded per hour (the market file's v, an hour's count), the mean over the sold_hours hours of the day that",
         "#   had the numbers (0 = none traded; × 24 for a day); sold_price = the median of the hours' average trade price (p).",
-        "#   On day rows, and in section sold for the hourly days (only items that traded).",
+        hourlySold
+            ? "#   On day rows; in section sold one row per hour that had the numbers and an item that traded (sold_mean = that hour's count, sold_hours = 1)."
+            : "#   On day rows, and in section sold for the hourly days (only items that traded).",
         "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours,sold_mean,sold_hours,sold_price",
     ];
     const previous = new Map();
@@ -346,8 +349,15 @@ export function historyCsv(items, hours, days, exportedAt = new Date()) {
             lines.push(`hour,${hourText(r.hour)},${id(hrid)},${pair}`);
         });
     }
+    if (hourlySold) {
+        for (const r of hours.filter((r) => r.sold)) {
+            items.forEach((hrid, i) => {
+                if (at(r.v, i) > 0) lines.push(`sold,${hourText(r.hour)},${id(hrid)},,,,,,,,${num(at(r.v, i))},1,${num(at(r.p, i))}`);
+            });
+        }
+    }
     // The hourly days summed up the way they will be once they become daily points.
-    for (const d of rollUpDays(hours.filter((r) => r.sold), items.length)) {
+    for (const d of hourlySold ? [] : rollUpDays(hours.filter((r) => r.sold), items.length)) {
         items.forEach((hrid, i) => {
             if (at(d.v, i) > 0) lines.push(`sold,${dayText(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
         });
