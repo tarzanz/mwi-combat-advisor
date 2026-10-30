@@ -1,9 +1,12 @@
 // Levelling Enhancing: enhance an item towards a target +level, again and
 // again. A failure (without protection) drops the item back to +0 but keeps
 // it, so the item is bought once per success at the target, while every
-// attempt costs the item's enhancing materials. Reaching the target, the +N
-// item is sold and a new one bought. The game rules are the ones on the wiki
-// and in MWITools/Toolasha:
+// attempt costs the item's enhancing materials. With protection from +P a
+// failure at +P or above drops one level instead and uses up one protection
+// item (a copy of the item, a Mirror of Protection or the item's own
+// protection items – the cheapest). Reaching the target, the +N item is sold
+// and a new one bought. The game rules are the ones on the wiki and in
+// MWITools/Toolasha:
 // - success = base rate of the +level × (1 + level bonus + success buffs);
 //   level bonus 0.05% per level above the item, −50% × (1 − level / item level) below;
 // - 12 s / (1 + speed), speed +1% per level above the item;
@@ -29,6 +32,9 @@ const OBSERVATORY = "/house_rooms/observatory";
 const OBSERVATORY_SUCCESS = 0.0005;
 const SUCCESS = "/buff_types/enhancing_success";
 const ESSENCE = "/items/enhancing_essence";
+const MIRROR = "/items/mirror_of_protection";
+// The game protects from +2 at the lowest.
+export const MIN_PROTECT = 2;
 
 // The Artisan's Crate an attempt may drop, by the item's level. The small
 // crate's rate is the game's; the larger ones are assumed to follow Alchemy's
@@ -67,6 +73,48 @@ export function enhanceCycles(p, blessed, xpAt) {
         xp[T] = done > 0 ? gained / done : Infinity;
     }
     return { attempts, xp, reach };
+}
+
+// With protection from +from: a failure at +from or above drops one level
+// (using up one protection), below it back to +0. Expected attempts, XP (xpPer[L]
+// on average per attempt at +L) and protections from +0 until the item first
+// reaches the target (or a blessed success jumps past it). Solved backwards:
+// each E[L] is written as a + b·E[L−1] + d·E[0], then E[0] follows from the +0 row.
+const SOLVE = { a: new Float64Array(3 * (MAX_TARGET + 2)), b: new Float64Array(MAX_TARGET + 2), d: new Float64Array(MAX_TARGET + 2) };
+export function protectedCycle(p, blessed, target, from, xpPer) {
+    const { a, b, d } = SOLVE;
+    a.fill(0, 3 * target, 3 * (target + 2));
+    b[target] = b[target + 1] = d[target] = d[target + 1] = 0;
+    for (let L = target - 1; L >= 0; L--) {
+        const up1 = p[L] * (1 - blessed);
+        const up2 = p[L] * blessed;
+        const fail = 1 - p[L];
+        const guarded = L >= from;
+        const b1 = b[L + 1];
+        const b2 = b[L + 2];
+        const keep = 1 - up1 * b1 - up2 * b2 * b1;
+        if (keep <= 1e-15) return null;
+        const cost = [1, xpPer[L], guarded ? fail : 0];
+        for (let i = 0; i < 3; i++) {
+            const a1 = a[3 * (L + 1) + i];
+            a[3 * L + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L + 2) + i] + b2 * a1)) / keep;
+        }
+        b[L] = guarded ? fail / keep : 0;
+        d[L] = (up1 * d[L + 1] + up2 * (b2 * d[L + 1] + d[L + 2]) + (guarded ? 0 : fail)) / keep;
+    }
+    const rest = 1 - d[0];
+    return rest > 1e-15 ? { attempts: a[0] / rest, xp: a[1] / rest, protections: a[2] / rest } : null;
+}
+
+// The cheapest protection for an item: a copy of it, a Mirror of Protection or
+// one of its own protection items, at the ask; null when none is for sale.
+export function cheapestProtection(detail, market) {
+    let best = null;
+    for (const itemHrid of new Set([detail.hrid, MIRROR, ...(detail.protectionItemHrids || [])])) {
+        const price = market.buy(itemHrid);
+        if (price !== null && (!best || price < best.price)) best = { itemHrid, price };
+    }
+    return best;
 }
 
 // The item's enhancing materials per attempt; null when one of them isn't for sale.
@@ -212,30 +260,39 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
         buffsKnown: !!who.buffs,
     };
 
-    const results = [];
-    for (let target = 1; target <= MAX_TARGET; target++) {
-        const attempts = cycles.attempts[target];
-        if (!Number.isFinite(attempts) || attempts <= 0) break;
-        const sold = resale ? resale(action.itemHrid, target) : { price: 0, source: "none", level: null };
+    // One target with a cycle { attempts, xp, protections } and the protection used (or null):
+    // the numbers a score needs, and the whole result (full) for the one picked.
+    const guard = cheapestProtection(detail, market);
+    const valid = !!base && inputs.length > 0;
+    const build = (target, sold, cycle, protect, full = false) => {
+        const { attempts } = cycle;
         // Per attempt: the materials, and 1/attempts of an item bought and of one sold at +target.
         const perCycle = 1 / attempts;
         const madePerDay = (actionsPerHour / attempts) * 24;
         const { price, salesCap } = salesLimited({ ...sold, floor: sold.floor === undefined ? undefined : Math.min(sold.floor, sold.price) }, madePerDay);
-        const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
-        const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price, sell: sold, value: perCycle * price }, ...drops];
-        const revenuePerAction = outputs.reduce((sum, o) => sum + o.value, 0);
-        const costPerAction = costPerAttempt + (itemIn ? itemIn.value : 0);
+        const guardValue = protect ? (cycle.protections / attempts) * protect.price : 0;
+        const attemptCost = costPerAttempt + guardValue;
+        const revenuePerAction = perCycle * price + dropsPerAttempt;
+        const costPerAction = attemptCost + (base ? perCycle * base.price : 0);
         const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
-        const xpPerAction = cycles.xp[target] / attempts;
-        const r = {
+        const xpPerAction = cycle.xp / attempts;
+        const xpPerHour = actionsPerHour * xpPerAction;
+        const numbers = { skill: SKILL, target, valid, goldPerDay: profitPerHour * 24, xpPerDay: xpPerHour * 24, coinsPerXp: xpPerHour > 0 ? -profitPerHour / xpPerHour : null, attempts, protect, cycle };
+        if (!full) return numbers;
+        const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
+        const guardIn = protect ? { itemHrid: protect.itemHrid, count: cycle.protections / attempts, price: protect.price, value: guardValue, protection: true } : null;
+        const perAttempt = guardIn ? [...inputs, guardIn] : inputs;
+        const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price, sell: sold, value: perCycle * price }, ...drops];
+        return {
             ...common,
-            target,
+            ...numbers,
             attempts,
+            protect: protect ? { ...protect, protections: cycle.protections } : null,
             itemsPerHour: actionsPerHour / attempts,
             salesCap,
             outputs,
-            inputs: itemIn ? [...inputs, itemIn] : inputs,
-            costPerAttempt,
+            inputs: itemIn ? [...perAttempt, itemIn] : perAttempt,
+            costPerAttempt: attemptCost,
             dropsPerAttempt,
             revenuePerAction,
             costPerAction,
@@ -243,17 +300,29 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
             margin: revenuePerAction > 0 ? profitPerHour / (actionsPerHour * revenuePerAction) : null,
             mainCount: perCycle,
             xpPerAction,
-            xpPerHour: actionsPerHour * xpPerAction,
-            valid: !!base && inputs.length > 0,
-            goldPerDay: profitPerHour * 24,
-            xpPerDay: actionsPerHour * xpPerAction * 24,
+            xpPerHour,
         };
-        r.coinsPerXp = r.xpPerHour > 0 ? -r.profitPerHour / r.xpPerHour : null;
-        results.push(r);
+    };
+
+    const results = [];
+    const xpPer = rates.map((r, L) => (r + FAIL_XP * (1 - r)) * xpAt[L]);
+    for (let target = 1; target <= MAX_TARGET; target++) {
+        const attempts = cycles.attempts[target];
+        if (!Number.isFinite(attempts) || attempts <= 0) break;
+        const sold = resale ? resale(action.itemHrid, target) : { price: 0, source: "none", level: null };
+        // Without protection, then protected from each +level that can fail into another; the one that scores best.
+        let best = build(target, sold, { attempts, xp: cycles.xp[target], protections: 0 }, null);
+        for (let from = MIN_PROTECT; guard && from < target; from++) {
+            const cycle = protectedCycle(rates, blessed, target, from, xpPer);
+            if (!cycle) continue;
+            const r = build(target, sold, cycle, { ...guard, from });
+            if (score(r) > score(best) + 1e-12) best = r;
+        }
+        results.push(build(target, sold, best.cycle, best.protect, true));
     }
     let best = results[0];
     for (const r of results) if (score(r) > score(best) + 1e-12) best = r;
     if (fixedTarget) best = results.find((r) => r.target === Math.min(MAX_TARGET, fixedTarget)) || best;
-    best.targets = results.map((r) => ({ target: r.target, attempts: r.attempts, goldPerDay: r.goldPerDay, xpPerDay: r.xpPerDay, coinsPerXp: r.coinsPerXp, sell: r.outputs[0].sell }));
+    best.targets = results.map((r) => ({ target: r.target, attempts: r.attempts, protect: r.protect, goldPerDay: r.goldPerDay, xpPerDay: r.xpPerDay, coinsPerXp: r.coinsPerXp, sell: r.outputs[0].sell }));
     return best;
 }

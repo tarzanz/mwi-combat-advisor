@@ -756,14 +756,18 @@ try {
     const expEnh = leveling("enhancing").available;
     check("Enhancing lists items with a target", enhancing.length > 0 && expEnh.slice(0, 3).every((e, i) => enhancing[i]?.name === e.action.name && enhancing[i].gold === `${coinText(e.goldPerDay)}/day` && enhancing[i].xp === `${coinText(e.xpPerDay)} XP/day`),
         JSON.stringify(enhancing.slice(0, 2)) + " vs " + expEnh.slice(0, 2).map((e) => `${e.action.name} +${e.target} ${coinText(e.goldPerDay)} ${coinText(e.xpPerDay)}`).join(", "));
-    check("Enhancing rows show coins per XP", /item level \d+ · [\d.,]+ coins\/XP/.test(enhancing[0]?.sub || ""), enhancing[0]?.sub);
+    check("Enhancing rows show coins per XP", /item level \d+ · (protect from \+\d+ · )?[\d.,]+ coins\/XP/.test(enhancing[0]?.sub || ""), enhancing[0]?.sub);
+    const guarded = expEnh.find((e) => e.protect);
+    const guardedRow = guarded && enhancing.find((r) => r.name === guarded.action.name);
+    check("a protected row says from which +level", !guarded || (guardedRow && guardedRow.sub.includes(`protect from +${guarded.protect.from}`)), JSON.stringify(guardedRow));
     check("an enhanced item no one buys is valued at a lower +level's bid", /valued at the \+0 bid/.test(enhancing[0]?.warn || ""), enhancing[0]?.warn);
     // A lone listing nobody buys from stays a cost, not a fortune.
     const loneRow = enhancing.find((r) => r.name === clientData.itemDetailMap[LONE].name);
     check("a lone +level listing without buyers isn't counted", !!loneRow && /^−/.test(loneRow.gold) && enhancing.every((r) => /^−/.test(r.gold)), JSON.stringify(loneRow));
     await page.click(".mwia-skill-row summary");
     const enhDetail = await page.$eval(".mwia-skill-row[open] .mwia-skill-detail", (n) => n.textContent);
-    check("Enhancing detail: odds, attempts, every target", /attempts per \+\d+/.test(enhDetail) && /A failure drops the item to \+0/.test(enhDetail) && /\+1: [\d.,]+ attempts/.test(enhDetail) && /suits your Focus/.test(enhDetail), enhDetail.slice(0, 300));
+    if (expEnh[0].protect) check("Enhancing detail: protections per +level", enhDetail.includes(`uses up one ${clientData.itemDetailMap[expEnh[0].protect.itemHrid].name}`) && /\(protection\) @/.test(enhDetail), enhDetail.slice(0, 600));
+    check("Enhancing detail: odds, attempts, every target", /attempts per \+\d+/.test(enhDetail) && /A failure (below \+\d+ )?drops the item to \+0/.test(enhDetail) && /\+1: [\d.,]+ attempts/.test(enhDetail) && /suits your Focus/.test(enhDetail), enhDetail.slice(0, 300));
     await page.screenshot({ path: path.join(shotDir, "skilling-12-enhancing.png") });
     // Upgrades that pay back: measured on the top row, its XP worth the coins per XP it costs there.
     for (const skill of ["enhancing", "alchemy"]) {

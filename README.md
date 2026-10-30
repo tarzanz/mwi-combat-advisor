@@ -102,9 +102,13 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   the cheapest coins per XP first, *XP only* the most XP a day whatever it costs, and in between each counts as a
   share of the best in the list (coins per XP against the cheapest, XP a day against the fastest). Every row shows its
   coins per XP; tap it for the whole calculation, with your level, buffs and the best teas.
-  - **Enhancing:** enhance an item towards a target +level again and again. A failure drops it back to +0 (no
-    protection), so the item is bought once per success while every attempt costs its enhancing materials; at the
-    target the +level is sold and a new item bought. One row per item, at the target (+1 … +20) that suits the focus –
+  - **Enhancing:** enhance an item towards a target +level again and again. A failure drops it back to +0, so the
+    item is bought once per success while every attempt costs its enhancing materials; at the target the +level is
+    sold and a new item bought. **Protection:** for every target each *protect from* +level (+2 and up) is tried
+    too – a failure there drops one level and uses up one protection item, the cheapest of a copy of the item, a
+    Mirror of Protection and the item's own protection items – and the one that suits the focus is used (the row
+    says *protect from +N*, the detail how many protections a +level takes, 🛒 buys them). The expected attempts,
+    XP and protections are solved exactly (checked against a Markov solve), Blessed Tea included. One row per item, at the target (+1 … +20) that suits the focus –
     *🎚 Targets* lists them all with attempts, gold and XP a day. Success = the game's rate for the +level × (1 + 0.05%
     per level above the item, or −50% × (1 − level / item level) below it, + the tool's and the Observatory's success);
     12 s / (1 + speed, +1% per level above the item); XP 1.4 × (1 + +level) × (10 + item level) × wisdom, a tenth on a

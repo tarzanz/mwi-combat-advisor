@@ -5,7 +5,7 @@ import { getClientData, itemName, marketBids, marketEntry, marketListings, price
 import { state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
 import { ASK_WINDOW, CALM_SWING, LEVELING_SKILLS, LIQUIDITY, MARKET_TAX, NEAR_LEVELS, PLAN_MODES, SKILLING_SKILLS, WIDE_SPREAD, heldStock, liquidityRating, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
-import { ENHANCE_FUNCTION } from "./enhancing.js";
+import { ENHANCE_FUNCTION, MIN_PROTECT } from "./enhancing.js";
 import { ALCHEMY_FUNCTION, ALCHEMY_KINDS } from "./alchemy.js";
 import { UPGRADES_SHOWN, rankUpgrades } from "./skilling-upgrades.js";
 import { MIN_HOURS, historyVersion, priceSummary, versusUsual } from "./price-history.js";
@@ -227,7 +227,7 @@ export function renderSkilling(settings) {
     const { available, upcoming } = ranking(settings);
     let html = skillingSettingsHtml(settings);
     const leveling = LEVELING_SKILLS.includes(settings.skillingSkill);
-    if (settings.skillingSkill === "enhancing") html += `<p class="mwia-dim">Enhance an item towards a target +level again and again: a failure drops it back to +0 (no protection), reaching the target you sell it and buy a new one. One row per item, at the target that suits your <i>Focus</i>; gold per day is what it costs (−) after selling. Items you have at +0 are used first, valued at what they'd sell for. Tap a row for the odds and every target.</p>`;
+    if (settings.skillingSkill === "enhancing") html += `<p class="mwia-dim">Enhance an item towards a target +level again and again: a failure drops it back to +0 – or, protected from a +level on, one level, using up the cheapest protection (a copy, a Mirror of Protection or the item's own) – reaching the target you sell it and buy a new one. One row per item, at the target that suits your <i>Focus</i>; gold per day is what it costs (−) after selling. Items you have at +0 are used first, valued at what they'd sell for. Tap a row for the odds and every target.</p>`;
     else if (settings.skillingSkill === "alchemy") html += `<p class="mwia-dim">Coinify, decompose or transmute items bought at the cheapest ask. The odds, the coins it costs, the bulk size, the catalyst that suits your <i>Focus</i>, Alchemy Essence and crates are counted. Gold per day after the ${dec(MARKET_TAX * 100, 0)}% market tax.</p>`;
     else html += `<p class="mwia-dim">Gold per day after the ${dec(MARKET_TAX * 100, 0)}% market tax, with materials and teas bought at the cheapest ask. Only what your levels allow. Tap a row to see how it was worked out.</p>`;
     if (available[0] && !available[0].buffsKnown) {
@@ -293,7 +293,7 @@ function rowHtml(entry, best, upcoming = false, first = false) {
     const day = entry.goldPerDay;
     const leveling = isEnhance(entry) || isAlchemy(entry);
     const perXp = leveling && entry.coinsPerXp !== null ? ` · ${entry.coinsPerXp >= 0 ? `${dec(entry.coinsPerXp, 1)} coins/XP` : `earns ${dec(-entry.coinsPerXp, 1)}/XP`}` : "";
-    const levelText = leveling ? `item level ${entry.action.levelRequirement.level}${isAlchemy(entry) ? ` · ${pct(entry.successRate).replace("+", "")} success` : ""}${perXp}${suggestionShort(entry.suggestion)}${budgetShort(entry.budget)}` : "";
+    const levelText = leveling ? `item level ${entry.action.levelRequirement.level}${isAlchemy(entry) ? ` · ${pct(entry.successRate).replace("+", "")} success` : ""}${entry.protect ? ` · protect from +${entry.protect.from}` : ""}${perXp}${suggestionShort(entry.suggestion)}${budgetShort(entry.budget)}` : "";
     const sub = leveling
         ? levelText
         : upcoming
@@ -377,16 +377,19 @@ function enhanceSections(e, section) {
     const item = esc(itemName(e.action.itemHrid));
     const parts = [e.levelBonus && `level ${dec(e.effectiveLevel, 0)} vs item ${e.requiredLevel}: ${pct(e.levelBonus)}`, e.successBonus && `tool, house and buffs ${pct(e.successBonus)}`].filter(Boolean);
     const rates = e.rates.slice(0, Math.max(e.target, 3)).map((r, L) => `+${L}→+${L + 1} ${dec(r * 100, 1)}%`).join(" · ");
-    sections.push(section("🎯 Odds", `${count(e.attempts)} attempts per +${e.target}`, [
+    const pr = e.protect;
+    sections.push(section("🎯 Odds", `${count(e.attempts)} attempts per +${e.target}${pr ? `, protected from +${pr.from}` : ""}`, [
         `Success = the game's rate for the +level × ${dec(e.multiplier, 3)}${parts.length ? ` (1 ${parts.map((p) => "+ " + p).join(" ")})` : ""}: ${rates}.${e.blessed ? ` Blessed: ${pct(e.blessed).replace("+", "")} of successes jump two levels.` : ""}`,
-        `A failure drops the item to +0. From +0 it takes <b>${count(e.attempts)} attempts</b> on average to reach +${e.target}.`,
+        pr
+            ? `A failure below +${pr.from} drops the item to +0; from +${pr.from} on it drops one level and uses up one ${esc(itemName(pr.itemHrid))} (the cheapest protection, ${coins(pr.price)}). From +0 it takes <b>${count(e.attempts)} attempts</b> and ${count(pr.protections)} protections on average to reach +${e.target}. Protecting from another +level, or not at all, suits your Focus less.`
+            : `A failure drops the item to +0. From +0 it takes <b>${count(e.attempts)} attempts</b> on average to reach +${e.target}.${e.target > MIN_PROTECT ? " Protection doesn't pay here with your Focus." : ""}`,
     ]));
     const levelSpeed = e.levelSpeed ? ` (levels ${pct(e.levelSpeed)})` : "";
     sections.push(section("⏱ Speed", `${dec(e.actionsPerHour, 0)} attempts/h`, [`12 s / (1 + ${pct(e.speed).replace("+", "")} speed${levelSpeed}) = ${dec(e.cycleSeconds, 2)} s → <b>${dec(e.actionsPerHour, 0)} attempts/h</b>, ${count(e.itemsPerHour)} items reach +${e.target} an hour.`]));
 
     const sell = e.outputs[0].sell;
     const sold = sell.source === "vendor" ? "the shop price" : sell.source === "lower" ? `the +${sell.level} bid (nobody bids for +${e.target})` : sell.source === "usualbid" ? "the usual bid (nobody bids now)" : sell.source === "usual" ? `the usual ask (${coins(sell.ask)} now)` : sell.source === "spread" ? `${dec(WIDE_SPREAD, 1)}× the bid (ask ${coins(sell.ask)})` : `the ${sell.source}`;
-    const mats = e.inputs.filter((i) => !i.upgrade).map((i) => `${count(i.count)} × ${esc(itemName(i.itemHrid))} @ ${coins(i.price)}`).join(" · ");
+    const mats = e.inputs.filter((i) => !i.upgrade).map((i) => `${count(i.count)} × ${esc(itemName(i.itemHrid))}${i.protection ? " (protection)" : ""} @ ${coins(i.price)}`).join(" · ");
     const base = e.base.owned ? `one you have (worth ${coins(e.base.price)} at the bid)` : `bought at ${coins(e.base.price)}`;
     sections.push(section("💰 Gold", `${coins(e.profitPerHour)}/h`, [
         `<b>Each attempt uses</b> ${mats} = ${coins(e.costPerAttempt)}.`,
@@ -400,7 +403,7 @@ function enhanceSections(e, section) {
     sections.push(section("✨ XP", `${coins(e.xpPerHour)}/h`, [`1.4 × (1 + the +level) × (10 + ${e.requiredLevel})${e.wisdom ? ` × ${dec(1 + e.wisdom, 3)} wisdom` : ""} on a success, a tenth on a failure: ${dec(e.xpPerAction, 1)} per attempt on average × ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h = <b>${coins(e.xpPerDay)}/day</b>.`]));
     const rows = e.targets.filter((t) => t.target <= 12 || t.target === e.target || t.target % 5 === 0).map((t) => {
         const perXp = t.coinsPerXp === null ? "–" : t.coinsPerXp >= 0 ? `${dec(t.coinsPerXp, 1)} c/XP` : `earns ${dec(-t.coinsPerXp, 1)}/XP`;
-        const text = `+${t.target}: ${count(t.attempts)} attempts · ${coins(t.goldPerDay)}/day · ${coins(t.xpPerDay)} XP/day · ${perXp}`;
+        const text = `+${t.target}: ${count(t.attempts)} attempts${t.protect ? ` (protect from +${t.protect.from})` : ""} · ${coins(t.goldPerDay)}/day · ${coins(t.xpPerDay)} XP/day · ${perXp}`;
         return t.target === e.target ? `<b>${text}</b>` : text;
     });
     sections.push(section("🎚 Targets", `+${e.target} suits your Focus`, [`Stopping at a lower +level sells the item sooner (more of it comes back, each attempt gives less XP); a high target almost never gets there, so it is all materials. With ${item}:`, rows.join("<br>")]));
@@ -438,8 +441,10 @@ function levelingButtons(e) {
     if (isEnhance(e)) {
         open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e.target}" title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e.target}">▶ Enhance to +${e.target}</button>`;
         const attempts = Math.ceil(e.actionsPerHour * hours);
-        const items = e.inputs.filter((i) => !i.upgrade).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN);
-        const copies = Math.max(e.base.owned ? 0 : 1, Math.ceil(attempts / e.attempts) - have(item));
+        const items = e.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN);
+        // Copies of the item: one per +target, plus those used up as protection.
+        const guards = e.protect?.itemHrid === item ? (attempts * e.protect.protections) / e.attempts : 0;
+        const copies = Math.max(e.base.owned ? 0 : 1, Math.ceil(attempts / e.attempts + guards) - have(item));
         if (copies > 0) items.unshift({ hrid: item, quantity: copies });
         buy = items.length ? { items, title: `Adds what ${hoursText(hours)} of enhancing uses: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
     } else {

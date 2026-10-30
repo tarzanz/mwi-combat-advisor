@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { alchemyActions, coinCost, evaluateAlchemy, levelPenalty } from "../src/alchemy.js";
-import { BASE_RATES, MAX_TARGET, enhanceCycles, enhancingActions, evaluateEnhance, levelBonus } from "../src/enhancing.js";
+import { BASE_RATES, MAX_TARGET, MIN_PROTECT, cheapestProtection, enhanceCycles, enhancingActions, evaluateEnhance, levelBonus, protectedCycle } from "../src/enhancing.js";
 import { PLAN_MODES, coinsPerXp, enhanceBudget, marketPricer, rankSkilling } from "../src/skilling.js";
 import { itemSkillBuffs, rankUpgrades } from "../src/skilling-upgrades.js";
 
@@ -85,6 +85,59 @@ for (const [mult, b] of [[1, 0], [1.05, 0.01], [0.7, 0], [1.2, 0.03]]) {
 }
 // The solve subtracts nearly equal numbers at ~1e10 attempts, so allow rounding.
 check("attempts per target match a Markov solve (with and without Blessed Tea)", worst < 1e-6, String(worst));
+// Protection: a dense solve of (I − M) E = c, where a failure at +from or above drops one level.
+function protectedBySolve(p, b, target, from, cost) {
+    const n = target;
+    const A = Array.from({ length: n }, (_, L) => {
+        const row = Array(n + 1).fill(0);
+        row[L] += 1;
+        if (L + 1 < n) row[L + 1] -= p[L] * (1 - b);
+        if (L + 2 < n) row[L + 2] -= p[L] * b;
+        row[L >= from ? L - 1 : 0] -= 1 - p[L];
+        row[n] = cost(L);
+        return row;
+    });
+    for (let i = 0; i < n; i++) {
+        let m = i;
+        for (let r = i + 1; r < n; r++) if (Math.abs(A[r][i]) > Math.abs(A[m][i])) m = r;
+        [A[i], A[m]] = [A[m], A[i]];
+        for (let r = 0; r < n; r++) {
+            if (r === i) continue;
+            const f = A[r][i] / A[i][i];
+            for (let k = i; k <= n; k++) A[r][k] -= f * A[i][k];
+        }
+    }
+    return A[0][n] / A[0][0];
+}
+{
+    let worstProtected = 0;
+    let worstPlain = 0;
+    for (const [mult, b] of [[1, 0], [1.05, 0.01], [0.7, 0], [1.2, 0.03]]) {
+        const p = BASE_RATES.map((r) => Math.min(1, r * mult));
+        const xpAt = p.map((_, L) => 1 + L);
+        const plain = enhanceCycles(p, b, xpAt);
+        for (const target of [3, 5, 10, 15, 20]) {
+            for (const from of [MIN_PROTECT, 5, 8, target - 1].filter((f) => f >= MIN_PROTECT && f < target)) {
+                const { attempts, xp, protections: guards } = protectedCycle(p, b, target, from, xpAt);
+                const rel = (x, y) => Math.abs(x / y - 1);
+                // Past ~1e9 attempts both solves lose digits to rounding; no real plan goes there.
+                if (attempts > 1e9) continue;
+                worstProtected = Math.max(worstProtected, rel(attempts, protectedBySolve(p, b, target, from, () => 1)), rel(xp, protectedBySolve(p, b, target, from, (L) => xpAt[L])), rel(guards, protectedBySolve(p, b, target, from, (L) => (L >= from ? 1 - p[L] : 0))));
+            }
+            // Protected from the target on is no protection at all.
+            const { attempts, xp } = protectedCycle(p, b, target, target, p.map((x, L) => (x + 0.1 * (1 - x)) * xpAt[L]));
+            if (attempts > 1e9) continue;
+            worstPlain = Math.max(worstPlain, Math.abs(attempts / plain.attempts[target] - 1), Math.abs(xp / plain.xp[target] - 1));
+        }
+    }
+    check("protection: attempts, XP and protections match a Markov solve", worstProtected < 1e-6, String(worstProtected));
+    check("protection from the target on is the same as none", worstPlain < 1e-6, String(worstPlain));
+    // By hand, +3 at 50% protected from +2: E2 = 1 + ½E1, E1 = 1 + ½E2 + ½E0, E0 = 1 + ½E1 + ½E0 → E0 = 12;
+    // protections G2 = ½ + ½G1, G1 = ½G2 + ½G0, G0 = G1 → 1.
+    const p3 = [0.5, 0.5, 0.5];
+    const { attempts: a3, protections: g3 } = protectedCycle(p3, 0, 3, 2, [0, 0, 0]);
+    check("by hand: +3 at 50% protected from +2 takes 12 attempts and 1 protection", near(a3, 12) && near(g3, 1), `${a3} ${g3}`);
+}
 const p = BASE_RATES;
 const one = enhanceCycles(p, 0, p.map((_, L) => 1.4 * (1 + L) * 30));
 check("+1 takes 1 / 50% = 2 attempts; XP on a success and a tenth on a failure", near(one.attempts[1], 2) && near(one.xp[1], 2 * (0.5 * 42 + 0.5 * 4.2)), `${one.attempts[1]} ${one.xp[1]}`);
@@ -107,6 +160,22 @@ const tooled = evaluateEnhance(gator, { ...enhancer, equipped: [{ itemHrid: "/it
 check("an Enhancer's success counts when the game doesn't send it", near(tooled.successBonus, 0.006));
 const sent = evaluateEnhance(gator, { ...enhancer, equipped: [{ itemHrid: "/items/cheese_enhancer", enhancementLevel: 0 }], sources: { equipmentActionTypeBuffsMap: { "/action_types/enhancing": [{ typeHrid: "/buff_types/enhancing_success", flatBoost: 0.006, ratioBoost: 0 }] } }, buffs: { "/action_types/enhancing": [{ typeHrid: "/buff_types/enhancing_success", flatBoost: 0.006, ratioBoost: 0 }] } }, data, market, [], { resale });
 check("…and not twice when it does", near(sent.successBonus, 0.006));
+
+// Protection: the cheapest of a copy, a Mirror or the item's own protection items; picked when it pays.
+{
+    const vest = data.itemDetailMap["/items/gator_vest"];
+    const guard = cheapestProtection(vest, market);
+    const options = [vest.hrid, "/items/mirror_of_protection", ...(vest.protectionItemHrids || [])].map((h) => market.buy(h)).filter((x) => x !== null);
+    check("the cheapest protection is used", guard && guard.price === Math.min(...options), JSON.stringify(guard));
+    // A +level worth twice the one below it.
+    const rising = (hrid, level) => ({ price: marketData[hrid][0].b * 0.96 * 2 ** level, source: "bid", level });
+    const high = evaluateEnhance(gator, enhancer, data, market, [], { resale: rising, target: 10 });
+    const used = high.inputs.find((i) => i.protection);
+    check("+10: protected, one protection per failure from +P", high.protect && high.protect.from >= MIN_PROTECT && high.protect.from < 10 && used && near(used.count, high.protect.protections / high.attempts), JSON.stringify(high.protect));
+    check("…and fewer attempts than starting over from +0", high.attempts < enhanceCycles(high.rates, high.blessed, high.rates.map(() => 1)).attempts[10]);
+    check("the protection is part of the cost per attempt", near(high.costPerAttempt, high.inputs.filter((i) => !i.upgrade).reduce((sum, i) => sum + i.value, 0)));
+    check("every target says how it is protected", high.targets.every((t) => t.protect === null || t.protect.from < t.target) && high.targets[0].protect === null);
+}
 
 // The game's Enhancing window: Enhancing 8, a Cheese Enhancer, Observatory 1, Cheese Helmet (level 1) to +1.
 {

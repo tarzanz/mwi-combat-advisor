@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.43.0
+// @version      0.44.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1939,6 +1939,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   var OBSERVATORY_SUCCESS = 5e-4;
   var SUCCESS = "/buff_types/enhancing_success";
   var ESSENCE2 = "/items/enhancing_essence";
+  var MIRROR = "/items/mirror_of_protection";
+  var MIN_PROTECT = 2;
   function enhanceCrate(itemLevel) {
     if (itemLevel < 35) return { itemHrid: "/items/small_artisans_crate", rate: (100 + itemLevel) / 12e4 };
     if (itemLevel < 70) return { itemHrid: "/items/medium_artisans_crate", rate: (65 + itemLevel) / 18e4 };
@@ -1964,6 +1966,39 @@ i.mwia-history-bid { background: #7ee2b0; }
       xp[T] = done2 > 0 ? gained / done2 : Infinity;
     }
     return { attempts, xp, reach };
+  }
+  var SOLVE = { a: new Float64Array(3 * (MAX_TARGET + 2)), b: new Float64Array(MAX_TARGET + 2), d: new Float64Array(MAX_TARGET + 2) };
+  function protectedCycle(p2, blessed, target, from, xpPer) {
+    const { a, b, d } = SOLVE;
+    a.fill(0, 3 * target, 3 * (target + 2));
+    b[target] = b[target + 1] = d[target] = d[target + 1] = 0;
+    for (let L = target - 1; L >= 0; L--) {
+      const up1 = p2[L] * (1 - blessed);
+      const up2 = p2[L] * blessed;
+      const fail = 1 - p2[L];
+      const guarded = L >= from;
+      const b1 = b[L + 1];
+      const b2 = b[L + 2];
+      const keep = 1 - up1 * b1 - up2 * b2 * b1;
+      if (keep <= 1e-15) return null;
+      const cost = [1, xpPer[L], guarded ? fail : 0];
+      for (let i = 0; i < 3; i++) {
+        const a1 = a[3 * (L + 1) + i];
+        a[3 * L + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L + 2) + i] + b2 * a1)) / keep;
+      }
+      b[L] = guarded ? fail / keep : 0;
+      d[L] = (up1 * d[L + 1] + up2 * (b2 * d[L + 1] + d[L + 2]) + (guarded ? 0 : fail)) / keep;
+    }
+    const rest = 1 - d[0];
+    return rest > 1e-15 ? { attempts: a[0] / rest, xp: a[1] / rest, protections: a[2] / rest } : null;
+  }
+  function cheapestProtection(detail, market) {
+    let best = null;
+    for (const itemHrid of /* @__PURE__ */ new Set([detail.hrid, MIRROR, ...detail.protectionItemHrids || []])) {
+      const price = market.buy(itemHrid);
+      if (price !== null && (!best || price < best.price)) best = { itemHrid, price };
+    }
+    return best;
   }
   function materials(detail, market) {
     const inputs = [];
@@ -2084,29 +2119,36 @@ i.mwia-history-bid { background: #7ee2b0; }
       warnings: [],
       buffsKnown: !!who.buffs
     };
-    const results = [];
-    for (let target = 1; target <= MAX_TARGET; target++) {
-      const attempts = cycles.attempts[target];
-      if (!Number.isFinite(attempts) || attempts <= 0) break;
-      const sold = resale ? resale(action.itemHrid, target) : { price: 0, source: "none", level: null };
+    const guard = cheapestProtection(detail, market);
+    const valid = !!base && inputs.length > 0;
+    const build = (target, sold, cycle, protect, full = false) => {
+      const { attempts } = cycle;
       const perCycle = 1 / attempts;
       const madePerDay = actionsPerHour / attempts * 24;
       const { price, salesCap } = salesLimited({ ...sold, floor: sold.floor === void 0 ? void 0 : Math.min(sold.floor, sold.price) }, madePerDay);
-      const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
-      const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price, sell: sold, value: perCycle * price }, ...drops];
-      const revenuePerAction = outputs.reduce((sum, o2) => sum + o2.value, 0);
-      const costPerAction = costPerAttempt + (itemIn ? itemIn.value : 0);
+      const guardValue = protect ? cycle.protections / attempts * protect.price : 0;
+      const attemptCost = costPerAttempt + guardValue;
+      const revenuePerAction = perCycle * price + dropsPerAttempt;
+      const costPerAction = attemptCost + (base ? perCycle * base.price : 0);
       const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
-      const xpPerAction = cycles.xp[target] / attempts;
-      const r = {
+      const xpPerAction = cycle.xp / attempts;
+      const xpPerHour = actionsPerHour * xpPerAction;
+      const numbers = { skill: SKILL2, target, valid, goldPerDay: profitPerHour * 24, xpPerDay: xpPerHour * 24, coinsPerXp: xpPerHour > 0 ? -profitPerHour / xpPerHour : null, attempts, protect, cycle };
+      if (!full) return numbers;
+      const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
+      const guardIn = protect ? { itemHrid: protect.itemHrid, count: cycle.protections / attempts, price: protect.price, value: guardValue, protection: true } : null;
+      const perAttempt = guardIn ? [...inputs, guardIn] : inputs;
+      const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price, sell: sold, value: perCycle * price }, ...drops];
+      return {
         ...common,
-        target,
+        ...numbers,
         attempts,
+        protect: protect ? { ...protect, protections: cycle.protections } : null,
         itemsPerHour: actionsPerHour / attempts,
         salesCap,
         outputs,
-        inputs: itemIn ? [...inputs, itemIn] : inputs,
-        costPerAttempt,
+        inputs: itemIn ? [...perAttempt, itemIn] : perAttempt,
+        costPerAttempt: attemptCost,
         dropsPerAttempt,
         revenuePerAction,
         costPerAction,
@@ -2114,18 +2156,28 @@ i.mwia-history-bid { background: #7ee2b0; }
         margin: revenuePerAction > 0 ? profitPerHour / (actionsPerHour * revenuePerAction) : null,
         mainCount: perCycle,
         xpPerAction,
-        xpPerHour: actionsPerHour * xpPerAction,
-        valid: !!base && inputs.length > 0,
-        goldPerDay: profitPerHour * 24,
-        xpPerDay: actionsPerHour * xpPerAction * 24
+        xpPerHour
       };
-      r.coinsPerXp = r.xpPerHour > 0 ? -r.profitPerHour / r.xpPerHour : null;
-      results.push(r);
+    };
+    const results = [];
+    const xpPer = rates.map((r, L) => (r + FAIL_XP2 * (1 - r)) * xpAt[L]);
+    for (let target = 1; target <= MAX_TARGET; target++) {
+      const attempts = cycles.attempts[target];
+      if (!Number.isFinite(attempts) || attempts <= 0) break;
+      const sold = resale ? resale(action.itemHrid, target) : { price: 0, source: "none", level: null };
+      let best2 = build(target, sold, { attempts, xp: cycles.xp[target], protections: 0 }, null);
+      for (let from = MIN_PROTECT; guard && from < target; from++) {
+        const cycle = protectedCycle(rates, blessed, target, from, xpPer);
+        if (!cycle) continue;
+        const r = build(target, sold, cycle, { ...guard, from });
+        if (score2(r) > score2(best2) + 1e-12) best2 = r;
+      }
+      results.push(build(target, sold, best2.cycle, best2.protect, true));
     }
     let best = results[0];
     for (const r of results) if (score2(r) > score2(best) + 1e-12) best = r;
     if (fixedTarget) best = results.find((r) => r.target === Math.min(MAX_TARGET, fixedTarget)) || best;
-    best.targets = results.map((r) => ({ target: r.target, attempts: r.attempts, goldPerDay: r.goldPerDay, xpPerDay: r.xpPerDay, coinsPerXp: r.coinsPerXp, sell: r.outputs[0].sell }));
+    best.targets = results.map((r) => ({ target: r.target, attempts: r.attempts, protect: r.protect, goldPerDay: r.goldPerDay, xpPerDay: r.xpPerDay, coinsPerXp: r.coinsPerXp, sell: r.outputs[0].sell }));
     return best;
   }
 
@@ -3737,7 +3789,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const { available, upcoming } = ranking(settings);
     let html = skillingSettingsHtml(settings);
     const leveling2 = LEVELING_SKILLS.includes(settings.skillingSkill);
-    if (settings.skillingSkill === "enhancing") html += `<p class="mwia-dim">Enhance an item towards a target +level again and again: a failure drops it back to +0 (no protection), reaching the target you sell it and buy a new one. One row per item, at the target that suits your <i>Focus</i>; gold per day is what it costs (\u2212) after selling. Items you have at +0 are used first, valued at what they'd sell for. Tap a row for the odds and every target.</p>`;
+    if (settings.skillingSkill === "enhancing") html += `<p class="mwia-dim">Enhance an item towards a target +level again and again: a failure drops it back to +0 \u2013 or, protected from a +level on, one level, using up the cheapest protection (a copy, a Mirror of Protection or the item's own) \u2013 reaching the target you sell it and buy a new one. One row per item, at the target that suits your <i>Focus</i>; gold per day is what it costs (\u2212) after selling. Items you have at +0 are used first, valued at what they'd sell for. Tap a row for the odds and every target.</p>`;
     else if (settings.skillingSkill === "alchemy") html += `<p class="mwia-dim">Coinify, decompose or transmute items bought at the cheapest ask. The odds, the coins it costs, the bulk size, the catalyst that suits your <i>Focus</i>, Alchemy Essence and crates are counted. Gold per day after the ${dec(MARKET_TAX * 100, 0)}% market tax.</p>`;
     else html += `<p class="mwia-dim">Gold per day after the ${dec(MARKET_TAX * 100, 0)}% market tax, with materials and teas bought at the cheapest ask. Only what your levels allow. Tap a row to see how it was worked out.</p>`;
     if (available[0] && !available[0].buffsKnown) {
@@ -3801,7 +3853,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const day = entry.goldPerDay;
     const leveling2 = isEnhance(entry) || isAlchemy(entry);
     const perXp = leveling2 && entry.coinsPerXp !== null ? ` \xB7 ${entry.coinsPerXp >= 0 ? `${dec(entry.coinsPerXp, 1)} coins/XP` : `earns ${dec(-entry.coinsPerXp, 1)}/XP`}` : "";
-    const levelText = leveling2 ? `item level ${entry.action.levelRequirement.level}${isAlchemy(entry) ? ` \xB7 ${pct(entry.successRate).replace("+", "")} success` : ""}${perXp}${suggestionShort(entry.suggestion)}${budgetShort(entry.budget)}` : "";
+    const levelText = leveling2 ? `item level ${entry.action.levelRequirement.level}${isAlchemy(entry) ? ` \xB7 ${pct(entry.successRate).replace("+", "")} success` : ""}${entry.protect ? ` \xB7 protect from +${entry.protect.from}` : ""}${perXp}${suggestionShort(entry.suggestion)}${budgetShort(entry.budget)}` : "";
     const sub = leveling2 ? levelText : upcoming ? `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level} \xB7 in ${entry.needLevels} level${entry.needLevels === 1 ? "" : "s"}${entry.hoursToUnlock !== null ? ` \xB7 ~${hoursText(entry.hoursToUnlock)}` : ""}` : `${skillLabel(skillOf(entry))} ${entry.action.levelRequirement.level}${entry.salesCap ? ` \xB7 sells ~${soldText(entry.salesCap.perDay)}/day` : ""}${suggestionShort(entry.suggestion)}`;
     const warn = entry.warnings.length ? ` <span class="mwia-warn" title="${esc(entry.warnings.map(warningText).join(" "))}">\u26A0</span>` : "";
     const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas ? `<span class="mwia-skill-hint">\u{1F375} ${teaGain(entry.best.result, entry.current)} with other teas</span>` : "";
@@ -3866,15 +3918,16 @@ i.mwia-history-bid { background: #7ee2b0; }
     const item = esc(itemName(e.action.itemHrid));
     const parts = [e.levelBonus && `level ${dec(e.effectiveLevel, 0)} vs item ${e.requiredLevel}: ${pct(e.levelBonus)}`, e.successBonus && `tool, house and buffs ${pct(e.successBonus)}`].filter(Boolean);
     const rates = e.rates.slice(0, Math.max(e.target, 3)).map((r, L) => `+${L}\u2192+${L + 1} ${dec(r * 100, 1)}%`).join(" \xB7 ");
-    sections.push(section("\u{1F3AF} Odds", `${count(e.attempts)} attempts per +${e.target}`, [
+    const pr = e.protect;
+    sections.push(section("\u{1F3AF} Odds", `${count(e.attempts)} attempts per +${e.target}${pr ? `, protected from +${pr.from}` : ""}`, [
       `Success = the game's rate for the +level \xD7 ${dec(e.multiplier, 3)}${parts.length ? ` (1 ${parts.map((p2) => "+ " + p2).join(" ")})` : ""}: ${rates}.${e.blessed ? ` Blessed: ${pct(e.blessed).replace("+", "")} of successes jump two levels.` : ""}`,
-      `A failure drops the item to +0. From +0 it takes <b>${count(e.attempts)} attempts</b> on average to reach +${e.target}.`
+      pr ? `A failure below +${pr.from} drops the item to +0; from +${pr.from} on it drops one level and uses up one ${esc(itemName(pr.itemHrid))} (the cheapest protection, ${coins(pr.price)}). From +0 it takes <b>${count(e.attempts)} attempts</b> and ${count(pr.protections)} protections on average to reach +${e.target}. Protecting from another +level, or not at all, suits your Focus less.` : `A failure drops the item to +0. From +0 it takes <b>${count(e.attempts)} attempts</b> on average to reach +${e.target}.${e.target > MIN_PROTECT ? " Protection doesn't pay here with your Focus." : ""}`
     ]));
     const levelSpeed = e.levelSpeed ? ` (levels ${pct(e.levelSpeed)})` : "";
     sections.push(section("\u23F1 Speed", `${dec(e.actionsPerHour, 0)} attempts/h`, [`12 s / (1 + ${pct(e.speed).replace("+", "")} speed${levelSpeed}) = ${dec(e.cycleSeconds, 2)} s \u2192 <b>${dec(e.actionsPerHour, 0)} attempts/h</b>, ${count(e.itemsPerHour)} items reach +${e.target} an hour.`]));
     const sell = e.outputs[0].sell;
     const sold = sell.source === "vendor" ? "the shop price" : sell.source === "lower" ? `the +${sell.level} bid (nobody bids for +${e.target})` : sell.source === "usualbid" ? "the usual bid (nobody bids now)" : sell.source === "usual" ? `the usual ask (${coins(sell.ask)} now)` : sell.source === "spread" ? `${dec(WIDE_SPREAD, 1)}\xD7 the bid (ask ${coins(sell.ask)})` : `the ${sell.source}`;
-    const mats = e.inputs.filter((i) => !i.upgrade).map((i) => `${count(i.count)} \xD7 ${esc(itemName(i.itemHrid))} @ ${coins(i.price)}`).join(" \xB7 ");
+    const mats = e.inputs.filter((i) => !i.upgrade).map((i) => `${count(i.count)} \xD7 ${esc(itemName(i.itemHrid))}${i.protection ? " (protection)" : ""} @ ${coins(i.price)}`).join(" \xB7 ");
     const base = e.base.owned ? `one you have (worth ${coins(e.base.price)} at the bid)` : `bought at ${coins(e.base.price)}`;
     sections.push(section("\u{1F4B0} Gold", `${coins(e.profitPerHour)}/h`, [
       `<b>Each attempt uses</b> ${mats} = ${coins(e.costPerAttempt)}.`,
@@ -3888,7 +3941,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     sections.push(section("\u2728 XP", `${coins(e.xpPerHour)}/h`, [`1.4 \xD7 (1 + the +level) \xD7 (10 + ${e.requiredLevel})${e.wisdom ? ` \xD7 ${dec(1 + e.wisdom, 3)} wisdom` : ""} on a success, a tenth on a failure: ${dec(e.xpPerAction, 1)} per attempt on average \xD7 ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h = <b>${coins(e.xpPerDay)}/day</b>.`]));
     const rows = e.targets.filter((t4) => t4.target <= 12 || t4.target === e.target || t4.target % 5 === 0).map((t4) => {
       const perXp = t4.coinsPerXp === null ? "\u2013" : t4.coinsPerXp >= 0 ? `${dec(t4.coinsPerXp, 1)} c/XP` : `earns ${dec(-t4.coinsPerXp, 1)}/XP`;
-      const text = `+${t4.target}: ${count(t4.attempts)} attempts \xB7 ${coins(t4.goldPerDay)}/day \xB7 ${coins(t4.xpPerDay)} XP/day \xB7 ${perXp}`;
+      const text = `+${t4.target}: ${count(t4.attempts)} attempts${t4.protect ? ` (protect from +${t4.protect.from})` : ""} \xB7 ${coins(t4.goldPerDay)}/day \xB7 ${coins(t4.xpPerDay)} XP/day \xB7 ${perXp}`;
       return t4.target === e.target ? `<b>${text}</b>` : text;
     });
     sections.push(section("\u{1F39A} Targets", `+${e.target} suits your Focus`, [`Stopping at a lower +level sells the item sooner (more of it comes back, each attempt gives less XP); a high target almost never gets there, so it is all materials. With ${item}:`, rows.join("<br>")]));
@@ -3920,8 +3973,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (isEnhance(e)) {
       open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e.target}" title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e.target}">\u25B6 Enhance to +${e.target}</button>`;
       const attempts = Math.ceil(e.actionsPerHour * hours);
-      const items = e.inputs.filter((i) => !i.upgrade).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN3);
-      const copies = Math.max(e.base.owned ? 0 : 1, Math.ceil(attempts / e.attempts) - have(item));
+      const items = e.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN3);
+      const guards = e.protect?.itemHrid === item ? attempts * e.protect.protections / e.attempts : 0;
+      const copies = Math.max(e.base.owned ? 0 : 1, Math.ceil(attempts / e.attempts + guards) - have(item));
       if (copies > 0) items.unshift({ hrid: item, quantity: copies });
       buy = items.length ? { items, title: `Adds what ${hoursText(hours)} of enhancing uses: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
     } else {
@@ -7913,7 +7967,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION3 = true ? "0.43.0" : "dev";
+  var VERSION3 = true ? "0.44.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
