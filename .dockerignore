@@ -3,4 +3,5 @@
 !src/price-history.js
 !src/history-wire.js
 !pi/history-store.mjs
+!pi/order-store.mjs
 !pi/server.mjs

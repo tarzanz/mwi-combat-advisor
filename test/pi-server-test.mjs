@@ -158,5 +158,11 @@ const link = await new Promise((resolve) => {
 const pairing = JSON.parse(Buffer.from(link.split("#mwia-pi=")[1] || "", "base64url").toString() || "null");
 check("the link carries address and key", link.startsWith("https://www.milkywayidle.com/#mwia-pi=") && pairing?.u === "https://mwi.example.com" && pairing?.k === KEY, link);
 
+// The Docker image: every file the Dockerfile copies is let through by .dockerignore (which lets through only what it lists).
+const copied = readFileSync(path.join(root, "pi/Dockerfile"), "utf8").split("\n").filter((l) => l.startsWith("COPY ")).flatMap((l) => l.split(/\s+/).slice(1, -1));
+const allowed = new Set(readFileSync(path.join(root, ".dockerignore"), "utf8").split("\n").filter((l) => l.startsWith("!")).map((l) => l.slice(1).trim()));
+const missing = copied.filter((file) => !allowed.has(file));
+check("docker: every file copied is in the build context", copied.length >= 5 && !missing.length, missing.join(", "));
+
 console.log(failures ? `${failures} check(s) failed` : "All checks passed");
 process.exit(failures ? 1 : 0);

@@ -1,5 +1,6 @@
 # Built from the repository root (the history code is shared with the userscript):
 #   docker compose -f pi/docker-compose.yml up -d --build
+# Every file copied below must also be let through in /.dockerignore.
 FROM node:22-alpine
 WORKDIR /app
 COPY package.json ./
