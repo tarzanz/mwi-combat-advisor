@@ -1,14 +1,16 @@
 // Price buttons in the game's Sell Listing and Buy Listing windows: match the
-// best offer, stop in front of the next wall in the order book, or take the
-// week's usual or a patient price – with a line on where your price stands.
+// best offer, stop in front of the next wall in the order book, or the best
+// price that sells (buys) within 1, 8 or 24 hours – with a line on where your
+// price stands.
 // The player still posts the listing with the game's own button.
 
 import { getClientData, itemName, loadClientData } from "./game-data.js";
 import { orderBookAt, state } from "./game-state.js";
 import { esc, parseCoins, shortCoins } from "./format.js";
 import { setReactInput, visible } from "./game-nav.js";
-import { priceSummary, versusUsual } from "./price-history.js";
-import { listingPrices, standing } from "./listing-price.js";
+import { isTouch, showTip } from "./touch.js";
+import { historyVersion, priceSummary, recentHours, versusUsual } from "./price-history.js";
+import { CONFIDENCE, FILLED, listingPrices, standing } from "./listing-price.js";
 
 // The listing window: the game's modal around the marketplace's price inputs.
 const MODAL = '[class*="Modal_modalContainer"],[class*="MarketplacePanel_modalContent"]';
@@ -18,9 +20,10 @@ const BEST = '[class*="MarketplacePanel_bestPrice"]';
 const SCAN_MS = 300;
 const BOOK_OLD_MS = 10 * 60 * 1000;
 
-const LABELS = { match: "Match", wall: "Wall", usual: "Usual", patient: "Patient" };
+const LABELS = { match: "Match", wall: "Wall" };
+const label = (s) => (s.kind === "horizon" ? `<${s.horizon}h` : LABELS[s.kind]);
 
-const l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false };
+const l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false, cache: { key: null, prices: null } };
 
 const num = (n) => Math.round(n).toLocaleString("en-US");
 // The last number in a text ("Best Sell Offer: 1 096" -> 1096), or null.
@@ -95,17 +98,25 @@ function readModal(modal) {
     const text = modal.textContent || "";
     const range = /Tradable range:\s*(\d[\d\s,.]*)\s*[–-]\s*(\d[\d\s,.]*)/i.exec(text);
     // Equipment has an Enhancement Level box: the first input after that label.
-    const label = [...modal.querySelectorAll("*")].find((el) => !el.children.length && /^enhancement level$/i.test(el.textContent.trim()));
-    const level = label && [...modal.querySelectorAll("input")].find((el) => label.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const level = inputAfter(modal, /^enhancement level$/i);
+    // How many: the box after "Quantity (You Have: …)".
+    const quantity = inputAfter(modal, /^quantity\b/i);
     return {
         side,
         hrid,
         level: level ? Number(level.value) || 0 : 0,
+        quantity: Math.max(1, (quantity && numberIn(quantity.value)) || 1),
         inputs,
         input,
         best: numberIn(modal.querySelector(BEST)?.textContent || ""),
         range: range ? { min: parseCoins(range[1]), max: parseCoins(range[2]) } : null,
     };
+}
+
+// The first input after a label (a text-only element) matching pattern.
+function inputAfter(modal, pattern) {
+    const label = [...modal.querySelectorAll("*")].find((el) => !el.children.length && pattern.test(el.textContent.trim()));
+    return label && [...modal.querySelectorAll("input")].find((el) => label.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
 }
 
 function ownListings(hrid, side, level = 0) {
@@ -120,7 +131,13 @@ function context(modal) {
     const book = orderBookAt(m.hrid, m.level);
     // The range the window shows, else the one the game sent with the order book.
     const range = m.range || book?.range || null;
-    return { ...m, book, range, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side, m.level), best: m.best, range, summary: priceSummary(m.hrid, m.level) }) };
+    const own = ownListings(m.hrid, m.side, m.level);
+    // The horizons go through a week of hours: worked out again only when something they rest on changes.
+    const key = JSON.stringify([m.side, m.hrid, m.level, m.quantity, m.best, range, book?.at, own, historyVersion()]);
+    if (l.cache.key !== key) {
+        l.cache = { key, prices: listingPrices({ side: m.side, book, own, best: m.best, range, summary: priceSummary(m.hrid, m.level), hours: recentHours(m.hrid, m.level), quantity: m.quantity }) };
+    }
+    return { ...m, book, range, ...l.cache.prices };
 }
 
 function scan() {
@@ -169,8 +186,8 @@ function scan() {
 function boxHtml(c) {
     const sell = c.side === "sell";
     const buttons = c.suggestions.map((s, i) => {
-        const shown = s.kind === "wall" ? `${sell ? "<" : ">"} ${shortCoins(s.price)}` : shortCoins(s.price);
-        return `<button type="button" data-listprice="${i}" title="${esc(titleFor(s, c))}"><b>${LABELS[s.kind]}</b><small>${shown}</small></button>`;
+        const shown = s.price === null ? "—" : s.kind === "wall" || s.under ? `${sell ? "<" : ">"} ${shortCoins(s.price)}` : shortCoins(s.price);
+        return `<button type="button" data-listprice="${i}"${s.price === null ? ' class="mwia-off"' : ""} title="${esc(titleFor(s, c))}"><b>${label(s)}</b><small>${shown}</small></button>`;
     });
     return `${buttons.length ? `<div class="mwia-listprice-buttons">${buttons.join("")}</div>` : ""}<div class="mwia-listprice-info">${infoHtml(c)}</div>`;
 }
@@ -180,8 +197,23 @@ function titleFor(s, c) {
     const cap = s.capped ? ` (the tradable range's ${s.capped})` : "";
     if (s.kind === "match") return `The best ${sell ? "sell" : "buy"} offer now: ${num(s.price)}${cap}.`;
     if (s.kind === "wall") return `One step ${sell ? "under" : "over"} ${num(s.wall.quantity)} at ${num(s.price)}, the first level with a fifth of all ${sell ? "listed" : "bid"}; ${num(s.wall.ahead)} lie in front of it.`;
-    if (s.kind === "usual") return `The week's median ${sell ? "ask" : "bid"}: ${num(s.price)}${cap}.`;
-    return `${sell ? "A quarter of the week's asks were at or above" : "A quarter of the week's bids were at or below"} ${num(s.price)}${cap}: for when you're in no hurry.`;
+    return horizonTitle(s, c);
+}
+
+// What a horizon button rests on, or why it has no price.
+function horizonTitle(s, c) {
+    const sell = c.side === "sell";
+    const goes = sell ? "sells" : "is bought";
+    const pct = (share) => `${Math.round(share * 100)}%`;
+    const rate = c.taken ? `${sell ? "Buyers take" : "Sellers fill"} about ${num(c.taken.perHour)} an hour from ${sell ? "sell" : "buy"} listings.` : "How many trade an hour isn't known yet, so the quantity isn't counted.";
+    if (s.price === null) {
+        if (s.why === "quantity") return `${num(c.quantity)} is about ${num(c.quantity / c.taken.perHour)} h of what ${sell ? "buyers take" : "sellers fill"} (${num(c.taken.perHour)} an hour): ${pct(FILLED)} of it can't go within ${s.horizon} h at any price.`;
+        if (s.why === "history") return `Needs more hourly prices: ${s.windows} of the 12 stretches of ${s.horizon} h it looks back on so far.`;
+        if (s.need > 1) return `${pct(FILLED)} of ${num(c.quantity)} takes about ${num(s.need)} h first in line (${num(c.taken.perHour)} an hour): no price was first in line that long in ${pct(CONFIDENCE)} of past stretches of ${s.horizon} h.`;
+        return `No price ${goes} within ${s.horizon} h often enough.`;
+    }
+    const where = s.under ? `One step ${sell ? "under" : "over"} the best offer (${num(s.price)}): first in line now.` : `At ${num(s.price)}.`;
+    return `${where} A ${pct(CONFIDENCE)} chance that ${pct(FILLED)} of ${num(c.quantity)} ${goes} within ${s.horizon} h – it did in ${pct(s.chance)} of ${s.windows} past stretches of ${s.horizon} h. ${rate}`;
 }
 
 // Where the price in the box stands: what is offered in front of it, and against the usual price.
@@ -258,7 +290,7 @@ async function stepTo(c, b, target, up = false) {
 async function apply(modal, index) {
     const c = context(modal);
     const s = c?.suggestions?.[index];
-    if (!s || l.applying) return;
+    if (!s || s.price === null || l.applying) return;
     l.applying = true;
     try {
         const b = controls(c);
@@ -270,7 +302,7 @@ async function apply(modal, index) {
                 setReactInput(c.input, target);
                 await tick();
             }
-            // Wall: one step past the wall's price; the rest: the valid price nearest under it.
+            // Wall and "one step past": one step past the price; the rest: the valid price nearest under it.
             const reached = await stepTo(c, b, target, s.step > 0);
             if (s.step && reached === target) await press(c, s.step < 0 ? b.minus : b.plus);
         } else if (c.input) setReactInput(c.input, Math.round(s.price));
@@ -285,5 +317,7 @@ function onClick(event) {
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
+    // No hover on a phone: a tap shows what the button rests on (and, without a price, why).
+    if (isTouch() || button.classList.contains("mwia-off")) showTip(button, button.title);
     apply(listingModals().find((modal) => modal.contains(button)), Number(button.dataset.listprice));
 }

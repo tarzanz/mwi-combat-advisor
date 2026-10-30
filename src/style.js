@@ -186,8 +186,9 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-guide-cart { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
 .mwia-listprice { margin: 6px 0; padding: 6px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-listprice-buttons { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
-.mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; min-width: 58px; padding: 3px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
+.mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 44px; max-width: 80px; padding: 3px 2px; white-space: nowrap; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-listprice-buttons button small { font-weight: 400; font-size: 11px; color: #9aa3cf; }
+.mwia-listprice-buttons button.mwia-off { opacity: .5; cursor: help; }
 .mwia-listprice-info { margin-top: 4px; color: #9aa3cf; font-size: 11px; text-align: center; }
 .mwia-guide-hours { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
 .mwia-guide-hour { min-width: 32px; padding: 4px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }

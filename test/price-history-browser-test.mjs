@@ -28,6 +28,9 @@ const marketData = {};
 for (const item of Object.values(clientData.itemDetailMap)) marketData[item.hrid] = { 0: { a: 3 * (item.sellPrice || 1), b: item.sellPrice || 1 } };
 // Linen Boots +3 has its own market and history.
 marketData[ITEM][3] = { a: 9500, b: 8000 };
+// Linen Fabric: asks at 1,000, two hours in eight at 1,040; 100 traded an hour at 990.
+const FABRIC = "/items/linen_fabric";
+marketData[FABRIC] = { 0: { a: 1040, b: 960, p: 990, v: 100 } };
 const askNow = marketData[ITEM][0].a;
 const usualAsk = Math.round(askNow / 1.3);
 const usualBid = marketData[ITEM][0].b;
@@ -63,7 +66,11 @@ const server = http.createServer((req, res) => {
     }
 });
 const wss = new WebSocketServer({ server });
-wss.on("connection", (socket) => socket.send(JSON.stringify(character)));
+const sockets = [];
+wss.on("connection", (socket) => {
+    sockets.push(socket);
+    socket.send(JSON.stringify(character));
+});
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
@@ -95,10 +102,13 @@ try {
         let n = 0;
         // Linen Gloves: only the last 18 hours, every hour – enough hours, too few days.
         for (let age = 10 * 24; age >= 0; age -= age < 18 ? 1 : 2) {
-            tx.objectStore("hourly").put({ hour: nowHour - age, a: new Float32Array([usualAsk, age < 18 ? 500 : NaN, 9000]), b: new Float32Array([usualBid, age < 18 ? 400 : NaN, 8000]) });
+            const hour = nowHour - age;
+            const fabric = hour % 8 < 2 ? 1040 : 1000;
+            tx.objectStore("hourly").put({ hour, a: new Float32Array([usualAsk, age < 18 ? 500 : NaN, 9000, fabric]), b: new Float32Array([usualBid, age < 18 ? 400 : NaN, 8000, 960]),
+                p: new Float32Array([NaN, NaN, NaN, 990]), v: new Float32Array([NaN, NaN, NaN, 100]), sold: true });
             n++;
         }
-        tx.objectStore("meta").put([item, "/items/linen_gloves", item + "+3"], "items");
+        tx.objectStore("meta").put([item, "/items/linen_gloves", item + "+3", "/items/linen_fabric"], "items");
         await new Promise((r) => (tx.oncomplete = r));
         db.close();
         return n;
@@ -207,6 +217,50 @@ try {
     await page.waitForFunction(() => /collecting/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     const collecting = await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "");
     check("an item with little history says it is collecting", /collecting: 1 of 12 h · 0\.0 of 2 days · ready in about 2 days and 11 more h with the game open/.test(collecting), collecting.slice(0, 120));
+
+    // A sell listing window: the prices that sell within 1, 8 and 24 h, from the hours above and the order book.
+    const fabricBook = { type: "market_item_order_books_updated", marketItemOrderBooks: { itemHrid: FABRIC, orderBooks: [{ asks: [{ price: 1040, quantity: 50 }, { price: 1080, quantity: 500 }], bids: [{ price: 960, quantity: 100 }] }] } };
+    for (const socket of sockets) socket.send(JSON.stringify(fabricBook));
+    await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
+    await page.evaluate(() => {
+        // Like the game's window (steps of 10 here), at phone width.
+        document.body.insertAdjacentHTML("beforeend", `<div class="listing-modal Modal_modalContainer__3B80m" style="position:fixed;top:40px;left:50px;z-index:99;width:280px;background:#111;padding:8px"><div class="MarketplacePanel_header__yahJo">Sell Listing</div>
+            <div><svg><use href="/sprites/items.svg#linen_fabric"></use></svg></div><div>Tradable range: 900 – 1 200</div>
+            <div>Price (Best Sell Offer: <span class="MarketplacePanel_bestPrice__x">1 040</span>)</div>
+            <div class="MarketplacePanel_priceInputs__x"><button>Min</button><button>-</button><div class="field">1 040</div><button>+</button><button>Max</button></div>
+            <div>Quantity (You Have: 20)</div><div><button>1</button><input class="qty" value="20"><button>Max</button></div>
+            <button>Post Sell Listing</button></div>`);
+        const input = document.querySelector(".listing-modal .field");
+        const [, minus, plus] = document.querySelectorAll(".listing-modal .MarketplacePanel_priceInputs__x button");
+        const value = () => Number(input.firstChild.nodeValue.replace(/\s/g, ""));
+        const set = (v) => (input.firstChild.nodeValue = String(v).replace(/\B(?=(\d{3})+(?!\d))/g, " "));
+        minus.onclick = () => set(Math.ceil(value() / 10) * 10 - 10);
+        plus.onclick = () => set(Math.floor(value() / 10) * 10 + 10);
+    });
+    const listing = () => page.evaluate(() => ({
+        buttons: [...document.querySelectorAll(".listing-modal .mwia-listprice button")].map((b) => `${b.querySelector("b").textContent} ${b.querySelector("small").textContent}`),
+        titles: [...document.querySelectorAll(".listing-modal .mwia-listprice button")].map((b) => b.title),
+        price: document.querySelector(".listing-modal .field").textContent.replace(/\s/g, ""),
+    }));
+    await page.waitForFunction(() => document.querySelectorAll(".listing-modal .mwia-listprice button").length === 5, { timeout: 4000 }).catch(() => null);
+    const horizons = await listing();
+    check("listing window: match, wall and the prices for 1, 8 and 24 h", JSON.stringify(horizons.buttons) === JSON.stringify(["Match 1,040", "Wall < 1,080", "<1h < 1,040", "<8h 1,040", "<24h 1,040"]), JSON.stringify(horizons.buttons));
+    check("a horizon says what it rests on", /^One step under the best offer \(1,040\): first in line now\. A 70% chance that 70% of 20 sells within 1 h – it did in 100% of \d+ past stretches of 1 h\. Buyers take about \d+ an hour/.test(horizons.titles[2]), horizons.titles[2]);
+    const rows = await page.$eval(".listing-modal .mwia-listprice-buttons", (n) => new Set([...n.children].map((b) => Math.round(b.getBoundingClientRect().top))).size);
+    check("five buttons fit one row at phone width", rows === 1, `${rows} rows`);
+    await page.screenshot({ path: path.join(shotDir, "history-3-listing.png") });
+    await page.click('.listing-modal [data-listprice="2"]');
+    await page.waitForFunction(() => document.querySelector(".listing-modal .field").textContent.replace(/\s/g, "") === "1030", { timeout: 4000 }).catch(() => null);
+    check("<1h: one step under the best offer", (await listing()).price === "1030", (await listing()).price);
+    // 2,000 is far more than buyers take in a day: no price, and why.
+    await page.evaluate(() => (document.querySelector(".listing-modal .qty").value = "2000"));
+    await page.waitForFunction(() => /<1h —/.test(document.querySelector(".listing-modal .mwia-listprice")?.textContent.replace(/\s+/g, " ") || "x"), { timeout: 4000 }).catch(() => null);
+    const tooMany = await listing();
+    check("too many to sell in time: no price, and why", JSON.stringify(tooMany.buttons.slice(2)) === JSON.stringify(["<1h —", "<8h —", "<24h —"]) && /^2,000 is about \d+ h of what buyers take .*: 70% of it can't go within 1 h at any price\.$/.test(tooMany.titles[2]) && /^70% of 2,000 takes about \d+ h first in line .*in 70% of past stretches of 24 h\.$/.test(tooMany.titles[4]), JSON.stringify(tooMany));
+    await page.click('.listing-modal [data-listprice="2"]');
+    const tip = await page.$eval(".mwia-tip-pop", (n) => n.textContent).catch(() => "");
+    check("a button without a price shows why when tapped", /can't go within 1 h at any price/.test(tip) && (await listing()).price === "1030", tip);
+    await page.evaluate(() => document.querySelector(".listing-modal").remove());
 
     // Closing the market removes the box.
     await page.evaluate(() => (document.getElementById("market").innerHTML = ""));

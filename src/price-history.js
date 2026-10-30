@@ -547,6 +547,17 @@ export function priceSummary(itemHrid, level = 0) {
     return store.summaries.get(key);
 }
 
+// One item's hours of the last few days, oldest first: { hour, a, b, p, v, sold }
+// (NaN where the file had none); hours missing are hours with no data at all.
+export function recentHours(itemHrid, level = 0, days = 7) {
+    const i = store.index.get(historyKey(itemHrid, level));
+    if (i === undefined || !store.hours.length) return [];
+    const newest = store.hours[store.hours.length - 1].hour;
+    return store.hours
+        .filter((r) => newest - r.hour < days * 24)
+        .map((r) => ({ hour: r.hour, a: at(r.a, i), b: at(r.b, i), p: at(r.p, i), v: at(r.v, i), sold: !!r.sold }));
+}
+
 // Every daily record, for long views (read once, then kept).
 export async function loadAllDays() {
     await loadHistory();

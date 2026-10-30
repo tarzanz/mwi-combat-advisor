@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.40.0
+// @version      0.41.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1605,8 +1605,9 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-guide-cart { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
 .mwia-listprice { margin: 6px 0; padding: 6px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-listprice-buttons { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
-.mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; min-width: 58px; padding: 3px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
+.mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 44px; max-width: 80px; padding: 3px 2px; white-space: nowrap; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-listprice-buttons button small { font-weight: 400; font-size: 11px; color: #9aa3cf; }
+.mwia-listprice-buttons button.mwia-off { opacity: .5; cursor: help; }
 .mwia-listprice-info { margin-top: 4px; color: #9aa3cf; font-size: 11px; text-align: center; }
 .mwia-guide-hours { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
 .mwia-guide-hour { min-width: 32px; padding: 4px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
@@ -1730,18 +1731,18 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const item of items) {
       const enhancementLevel = item.enhancementLevel || 0;
       const wanted = Math.max(1, Math.ceil(item.quantity));
-      const label2 = { hrid: item.hrid, enhancementLevel };
+      const label3 = { hrid: item.hrid, enhancementLevel };
       try {
         const have4 = api.getCartItem(item.hrid, enhancementLevel)?.quantity || 0;
         if (have4 >= wanted) {
-          outcome.present.push(label2);
+          outcome.present.push(label3);
           continue;
         }
         const result = api.addToCart([{ itemHrid: item.hrid, enhancementLevel, quantity: wanted - have4, source: "manual" }]);
-        if (result?.ok) (have4 ? outcome.updated : outcome.added).push(label2);
-        else outcome.failed.push(label2);
+        if (result?.ok) (have4 ? outcome.updated : outcome.added).push(label3);
+        else outcome.failed.push(label3);
       } catch {
-        outcome.failed.push(label2);
+        outcome.failed.push(label3);
       }
     }
     return outcome;
@@ -3492,6 +3493,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return store2.summaries.get(key);
   }
+  function recentHours(itemHrid, level = 0, days = 7) {
+    const i = store2.index.get(historyKey(itemHrid, level));
+    if (i === void 0 || !store2.hours.length) return [];
+    const newest = store2.hours[store2.hours.length - 1].hour;
+    return store2.hours.filter((r) => newest - r.hour < days * 24).map((r) => ({ hour: r.hour, a: at(r.a, i), b: at(r.b, i), p: at(r.p, i), v: at(r.v, i), sold: !!r.sold }));
+  }
   async function loadAllDays() {
     await loadHistory();
     if (!store2.allDays) {
@@ -3548,7 +3555,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     return `${dec(hours / 24, hours < 240 ? 1 : 0)} days`;
   }
   function skillingSettingsHtml(s) {
-    const option = (value, label2, current) => `<option value="${value}" ${current === value ? "selected" : ""}>${label2}</option>`;
+    const option = (value, label3, current) => `<option value="${value}" ${current === value ? "selected" : ""}>${label3}</option>`;
     return `<div class="mwia-settings">
       <label>Skill <select data-setting="skillingSkill">${option("all", "All skills", s.skillingSkill)}${SKILLING_SKILLS.map((k) => option(k, skillLabel(k), s.skillingSkill)).join("")}<optgroup label="Levelling (costs gold)">${LEVELING_SKILLS.map((k) => option(k, skillLabel(k), s.skillingSkill)).join("")}</optgroup></select></label>
       <label title="Products are listed at the cheapest ask (you wait for a buyer) or sold instantly to the best bid. The 4% market tax is taken off either way.">Sell at <select data-setting="skillingSellAt">${option("ask", "Ask (list it)", s.skillingSellAt)}${option("bid", "Bid (sell now)", s.skillingSellAt)}</select></label>
@@ -4307,9 +4314,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     card?.click();
     return !!card;
   }
-  function clickTab(label2) {
-    if (!label2) return false;
-    const tab = [...document.querySelectorAll(TABS)].filter(visible).find((candidate) => clean(candidate.textContent) === label2);
+  function clickTab(label3) {
+    if (!label3) return false;
+    const tab = [...document.querySelectorAll(TABS)].filter(visible).find((candidate) => clean(candidate.textContent) === label3);
     if (!tab) return false;
     if (tab.getAttribute("aria-selected") !== "true") tab.click();
     return true;
@@ -4632,12 +4639,12 @@ i.mwia-history-bid { background: #7ee2b0; }
       const cls = !versus ? "" : versus.label === "above" ? "mwia-history-high" : versus.label === "below" ? "mwia-history-low" : "";
       return versus ? `<span class="${cls}">${pct2(versus.diff)} ${versus.label === "near" ? "usual" : versus.label}</span>` : "";
     };
-    const row = (label2, now, side) => `<tr><th>${label2}</th><td>${now > 0 ? shortCoins(now) : "\u2013"}</td>
+    const row = (label3, now, side) => `<tr><th>${label3}</th><td>${now > 0 ? shortCoins(now) : "\u2013"}</td>
             <td>${side.med7 ? shortCoins(side.med7) : "\u2013"} ${versusText(now, side)}</td>
             <td>${side.med30 ? shortCoins(side.med30) : "\u2013"}</td><td>${trendArrow(side.trend)}</td></tr>`;
     const askNow = entry?.a > 0 ? entry.a : null;
     const bidNow = entry?.b > 0 ? entry.b : null;
-    const brief = (label2, now, side) => `${label2} <b>${now > 0 ? shortCoins(now) : "\u2013"}</b> ${versusText(now, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
+    const brief = (label3, now, side) => `${label3} <b>${now > 0 ? shortCoins(now) : "\u2013"}</b> ${versusText(now, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
     const swing = summary.a.swing ?? summary.b.swing;
     const line = `<div class="mwia-history-sum">${brief("Ask", askNow, summary.a)} \xB7 ${brief("Bid", bidNow, summary.b)}${swing !== null ? ` \xB7 <span title="Half of the week's prices lie within this share of the 7-day median">swings \xB1${Math.round(swing * 100)}%</span>` : ""}</div>`;
     const points = h.open ? await priceSeries(itemHrid, h.range, level) : [];
@@ -4788,10 +4795,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const mark2 = { keep: "\u2713", add: "\u2795 Put in", remove: "\u2796 Take out" }[kind];
     return `<li class="mwia-guide-${kind}">${mark2} ${esc(itemName(hrid))}${extra ? ` <span>${extra}</span>` : ""}</li>`;
   }
-  function cartButton(items, label2) {
+  function cartButton(items, label3) {
     if (!items.length) return "";
     const title = items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ");
-    return `<button class="mwia-guide-cart" data-guide-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(title)}">${label2}</button>`;
+    return `<button class="mwia-guide-cart" data-guide-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(title)}">${label3}</button>`;
   }
   function skillingHtml(entry) {
     const settings = g.deps.settings();
@@ -4816,9 +4823,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const verdict = !entry.betterTeas ? best.length ? "\u2713 Your teas are the best ones for this." : current.length ? "No tea earns back its cost here." : "\u2713 No tea earns back its cost here." : `Best teas: <b class="mwia-ok">${entry.best.result.goldPerDay >= entry.current.goldPerDay ? `+${coins2(entry.best.result.goldPerDay - entry.current.goldPerDay)}/day` : `+${coins2(entry.best.result.xpPerDay - entry.current.xpPerDay)} XP/day`}</b> over the ones in your slots now.`;
     const plan = entry.teaPlan;
     const items = plan?.items.length ? plan.items.map(({ hrid, quantity }) => ({ hrid, quantity })) : best.filter((hrid) => have2(hrid) < perDay2).map((hrid) => ({ hrid, quantity: perDay2 - have2(hrid) }));
-    const label2 = plan?.items.length ? `\u{1F6D2} Teas for ${plan.hours < 1 ? Math.max(1, Math.round(plan.hours * 60)) + " min" : Math.round(plan.hours * 10) / 10 + " h"}` : "\u{1F6D2} Teas for 1 day";
+    const label3 = plan?.items.length ? `\u{1F6D2} Teas for ${plan.hours < 1 ? Math.max(1, Math.round(plan.hours * 60)) + " min" : Math.round(plan.hours * 10) / 10 + " h"}` : "\u{1F6D2} Teas for 1 day";
     const focus = Number(settings.skillingGold ?? 100);
-    return head("\u{1F375} Teas", `MWI Advisor${entry.action.itemHrid ? ` \xB7 ${esc(adviceName(entry))}` : ""} \xB7 ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP \xB7 ${focus}% gold`}`) + (lines.length ? `<ul class="mwia-guide-list">${lines.join("")}</ul>` : "") + `<div class="mwia-guide-note">${verdict} ${slotsLine(entry)}</div>` + cartButton(items, label2);
+    return head("\u{1F375} Teas", `MWI Advisor${entry.action.itemHrid ? ` \xB7 ${esc(adviceName(entry))}` : ""} \xB7 ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP \xB7 ${focus}% gold`}`) + (lines.length ? `<ul class="mwia-guide-list">${lines.join("")}</ul>` : "") + `<div class="mwia-guide-note">${verdict} ${slotsLine(entry)}</div>` + cartButton(items, label3);
   }
   function panelTier(panel) {
     const select = [...panel.querySelectorAll("select")].find((el) => /^T\d+$/.test(el.selectedOptions?.[0]?.textContent.trim() || ""));
@@ -4890,14 +4897,14 @@ i.mwia-history-bid { background: #7ee2b0; }
     event.preventDefault();
     event.stopPropagation();
     const actionHrid = button.closest(".mwia-guide-box").dataset.action;
-    const label2 = (list) => list.map((i) => itemName(i.hrid)).join(", ");
+    const label3 = (list) => list.map((i) => itemName(i.hrid)).join(", ");
     try {
       const outcome = await g.deps.addToCart(JSON.parse(button.dataset.guideCart));
       const parts = [];
-      if (outcome.added.length) parts.push(`added ${label2(outcome.added)}`);
-      if (outcome.updated.length) parts.push(`topped up ${label2(outcome.updated)}`);
-      if (outcome.present.length) parts.push(`${label2(outcome.present)} already in the cart`);
-      if (outcome.failed.length) parts.push(`could not add ${label2(outcome.failed)}`);
+      if (outcome.added.length) parts.push(`added ${label3(outcome.added)}`);
+      if (outcome.updated.length) parts.push(`topped up ${label3(outcome.updated)}`);
+      if (outcome.present.length) parts.push(`${label3(outcome.present)} already in the cart`);
+      if (outcome.failed.length) parts.push(`could not add ${label3(outcome.failed)}`);
       g.statuses.set(actionHrid, "Cart: " + parts.join("; ") + ".");
     } catch (error) {
       g.statuses.set(actionHrid, error.message);
@@ -4980,8 +4987,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       box.innerHTML = html;
     }
   }
-  function cartButton2(items, label2) {
-    return `<button class="mwia-guide-cart" data-tool-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(items.map((i) => itemName(i.hrid)).join(", "))}">${label2}</button>`;
+  function cartButton2(items, label3) {
+    return `<button class="mwia-guide-cart" data-tool-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(items.map((i) => itemName(i.hrid)).join(", "))}">${label3}</button>`;
   }
   function rowHtml2(n2) {
     const from = n2.current ? `${esc(itemName(n2.current.itemHrid))}${n2.current.enhancementLevel ? ` +${n2.current.enhancementLevel}` : ""} \u2192 ` : "";
@@ -5066,17 +5073,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     }, SCAN_MS4);
   }
   function findSlots(doc = document) {
-    const label2 = leaves(doc.body, (text) => LABEL.test(text)).find((el) => visible(el) && !ours(el));
+    const label3 = leaves(doc.body, (text) => LABEL.test(text)).find((el) => visible(el) && !ours(el));
     const box = doc.querySelector(SLOTS);
-    if (!label2 && !(box && visible(box))) return null;
+    if (!label3 && !(box && visible(box))) return null;
     const headings = leaves(doc.body, (text) => SKILLS.includes(text.toLowerCase())).filter((el) => visible(el) && !ours(el) && !el.closest(NAV));
     let skill = null;
-    for (let node = (label2 || box).parentElement; node && node !== doc.body && !skill; node = node.parentElement) {
+    for (let node = (label3 || box).parentElement; node && node !== doc.body && !skill; node = node.parentElement) {
       const heading = headings.find((el) => node.contains(el));
       if (heading) skill = heading.textContent.trim().toLowerCase();
     }
     if (!skill) return null;
-    const row = box && visible(box) ? box : label2.nextElementSibling;
+    const row = box && visible(box) ? box : label3.nextElementSibling;
     const slots = row ? [...row.children].filter((el) => visible(el) && !ours(el)) : [];
     if (!slots.length) return { skill, error: `no tea slots next to "Consumables" (${row ? row.tagName.toLowerCase() : "nothing"} after the label)` };
     return { skill, slots, anchor: row };
@@ -6031,7 +6038,70 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return { better, same: same2 };
   }
-  function listingPrices({ side, book = null, own = [], best = null, range = null, summary = null }) {
+  var HORIZONS = [1, 8, 24];
+  var CONFIDENCE = 0.7;
+  var FILLED = 0.7;
+  var COVERAGE = 0.5;
+  var MIN_WINDOWS = 12;
+  var USUAL_TOP = 0.9;
+  function takenPerHour(hours, side = "sell") {
+    const sold = hours.filter((r) => r.sold);
+    if (sold.length < MIN_HOURS) return null;
+    const count2 = (r) => Number.isFinite(r.v) ? r.v : 0;
+    const cap2 = SPIKE * (median(sold.filter((r) => count2(r) > 0).map((r) => [count2(r), 1])) ?? 0);
+    let taken = 0;
+    for (const r of sold) {
+      const askShare = r.a > r.b && Number.isFinite(r.p) ? Math.min(1, Math.max(0, (r.p - r.b) / (r.a - r.b))) : 0.5;
+      taken += Math.min(count2(r), cap2) * (side === "sell" ? askShare : 1 - askShare);
+    }
+    return { hours: sold.length, perHour: taken / sold.length };
+  }
+  function horizonPrice({ side, hours, horizon, quantity = 1, best = null, levels = [], range = null, taken = null }) {
+    const sell = side === "sell";
+    const key = sell ? "a" : "b";
+    const need = taken?.perHour > 0 ? FILLED * quantity / taken.perHour : 0;
+    if (need > horizon) return { price: null, why: "quantity", need };
+    const byHour = new Map(hours.map((r) => [r.hour, r[key]]));
+    const newest = hours.length ? hours[hours.length - 1].hour : 0;
+    const starts = hours.filter((r) => r.hour + horizon <= newest).map((r) => r.hour);
+    const windows = [];
+    for (const start of starts) {
+      const seen = [];
+      for (let k = 1; k <= horizon; k++) if (byHour.has(start + k)) seen.push([k, byHour.get(start + k)]);
+      if (seen.length >= Math.max(1, COVERAGE * horizon)) windows.push(seen);
+    }
+    if (windows.length < MIN_WINDOWS) return { price: null, why: "history", windows: windows.length };
+    const better = (x, y) => sell ? x < y : x > y;
+    const inRange = (price) => !range || price >= range.min && price <= range.max;
+    const prices2 = new Set([...hours.map((r) => r[key]), ...levels.map((level) => level.price)].filter((p2) => p2 > 0 && inRange(p2)));
+    const sorted = [...prices2].sort((x, y) => x - y);
+    const gap = Math.min(...sorted.slice(1).map((price, i) => price - sorted[i]));
+    const past = best > 0 && Number.isFinite(gap) ? sell ? best - gap : best + gap : best;
+    const candidates = [...prices2].map((price) => ({ price, under: false }));
+    if (best > 0 && inRange(past)) candidates.push({ price: best, under: true });
+    const rank = (c2) => sell ? c2.price - (c2.under ? 0.5 : 0) : -(c2.price + (c2.under ? 0.5 : 0));
+    candidates.sort((x, y) => rank(y) - rank(x));
+    const top = quantile(hours.map((r) => [r[key], 1]), sell ? USUAL_TOP : 1 - USUAL_TOP);
+    const usual = (price) => top === null || !better(top, price);
+    for (const c2 of candidates) {
+      const firstNow = best > 0 && (c2.under ? usual(past) : better(c2.price, best) && usual(c2.price));
+      let sold = 0;
+      for (const seen of windows) {
+        let front = 0;
+        for (const [k, other] of seen) {
+          const value = !Number.isFinite(other) ? 1 : c2.under ? better(other, c2.price) ? 0 : 1 : better(other, c2.price) ? 0 : other === c2.price ? 0.5 : 1;
+          front += firstNow && k === 1 ? 1 : value;
+        }
+        front *= horizon / seen.length;
+        if (firstNow && seen[0][0] !== 1) front = Math.min(horizon, front + 1);
+        if (front > 0 && front >= need) sold++;
+      }
+      const chance = sold / windows.length;
+      if (chance >= CONFIDENCE) return { price: c2.price, under: c2.under, chance, windows: windows.length, need };
+    }
+    return { price: null, why: "none", windows: windows.length, need };
+  }
+  function listingPrices({ side, book = null, own = [], best = null, range = null, summary = null, hours = [], quantity = 1 }) {
     const sell = side === "sell";
     const levels = otherLevels(book ? sell ? book.asks : book.bids : [], own, range, side);
     const clamp = (price) => {
@@ -6040,14 +6110,17 @@ i.mwia-history-bid { background: #7ee2b0; }
       return { price, capped: null };
     };
     const out = [];
-    if (best > 0) out.push({ kind: "match", ...clamp(best), step: 0, snap: false });
+    if (best > 0) out.push({ kind: "match", ...clamp(best), step: 0 });
     const wall = findWall(levels);
-    if (wall) out.push({ kind: "wall", price: wall.price, capped: null, step: sell ? -1 : 1, snap: false, wall });
+    if (wall) out.push({ kind: "wall", price: wall.price, capped: null, step: sell ? -1 : 1, wall });
+    const othersBest = book ? levels[0]?.price ?? null : best;
+    const taken = takenPerHour(hours, side);
+    for (const horizon of HORIZONS) {
+      const h2 = horizonPrice({ side, hours, horizon, quantity, best: othersBest, levels, range, taken });
+      out.push({ kind: "horizon", horizon, ...h2, capped: null, step: h2.under ? sell ? -1 : 1 : 0 });
+    }
     const history = summary && summary.hours7 >= MIN_HOURS ? summary[sell ? "a" : "b"] : null;
-    if (history?.med7 > 0) out.push({ kind: "usual", ...clamp(history.med7), step: 0, snap: true });
-    const patient = sell ? history?.q75 : history?.q25;
-    if (patient > 0) out.push({ kind: "patient", ...clamp(patient), step: 0, snap: true });
-    return { levels, suggestions: out, usual: history?.med7 ?? null, hours: summary?.hours7 ?? 0 };
+    return { levels, suggestions: out, usual: history?.med7 ?? null, hours: summary?.hours7 ?? 0, taken, quantity };
   }
 
   // src/market.js
@@ -6526,9 +6599,9 @@ i.mwia-history-bid { background: #7ee2b0; }
       render2();
     }
   }
-  function progress(label2) {
+  function progress(label3) {
     return (done2, total) => {
-      ui.progress = { done: done2, total, label: label2 };
+      ui.progress = { done: done2, total, label: label3 };
       renderProgress();
     };
   }
@@ -6873,11 +6946,11 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var starterCart = (w) => w?.cost ? [{ hrid: w.hrid, quantity: 1, enhancementLevel: w.enhancementLevel }] : [];
   var cartLabel = (i) => `${i.quantity ? i.quantity + "\xD7 " : ""}${itemName(i.hrid)}${i.enhancementLevel ? " +" + i.enhancementLevel : ""}`;
-  function cartButton3(items, label2 = "\u{1F6D2} Add") {
+  function cartButton3(items, label3 = "\u{1F6D2} Add") {
     if (!items.length) return "";
     const id = String(ui.cartItems.size + 1);
     ui.cartItems.set(id, items);
-    return `<button class="mwia-cart-btn" data-action="cart-add" data-cart="${id}" title="Add to the MWITools shopping cart: ${esc(items.map(cartLabel).join(", "))}">${label2}</button>`;
+    return `<button class="mwia-cart-btn" data-action="cart-add" data-cart="${id}" title="Add to the MWITools shopping cart: ${esc(items.map(cartLabel).join(", "))}">${label3}</button>`;
   }
   async function sendToCart(id) {
     const items = ui.cartItems.get(id);
@@ -6906,8 +6979,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     const result = ui.upgradeResult;
     if (!result) return html;
     const base = result.base;
-    const label2 = xpLabel();
-    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${xpNum(xpValue(base, ui.settings))} ${label2}</b>, profit <b>${coins5(perDay(base.profit))}/day</b>
+    const label3 = xpLabel();
+    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${xpNum(xpValue(base, ui.settings))} ${label3}</b>, profit <b>${coins5(perDay(base.profit))}/day</b>
       (loot ${coins5(perDay(base.loot))} \u2212 food/drinks ${coins5(perDay(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
     if (isSpawnCapped(base)) {
       html += `<p class="mwia-reco">\u23F1 In ${zoneLabel(result.zone)} you kill monsters as fast as they appear, so upgrades that add damage hardly matter here.
@@ -6969,7 +7042,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         const v = ui.verified;
         const before = xpValue(v.base, ui.settings);
         const after = xpValue(v.planned, ui.settings);
-        html += `<div class="mwia-reco">Everything combined (simulated): <b>${xpNum(before)} \u2192 ${xpNum(after)} ${label2}</b> (${pct3(after / Math.max(countingLevels() ? 1e-9 : 1, before) - 1)}),
+        html += `<div class="mwia-reco">Everything combined (simulated): <b>${xpNum(before)} \u2192 ${xpNum(after)} ${label3}</b> (${pct3(after / Math.max(countingLevels() ? 1e-9 : 1, before) - 1)}),
               profit <b>${coins5(perDay(v.base.profit))} \u2192 ${coins5(perDay(v.planned.profit))}</b> per day (food/drinks ${coins5(perDay(v.base.cost))} \u2192 ${coins5(perDay(v.planned.cost))}),
               deaths ${dec3(v.base.deaths, 2)} \u2192 ${dec3(v.planned.deaths, 2)} per hour.
               <br><span class="mwia-dim">Run the zone analysis again after buying \u2013 with better gear a harder zone may become the best.</span></div>`;
@@ -7144,15 +7217,15 @@ i.mwia-history-bid { background: #7ee2b0; }
     render2();
   }
   async function openLeveling(dataset) {
-    const { item, kind, label: label2 } = dataset;
+    const { item, kind, label: label3 } = dataset;
     const value = Number(dataset.value) || 0;
     const owned = [...state.items.values()].some((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0);
     const hash = owned ? inventoryItemHash(state.character?.character?.id, item) : null;
     ui.root.classList.add("mwia-hidden");
-    const opened = kind === "enhance" ? await openEnhancing(hash, value) : await openAlchemy(hash, label2, value);
+    const opened = kind === "enhance" ? await openEnhancing(hash, value) : await openAlchemy(hash, label3, value);
     if (opened === "item") return;
     ui.root.classList.remove("mwia-hidden");
-    const what = kind === "enhance" ? `set the target to +${value}` : `pick ${label2}${value ? ` and enter ${value}` : ""}`;
+    const what = kind === "enhance" ? `set the target to +${value}` : `pick ${label3}${value ? ` and enter ${value}` : ""}`;
     ui.notice = opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.` } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}. (${navDiagnostics()})` };
     render2();
   }
@@ -7333,8 +7406,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     enableTapTips(root);
     root.addEventListener("input", (event) => {
       if (!["goldWeight", "skillingGold"].includes(event.target.dataset?.setting)) return;
-      const label2 = event.target.closest(".mwia-focus")?.querySelector(".mwia-focus-text");
-      if (label2) label2.textContent = focusText(Number(event.target.value));
+      const label3 = event.target.closest(".mwia-focus")?.querySelector(".mwia-focus-text");
+      if (label3) label3.textContent = focusText(Number(event.target.value));
     });
     button.addEventListener("click", async () => {
       const opening = root.classList.contains("mwia-hidden");
@@ -7372,8 +7445,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   var BEST = '[class*="MarketplacePanel_bestPrice"]';
   var SCAN_MS5 = 300;
   var BOOK_OLD_MS = 10 * 60 * 1e3;
-  var LABELS = { match: "Match", wall: "Wall", usual: "Usual", patient: "Patient" };
-  var l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false };
+  var LABELS = { match: "Match", wall: "Wall" };
+  var label2 = (s) => s.kind === "horizon" ? `<${s.horizon}h` : LABELS[s.kind];
+  var l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false, cache: { key: null, prices: null } };
   var num = (n2) => Math.round(n2).toLocaleString("en-US");
   var numberIn = (text) => {
     const found = String(text).match(/\d[\d\s,.]*[kmb]?/gi);
@@ -7431,17 +7505,22 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!hrid) return { error: `no item icon found (icons: ${[...modal.querySelectorAll("svg use")].map((use) => (use.getAttribute("href") || use.getAttribute("xlink:href") || "?").split("/").pop()).join(", ") || "none"})` };
     const text = modal.textContent || "";
     const range = /Tradable range:\s*(\d[\d\s,.]*)\s*[–-]\s*(\d[\d\s,.]*)/i.exec(text);
-    const label2 = [...modal.querySelectorAll("*")].find((el) => !el.children.length && /^enhancement level$/i.test(el.textContent.trim()));
-    const level = label2 && [...modal.querySelectorAll("input")].find((el) => label2.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const level = inputAfter(modal, /^enhancement level$/i);
+    const quantity = inputAfter(modal, /^quantity\b/i);
     return {
       side,
       hrid,
       level: level ? Number(level.value) || 0 : 0,
+      quantity: Math.max(1, quantity && numberIn(quantity.value) || 1),
       inputs,
       input,
       best: numberIn(modal.querySelector(BEST)?.textContent || ""),
       range: range ? { min: parseCoins(range[1]), max: parseCoins(range[2]) } : null
     };
+  }
+  function inputAfter(modal, pattern) {
+    const label3 = [...modal.querySelectorAll("*")].find((el) => !el.children.length && pattern.test(el.textContent.trim()));
+    return label3 && [...modal.querySelectorAll("input")].find((el) => label3.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
   }
   function ownListings(hrid, side, level = 0) {
     return (state.character?.myMarketListings || []).filter((listing) => listing.itemHrid === hrid && (listing.enhancementLevel || 0) === level && !!listing.isSell === (side === "sell")).map((listing) => ({ price: Number(listing.price) || 0, quantity: Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0)) }));
@@ -7451,7 +7530,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!m || m.error) return m;
     const book = orderBookAt(m.hrid, m.level);
     const range = m.range || book?.range || null;
-    return { ...m, book, range, ...listingPrices({ side: m.side, book, own: ownListings(m.hrid, m.side, m.level), best: m.best, range, summary: priceSummary(m.hrid, m.level) }) };
+    const own = ownListings(m.hrid, m.side, m.level);
+    const key = JSON.stringify([m.side, m.hrid, m.level, m.quantity, m.best, range, book?.at, own, historyVersion()]);
+    if (l.cache.key !== key) {
+      l.cache = { key, prices: listingPrices({ side: m.side, book, own, best: m.best, range, summary: priceSummary(m.hrid, m.level), hours: recentHours(m.hrid, m.level), quantity: m.quantity }) };
+    }
+    return { ...m, book, range, ...l.cache.prices };
   }
   function scan5() {
     const modals = listingModals();
@@ -7494,8 +7578,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   function boxHtml2(c2) {
     const sell = c2.side === "sell";
     const buttons = c2.suggestions.map((s, i) => {
-      const shown = s.kind === "wall" ? `${sell ? "<" : ">"} ${shortCoins(s.price)}` : shortCoins(s.price);
-      return `<button type="button" data-listprice="${i}" title="${esc(titleFor(s, c2))}"><b>${LABELS[s.kind]}</b><small>${shown}</small></button>`;
+      const shown = s.price === null ? "\u2014" : s.kind === "wall" || s.under ? `${sell ? "<" : ">"} ${shortCoins(s.price)}` : shortCoins(s.price);
+      return `<button type="button" data-listprice="${i}"${s.price === null ? ' class="mwia-off"' : ""} title="${esc(titleFor(s, c2))}"><b>${label2(s)}</b><small>${shown}</small></button>`;
     });
     return `${buttons.length ? `<div class="mwia-listprice-buttons">${buttons.join("")}</div>` : ""}<div class="mwia-listprice-info">${infoHtml(c2)}</div>`;
   }
@@ -7504,8 +7588,21 @@ i.mwia-history-bid { background: #7ee2b0; }
     const cap2 = s.capped ? ` (the tradable range's ${s.capped})` : "";
     if (s.kind === "match") return `The best ${sell ? "sell" : "buy"} offer now: ${num(s.price)}${cap2}.`;
     if (s.kind === "wall") return `One step ${sell ? "under" : "over"} ${num(s.wall.quantity)} at ${num(s.price)}, the first level with a fifth of all ${sell ? "listed" : "bid"}; ${num(s.wall.ahead)} lie in front of it.`;
-    if (s.kind === "usual") return `The week's median ${sell ? "ask" : "bid"}: ${num(s.price)}${cap2}.`;
-    return `${sell ? "A quarter of the week's asks were at or above" : "A quarter of the week's bids were at or below"} ${num(s.price)}${cap2}: for when you're in no hurry.`;
+    return horizonTitle(s, c2);
+  }
+  function horizonTitle(s, c2) {
+    const sell = c2.side === "sell";
+    const goes = sell ? "sells" : "is bought";
+    const pct4 = (share) => `${Math.round(share * 100)}%`;
+    const rate = c2.taken ? `${sell ? "Buyers take" : "Sellers fill"} about ${num(c2.taken.perHour)} an hour from ${sell ? "sell" : "buy"} listings.` : "How many trade an hour isn't known yet, so the quantity isn't counted.";
+    if (s.price === null) {
+      if (s.why === "quantity") return `${num(c2.quantity)} is about ${num(c2.quantity / c2.taken.perHour)} h of what ${sell ? "buyers take" : "sellers fill"} (${num(c2.taken.perHour)} an hour): ${pct4(FILLED)} of it can't go within ${s.horizon} h at any price.`;
+      if (s.why === "history") return `Needs more hourly prices: ${s.windows} of the 12 stretches of ${s.horizon} h it looks back on so far.`;
+      if (s.need > 1) return `${pct4(FILLED)} of ${num(c2.quantity)} takes about ${num(s.need)} h first in line (${num(c2.taken.perHour)} an hour): no price was first in line that long in ${pct4(CONFIDENCE)} of past stretches of ${s.horizon} h.`;
+      return `No price ${goes} within ${s.horizon} h often enough.`;
+    }
+    const where = s.under ? `One step ${sell ? "under" : "over"} the best offer (${num(s.price)}): first in line now.` : `At ${num(s.price)}.`;
+    return `${where} A ${pct4(CONFIDENCE)} chance that ${pct4(FILLED)} of ${num(c2.quantity)} ${goes} within ${s.horizon} h \u2013 it did in ${pct4(s.chance)} of ${s.windows} past stretches of ${s.horizon} h. ${rate}`;
   }
   function infoHtml(c2) {
     const sell = c2.side === "sell";
@@ -7566,7 +7663,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   async function apply(modal, index) {
     const c2 = context(modal);
     const s = c2?.suggestions?.[index];
-    if (!s || l.applying) return;
+    if (!s || s.price === null || l.applying) return;
     l.applying = true;
     try {
       const b = controls(c2);
@@ -7591,11 +7688,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
+    if (isTouch() || button.classList.contains("mwia-off")) showTip(button, button.title);
     apply(listingModals().find((modal) => modal.contains(button)), Number(button.dataset.listprice));
   }
 
   // src/version-tag.js
-  var VERSION3 = true ? "0.40.0" : "dev";
+  var VERSION3 = true ? "0.41.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;

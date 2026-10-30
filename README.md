@@ -208,10 +208,16 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
 - **Listing prices** – the game's *Sell Listing* and *Buy Listing* windows get price buttons under the price box:
   **Match** (the best offer now), **Wall** (one price step in front of the first level in the order book holding a
   fifth of everything others offer within the tradable range – passing the small undercuts, staying in front of the
-  big pile), **Usual** (the week's median ask or bid) and **Patient** (the upper quartile of the week's asks when
-  selling, the lower quartile of its bids when buying), each kept within the tradable range. The game's own −/+ make
-  the steps, so the price is always one the game takes. A line says how many others offer a better price than the one
-  in the box and how it compares with the usual price. Usual and Patient need 12 hours of prices. +N items use that
+  big pile), and **<1h**, **<8h** and **<24h**: the best price at which, with a 70% chance, at least 70% of the
+  quantity in the window has sold (been bought, for a buy listing) by then. Each looks back over the week's hourly
+  prices: in how many past stretches of that length a listing at that price would have been first in line – nobody
+  else offering better – long enough for what buyers take an hour (the hour's trades, the share at the ask told by
+  their average price; at the bid for buy listings) to cover 70% of it. A price better than everyone's now is first in
+  line at once, if it lies within the week's usual prices; "<" means one step under the best offer (">" over). A
+  quantity too big for the time, or too little history (12 stretches of each length, at least half their hours with
+  prices), shows "—" and says why when tapped. Match and Wall are kept within the tradable range. The game's own −/+
+  make the steps, so the price is always one the game takes. A line says how many others offer a better price than
+  the one in the box and how it compares with the usual price (after 12 hours of prices). +N items use that
   level's order book, history and tradable range (the range the game sends with the order book when the window
   doesn't show it); open the item at that level on the market first.
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch

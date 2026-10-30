@@ -17,7 +17,7 @@ function hideTip() {
     tip = null;
 }
 
-function showTip(anchor, text) {
+export function showTip(anchor, text) {
     hideTip();
     tip = document.createElement("div");
     tip.className = "mwia-tip-pop";

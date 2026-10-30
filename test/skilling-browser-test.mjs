@@ -637,7 +637,7 @@ try {
     await openListing("Sell", "1 096", "1 092");
     await page.waitForSelector(".listing-modal .mwia-listprice button", { timeout: 4000 }).catch(() => null);
     const sellBox = await listingBox();
-    check("sell listing shows match and wall", JSON.stringify(sellBox.buttons) === JSON.stringify(["Match 1,096", "Wall < 1,140"]) && /^0 listed cheaper · usual price after 12 h/.test(sellBox.info), JSON.stringify(sellBox));
+    check("sell listing shows match and wall; no hours for the horizons", JSON.stringify(sellBox.buttons) === JSON.stringify(["Match 1,096", "Wall < 1,140", "<1h —", "<8h —", "<24h —"]) && /^0 listed cheaper · usual price after 12 h/.test(sellBox.info), JSON.stringify(sellBox));
     await page.click('.listing-modal [data-listprice="1"]');
     await page.waitForFunction(() => /^38,520 listed cheaper/.test(document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || ""), { timeout: 3000 }).catch(() => null);
     const walled = await listingBox();
@@ -659,10 +659,10 @@ try {
     for (const socket of sockets) socket.send(JSON.stringify(levelBook));
     await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
     await openListing("Sell", "5 000", "5 000", { level: 3, min: 4000, max: 8000, rangeText: false });
-    await page.waitForFunction(() => document.querySelectorAll(".listing-modal .mwia-listprice button").length === 2, { timeout: 4000 }).catch(() => null);
+    await page.waitForFunction(() => document.querySelectorAll(".listing-modal .mwia-listprice button").length === 5, { timeout: 4000 }).catch(() => null);
     const plusBox = await listingBox();
     // 9,000 lies outside +3's range, so the wall is 5,200 (10 of the 12 in range).
-    check("a +level gets its own book and the game's range", JSON.stringify(plusBox.buttons) === JSON.stringify(["Match 5,000", "Wall < 5,200"]) && /^0 listed cheaper, 1 at 5,000/.test(plusBox.info), JSON.stringify(plusBox));
+    check("a +level gets its own book and the game's range", JSON.stringify(plusBox.buttons) === JSON.stringify(["Match 5,000", "Wall < 5,200", "<1h —", "<8h —", "<24h —"]) && /^0 listed cheaper, 1 at 5,000/.test(plusBox.info), JSON.stringify(plusBox));
     await page.click('.listing-modal [data-listprice="1"]');
     await page.waitForFunction(() => document.querySelector(".listing-modal .MarketplacePanel_priceInputs__x .field").textContent.replace(/\s/g, "") === "5196", { timeout: 4000 }).catch(() => null);
     check("+level wall: one step under it", (await listingBox()).price === "5196", JSON.stringify(await listingBox()));
@@ -671,11 +671,11 @@ try {
     await page.waitForFunction(() => /isn't the window's/.test(document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     check("a book that doesn't match the window says so", /order book's best \(5,000\) isn't the window's/.test((await listingBox()).info), (await listingBox()).info);
     await openListing("Buy", "1 040", "1 044");
-    await page.waitForFunction(() => document.querySelectorAll(".listing-modal .mwia-listprice button").length === 2, { timeout: 4000 }).catch(() => null);
+    await page.waitForFunction(() => document.querySelectorAll(".listing-modal .mwia-listprice button").length === 5, { timeout: 4000 }).catch(() => null);
     await page.click('.listing-modal [data-listprice="1"]');
     await page.waitForFunction(() => /^500 bid higher/.test(document.querySelector(".listing-modal .mwia-listprice-info")?.textContent || ""), { timeout: 3000 }).catch(() => null);
     const buyBox = await listingBox();
-    check("buy listing: one step over the bid wall", JSON.stringify(buyBox.buttons) === JSON.stringify(["Match 1,040", "Wall > 1,000"]) && buyBox.price === "1004" && /^500 bid higher/.test(buyBox.info), JSON.stringify(buyBox));
+    check("buy listing: one step over the bid wall", JSON.stringify(buyBox.buttons) === JSON.stringify(["Match 1,040", "Wall > 1,000", "<1h —", "<8h —", "<24h —"]) && buyBox.price === "1004" && /^500 bid higher/.test(buyBox.info), JSON.stringify(buyBox));
     await page.evaluate(() => document.querySelector(".listing-modal").remove());
     // A listing window laid out differently: found by its Post button, and says what it couldn't read.
     await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", '<div class="odd-modal"><div>Sell Listing</div><div><input value="1 000"></div><button>Post Sell Listing</button></div>'));
