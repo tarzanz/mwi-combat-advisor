@@ -129,6 +129,13 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     (Decompose, Transmute) opens that tab with the item from your inventory and the count filled in.
   - Only the 40 items that do best without teas in gold, in XP and in XP per coin (and those you have) are tried with
     every tea setup, so the list stays quick.
+  - **Upgrades that pay back** work here too: enhancers and alembics, the skill's clothes, charms, capes, jewellery
+    (rare and essence find), pouches and the Observatory or Laboratory one level up, measured on the top row of the
+    list – its target (Enhancing) or catalyst (Alchemy) picked again with the upgrade. These skills mostly cost gold,
+    so the XP an upgrade adds counts at the top row's coins per XP – what that XP would cost you otherwise – and a
+    charm that only adds XP pays back too: payback = cost after resale ÷ (extra gold + extra XP × coins per XP) a
+    day. When the top row earns gold, only the gold counts. Enhancing's success from the tool and the Observatory
+    is counted.
 - **Teas, coffee and food in the action window** – when you open an action in the game, a box above the *Start*
   button says which teas to have in the skill's slots for it (➕ put in, ✓ already there, ➖ take out), with the
   advisor's settings and focus, how many you have and a 🛒 button for the teas the job needs. For a combat zone it

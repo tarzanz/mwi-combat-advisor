@@ -3,9 +3,13 @@
 // tried in place of what you wear now, and measured by how much more the
 // action you'd make earns a day (the top of the Skilling list, or the skill's
 // best action); payback = what it costs, less what it sells for again at the
-// bid, / extra gold a day.
+// bid, / extra gold a day. Enhancing and Alchemy mostly cost gold: there the
+// XP an upgrade adds counts at the coins per XP of the top row (what that XP
+// would cost you otherwise), so a charm that only adds XP pays back too.
 
 import { MARKET_TAX, SKILLING_SKILLS, bestTeas, drinkSlots, daily, evaluateAction, skillType, skillingActions } from "./skilling.js";
+import { ENHANCING, enhancingActions, evaluateEnhance } from "./enhancing.js";
+import { ALCHEMY, alchemyActions, evaluateAlchemy } from "./alchemy.js";
 
 const MAX_HOUSE_LEVEL = 8;
 export const UPGRADES_SHOWN = 10;
@@ -24,6 +28,8 @@ export function itemSkillBuffs(itemHrid, enhancementLevel, skill, data) {
     add("/buff_types/efficiency", value(skill + "Efficiency") + value("skillingEfficiency"));
     add("/buff_types/wisdom", value(skill + "Experience") + value("skillingExperience"));
     add("/buff_types/rare_find", value(skill + "RareFind") + value("skillingRareFind"));
+    add("/buff_types/essence_find", value(skill + "EssenceFind") + value("skillingEssenceFind"));
+    add(`/buff_types/${skill}_success`, value(skill + "Success"));
     if (GATHERING_SKILLS.has(skill)) add("/buff_types/gathering", value("gatheringQuantity"));
     return { buffs, concentration: value("drinkConcentration") };
 }
@@ -61,6 +67,34 @@ function skillActions(who, data, skill, actionHrid = null) {
     return chosen ? [chosen] : actions;
 }
 
+// How a day of the skill is measured, with some buffs (day) or the best teas
+// for its slots (dayWithTeas), and what a day is worth.
+// Gathering and production: the gold a day of the skill's actions (or actionHrid).
+// Enhancing and Alchemy: the item action actionHrid – the top row – with its
+// target or catalyst picked again for the most worth; XP is worth xpPrice
+// coins (the top row's coins per XP, none when it earns gold).
+// leveling: { resale, owned, xpPrice } as for rankSkilling.
+function measure(who, data, market, skill, actionHrid, leveling) {
+    if (skill !== ENHANCING && skill !== ALCHEMY) {
+        const actions = skillActions(who, data, skill, actionHrid);
+        return { worth: (r) => r.goldPerDay, xpPrice: 0, day: (w) => bestDay(actions, w, data, market), dayWithTeas: (w) => bestDayWithTeas(actions, w, data, market) };
+    }
+    const enhancing = skill === ENHANCING;
+    const action = actionHrid && (enhancing ? enhancingActions(data, market, leveling.owned) : alchemyActions(data, market)).find((a) => a.hrid === actionHrid);
+    if (!action) return null;
+    const evaluate = (w, teas, score) => (enhancing ? evaluateEnhance(action, w, data, market, teas, { resale: leveling.resale, owned: leveling.owned, score }) : evaluateAlchemy(action, w, data, market, teas, { score }));
+    const plain = evaluate(who, who.drinks[action.type] || [], (r) => -(r.coinsPerXp ?? Infinity));
+    const xpPrice = Math.max(0, leveling.xpPrice ?? plain.coinsPerXp ?? 0);
+    const worth = (r) => r.goldPerDay + xpPrice * r.xpPerDay;
+    const valid = (r) => (r.valid ? r : null);
+    return {
+        worth,
+        xpPrice,
+        day: (w) => valid(evaluate(w, w.drinks[action.type] || [], worth)),
+        dayWithTeas: (w) => valid(bestTeas(action, w, data, market, (teas, score) => evaluate(w, teas, score), worth).result),
+    };
+}
+
 // What an item brings back when sold again: the best bid for its +level after
 // tax; with nobody buying that level, the bid at the nearest lower level (a +2
 // is worth at least a +0, though it has to be listed to sell); else the vendor
@@ -89,11 +123,14 @@ export function swapGain(who, data, market, skill, current, itemHrid, enhancemen
 // equipped: location -> { itemHrid, enhancementLevel }; owned: itemHrid -> [enhancement levels in the inventory];
 // listings: itemHrid -> [{ enhancementLevel, price }] for sale; houseLevels: houseRoomHrid -> level.
 // listings carry the bid for the level too; actionHrid: the action to measure on.
-export function rankUpgrades(who, data, market, skill, { equipped, owned, listings, bids = null, houseLevels, gameEquipmentBuffs = null, actionHrid = null }) {
+// leveling (Enhancing and Alchemy): { resale, owned, xpPrice }, see measure.
+// gainPerDay is the worth a day gained: the gold, plus the XP at xpPrice.
+export function rankUpgrades(who, data, market, skill, { equipped, owned, listings, bids = null, houseLevels, gameEquipmentBuffs = null, actionHrid = null, leveling = {} }) {
     const type = skillType(skill);
-    const actions = skillActions(who, data, skill, actionHrid);
-    const base = bestDay(actions, who, data, market);
+    const m = measure(who, data, market, skill, actionHrid, leveling);
+    const base = m?.day(who);
     if (!base) return { base: null, upgrades: [], check: null };
+    const { worth, xpPrice } = m;
     const withBuffs = (extra, concentration = 0, slots = who.slots[type]) => ({
         ...who,
         buffs: { ...(who.buffs || {}), [type]: [...(who.buffs?.[type] || []), ...extra] },
@@ -126,11 +163,12 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
             let after;
             let from = base;
             if (slotsAfter !== who.slots[type]) {
-                teaBase ||= bestDayWithTeas(actions, who, data, market);
+                teaBase ||= m.dayWithTeas(who);
                 from = teaBase;
-                after = bestDayWithTeas(actions, changed, data, market);
-            } else after = bestDay(actions, changed, data, market);
-            const gain = after.goldPerDay - from.goldPerDay;
+                after = m.dayWithTeas(changed);
+            } else after = m.day(changed);
+            if (!after || !from) continue;
+            const gain = worth(after) - worth(from);
             if (gain <= 1) continue;
             const sold = offer.owned ? { value: 0, bidLevel: null } : resaleValue(item.hrid, offer.enhancementLevel, offer.bid, data, bids);
             const resale = sold.value;
@@ -146,9 +184,11 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
                 cost,
                 replaces: current,
                 gainPerDay: gain,
+                goldPerDay: after.goldPerDay - from.goldPerDay,
                 xpPerDay: after.xpPerDay - from.xpPerDay,
                 paybackDays: cost / gain,
                 bestAction: after.action,
+                target: after.target ?? null,
                 extraSlots: slotsAfter - who.slots[type],
                 teas: slotsAfter !== who.slots[type] ? after.teas : null,
             });
@@ -159,14 +199,15 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
     const room = Object.values(data.houseRoomDetailMap || {}).find((r) => r.skillHrid === "/skills/" + skill);
     const level = room ? houseLevels[room.hrid] || 0 : MAX_HOUSE_LEVEL;
     if (room && level < MAX_HOUSE_LEVEL) {
-        const step = [...(room.actionBuffs || []), ...(room.globalBuffs || [])].map((b) => ({ typeHrid: b.typeHrid, flatBoost: level === 0 ? b.flatBoost : b.flatBoostLevelBonus, ratioBoost: 0 }));
-        const after = bestDay(actions, withBuffs(step), data, market);
+        // The Observatory's success is a ratio; the rest flat.
+        const step = [...(room.actionBuffs || []), ...(room.globalBuffs || [])].map((b) => ({ typeHrid: b.typeHrid, flatBoost: (level === 0 ? b.flatBoost : b.flatBoostLevelBonus) || 0, ratioBoost: (level === 0 ? b.ratioBoost : b.ratioBoostLevelBonus) || 0 }));
+        const after = m.day(withBuffs(step));
         const costs = room.upgradeCostsMap?.[String(level + 1)] || [];
         const priced = costs.map((c) => ({ itemHrid: c.itemHrid, count: c.count, price: market.buy(c.itemHrid) }));
         const price = priced.some((c) => c.price === null) ? null : priced.reduce((sum, c) => sum + c.count * c.price, 0);
-        const gain = after.goldPerDay - base.goldPerDay;
+        const gain = after ? worth(after) - worth(base) : 0;
         if (gain > 1) {
-            upgrades.push({ kind: "house", roomHrid: room.hrid, name: room.name, level: level + 1, price, materials: priced, gainPerDay: gain, xpPerDay: after.xpPerDay - base.xpPerDay, paybackDays: price === null ? null : price / gain, bestAction: after.action });
+            upgrades.push({ kind: "house", roomHrid: room.hrid, name: room.name, level: level + 1, price, materials: priced, gainPerDay: gain, goldPerDay: after.goldPerDay - base.goldPerDay, xpPerDay: after.xpPerDay - base.xpPerDay, paybackDays: price === null ? null : price / gain, bestAction: after.action, target: after.target ?? null });
         }
     }
     // Each +level against the next lower one of the same item on offer: what the step costs and adds.
@@ -187,7 +228,7 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
         const mine = Object.values(equipped).reduce((sum, e) => sum + itemSkillBuffs(e.itemHrid, e.enhancementLevel, skill, data).buffs.filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((s, b) => s + b.flatBoost, 0), 0);
         check = { game, mine, matches: Math.abs(game - mine) < 0.005 };
     }
-    return { base, upgrades, check };
+    return { base, upgrades, check, xpPrice };
 }
 
 // Tools whose next tier your skill level now allows: for every tool slot, the

@@ -102,7 +102,7 @@ function computeRanking(settings, fixed = null) {
             liquidity: (action) => (action.outputItems?.[0]?.itemHrid === COIN ? COIN_MARKET : liquidityRating(action.outputItems?.[0]?.itemHrid ? priceSummary(action.outputItems[0].itemHrid) : null)),
             inputMarket: (hrid) => ({ liquidity: liquidityRating(priceSummary(hrid)), book: state.orderBooks.get(hrid) || null }),
         };
-        const leveling = { resale: (hrid, level) => plusResale(hrid, level, settings.skillingSellAt, data), owned: (hrid) => have(hrid), fixed };
+        const leveling = { ...levelingOptions(settings, data), fixed };
         const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, plan, goldWeight: goldShare(settings) / 100, countLevels: !!settings.countLevels, leveling });
         for (const entry of [...result.available, ...result.upcoming]) {
             entry.warnings = [...entry.warnings, ...(isEnhance(entry) ? enhanceWarnings(entry) : priceWarnings(entry))];
@@ -111,6 +111,9 @@ function computeRanking(settings, fixed = null) {
         return result;
     }
 }
+
+// Enhancing and Alchemy: what a +level sells for, and how many of an item you have.
+const levelingOptions = (settings, data) => ({ resale: (hrid, level) => plusResale(hrid, level, settings.skillingSellAt, data), owned: (hrid) => have(hrid) });
 
 // Prices for the skilling advice: a listing is never valued above the item's
 // usual (7-day median) ask once there are MIN_HOURS of history, and what is
@@ -242,7 +245,7 @@ export function renderSkilling(settings) {
         html += `<button class="mwia-link" data-action="skilling-all">${view.showAll ? "Show fewer" : `Show all ${available.length}${hidden}`}</button>`;
     }
     html += `</section>`;
-    html += leveling ? `<section><h3>Upgrades that pay back</h3><p class="mwia-dim">Not worked out for ${skillLabel(settings.skillingSkill)} yet.</p></section>` : upgradesHtml(settings);
+    html += upgradesHtml(settings);
     if (upcoming.length) {
         html += `<section><h3>Unlocks soon</h3><p class="mwia-dim">Within ${NEAR_LEVELS} levels, worked out at the level it unlocks. The time assumes you train the skill with its fastest XP action you have now.</p>
           <div class="mwia-skill-list">${upcoming.map((entry) => rowHtml(entry, false, true)).join("")}</div></section>`;
@@ -652,11 +655,16 @@ export function topActionHrid(settings, skill) {
 // What the top action depends on, for caches.
 export const topActionKey = (settings) => [settings.skillingSellAt, settings.skillingTeas, planMode(settings), goldShare(settings), !!settings.countLevels, historyVersion()].join("|");
 
+// Enhancing and Alchemy: the top row of the list, earning gold or not.
+const topLevelingEntry = (settings, skill) => ranking({ ...settings, skillingSkill: skill }).available.find((e) => e.valid) || null;
+
 function upgradeRanking(settings) {
     const skill = settings.skillingSkill;
     const key = [state.updatedAt, pricesStamp(), skill, topActionKey(settings)].join("|");
     if (view.upgradesKey !== key) {
         const data = getClientData();
+        const isLeveling = LEVELING_SKILLS.includes(skill);
+        const top = isLeveling ? topLevelingEntry(settings, skill) : null;
         const equipped = {};
         const owned = {};
         for (const item of state.items.values()) {
@@ -673,7 +681,8 @@ function upgradeRanking(settings) {
             bids: (hrid) => marketBids(hrid),
             houseLevels,
             gameEquipmentBuffs: state.character.equipmentActionTypeBuffsMap || null,
-            actionHrid: topActionHrid(settings, skill),
+            actionHrid: isLeveling ? top?.hrid || null : topActionHrid(settings, skill),
+            leveling: isLeveling ? { ...levelingOptions(settings, data), xpPrice: Math.max(0, top?.coinsPerXp ?? 0) } : {},
         });
         view.upgradesKey = key;
     }
@@ -684,21 +693,27 @@ function upgradesHtml(settings) {
     if (settings.skillingSkill === "all") {
         return `<section><h3>Upgrades that pay back</h3><p class="mwia-dim">Pick a skill above to see which tools, clothes, jewellery and house rooms pay for themselves.</p></section>`;
     }
-    const { base, upgrades, check } = upgradeRanking(settings);
+    const { base, upgrades, check, xpPrice } = upgradeRanking(settings);
+    const isLeveling = LEVELING_SKILLS.includes(settings.skillingSkill);
     let html = `<section><h3>Upgrades that pay back</h3>`;
-    if (!base) return html + `<p class="mwia-dim">Nothing in this skill earns gold at your level yet.</p></section>`;
-    html += `<p class="mwia-dim">Each tried in place of what you wear now, measured on what you'd make: the top of the list above (now ${esc(base.action.name)}, ${coins(base.goldPerDay)}/day). Payback = what it costs, less what it sells for again at the bid, ÷ extra gold a day. A +level's step shows what it adds over the next lower one for sale.</p>`;
+    if (!base) return html + `<p class="mwia-dim">${isLeveling ? "Nothing in the list above to measure on." : "Nothing in this skill earns gold at your level yet."}</p></section>`;
+    if (isLeveling) {
+        const repicked = settings.skillingSkill === "enhancing" ? "the target is picked again with the upgrade" : "the catalyst is picked again with the upgrade";
+        const xp = xpPrice > 0 ? `XP counts at the ${dec(xpPrice, 1)} coins per XP it costs there – what that XP would cost you otherwise – so an upgrade that only adds XP pays back too` : "It earns gold, so only the gold counts";
+        html += `<p class="mwia-dim">Each tried in place of what you wear now, measured on the top of the list above (now ${esc(adviceName(base))}, ${coins(base.goldPerDay)}/day, ${coins(base.xpPerDay)} XP/day); ${repicked}. ${xp}. Payback = what it costs, less what it sells for again at the bid, ÷ what it adds a day.</p>`;
+    } else html += `<p class="mwia-dim">Each tried in place of what you wear now, measured on what you'd make: the top of the list above (now ${esc(base.action.name)}, ${coins(base.goldPerDay)}/day). Payback = what it costs, less what it sells for again at the bid, ÷ extra gold a day. A +level's step shows what it adds over the next lower one for sale.</p>`;
     if (check && !check.matches) {
         html += `<div class="mwia-notice mwia-notice-warn">Your gear's action speed here is ${pct(check.game)} by the game but ${pct(check.mine)} by the item stats, so these numbers may be a little off.</div>`;
     }
     if (!upgrades.length) return html + `<p class="mwia-dim">Nothing for sale would earn more here.</p></section>`;
-    html += `<div class="mwia-upgrade-list">${upgrades.slice(0, UPGRADES_SHOWN).map(upgradeRowHtml).join("")}</div></section>`;
+    html += `<div class="mwia-upgrade-list">${upgrades.slice(0, UPGRADES_SHOWN).map((u) => upgradeRowHtml(u, xpPrice, base)).join("")}</div></section>`;
     return html;
 }
 
-function upgradeRowHtml(u) {
+// xpPrice: what an XP is worth (Enhancing and Alchemy); base: the day it is measured against.
+function upgradeRowHtml(u, xpPrice = 0, base = null) {
     const payback = u.paybackDays === null ? "price unknown" : u.paybackDays === 0 ? (u.owned ? "free – you own it" : "sells again for what it costs") : `pays back in ${hoursText(u.paybackDays * 24)}`;
-    const gain = `+${coins(u.gainPerDay)}/day${u.xpPerDay > 1 ? `, +${coins(u.xpPerDay)} XP/day` : ""}`;
+    const gain = xpPrice > 0 ? levelingGainText(u, base) : `+${coins(u.gainPerDay)}/day${u.xpPerDay > 1 ? `, +${coins(u.xpPerDay)} XP/day` : ""}`;
     if (u.kind === "house") {
         const cart = u.materials.filter((m) => m.itemHrid !== "/items/coin").map((m) => ({ hrid: m.itemHrid, quantity: m.count }));
         const coinsNeeded = u.materials.find((m) => m.itemHrid === "/items/coin")?.count || 0;
@@ -714,6 +729,14 @@ function upgradeRowHtml(u) {
     const step = st ? `<small class="mwia-dim">+${st.from} → +${u.enhancementLevel}: ${st.price >= 0 ? "+" : "−"}${coins(Math.abs(st.price))} for +${coins(st.gainPerDay)}/day${st.paybackDays === null ? " – adds nothing" : st.paybackDays === 0 ? " – no extra cost after resale" : ` – the step pays back in ${hoursText(st.paybackDays * 24)}`}</small>` : "";
     return `<div class="mwia-upgrade"><div><b>${name}</b> <span class="mwia-dim">${u.owned ? "you own it" : coins(u.price)}</span>${resale}
         <small>${gain} · ${payback} · ${replaces}${slotsText(u)}</small>${step}</div>${cart}</div>`;
+}
+
+// Enhancing and Alchemy: the worth a day, made of gold and XP, and a target that changes.
+function levelingGainText(u, base) {
+    const gold = Math.abs(u.goldPerDay) >= 1 ? `${u.goldPerDay >= 0 ? "+" : "−"}${coins(Math.abs(u.goldPerDay))} gold` : null;
+    const xp = Math.abs(u.xpPerDay) >= 1 ? `${u.xpPerDay >= 0 ? "+" : "−"}${coins(Math.abs(u.xpPerDay))} XP` : null;
+    const target = u.target && base?.target && u.target !== base.target ? `, then to +${u.target}` : "";
+    return `worth +${coins(u.gainPerDay)}/day (${[gold, xp].filter(Boolean).join(", ") || "a little"}${target})`;
 }
 
 // What it sells for again, and from whose bid when nobody buys its own +level.

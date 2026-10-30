@@ -7,6 +7,7 @@ import path from "node:path";
 import { alchemyActions, coinCost, evaluateAlchemy, levelPenalty } from "../src/alchemy.js";
 import { BASE_RATES, MAX_TARGET, enhanceCycles, enhancingActions, evaluateEnhance, levelBonus } from "../src/enhancing.js";
 import { PLAN_MODES, coinsPerXp, enhanceBudget, marketPricer, rankSkilling } from "../src/skilling.js";
+import { itemSkillBuffs, rankUpgrades } from "../src/skilling-upgrades.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const dataDir = path.join(root, "engine/data");
@@ -167,6 +168,44 @@ for (const skill of ["enhancing", "alchemy"]) {
     check(`${skill}: Gold only ranks the cheapest coins per XP first`, near(coinsPerXp(money[0]), cheapest, 1e-6), `${money[0].action.name} ${coinsPerXp(money[0])} vs ${cheapest}`);
     check(`${skill}: XP only ranks the most XP first`, near(time[0].xpPerDay, fastest, 1e-6), `${time[0].action.name}`);
     check(`${skill}: not in All skills`, !rankSkilling(who, data, market, { skill: "all" }).available.some((e) => e.action.type === `/action_types/${skill}`));
+}
+
+// ---------- Upgrades that pay back ----------
+{
+    const buffOf = (hrid, skill, type) => itemSkillBuffs(hrid, 0, skill, data).buffs.find((b) => b.typeHrid === type)?.flatBoost || 0;
+    check("an Enhancer's success is a buff for enhancing", near(buffOf("/items/cheese_enhancer", "enhancing", "/buff_types/enhancing_success"), 0.006));
+    check("essence find from jewellery", near(buffOf("/items/ring_of_essence_find", "alchemy", "/buff_types/essence_find"), 0.15));
+    const listed = (hrid) => (marketData[hrid] ? [{ enhancementLevel: 0, price: marketData[hrid][0].a, bid: marketData[hrid][0].b }] : []);
+    const offers = { equipped: {}, owned: {}, listings: listed, houseLevels: {} };
+    for (const skill of ["enhancing", "alchemy"]) {
+        const top = list(skill, 0.5)[0];
+        const xpPrice = Math.max(0, coinsPerXp(top));
+        const ups = rankUpgrades(who, data, market, skill, { ...offers, actionHrid: top.hrid, leveling: { resale, xpPrice } });
+        check(`${skill}: upgrades measured on the top row`, ups.base?.action.hrid === top.hrid && near(ups.xpPrice, xpPrice), `${ups.base?.action.hrid} vs ${top.hrid}`);
+        check(`${skill}: worth = gold + XP at its coins per XP`, ups.upgrades.length > 0 && ups.upgrades.every((u) => near(u.gainPerDay, u.goldPerDay + xpPrice * u.xpPerDay, 1e-6 * Math.abs(u.gainPerDay) + 1e-6)));
+        check(`${skill}: ranked by payback`, ups.upgrades.every((u, i, a) => i === 0 || (a[i - 1].paybackDays ?? Infinity) <= (u.paybackDays ?? Infinity)));
+        const tool = skill === "enhancing" ? "/items/cheese_enhancer" : "/items/cheese_alembic";
+        check(`${skill}: the cheapest tool is an upgrade`, ups.upgrades.some((u) => u.itemHrid === tool));
+        const charm = ups.upgrades.find((u) => u.itemHrid === `/items/trainee_${skill}_charm`);
+        check(`${skill}: a charm that only adds XP pays back by the coins that XP would cost`, xpPrice === 0 || (charm && charm.xpPerDay > 0 && charm.gainPerDay > charm.goldPerDay), JSON.stringify(charm && { g: charm.gainPerDay, gold: charm.goldPerDay, xp: charm.xpPerDay }));
+        const room = skill === "enhancing" ? "Observatory" : "Laboratory";
+        check(`${skill}: its house room one level up`, ups.upgrades.some((u) => u.kind === "house" && u.name === room && u.level === 1));
+        check(`${skill}: no top row, nothing to measure`, rankUpgrades(who, data, market, skill, { ...offers, actionHrid: null, leveling: { resale } }).base === null);
+    }
+    // The Observatory's success (a ratio) counts, not only its speed.
+    const top = list("enhancing", 0.5)[0];
+    const xpPrice = Math.max(0, coinsPerXp(top));
+    const worth = (buffs) => {
+        const r = evaluateEnhance(top.action, { ...who, buffs: { "/action_types/enhancing": buffs } }, data, market, [], { resale, score: (x) => x.goldPerDay + xpPrice * x.xpPerDay });
+        return r.goldPerDay + xpPrice * r.xpPerDay;
+    };
+    const speed = { typeHrid: "/buff_types/action_speed", flatBoost: 0.01, ratioBoost: 0 };
+    const success = { typeHrid: "/buff_types/enhancing_success", flatBoost: 0, ratioBoost: 0.0005 };
+    const observatory = rankUpgrades(who, data, market, "enhancing", { ...offers, actionHrid: top.hrid, leveling: { resale, xpPrice } }).upgrades.find((u) => u.kind === "house");
+    // Level 1 also adds the house's wisdom and rare find.
+    const house = [{ typeHrid: "/buff_types/wisdom", flatBoost: 0.0005, ratioBoost: 0 }, { typeHrid: "/buff_types/rare_find", flatBoost: 0.002, ratioBoost: 0 }];
+    const both = worth([speed, success, ...house]) - worth([]);
+    check("Observatory: its success counts too", observatory && near(observatory.gainPerDay, both, 1e-6 * Math.abs(both)) && both > worth([speed, ...house]) - worth([]) + 1e-9, `${observatory?.gainPerDay} vs ${both}`);
 }
 
 console.log(failures ? `${failures} check(s) failed` : "All checks passed");

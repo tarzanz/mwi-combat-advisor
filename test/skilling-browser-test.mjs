@@ -765,6 +765,25 @@ try {
     const enhDetail = await page.$eval(".mwia-skill-row[open] .mwia-skill-detail", (n) => n.textContent);
     check("Enhancing detail: odds, attempts, every target", /attempts per \+\d+/.test(enhDetail) && /A failure drops the item to \+0/.test(enhDetail) && /\+1: [\d.,]+ attempts/.test(enhDetail) && /suits your Focus/.test(enhDetail), enhDetail.slice(0, 300));
     await page.screenshot({ path: path.join(shotDir, "skilling-12-enhancing.png") });
+    // Upgrades that pay back: measured on the top row, its XP worth the coins per XP it costs there.
+    for (const skill of ["enhancing", "alchemy"]) {
+        await select(page, "skillingSkill", skill);
+        const topRow = leveling(skill).available.find((e) => e.valid);
+        const xpPrice = Math.max(0, topRow.coinsPerXp);
+        const exp = rankUpgrades(skillingCharacter(character, items(character), clientData), clientData, market(settingsNow.skillingSellAt), skill, {
+            equipped: equippedNow, owned: ownedNow, houseLevels: {}, gameEquipmentBuffs: character.equipmentActionTypeBuffsMap, listings: listingsOf, bids: bidsOf, actionHrid: topRow.hrid, leveling: { resale, owned: ownedOf(character), xpPrice },
+        });
+        const section = await page.$$eval("section", (list) => list.find((n) => n.querySelector("h3")?.textContent === "Upgrades that pay back")?.textContent.replace(/\s+/g, " ") || "");
+        const upRows = await page.$$eval(".mwia-upgrade", (list) => list.map((n) => n.textContent.replace(/\s+/g, " ").trim()));
+        const first = exp.upgrades[0];
+        const firstName = first && (first.kind === "house" ? first.name : clientData.itemDetailMap[first.itemHrid].name);
+        check(`${skill}: upgrades measured on the top row`, exp.base?.action.hrid === topRow.hrid && section.includes(`measured on the top of the list above (now ${exp.base.action.name}`) && /picked again with the upgrade/.test(section), section.slice(0, 300));
+        check(`${skill}: upgrades listed by payback, worth in gold and XP`, !!first && upRows[0]?.includes(firstName) && (xpPrice > 0 ? upRows[0].includes(`worth +${coinText(first.gainPerDay)}/day (`) : upRows[0].includes(`+${coinText(first.gainPerDay)}/day`)),
+            `${upRows[0]} vs ${firstName} ${coinText(first?.gainPerDay ?? 0)}`);
+        await page.$eval(".mwia-upgrade-list", (n) => n.closest("section").scrollIntoView());
+        await page.screenshot({ path: path.join(shotDir, `skilling-12b-${skill}-upgrades.png`) });
+    }
+    await select(page, "skillingSkill", "enhancing");
     // XP only: a higher target and more XP a day than all gold.
     await page.evaluate(() => { const r = document.querySelector('[data-setting="skillingGold"]'); r.value = "0"; r.dispatchEvent(new Event("change", { bubbles: true })); });
     await new Promise((r) => setTimeout(r, 300));
