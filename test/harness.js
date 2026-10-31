@@ -6,7 +6,10 @@ import { engineTables, loadClientData, loadPrices } from "../src/game-data.js";
 import { buildProfile, toDTO, slotCounts } from "../src/profile.js";
 import { analyzeZones, analyzeUpgrades as analyzeRaw, rateUpgrades, buildPlan, verifyPlan, pickBestZone, xpValue, isSpawnCapped, MAX_ENCOUNTERS_PER_HOUR, uncertainCandidates, refineUncertain, CONFIDENCE_LEVEL, switchStyle } from "../src/analysis.js";
 import { fractionalLevel, levelsPerDay, nextPouchGoal } from "../src/levels.js";
-import { levelProgress } from "../src/skilling.js";
+import { levelProgress, marketPricer, skillingCharacter } from "../src/skilling.js";
+import { selfEnhanceCosts } from "../src/enhancing.js";
+import { applyPlan } from "../src/analysis.js";
+import { marketEntry } from "../src/game-data.js";
 import { styleOfItem, weaponStyle } from "../src/profile.js";
 import { studentTCdf, confidenceAboveZero, confidenceGreater } from "../src/stats.js";
 import { fixtureCharacter } from "./fixture-character.js";
@@ -88,6 +91,66 @@ check("plan uses each slot once", new Set(plan.picks.map((p) => p.slot)).size ==
 const verified = await verifyPlan(pool, profile, plan, best.zone, settings);
 log(` verified: ${Math.round(score(verified.base))} -> ${Math.round(score(verified.planned))}`);
 check("plan does not make things worse", score(verified.planned) >= score(verified.base) * 0.98);
+
+// Selling what you take off, combat house rooms and more skill levels.
+{
+    const hat = upgrades.gear.find((c) => c.slot === "head" && c.cost > 0 && !c.enhance);
+    check("resale: what you take off is sold at the bid", !!hat && hat.resale > 0 && Math.abs(hat.cost - Math.max(0, hat.price - hat.resale)) < 1e-6 && hat.sold[0]?.hrid === "/items/cheese_helmet", hat && `${hat.hrid} ${hat.price} − ${Math.round(hat.resale)} = ${Math.round(hat.cost)}`);
+    const house = upgrades.house;
+    check("house: combat rooms one level up are tested", house.length > 0 && house.every((c) => data.houseRoomDetailMap[c.hrid].usableInActionTypeMap["/action_types/combat"] && c.level === 1), house.map((c) => `${c.name} ${Math.round(c.cost)} ${(c.deltaPct * 100).toFixed(1)}%`).join(", "));
+    const mystical = house.find((c) => c.hrid === "/house_rooms/mystical_study");
+    check("house: cost is coins plus materials at the ask", !!mystical && Math.abs(mystical.cost - mystical.materials.reduce((sum, m) => sum + m.count * m.price, 0)) < 1e-6 && mystical.materials.some((m) => m.hrid === "/items/coin"));
+    const skills = [...new Set(upgrades.levels.map((c) => c.hrid))].sort();
+    check("levels: only the skills magic uses", skills.join(",") === "attack,defense,intelligence,magic,stamina", skills.join(","));
+    const magic5 = upgrades.levels.find((c) => c.hrid === "magic" && c.level === profile.levels.magic + 5);
+    check("levels: +5 Magic helps and says how long it takes", !!magic5 && magic5.delta > 0 && magic5.hoursToReach > 0, magic5 && `${(magic5.deltaPct * 100).toFixed(1)}% in ${magic5.hoursToReach.toFixed(1)} h`);
+    check("levels: never on the shopping list", !plan.picks.some((p) => p.kind === "skillLevel"));
+    check("ability order: one ability, nothing to reorder", upgrades.orders.length === 0);
+}
+
+// Enhancing gear yourself, from the copy you wear or a +0 bought for it.
+{
+    const who = skillingCharacter(character, items, data);
+    const pricer = marketPricer((hrid) => marketEntry(hrid, 0), data, "bid");
+    const quick = { ...settings, hours: 1, seeds: 2, enhanceCost: (hrid, starts) => selfEnhanceCosts(hrid, who, data, pricer, starts) };
+    const t1 = performance.now();
+    const raw2 = await analyzeRaw(pool, profile, best.zone, quick);
+    const rated2 = rateUpgrades(raw2, quick);
+    log(`   self-enhance analysis: ${raw2.candidates.length} candidates (${upgrades.candidates.length} without) in ${(performance.now() - t1).toFixed(0)} ms`);
+    const t2 = performance.now();
+    const equipment = Object.values(data.itemDetailMap).filter((i) => i.equipmentDetail && i.enhancementCosts?.length);
+    for (const i of equipment) quick.enhanceCost(i.hrid, [0, 3]);
+    log(`   self-enhance costs for all ${equipment.length} enhanceable items: ${(performance.now() - t2).toFixed(0)} ms`);
+    const made = raw2.candidates.filter((c) => c.enhance);
+    check("self-enhance: some +levels are cheaper to make than to buy", made.length > 0, made.slice(0, 4).map((c) => `${c.hrid.split("/").pop()}+${c.enhancementLevel} ${Math.round(c.price)} (${c.enhance.start} +${c.enhance.from})`).join(", "));
+    const worn = made.filter((c) => c.enhance.start === "worn");
+    check("self-enhance: the copy you wear is enhanced further, nothing sold", worn.length > 0 && worn.every((c) => c.resale === 0 && c.replaces.hrid === c.hrid && c.enhancementLevel > c.replaces.enhancementLevel), worn.slice(0, 3).map((c) => `${c.hrid.split("/").pop()} +${c.enhance.from}→+${c.enhancementLevel} ${Math.round(c.cost)}`).join(", "));
+    const bought = made.find((c) => c.enhance.start === "buy");
+    check("self-enhance: from a bought +0 the price includes it", !bought || Math.abs(bought.price - bought.enhance.basePrice - bought.enhance.cost) < 1e-6);
+    check("self-enhance: never more than the listing for that +level", made.every((c) => { const ask = marketEntry(c.hrid, c.enhancementLevel)?.a; return !(ask > 0) || c.price <= ask; }));
+    check("self-enhance: within budget after resale", raw2.candidates.filter((c) => c.kind === "gear").every((c) => c.cost <= quick.budget));
+    const plan2 = buildPlan(rated2, quick.budget);
+    check("self-enhance: plan within budget", plan2.spent <= quick.budget);
+}
+
+// Ability order: every order of the abilities in the normal slots, the best one applied by hrid.
+{
+    const p4 = structuredClone(profile);
+    p4.levels.intelligence = 60;
+    p4.abilities = [null, { hrid: "/abilities/water_strike", level: 6 }, { hrid: "/abilities/fireball", level: 1 }, { hrid: "/abilities/ice_spear", level: 1 }, null];
+    const quick = { ...settings, hours: 1, seeds: 2 };
+    const raw4 = await analyzeRaw(pool, p4, best.zone, quick);
+    const rated4 = rateUpgrades(raw4, quick);
+    const orders = raw4.candidates.filter((c) => c.kind === "abilityOrder");
+    check("ability order: all 3! − 1 other orders are tested", orders.length === 5 && new Set(orders.map((c) => c.hrid)).size === 5, orders.map((c) => c.order.map((h) => h.split("/").pop()).join(">")).join(" | "));
+    const order = ["/abilities/ice_spear", "/abilities/water_strike", "/abilities/fireball"];
+    const applied = applyPlan(p4, { picks: [], order: { order } });
+    check("ability order: applied to the slots in that order", applied.abilities.slice(1, 4).map((a) => a.hrid).join() === order.join() && applied.abilities[2].level === 6);
+    const swapped = applyPlan(p4, { picks: [{ kind: "ability", slot: "ability3", hrid: "/abilities/entangle", level: 1 }], order: { order } });
+    check("ability order: an ability the plan swaps in keeps its slot", swapped.abilities[3].hrid === "/abilities/entangle" && swapped.abilities[1].hrid === "/abilities/water_strike" && swapped.abilities[2].hrid === "/abilities/fireball");
+    const plan4 = buildPlan(rated4, quick.budget);
+    check("ability order: a recommended order is significant and safe", !plan4.order || (plan4.order.significant && plan4.order.safe && plan4.order.delta > 0), plan4.order ? plan4.order.order.join(">") : "keep the order");
+}
 
 // Same simulations, gold focus: no re-simulation, and running costs now count against a drink.
 const raw = upgrades;

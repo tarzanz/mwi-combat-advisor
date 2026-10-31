@@ -185,8 +185,16 @@ try {
     check("coin rates shown per day", /profit [^\n]*\/day/.test(upgrades) && /Extra cost\/day/.test(headers));
     check("confidence column shown", /Sure/.test(upgrades) && /\d+%/.test(upgrades));
     check("enhanced gear listed", /\+\d+\s/.test(upgrades.slice(upgrades.indexOf("Equipment\n"))));
+    const headings = await page.$$eval(".mwia-body h3", (hs) => hs.map((h) => h.textContent));
+    check("house rooms tested", headings.includes("House") && /(Mystical Study|Armory|Library|Gym|Dojo|Archery Range|Dining Room)\s+lvl 0 → 1/.test(upgrades));
+    check("more skill levels shown with the time to get there", /More levels \(not for sale\)/.test(upgrades) && /Magic\s+21 → 26/.test(upgrades) && /\d+(\.\d)? (h|days|min)/.test(upgrades.slice(upgrades.indexOf("More levels"))));
+    check("ability order section", /Ability order/.test(upgrades));
+    check("what you take off is counted as sold", /− [\d.,]+k? selling your/.test(upgrades) || /\*/.test(upgrades.slice(upgrades.indexOf("Equipment\n"))));
+    check("gear you can enhance yourself is offered", /🔨 enhance yourself/.test(upgrades) || /enhance it to \+\d+ yourself/.test(upgrades));
     console.log(upgrades.slice(upgrades.indexOf("Zone:"), upgrades.indexOf("Equipment\n")));
     await page.screenshot({ path: path.join(shotDir, "3-upgrades.png"), fullPage: false });
+    await page.evaluate(() => [...document.querySelectorAll(".mwia-body h3")].find((h) => h.textContent === "Ability order")?.scrollIntoView());
+    await page.screenshot({ path: path.join(shotDir, "3b-house-levels.png"), fullPage: false });
     if (MOBILE) {
         const overflow = await page.$eval(".mwia-body", (n) => ({ scroll: n.scrollWidth, client: n.clientWidth }));
         check("phone: upgrade tables fit the width", overflow.scroll <= overflow.client + 1, JSON.stringify(overflow));

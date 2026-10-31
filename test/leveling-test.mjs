@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { alchemyActions, coinCost, evaluateAlchemy, levelPenalty } from "../src/alchemy.js";
-import { BASE_RATES, MAX_TARGET, MIN_PROTECT, cheapestProtection, enhanceCycles, enhancingActions, evaluateEnhance, levelBonus, protectedCycle } from "../src/enhancing.js";
+import { BASE_RATES, MAX_TARGET, MIN_PROTECT, cheapestProtection, enhanceCycles, enhancingActions, evaluateEnhance, levelBonus, protectedCycle, selfEnhanceCosts } from "../src/enhancing.js";
 import { PLAN_MODES, coinsPerXp, enhanceBudget, marketPricer, rankSkilling } from "../src/skilling.js";
 import { itemSkillBuffs, rankUpgrades } from "../src/skilling-upgrades.js";
 
@@ -86,7 +86,7 @@ for (const [mult, b] of [[1, 0], [1.05, 0.01], [0.7, 0], [1.2, 0.03]]) {
 // The solve subtracts nearly equal numbers at ~1e10 attempts, so allow rounding.
 check("attempts per target match a Markov solve (with and without Blessed Tea)", worst < 1e-6, String(worst));
 // Protection: a dense solve of (I − M) E = c, where a failure at +from or above drops one level.
-function protectedBySolve(p, b, target, from, cost) {
+function protectedBySolve(p, b, target, from, cost, start = 0) {
     const n = target;
     const A = Array.from({ length: n }, (_, L) => {
         const row = Array(n + 1).fill(0);
@@ -107,7 +107,7 @@ function protectedBySolve(p, b, target, from, cost) {
             for (let k = i; k <= n; k++) A[r][k] -= f * A[i][k];
         }
     }
-    return A[0][n] / A[0][0];
+    return A[start][n] / A[start][start];
 }
 {
     let worstProtected = 0;
@@ -137,6 +137,39 @@ function protectedBySolve(p, b, target, from, cost) {
     const p3 = [0.5, 0.5, 0.5];
     const { attempts: a3, protections: g3 } = protectedCycle(p3, 0, 3, 2, [0, 0, 0]);
     check("by hand: +3 at 50% protected from +2 takes 12 attempts and 1 protection", near(a3, 12) && near(g3, 1), `${a3} ${g3}`);
+    // From an item already at +start (the one you wear): the same solve, read at that row.
+    let worstStart = 0;
+    for (const [mult, b] of [[1, 0], [1.05, 0.01], [0.8, 0.02]]) {
+        const p = BASE_RATES.map((r) => Math.min(1, r * mult));
+        for (const target of [4, 8, 12]) {
+            for (const from of [MIN_PROTECT, 5, target].filter((f) => f >= MIN_PROTECT && f <= target)) {
+                for (const start of [1, 3, target - 1]) {
+                    const r = protectedCycle(p, b, target, from, new Array(target).fill(0), start);
+                    worstStart = Math.max(worstStart, Math.abs(r.attempts / protectedBySolve(p, b, target, from, () => 1, start) - 1));
+                    if (from < target) worstStart = Math.max(worstStart, Math.abs(r.protections / protectedBySolve(p, b, target, from, (L) => (L >= from ? 1 - p[L] : 0), start) - 1));
+                }
+            }
+        }
+    }
+    check("protection from +start: attempts and protections match a Markov solve", worstStart < 1e-6, String(worstStart));
+    // By hand: +3 at 50% from +2 protected from +2: E2 = 1 + ½E1, E1 = 1 + ½E2 + ½E0, E0 = 12 → E1 = 10, E2 = 6.
+    check("by hand: from +2 the same +3 takes 6 attempts", near(protectedCycle(p3, 0, 3, 2, [0, 0, 0], 2).attempts, 6));
+}
+
+// Enhancing it yourself (the combat upgrades' +N that nobody sells).
+{
+    const who = { levels: { "/skills/enhancing": 60 }, buffs: { "/action_types/enhancing": [] }, drinks: {}, slots: { "/action_types/enhancing": 2 }, concentration: 1, equipped: [], houseLevels: {} };
+    const hat = "/items/cotton_hat";
+    const cost = selfEnhanceCosts(hat, who, data, market, [0, 3]);
+    const targets = Array.from({ length: 10 }, (_, i) => cost(0, i + 1));
+    check("self-enhance: a cost for every target", targets.every(Boolean));
+    check("self-enhance: a higher target costs more", targets.every((c, i) => i === 0 || c.cost > targets[i - 1].cost), targets.map((c) => Math.round(c.cost)).join(" "));
+    check("self-enhance: from +3 costs less than from +0", cost(3, 7).cost < cost(0, 7).cost && cost(3, 3) === null);
+    const plain = selfEnhanceCosts(hat, { ...who, slots: { "/action_types/enhancing": 0 } }, data, market, [0])(0, 5);
+    check("self-enhance: the cheapest teas never cost more than none", targets[4].cost <= plain.cost + 1e-6, `${Math.round(targets[4].cost)} vs ${Math.round(plain.cost)}`);
+    const high = cost(0, 10);
+    check("self-enhance: a high target uses protection", !!high.protect && high.protections > 0, JSON.stringify(high.protect));
+    check("self-enhance: an item without enhancing materials has no cost", selfEnhanceCosts("/items/coin", who, data, market, [0])(0, 1) === null);
 }
 const p = BASE_RATES;
 const one = enhanceCycles(p, 0, p.map((_, L) => 1.4 * (1 + L) * 30));

@@ -20,6 +20,8 @@ import {
     switchStyle,
     verifyPlan,
 } from "./analysis.js";
+import { selfEnhanceCosts } from "./enhancing.js";
+import { skillingCharacter } from "./skilling.js";
 import {
     abilityName,
     actionName,
@@ -40,7 +42,7 @@ import { SimPool } from "./pool.js";
 import { CSS } from "./style.js";
 import { coinsInput, esc, parseCoins } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
-import { rememberToggle, renderSkilling, toggleShowAll } from "./skilling-ui.js";
+import { rememberToggle, renderSkilling, skillingMarket, toggleShowAll } from "./skilling-ui.js";
 import { onHistoryChange } from "./price-history-ui.js";
 import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js";
 import { startToolNotice } from "./tool-notice.js";
@@ -269,6 +271,19 @@ function saveCombatSetup() {
     rememberCombatSetup(raw.zone, { drinks: target.drinks.slice(0, slots.drinks), food: target.food.slice(0, slots.food), perHour, encountersPerHour: raw.base.encounters });
 }
 
+// What enhancing gear yourself costs, with your Enhancing level, tool, Observatory and the cheapest teas.
+function enhanceCostFor() {
+    const data = getClientData();
+    try {
+        const who = skillingCharacter(state.character, state.items, data);
+        const market = skillingMarket("bid");
+        return (hrid, starts) => selfEnhanceCosts(hrid, who, data, market, starts);
+    } catch (error) {
+        console.warn("[MWI Advisor] enhancing costs unavailable", error);
+        return null;
+    }
+}
+
 async function doRefine() {
     await refineUncertain(ui.pool, ui.upgradeRaw, ui.settings, progress("Re-running uncertain suggestions"));
     rerateUpgrades();
@@ -280,10 +295,10 @@ async function doUpgrades() {
     const zone = chosenZone(profile);
     if (!zone) throw new Error("Pick a zone first.");
     const run = runSettings();
-    const settings = { ...run, budget: Math.max(0, run.budget - (starter?.cost || 0)), starter };
+    const settings = { ...run, budget: Math.max(0, run.budget - (starter?.cost || 0)), starter, enhanceCost: enhanceCostFor() };
     ui.upgradeRaw = await analyzeUpgrades(ui.pool, profile, zone, settings, progress("Testing upgrades"), progress("Re-running uncertain suggestions"));
     rerateUpgrades();
-    if (ui.plan.picks.length || ui.plan.drink || ui.plan.food) {
+    if (ui.plan.picks.length || ui.plan.drink || ui.plan.food || ui.plan.order) {
         ui.verified = await verifyPlan(ui.pool, profile, ui.plan, zone, settings, progress("Checking the shopping list"));
         saveCombatSetup();
     }
@@ -603,7 +618,8 @@ function renderZones() {
 
 function upgradeNotes(c, base) {
     const notes = [];
-    if (c.owned && c.cost === 0) notes.push('<span class="mwia-ok">you own it</span>');
+    if (c.owned && c.cost === 0 && c.kind === "gear") notes.push('<span class="mwia-ok">you own it</span>');
+    if (c.enhance) notes.push(`<span class="mwia-dim" title="${esc(enhanceDetail(c))}">🔨 enhance yourself</span>`);
     if (c.deathsDelta < 0 && base.deaths > 0) notes.push(`<span class="mwia-ok">fewer deaths</span>`);
     if (!c.safe) notes.push(`<span class="mwia-bad">more deaths</span>`);
     return notes.join(" ");
@@ -614,12 +630,63 @@ function upgradeNotes(c, base) {
 // What to put in the cart for one suggestion. Consumables: enough for a day of combat.
 function cartItems(c) {
     const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c.result?.consumables?.[hrid] || 0)));
+    if (c.kind === "house") return c.materials.filter((m) => m.hrid !== COIN).map((m) => ({ hrid: m.hrid, quantity: m.count }));
+    if (c.kind === "abilityOrder" || c.kind === "skillLevel") return [];
+    if (c.enhance) return mergeCart([...enhanceCart(c), ...(c.extraFood ? [{ hrid: c.extraFood, quantity: forOneDay(c.extraFood) }] : [])]);
     if (c.kind === "abilityLevel") return [{ hrid: c.bookHrid, quantity: c.books }];
     if (c.kind === "ability") return c.cost ? [{ hrid: c.bookHrid, quantity: 1 }] : [];
     if (c.kind === "food" || c.kind === "drinks") return c.remove ? [] : [{ hrid: c.hrid, quantity: forOneDay(c.hrid) }];
     const items = c.cost ? [{ hrid: c.hrid, quantity: 1, enhancementLevel: c.enhancementLevel || 0 }] : [];
     if (c.extraFood) items.push({ hrid: c.extraFood, quantity: forOneDay(c.extraFood) });
     return items;
+}
+
+const COIN = "/items/coin";
+
+// Enhancing it yourself: the +0 to buy (unless it's yours), the expected materials and
+// protections, rounded up, and the teas for the hours it takes.
+function enhanceCart(c) {
+    const e = c.enhance;
+    const items = e.start === "buy" ? [{ hrid: c.hrid, quantity: 1, enhancementLevel: 0 }] : [];
+    for (const m of e.materials) if (m.itemHrid !== COIN) items.push({ hrid: m.itemHrid, quantity: Math.ceil(m.count * e.attempts) });
+    if (e.protect && e.protections > 0) items.push({ hrid: e.protect.itemHrid, quantity: Math.ceil(e.protections), enhancementLevel: 0 });
+    for (const tea of e.teas) items.push({ hrid: tea, quantity: Math.ceil(e.drinks) });
+    return items;
+}
+
+function mergeCart(items) {
+    const merged = new Map();
+    for (const i of items) {
+        const key = i.hrid + "#" + (i.enhancementLevel || 0);
+        const known = merged.get(key);
+        if (known) known.quantity += i.quantity;
+        else merged.set(key, { ...i });
+    }
+    return [...merged.values()];
+}
+
+function hoursText(h) {
+    if (h === null || h === undefined || !Number.isFinite(h)) return "–";
+    if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+    if (h < 48) return `${dec(h, 1)} h`;
+    return `${dec(h / 24, 1)} days`;
+}
+
+// "+3 → +6: ~40 attempts, ~2.1 h, protected from +4 with Mirror of Protection (~3), teas: …"
+function enhanceDetail(c) {
+    const e = c.enhance;
+    const from = e.start === "worn" ? `your +${e.from}` : e.start === "owned" ? `your copy at +${e.from}` : `a +0 bought for ${coins(e.basePrice)}`;
+    const parts = [`from ${from} to +${c.enhancementLevel}: about ${int(e.attempts)} attempts (${hoursText(e.hours)} of Enhancing), materials and teas ${coins(c.price - e.basePrice)}`];
+    if (e.protect) parts.push(`protected from +${e.protect.from} with ${itemName(e.protect.itemHrid)} (about ${dec(e.protections, 1)})`);
+    parts.push(e.teas.length ? `teas: ${e.teas.map(itemName).join(", ")}` : "no teas");
+    return parts.join("; ");
+}
+
+// "for 1.5M (2.0M − 500k for your Cheese Helmet)"
+function costText(c) {
+    if (!c.cost && !c.resale) return "(free)";
+    const sold = c.resale ? ` (${coins(c.price)} − ${coins(c.resale)} selling your ${c.sold.map((g) => gearLabel(g)).join(" and ")})` : "";
+    return `for ${c.cost ? coins(c.cost) : "nothing"}${sold}`;
 }
 
 const starterCart = (w) => (w?.cost ? [{ hrid: w.hrid, quantity: 1, enhancementLevel: w.enhancementLevel }] : []);
@@ -655,7 +722,8 @@ async function sendItemsToCart(items) {
 }
 
 function renderUpgrades() {
-    let html = `<p>Tests one change at a time (gear incl. enhanced +N copies, new abilities, levelling abilities with extra books, drinks, food) in the chosen zone
+    let html = `<p>Tests one change at a time (gear incl. enhanced +N copies – bought or enhanced yourself –, new abilities, levelling abilities with extra books,
+      the order of your abilities, combat house rooms, drinks, food, and a few more levels in each skill) in the chosen zone
       and measures how much it improves your focus – XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
       ${settingsHtml(["focus", "levels", "style", "zone", "budget", "spending", "risk", "accuracy"])}
       <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>`;
@@ -681,7 +749,7 @@ function renderUpgrades() {
           <button class="mwia-btn" data-action="refine" ${ui.busy ? "disabled" : ""}>🎯 Run more simulations for them</button></p>`;
     }
     html += `<h3>📋 Recommended shopping list</h3>`;
-    if (!plan || (!plan.picks.length && !plan.starter && !plan.drink && !plan.food)) {
+    if (!plan || (!plan.picks.length && !plan.starter && !plan.drink && !plan.food && !plan.order)) {
         html += `<p>Nothing within budget gave a reliable improvement that is worth its price. Try Spending "All in", raise the budget, try another zone,
           or just keep levelling – at some levels that really is the best move.</p>`;
     } else {
@@ -697,11 +765,24 @@ function renderUpgrades() {
                 what = `${p.books}× <b>${esc(itemName(p.bookHrid))}</b> and read them: ${esc(abilityName(p.hrid))} level ${p.fromLevel} → ${p.level}`;
             } else if (p.kind === "ability") {
                 what = `ability <b>${esc(abilityName(p.hrid))}</b>${p.cost ? ` (buy the book ${esc(itemName(p.bookHrid))})` : ` (level ${p.level})`}`;
+            } else if (p.kind === "house") {
+                html += `<li>Build <b>${esc(p.name)}</b> level ${p.fromLevel} → ${p.level} <span class="mwia-dim">(${houseMaterials(p)})</span>: ${gainText(p)} for ${coins(p.cost)} ${cartButton(cartItems(p), "🛒 Materials")}</li>`;
+                continue;
+            } else if (p.enhance) {
+                const own = p.enhance.start === "worn" ? `your <b>${gearLabel(p.replaces)}</b>` : p.enhance.start === "owned" ? `your <b>${gearLabel({ hrid: p.hrid, enhancementLevel: p.enhance.from })}</b>` : `a <b>${gearLabel({ hrid: p.hrid })}</b>`;
+                const replaces = p.enhance.start !== "worn" && p.replaces ? ` – replaces ${gearLabel(p.replaces)}` : "";
+                html += `<li>${p.enhance.start === "buy" ? "Buy" : "Take"} ${own} and enhance it to <span class="mwia-enh">+${p.enhancementLevel}</span> yourself
+                  <span class="mwia-dim">(${esc(enhanceDetail(p))})</span>${replaces}: ${gainText(p)} ${costText(p)} ${cartButton(cartItems(p))}</li>`;
+                continue;
             } else {
                 what = `<b>${gearLabel(p)}</b> in ${SLOT_NAMES[p.slot]}${p.extraFood ? ` and put <b>${esc(itemName(p.extraFood))}</b> in the new food slot` : ""}`;
             }
             const replaces = p.replaces ? ` – replaces ${p.kind === "ability" ? esc(abilityName(p.replaces)) : gearLabel(p.replaces)}` : "";
-            html += `<li>${p.cost ? "Buy" : "Use"} ${what}${replaces}: ${gainText(p)} ${p.cost ? `for ${coins(p.cost)}` : "(free)"} ${cartButton(cartItems(p))}</li>`;
+            html += `<li>${p.cost || p.price ? "Buy" : "Use"} ${what}${replaces}: ${gainText(p)} ${costText(p)} ${cartButton(cartItems(p))}</li>`;
+        }
+        if (plan.order) {
+            html += `<li>Put your abilities in this order: <b>${plan.order.order.map((h) => esc(abilityName(h))).join(" → ")}</b>
+              <span class="mwia-dim">(now ${plan.order.was.map((h) => esc(abilityName(h))).join(" → ")})</span>: ${gainText(plan.order)} (free)</li>`;
         }
         for (const [kind, pick, max] of [["Food", plan.food, plan.foodMax], ["Drink", plan.drink, plan.drinkMax]]) {
             if (!pick) continue;
@@ -750,13 +831,19 @@ function renderUpgrades() {
     if (!getClientData().levelExperienceTable) {
         html += `<p class="mwia-dim">The game data has no level table, so levelling up abilities with extra books could not be evaluated.</p>`;
     }
+    html += orderTable(result.orders || []);
+    html += upgradeTable("House", result.house || [], base, () => "House", (c) => `${esc(c.name)} <span class="mwia-dim">lvl ${c.fromLevel} → ${c.level}</span>`, () => "–", "Room");
+    html += levelTable(result.levels || [], base);
     html += consumableTable("Drinks", result.drinks, base);
     html += consumableTable("Food", result.food, base);
     if (result.food.some((c) => !c.safe && c.delta > 0) && result.gear.some((c) => c.extraFood && c.safe && c.delta > 0)) {
         html += `<p class="mwia-reco">Some food gives more XP but makes you die, because it replaces your only HP food. A bigger pouch gives an extra
           food slot so you can keep both – see the pouch row under Equipment.</p>`;
     }
-    html += `<p class="mwia-dim">Prices = lowest sell order on the market right now, also for enhanced (+N) gear. "Gain" = improvement of your focus as a share of
+    html += `<p class="mwia-dim">Prices = lowest sell order on the market right now, also for enhanced (+N) gear – or, when it is cheaper, enhancing it yourself (🔨:
+      your Enhancing level, tool and Observatory, the cheapest teas and protection; from the copy you wear or own, or a +0 bought for it). Gear you take off is
+      counted as sold at the best bid after the 4% tax, so the price is what the change really costs (* in the Price column); that is what the budget counts.
+      House rooms cost their coins and materials at the lowest sell order. "Gain" = improvement of your focus as a share of
       what you have now (XP/h and/or profit/h, weighted by the slider); "Gain per 1M" = gain per million coins spent. Profit counts loot minus food/drink cost,
       so with a gold focus expensive drinks drop out by themselves.
       Items you already own cost 0. "Sure" = how certain it is that a suggestion is a real improvement and not luck; faded rows are below ${Math.round(CONFIDENCE_LEVEL * 100)}%
@@ -804,9 +891,43 @@ function upgradeTable(title, list, base, slotText, nameHtml, replacesHtml, nameH
     for (const c of shown) {
         const efficiency = c.cost > 0 ? pct((c.delta / c.cost) * 1e6) : "∞";
         html += `<tr class="${c.significant ? "" : "mwia-faded"}"><td>${slotText(c)}</td><td>${nameHtml(c)}</td><td>${replacesHtml(c)}</td>
-          <td class="mwia-num">${c.cost ? coins(c.cost) : "0"}</td><td class="mwia-num">${signed(xpNum, c.xpDelta)}</td><td class="mwia-num">${signed(coins, perDay(c.profitDelta))}</td>
+          <td class="mwia-num"${c.resale ? ` title="${coins(c.price)} − ${coins(c.resale)} for what it replaces"` : ""}>${c.cost ? coins(c.cost) : "0"}${c.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed(xpNum, c.xpDelta)}</td><td class="mwia-num">${signed(coins, perDay(c.profitDelta))}</td>
           <td class="mwia-num">${pct(c.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c)}</td>
           <td>${upgradeNotes(c, base)}</td><td>${cartButton(cartItems(c))}</td></tr>`;
+    }
+    return html + `</tbody></table>`;
+}
+
+function houseMaterials(c) {
+    return c.materials.map((m) => (m.hrid === COIN ? `${coins(m.count)} coins` : `${int(m.count)}× ${esc(itemName(m.hrid))}`)).join(", ");
+}
+
+function orderTable(list) {
+    const shown = list.filter((c) => c.delta > 0).slice(0, 5);
+    let html = `<h3>Ability order</h3>`;
+    if (!list.length) return html + `<p class="mwia-dim">Fewer than two abilities in your slots – nothing to reorder.</p>`;
+    if (!shown.length) return html + `<p class="mwia-dim">Your order is the best of the ${list.length + 1} orders tried.</p>`;
+    html += `<table class="mwia-table mwia-wide"><thead><tr><th>Order</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
+      <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th></tr></thead><tbody>`;
+    for (const c of shown) {
+        html += `<tr class="${c.significant ? "" : "mwia-faded"}"><td>${c.order.map((h) => esc(abilityName(h))).join(" → ")}</td>
+          <td class="mwia-num">${signed(xpNum, c.xpDelta)}</td><td class="mwia-num">${signed(coins, perDay(c.profitDelta))}</td><td class="mwia-num">${pct(c.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c)}</td><td>${upgradeNotes(c, ui.upgradeResult.base)}</td></tr>`;
+    }
+    return html + `</tbody></table>`;
+}
+
+// What more levels in a combat skill would give, and how long they take at the XP you get there now.
+function levelTable(list, base) {
+    if (!list.length) return "";
+    let html = `<h3>More levels (not for sale)</h3><p class="mwia-dim">What a few more levels in a skill would give, to weigh against what you can buy.
+      The time is at the XP an hour that skill gets now, in this zone.</p>`;
+    html += `<table class="mwia-table mwia-wide"><thead><tr><th>Skill</th><th>Levels</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
+      <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num" title="Time to get there at the XP an hour the skill gets now">Time</th><th></th></tr></thead><tbody>`;
+    for (const c of list) {
+        html += `<tr class="${c.significant ? "" : "mwia-faded"}"><td>${SKILL_NAMES[c.hrid] || esc(c.hrid)}</td><td>${c.fromLevel} → ${c.level}</td>
+          <td class="mwia-num">${signed(xpNum, c.xpDelta)}</td><td class="mwia-num">${signed(coins, perDay(c.profitDelta))}</td><td class="mwia-num">${pct(c.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c)}</td><td class="mwia-num">${hoursText(c.hoursToReach)}</td><td>${upgradeNotes(c, base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
 }

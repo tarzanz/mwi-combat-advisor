@@ -100,7 +100,7 @@ function measure(who, data, market, skill, actionHrid, leveling) {
 // is worth at least a +0, though it has to be listed to sell); else the vendor
 // price. bidLevel: the level whose bid was used, null for the vendor price.
 // bids(hrid): [{ enhancementLevel, bid }] for every level someone is buying.
-function resaleValue(itemHrid, level, ownBid, data, bids = null) {
+export function resaleValue(itemHrid, level, ownBid, data, bids = null) {
     if (ownBid > 0) return { value: ownBid * (1 - MARKET_TAX), bidLevel: level };
     const lower = (bids?.(itemHrid) || []).filter((b) => b.bid > 0 && b.enhancementLevel < level).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
     if (lower) return { value: lower.bid * (1 - MARKET_TAX), bidLevel: lower.enhancementLevel };

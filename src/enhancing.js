@@ -17,7 +17,7 @@
 //   Artisan's Crate ((100 + item level) / 120000 for a small one) – checked
 //   against the game's Enhancing window (Cheese Helmet: 10.1% and ~0.087%).
 
-import { MARKET_TAX, salesLimited, teaBuffs, totals } from "./skilling.js";
+import { MARKET_TAX, salesLimited, teaBuffs, teaSetups, totals, usableTeas } from "./skilling.js";
 
 export const ENHANCING = "enhancing";
 const TYPE = "/action_types/enhancing";
@@ -77,11 +77,12 @@ export function enhanceCycles(p, blessed, xpAt) {
 
 // With protection from +from: a failure at +from or above drops one level
 // (using up one protection), below it back to +0. Expected attempts, XP (xpPer[L]
-// on average per attempt at +L) and protections from +0 until the item first
-// reaches the target (or a blessed success jumps past it). Solved backwards:
-// each E[L] is written as a + b·E[L−1] + d·E[0], then E[0] follows from the +0 row.
+// on average per attempt at +L) and protections from +start (+0 by default) until
+// the item first reaches the target (or a blessed success jumps past it). Solved
+// backwards: each E[L] is written as a + b·E[L−1] + d·E[0], then E[0] follows from
+// the +0 row and E[1], E[2] … from it. from ≥ target means no protection.
 const SOLVE = { a: new Float64Array(3 * (MAX_TARGET + 2)), b: new Float64Array(MAX_TARGET + 2), d: new Float64Array(MAX_TARGET + 2) };
-export function protectedCycle(p, blessed, target, from, xpPer) {
+export function protectedCycle(p, blessed, target, from, xpPer, start = 0) {
     const { a, b, d } = SOLVE;
     a.fill(0, 3 * target, 3 * (target + 2));
     b[target] = b[target + 1] = d[target] = d[target + 1] = 0;
@@ -103,8 +104,27 @@ export function protectedCycle(p, blessed, target, from, xpPer) {
         d[L] = (up1 * d[L + 1] + up2 * (b2 * d[L + 1] + d[L + 2]) + (guarded ? 0 : fail)) / keep;
     }
     const rest = 1 - d[0];
-    return rest > 1e-15 ? { attempts: a[0] / rest, xp: a[1] / rest, protections: a[2] / rest } : null;
+    if (rest <= 1e-15) return null;
+    const e0 = [a[0] / rest, a[1] / rest, a[2] / rest];
+    let e = e0;
+    for (let L = 1; L <= start && L < target; L++) e = e.map((prev, i) => a[3 * L + i] + b[L] * prev + d[L] * e0[i]);
+    return { attempts: e[0], xp: e[1], protections: e[2] };
 }
+
+// protectedCycle from every start +0 … +target−1 at once (no XP): { attempts[], protections[] } or null.
+function protectedCycles(p, blessed, target, from) {
+    if (!protectedCycle(p, blessed, target, from, NO_XP)) return null;
+    const { a, b, d } = SOLVE;
+    const rest = 1 - d[0];
+    const attempts = [a[0] / rest];
+    const protections = [a[2] / rest];
+    for (let L = 1; L < target; L++) {
+        attempts[L] = a[3 * L] + b[L] * attempts[L - 1] + d[L] * attempts[0];
+        protections[L] = a[3 * L + 2] + b[L] * protections[L - 1] + d[L] * protections[0];
+    }
+    return { attempts, protections };
+}
+const NO_XP = new Array(MAX_TARGET + 2).fill(0);
 
 // The cheapest protection for an item: a copy of it, a Mirror of Protection or
 // one of its own protection items, at the ask; null when none is for sale.
@@ -182,21 +202,14 @@ function baseItem(action, market, owned) {
     return price === null ? null : { price, owned: false };
 }
 
-// Enhancing one item with one tea setup, for every target +1…+20; the target
-// that scores best is returned (gold a day by default), with the others in
-// `targets` for the detail. resale(hrid, level): { price (after tax), source,
-// level, floor, sold (a day, or null) }. The market takes only sold a day; the
-// rest goes for the floor price.
-// target: a fixed target (the one set in the game) instead of the best one.
-export function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score = (r) => r.goldPerDay, target: fixedTarget = null } = {}) {
+// Success rates and speed for an item of this level with your level, gear,
+// house and these teas.
+function enhanceRates(who, data, teas, itemLevel) {
     const buff = totals([...(who.buffs?.[TYPE] || []), ...teaBuffs(teas, who.concentration, data)]);
     const fraction = (type) => buff(type).flat + buff(type).ratio;
     const level = who.levels[SKILL] ?? 1;
     const levelBuff = buff("/buff_types/enhancing_level");
     const effectiveLevel = (1 + levelBuff.ratio) * level + levelBuff.flat;
-    const itemLevel = action.levelRequirement.level;
-    const detail = data.itemDetailMap[action.itemHrid];
-
     const success = fraction(SUCCESS) + missingSuccess(who, data);
     const bonus = levelBonus(effectiveLevel, itemLevel);
     const multiplier = Math.max(0, 1 + bonus + success);
@@ -204,7 +217,19 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
     const blessed = Math.max(0, fraction("/buff_types/blessed"));
     const levelSpeed = Math.max(0, effectiveLevel - itemLevel) / 100;
     const speed = fraction("/buff_types/action_speed") + levelSpeed;
-    const cycleSeconds = BASE_SECONDS / (1 + speed);
+    return { fraction, level, effectiveLevel, success, bonus, multiplier, rates, blessed, levelSpeed, speed, cycleSeconds: BASE_SECONDS / (1 + speed) };
+}
+
+// Enhancing one item with one tea setup, for every target +1…+20; the target
+// that scores best is returned (gold a day by default), with the others in
+// `targets` for the detail. resale(hrid, level): { price (after tax), source,
+// level, floor, sold (a day, or null) }. The market takes only sold a day; the
+// rest goes for the floor price.
+// target: a fixed target (the one set in the game) instead of the best one.
+export function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score = (r) => r.goldPerDay, target: fixedTarget = null } = {}) {
+    const itemLevel = action.levelRequirement.level;
+    const detail = data.itemDetailMap[action.itemHrid];
+    const { fraction, level, effectiveLevel, success, bonus, multiplier, rates, blessed, levelSpeed, speed, cycleSeconds } = enhanceRates(who, data, teas, itemLevel);
     const actionsPerHour = 3600 / cycleSeconds;
     const wisdom = fraction("/buff_types/wisdom");
     const xpAt = rates.map((_, L) => 1.4 * (1 + L) * (10 + itemLevel) * (1 + wisdom));
@@ -325,4 +350,62 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
     if (fixedTarget) best = results.find((r) => r.target === Math.min(MAX_TARGET, fixedTarget)) || best;
     best.targets = results.map((r) => ({ target: r.target, attempts: r.attempts, protect: r.protect, goldPerDay: r.goldPerDay, xpPerDay: r.xpPerDay, coinsPerXp: r.coinsPerXp, sell: r.outputs[0].sell }));
     return best;
+}
+
+// What enhancing an item yourself costs: from +start to +target, the expected
+// materials, protections and teas with your Enhancing level, gear and
+// Observatory, the tea setup and the protection level (or none) that cost the
+// least. Returns lookup(start, target) -> { cost, attempts, protections,
+// protect: { itemHrid, price, from } | null, teas, hours, drinks (of each tea),
+// materials } or null
+// (nothing to enhance with, or a material nobody sells). The item itself is
+// not part of the cost: the caller adds what it pays for it. Essence and
+// crates that attempts drop are left out, as is the XP.
+export function selfEnhanceCosts(itemHrid, who, data, market, starts) {
+    const detail = data.itemDetailMap[itemHrid];
+    const inputs = detail?.enhancementCosts?.length ? materials(detail, market) : null;
+    if (!inputs) return () => null;
+    const costPerAttempt = inputs.reduce((sum, i) => sum + i.value, 0);
+    const guard = cheapestProtection(detail, market);
+    const firsts = [...new Set(starts)].filter((s) => s >= 0 && s < MAX_TARGET);
+    const best = new Map();
+    for (const teas of costTeaSetups(who, data, market)) {
+        const { rates, blessed, cycleSeconds } = enhanceRates(who, data, teas, detail.itemLevel || 1);
+        const teaPerHour = teas.reduce((sum, hrid) => sum + (market.buy(hrid) ?? 0), 0) * 12 * (who.concentration || 1);
+        const perAttempt = costPerAttempt + (teaPerHour * cycleSeconds) / 3600;
+        for (let target = 1; target <= MAX_TARGET; target++) {
+            const froms = [target];
+            if (guard) for (let from = MIN_PROTECT; from < target; from++) froms.push(from);
+            for (const from of froms) {
+                const cycles = protectedCycles(rates, blessed, target, from);
+                if (!cycles) continue;
+                const guarded = from < target;
+                for (const start of firsts) {
+                    if (start >= target) continue;
+                    const attempts = cycles.attempts[start];
+                    if (!Number.isFinite(attempts)) continue;
+                    const protections = guarded ? cycles.protections[start] : 0;
+                    const cost = attempts * perAttempt + (guarded ? protections * guard.price : 0);
+                    const key = start * 100 + target;
+                    const known = best.get(key);
+                    if (known && known.cost <= cost) continue;
+                    const hours = (attempts * cycleSeconds) / 3600;
+                    best.set(key, { cost, attempts, protections, protect: guarded ? { ...guard, from } : null, teas, hours, drinks: hours * 12 * (who.concentration || 1), materials: inputs });
+                }
+            }
+        }
+    }
+    return (start, target) => best.get(start * 100 + target) || null;
+}
+
+// The tea setups worth trying for the cost of enhancing: only teas that change
+// the success rate, Blessed Tea's double steps or the speed (the speed shortens
+// the hours the teas are drunk for).
+const COST_BUFFS = new Set([SUCCESS, "/buff_types/blessed", "/buff_types/enhancing_level", "/buff_types/action_speed"]);
+function costTeaSetups(who, data, market) {
+    const drinks = who.drinks?.[TYPE] || [];
+    const candidates = usableTeas(data, TYPE).filter(
+        (hrid) => (market.buy(hrid) !== null || drinks.includes(hrid)) && (data.itemDetailMap[hrid]?.consumableDetail?.buffs || []).some((b) => COST_BUFFS.has(b.typeHrid))
+    );
+    return teaSetups(data, TYPE, who.slots?.[TYPE] ?? 1, candidates);
 }

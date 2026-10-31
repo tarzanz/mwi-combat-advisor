@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.44.0
+// @version      0.45.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -753,1001 +753,6 @@
     return best;
   }
 
-  // src/analysis.js
-  var ACCURACY = {
-    fast: { label: "Fast", hours: 1, seeds: 3 },
-    normal: { label: "Normal", hours: 2, seeds: 4 },
-    thorough: { label: "Thorough", hours: 4, seeds: 6 }
-  };
-  var CONFIDENCE_LEVEL = 0.9;
-  var MAX_SEED_FACTOR = 3;
-  var BASE_SEED_FACTOR = 3;
-  var MAX_REFINED = 40;
-  var REFINE_BELOW = 0.99;
-  var seedFor = (index) => Math.imul(index + 1, 2654435761) >>> 1 || 1;
-  var SPENDING = {
-    frugal: { label: "Frugal", minPctPerMillion: 10 },
-    balanced: { label: "Balanced", minPctPerMillion: 3 },
-    all: { label: "All in", minPctPerMillion: 0 }
-  };
-  var STYLE_STATS = {
-    melee: ["stabAccuracy", "slashAccuracy", "smashAccuracy", "stabDamage", "slashDamage", "smashDamage", "meleeExperience", "defensiveDamage"],
-    ranged: ["rangedAccuracy", "rangedDamage", "rangedExperience"],
-    magic: ["magicAccuracy", "magicDamage", "magicExperience"]
-  };
-  var PHYSICAL_STATS = ["physicalAmplify", "armorPenetration"];
-  function offStyleStats(style) {
-    const own = /* @__PURE__ */ new Set([...STYLE_STATS[style], ...style === "magic" ? [] : PHYSICAL_STATS]);
-    return new Set([...Object.values(STYLE_STATS).flat(), ...PHYSICAL_STATS].filter((stat) => !own.has(stat)));
-  }
-  var MIN_GOLD_REF = 1e3;
-  function xpValue(result, settings) {
-    return settings?.countLevels && result.levels !== null && result.levels !== void 0 ? result.levels : result.xpTotal;
-  }
-  function makeGoal(settings, reference) {
-    return {
-      countLevels: !!settings.countLevels,
-      gold: Math.min(1, Math.max(0, Number(settings.goldWeight) || 0)),
-      xpRef: Math.max(settings.countLevels ? 1e-6 : 1, reference.xp),
-      goldRef: Math.max(MIN_GOLD_REF, reference.gold)
-    };
-  }
-  function score(result, goal) {
-    return (1 - goal.gold) * xpValue(result, goal) / goal.xpRef + goal.gold * result.profit / goal.goldRef;
-  }
-  var RARE_DEATHS_PER_HOUR = 0.5;
-  function deathLimit(settings) {
-    return settings.acceptRareDeaths ? RARE_DEATHS_PER_HOUR : 0;
-  }
-  var acceptable = (result, settings) => result.deaths <= deathLimit(settings);
-  function zoneGoal(zoneResults, settings) {
-    const safe = zoneResults.filter((z) => acceptable(z.result, settings));
-    const pool = safe.length ? safe : zoneResults;
-    return makeGoal(settings, {
-      xp: Math.max(...pool.map((z) => xpValue(z.result, settings))),
-      gold: Math.max(...pool.map((z) => z.result.loot))
-    });
-  }
-  function consumableCost(result) {
-    let cost = 0;
-    for (const [hrid, perHour] of Object.entries(result.consumables)) cost += perHour * (askPrice(hrid) ?? sellValue(hrid));
-    return cost;
-  }
-  function lootValue(result, tier) {
-    let value = 0;
-    for (const [monster, perHour] of Object.entries(result.kills)) value += perHour * expectedLootPerKill(monster, tier, result);
-    return value;
-  }
-  function average(results) {
-    const n2 = results.length;
-    const mean = (pick) => results.reduce((sum, r) => sum + pick(r), 0) / n2;
-    const meanMap = (pick) => {
-      const out = {};
-      for (const r of results) for (const [k, v] of Object.entries(pick(r))) out[k] = (out[k] || 0) + v / n2;
-      return out;
-    };
-    return {
-      ...results[0],
-      xp: meanMap((r) => r.xp),
-      xpTotal: mean((r) => r.xpTotal),
-      deaths: mean((r) => r.deaths),
-      encounters: mean((r) => r.encounters),
-      kills: meanMap((r) => r.kills),
-      consumables: meanMap((r) => r.consumables),
-      manaUsed: meanMap((r) => r.manaUsed)
-    };
-  }
-  var ENEMY_RESPAWN_SECONDS = 3;
-  var MAX_ENCOUNTERS_PER_HOUR = 3600 / ENEMY_RESPAWN_SECONDS;
-  function isSpawnCapped(result) {
-    return result.encounters >= 0.85 * MAX_ENCOUNTERS_PER_HOUR;
-  }
-  function combatLevelsPerHour(result, profile) {
-    const table = getClientData()?.levelExperienceTable;
-    if (!Array.isArray(table) || !profile) return null;
-    const skills = {};
-    for (const [skill, level] of Object.entries(profile.levels)) skills[skill] = { level, xp: profile.allExperience?.["/skills/" + skill] ?? null };
-    return levelsPerHour(table, skills, result.xp);
-  }
-  function enrich(result, tier, profile) {
-    const loot = lootValue(result, tier);
-    const cost = consumableCost(result);
-    return { ...result, loot, cost, profit: loot - cost, levels: combatLevelsPerHour(result, profile), killsTotal: Object.values(result.kills).reduce((a, b) => a + b, 0) };
-  }
-  async function simulateRuns(pool, items, zone, hours, onProgress) {
-    const data = getClientData();
-    const jobs = [];
-    for (const item of items) {
-      const player = toDTO(item.profile, data);
-      for (const seed of item.seeds) {
-        jobs.push({ player, zoneHrid: zone.zoneHrid, tier: zone.tier, hours, seed: seedFor(seed), extraBuffs: item.profile.extraBuffs });
-      }
-    }
-    const results = await pool.runAll(jobs, onProgress);
-    let next = 0;
-    return items.map((item) => item.seeds.map((seed) => ({ ...enrich(results[next++], zone.tier, item.profile), seed })));
-  }
-  var summarize = (runs, tier, profile) => enrich(average(runs), tier, profile);
-  async function simulateVariants(pool, variants, zone, settings, onProgress) {
-    const seeds = Array.from({ length: settings.seeds }, (_, i) => i);
-    const runs = await simulateRuns(pool, variants.map((v) => ({ profile: v.profile, seeds })), zone, settings.hours, onProgress);
-    return variants.map((variant, i) => ({ ...variant, result: summarize(runs[i], zone.tier, variant.profile), runs: runs[i] }));
-  }
-  async function analyzeZones(pool, profile, settings, onProgress) {
-    const variants = [];
-    for (const zone of combatZones()) {
-      for (let tier = 0; tier <= Math.min(settings.maxTier, zone.maxDifficulty ?? 0); tier++) {
-        variants.push({ zone: { zoneHrid: zone.hrid, tier } });
-      }
-    }
-    const data = getClientData();
-    const player = toDTO(profile, data);
-    const hours = Math.max(1, settings.hours / 2);
-    const jobs = variants.map((v) => ({ player, zoneHrid: v.zone.zoneHrid, tier: v.zone.tier, hours, seed: seedFor(0), extraBuffs: profile.extraBuffs }));
-    const results = await pool.runAll(jobs, onProgress);
-    return variants.map((v, i) => ({ ...v, result: enrich(results[i], v.zone.tier, profile) }));
-  }
-  function pickBestZone(zoneResults, settings) {
-    if (!zoneResults?.length) return null;
-    const goal = zoneGoal(zoneResults, settings);
-    const sorted = [...zoneResults].sort((a, b) => score(b.result, goal) - score(a.result, goal));
-    return sorted.find((z) => acceptable(z.result, settings)) || sorted[0];
-  }
-  function switchStyle(profile, style, budget) {
-    const data = getClientData();
-    if (!style || style === weaponStyle(profile, data)) return { profile, starter: null };
-    const fits = (item) => styleOfItem(item) === style && item.equipmentDetail.combatStats.primaryTraining === "/skills/" + style && meetsRequirements(profile, item.equipmentDetail.levelRequirements);
-    const weapons = new Map(Object.values(data.itemDetailMap).filter(fits).map((item) => [item.hrid, item]));
-    const owned = profile.inventory.filter((i) => weapons.has(i.hrid)).sort((a, b) => (weapons.get(b.hrid).itemLevel || 0) - (weapons.get(a.hrid).itemLevel || 0) || b.enhancementLevel - a.enhancementLevel)[0];
-    let starter = null;
-    if (owned) {
-      starter = { hrid: owned.hrid, enhancementLevel: owned.enhancementLevel, cost: 0, owned: true };
-    } else {
-      for (const item of weapons.values()) {
-        const price = askPrice(item.hrid, 0);
-        if (price === null || price > budget) continue;
-        if (!starter || price < starter.cost) starter = { hrid: item.hrid, enhancementLevel: 0, cost: price, owned: false };
-      }
-    }
-    if (!starter) return { profile, starter: null, missing: style };
-    const variant = cloneProfile(profile);
-    starter.slot = data.itemDetailMap[starter.hrid].equipmentDetail.type.split("/").pop();
-    starter.replaces = weaponOf(profile);
-    equip(variant, starter.slot, { hrid: starter.hrid, enhancementLevel: starter.enhancementLevel });
-    return { profile: variant, starter };
-  }
-  function isUsefulFor(style, stats) {
-    const offStyle = offStyleStats(style);
-    return Object.entries(stats || {}).some(([key, value]) => typeof value === "number" && value > 0 && !offStyle.has(key) && key !== "attackInterval");
-  }
-  function gearCandidates(profile, budget) {
-    const data = getClientData();
-    const style = weaponStyle(profile, data);
-    const candidates = [];
-    for (const item of Object.values(data.itemDetailMap)) {
-      const detail = item.equipmentDetail;
-      if (!detail) continue;
-      const type = detail.type?.split("/").pop();
-      if (!GEAR_TYPES.includes(type)) continue;
-      if (!meetsRequirements(profile, detail.levelRequirements)) continue;
-      const stats = detail.combatStats || {};
-      if (type === "main_hand" || type === "two_hand") {
-        if (styleOfItem(item) !== style) continue;
-      } else if (!isUsefulFor(style, stats)) {
-        continue;
-      }
-      if (type === "off_hand" && profile.equipment.two_hand) continue;
-      const current = profile.equipment[type];
-      let options = gearOptions(profile, item.hrid, budget);
-      if (type === "pouch") options = options.slice(0, 1);
-      for (const option of options) {
-        if (current && current.hrid === item.hrid && current.enhancementLevel >= option.enhancementLevel) continue;
-        const gear = { hrid: item.hrid, enhancementLevel: option.enhancementLevel };
-        const variant = cloneProfile(profile);
-        equip(variant, type, gear);
-        if (type === "pouch") {
-          const before = slotCounts(profile, data);
-          const after = slotCounts(variant, data);
-          if (after.food < before.food || after.drinks < before.drinks) continue;
-        }
-        const candidate = {
-          kind: "gear",
-          slot: type,
-          hrid: item.hrid,
-          enhancementLevel: option.enhancementLevel,
-          cost: option.cost,
-          owned: option.owned,
-          replaces: current || null,
-          profile: variant
-        };
-        candidates.push(candidate);
-        const foodSlotsNow = slotCounts(profile, data).food;
-        if (type === "pouch" && slotCounts(variant, data).food > foodSlotsNow) {
-          for (const food of combatConsumables("food")) {
-            if (profile.food.includes(food)) continue;
-            const withFood = cloneProfile(variant);
-            while (withFood.food.length <= foodSlotsNow) withFood.food.push(null);
-            withFood.food[foodSlotsNow] = food;
-            candidates.push({ ...candidate, extraFood: food, extraFoodSlot: foodSlotsNow, profile: withFood });
-          }
-        }
-      }
-    }
-    return candidates;
-  }
-  var MAX_LEVELS = 5;
-  function gearOptions(profile, hrid, budget) {
-    const owned = profile.inventory.filter((i) => i.hrid === hrid).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
-    const options = owned ? [{ enhancementLevel: owned.enhancementLevel, cost: 0, owned: true }] : [];
-    const front = [];
-    for (const listing of marketListings(hrid)) {
-      if (listing.price > budget || owned && listing.enhancementLevel <= owned.enhancementLevel) continue;
-      if (front.length && listing.enhancementLevel <= front[front.length - 1].enhancementLevel) continue;
-      front.push(listing);
-    }
-    let picked = front;
-    if (front.length > MAX_LEVELS) {
-      const step = (front.length - 1) / (MAX_LEVELS - 1);
-      picked = Array.from({ length: MAX_LEVELS }, (_, i) => front[Math.round(i * step)]);
-    }
-    for (const listing of picked) options.push({ enhancementLevel: listing.enhancementLevel, cost: listing.price, owned: false });
-    return options;
-  }
-  function combatConsumables(kind) {
-    const category = kind === "food" ? "/item_categories/food" : "/item_categories/drink";
-    return Object.values(getClientData().itemDetailMap).filter((item) => item.categoryHrid === category && item.consumableDetail?.usableInActionTypeMap?.["/action_types/combat"]).filter((item) => askPrice(item.hrid, 0) !== null).map((item) => item.hrid);
-  }
-  function abilityCandidates(profile, budget) {
-    const data = getClientData();
-    const slots = slotCounts(profile, data);
-    if (slots.abilities === 0) return [];
-    const books = {};
-    for (const item of Object.values(data.itemDetailMap)) {
-      if (item.abilityBookDetail) books[item.abilityBookDetail.abilityHrid] = item;
-    }
-    const equipped = new Set(profile.abilities.filter(Boolean).map((a) => a.hrid));
-    const indices = [];
-    for (let i = 1; i <= slots.abilities; i++) indices.push(i);
-    const empty = indices.filter((i) => !profile.abilities[i]);
-    const placements = empty.length ? [empty[0]] : indices;
-    const candidates = [];
-    for (const ability of Object.values(data.abilityDetailMap)) {
-      if (ability.isSpecialAbility || equipped.has(ability.hrid)) continue;
-      let level = profile.learnedAbilities[ability.hrid];
-      let cost = 0;
-      const book = books[ability.hrid];
-      if (!level) {
-        if (!book || !meetsRequirements(profile, book.abilityBookDetail.levelRequirements)) continue;
-        const price = askPrice(book.hrid, 0);
-        if (price === null || price > budget) continue;
-        level = 1;
-        cost = price;
-      }
-      for (const index of placements) {
-        const variant = cloneProfile(profile);
-        variant.abilities[index] = { hrid: ability.hrid, level };
-        candidates.push({
-          kind: "ability",
-          slot: "ability" + index,
-          hrid: ability.hrid,
-          bookHrid: book?.hrid,
-          level,
-          cost,
-          owned: cost === 0,
-          replaces: profile.abilities[index]?.hrid || null,
-          profile: variant
-        });
-      }
-    }
-    return [...candidates, ...abilityLevelCandidates(profile, budget, books)];
-  }
-  var LEVEL_STEPS = [1, 2, 3, 5, 10, 20];
-  function abilityLevelCandidates(profile, budget, books) {
-    const data = getClientData();
-    const table = data.levelExperienceTable;
-    if (!table) return [];
-    const slots = slotCounts(profile, data);
-    const candidates = [];
-    profile.abilities.forEach((entry, index) => {
-      if (!entry || (index === 0 ? !slots.special : index > slots.abilities)) return;
-      const book = books[entry.hrid];
-      const xpPerBook = book?.abilityBookDetail?.experienceGain;
-      const price = book && askPrice(book.hrid, 0);
-      if (!xpPerBook || !price) return;
-      const xpNow = profile.abilityExperience[entry.hrid] ?? table[entry.level] ?? 0;
-      for (const step of LEVEL_STEPS) {
-        const target = entry.level + step;
-        if (table[target] === void 0) break;
-        const count2 = Math.max(1, Math.ceil((table[target] - xpNow) / xpPerBook));
-        if (count2 * price > budget) break;
-        const variant = cloneProfile(profile);
-        variant.abilities[index] = { hrid: entry.hrid, level: target };
-        candidates.push({
-          kind: "abilityLevel",
-          slot: "ability" + index,
-          hrid: entry.hrid,
-          bookHrid: book.hrid,
-          fromLevel: entry.level,
-          level: target,
-          books: count2,
-          cost: count2 * price,
-          owned: false,
-          replaces: null,
-          profile: variant
-        });
-      }
-    });
-    return candidates;
-  }
-  function consumableCandidates(profile, kind) {
-    const data = getClientData();
-    const slots = slotCounts(profile, data);
-    const count2 = kind === "food" ? slots.food : slots.drinks;
-    const current = (kind === "food" ? profile.food : profile.drinks).slice(0, count2);
-    while (current.length < count2) current.push(null);
-    const empty = current.findIndex((h2) => !h2);
-    const placements = empty !== -1 ? [empty] : current.map((_, i) => i);
-    const candidates = [];
-    for (const hrid of combatConsumables(kind)) {
-      if (current.includes(hrid)) continue;
-      for (const index of placements) {
-        const variant = cloneProfile(profile);
-        const list = kind === "food" ? variant.food : variant.drinks;
-        while (list.length < count2) list.push(null);
-        list[index] = hrid;
-        candidates.push({ kind, slot: kind + index, hrid, cost: 0, replaces: current[index] || null, profile: variant });
-      }
-    }
-    current.forEach((hrid, index) => {
-      if (!hrid) return;
-      const variant = cloneProfile(profile);
-      (kind === "food" ? variant.food : variant.drinks)[index] = null;
-      candidates.push({ kind, remove: true, slot: kind + index, hrid, cost: 0, replaces: hrid, profile: variant });
-    });
-    return candidates;
-  }
-  function bestPerItem(evaluated) {
-    const groups = /* @__PURE__ */ new Map();
-    for (const c2 of evaluated) {
-      const key = [c2.kind, c2.hrid, c2.enhancementLevel ?? "", c2.kind === "abilityLevel" ? c2.level : "", c2.remove ? "remove" : ""].join("|");
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(c2);
-    }
-    return [...groups.values()].map((options) => {
-      const pool = options.some((c2) => c2.safe) ? options.filter((c2) => c2.safe) : options;
-      const top = pool.reduce((a, b) => b.delta > a.delta ? b : a);
-      if (!top.extraFood || top.delta <= 0) return top;
-      return pool.filter((c2) => c2.delta >= 0.85 * top.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta)[0];
-    });
-  }
-  async function analyzeUpgrades(pool, profile, zone, settings, onProgress, onRefineProgress) {
-    const budget = settings.budget;
-    const candidates = [
-      ...gearCandidates(profile, budget),
-      ...abilityCandidates(profile, budget),
-      ...consumableCandidates(profile, "drinks"),
-      ...consumableCandidates(profile, "food")
-    ].map((c2, id) => ({ ...c2, id }));
-    const seeds = (n2) => Array.from({ length: n2 }, (_, i) => i);
-    const items = [{ profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR) }, ...candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings.seeds) }))];
-    const runs = await simulateRuns(pool, items, zone, settings.hours, onProgress);
-    const simulated = [{ profile }, ...candidates].map((v, i) => ({ ...v, result: summarize(runs[i], zone.tier, v.profile), runs: runs[i] }));
-    const slots = slotCounts(profile, getClientData());
-    const emptyAbilitySlots = [];
-    for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
-    const raw = {
-      zone,
-      hours: settings.hours,
-      seedsPerRound: settings.seeds,
-      emptyAbilitySlots,
-      starter: settings.starter || null,
-      baseProfile: profile,
-      base: simulated[0].result,
-      baseRuns: simulated[0].runs,
-      candidates: simulated.slice(1)
-    };
-    for (let round = 0; round < 2; round++) {
-      if (!await refineUncertain(pool, raw, settings, onRefineProgress)) break;
-    }
-    return raw;
-  }
-  function uncertainCandidates(raw, settings) {
-    const rated = rateUpgrades(raw, settings);
-    const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
-    return [...rated.gear, ...rated.abilities, ...rated.drinks, ...rated.food].filter((c2) => c2.delta > 0 && c2.safe && c2.confidence < REFINE_BELOW && c2.runs.length < maxRuns).sort((a, b) => b.delta - a.delta).slice(0, MAX_REFINED);
-  }
-  async function refineUncertain(pool, raw, settings, onProgress) {
-    const targets = uncertainCandidates(raw, settings).map((c2) => raw.candidates.find((x) => x.id === c2.id));
-    if (!targets.length) return 0;
-    const items = targets.map((c2) => {
-      const first = Math.max(...c2.runs.map((r) => r.seed)) + 1;
-      return { profile: c2.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
-    });
-    const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
-    targets.forEach((c2, i) => {
-      c2.runs = [...c2.runs, ...runs[i]];
-      c2.result = summarize(c2.runs, raw.zone.tier, c2.profile);
-    });
-    return targets.length;
-  }
-  function rateUpgrades(raw, settings) {
-    const { base } = raw;
-    const goal = makeGoal(settings, { xp: xpValue(base, settings), gold: base.loot });
-    const baseScore = score(base, goal);
-    const baseScores = raw.baseRuns.map((r) => score(r, goal));
-    const used = (c2) => c2.remove || !["food", "drinks"].includes(c2.kind) || (c2.result.consumables[c2.hrid] || 0) > 0.01;
-    const evaluated = raw.candidates.filter(used).map((c2) => {
-      const delta = score(c2.result, goal) - baseScore;
-      const confidence = confidenceGreater(c2.runs.map((r) => score(r, goal)), baseScores) ?? 0.5;
-      return {
-        ...c2,
-        delta,
-        deltaPct: delta,
-        // scores are already fractions of the reference
-        confidence,
-        significant: confidence >= CONFIDENCE_LEVEL,
-        xpDelta: xpValue(c2.result, settings) - xpValue(base, settings),
-        profitDelta: c2.result.profit - base.profit,
-        // A change that makes you die noticeably more often is never recommended, whatever the
-        // gain – unless you accept rare deaths and it stays within that limit.
-        safe: c2.result.deaths <= Math.max(base.deaths * 1.1 + 0.3, deathLimit(settings)),
-        costPerHourDelta: c2.result.cost - base.cost,
-        deathsDelta: c2.result.deaths - base.deaths
-      };
-    });
-    const best = bestPerItem(evaluated);
-    const byDelta = (a, b) => b.delta - a.delta;
-    return {
-      ...raw,
-      goal,
-      baseScore,
-      gear: best.filter((c2) => c2.kind === "gear").sort(byDelta),
-      abilities: best.filter((c2) => c2.kind === "ability" || c2.kind === "abilityLevel").sort(byDelta),
-      drinks: best.filter((c2) => c2.kind === "drinks").sort(byDelta),
-      food: best.filter((c2) => c2.kind === "food").sort(byDelta)
-    };
-  }
-  function stepConfidence(analysis, from, to) {
-    if (!from) return to.confidence;
-    const scores = (c2) => c2.runs.map((r) => score(r, analysis.goal));
-    return confidenceGreater(scores(to), scores(from)) ?? 0.5;
-  }
-  function hullSteps(group, options, minGain, minEfficiency, confident) {
-    const points = [{ cost: 0, delta: 0, candidate: null }, ...options.map((c2) => ({ cost: c2.cost, delta: c2.delta, candidate: c2 }))].sort(
-      (a, b) => a.cost - b.cost || b.delta - a.delta
-    );
-    const rising = [];
-    for (const p2 of points) {
-      const last = rising[rising.length - 1];
-      if (last && (p2.cost === last.cost || p2.delta <= last.delta)) continue;
-      rising.push(p2);
-    }
-    const slope = (a, b) => (b.delta - a.delta) / (b.cost - a.cost);
-    const hull = [];
-    for (const p2 of rising) {
-      while (hull.length >= 2 && slope(hull[hull.length - 2], hull[hull.length - 1]) <= slope(hull[hull.length - 1], p2)) hull.pop();
-      hull.push(p2);
-    }
-    const steps = [];
-    if (hull[0].candidate) steps.push({ group, to: hull[0].candidate, cost: 0, gain: hull[0].delta, efficiency: Infinity });
-    let from = hull[0];
-    let firstPaidEfficiency = null;
-    for (let i = 1; i < hull.length; i++) {
-      const to = hull[i];
-      const gain = to.delta - from.delta;
-      if (gain < (firstPaidEfficiency === null ? minGain : 2 * minGain) || !confident(from.candidate, to.candidate)) continue;
-      const efficiency = gain / (to.cost - from.cost);
-      if (efficiency < minEfficiency) break;
-      if (firstPaidEfficiency === null) firstPaidEfficiency = efficiency;
-      else if (efficiency < firstPaidEfficiency / 4) break;
-      steps.push({ group, to: to.candidate, cost: to.cost - from.cost, gain, efficiency });
-      from = to;
-    }
-    return steps;
-  }
-  function pickConsumable(list, gold) {
-    const ok = list.filter((c2) => c2.significant && c2.safe && c2.delta > 0);
-    if (!ok.length) return { value: null, max: null };
-    const max = ok.reduce((a, b) => b.delta > a.delta + 1e-9 || Math.abs(b.delta - a.delta) <= 1e-9 && b.remove ? b : a);
-    const preferStopping = (a, b) => (b.remove ? 1 : 0) - (a.remove ? 1 : 0);
-    const value = gold > 0 ? max : ok.filter((c2) => c2.delta >= 0.5 * max.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta || preferStopping(a, b))[0];
-    const stop = ok.find((c2) => c2.remove && c2.slot === value.slot && c2 !== value && c2.delta >= value.delta - STOP_TOLERANCE);
-    const chosen = stop || value;
-    return { value: chosen, max: max === chosen ? null : max };
-  }
-  var STOP_TOLERANCE = 5e-3;
-  function buildPlan(analysis, budget, spending = "balanced") {
-    budget -= analysis.starter?.cost || 0;
-    const minGain = 0.01;
-    const minEfficiency = (SPENDING[spending] || SPENDING.balanced).minPctPerMillion / 100 / 1e6;
-    const usable = (c2) => c2.significant && c2.safe && c2.delta > 0;
-    const groups = /* @__PURE__ */ new Map();
-    for (const c2 of analysis.gear.filter(usable)) {
-      const key = c2.slot === "main_hand" || c2.slot === "two_hand" ? "weapon" : c2.slot;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(c2);
-    }
-    for (const c2 of analysis.abilities.filter(usable)) {
-      const key = c2.kind === "abilityLevel" || c2.replaces ? c2.slot : "new-ability:" + c2.hrid;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(c2);
-    }
-    const confident = (from, to) => stepConfidence(analysis, from, to) >= CONFIDENCE_LEVEL;
-    const steps = [...groups.entries()].flatMap(([key, options]) => hullSteps(key, options, minGain, minEfficiency, confident));
-    steps.sort((a, b) => b.efficiency - a.efficiency || b.gain - a.gain);
-    const chosen = /* @__PURE__ */ new Map();
-    const blocked = /* @__PURE__ */ new Set();
-    const freeAbilitySlots = [...analysis.emptyAbilitySlots];
-    const usedAbilities = /* @__PURE__ */ new Set();
-    let spent = 0;
-    for (const step of steps) {
-      if (blocked.has(step.group)) continue;
-      const isNewAbility = step.group.startsWith("new-ability:");
-      if (spent + step.cost > budget || isNewAbility && !freeAbilitySlots.length || usedAbilities.has(step.to.hrid)) {
-        blocked.add(step.group);
-        continue;
-      }
-      spent += step.cost;
-      if (isNewAbility) {
-        chosen.set(step.group, { ...step.to, slot: "ability" + freeAbilitySlots.shift() });
-      } else {
-        chosen.set(step.group, step.to);
-      }
-      if (step.to.kind === "ability") usedAbilities.add(step.to.hrid);
-    }
-    let picks = [...chosen.values()];
-    if (picks.some((p2) => p2.slot === "two_hand")) picks = picks.filter((p2) => p2.slot !== "off_hand");
-    const isWeapon = (p2) => p2.slot === "main_hand" || p2.slot === "two_hand";
-    const starter = analysis.starter && !picks.some(isWeapon) ? analysis.starter : null;
-    if (analysis.starter) picks = picks.map((p2) => isWeapon(p2) ? { ...p2, replaces: analysis.starter.replaces } : p2);
-    spent = picks.reduce((sum, p2) => sum + p2.cost, 0) + (starter?.cost || 0);
-    const drink = pickConsumable(analysis.drinks, analysis.goal.gold);
-    const food = pickConsumable(analysis.food, analysis.goal.gold);
-    if (food.value && picks.some((p2) => p2.extraFood === food.value.hrid)) food.value = null;
-    return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max };
-  }
-  function putConsumable(list, slot, hrid) {
-    const index = Number(slot.replace(/\D+/g, ""));
-    while (list.length <= index) list.push(null);
-    list[index] = hrid;
-  }
-  function applyPlan(profile, plan) {
-    const result = cloneProfile(profile);
-    for (const pick of plan.picks) {
-      if (pick.kind === "gear") {
-        equip(result, pick.slot, { hrid: pick.hrid, enhancementLevel: pick.enhancementLevel });
-        if (pick.extraFood) putConsumable(result.food, "food" + pick.extraFoodSlot, pick.extraFood);
-      } else if (pick.kind === "ability" || pick.kind === "abilityLevel") {
-        result.abilities[Number(pick.slot.replace("ability", ""))] = { hrid: pick.hrid, level: pick.level };
-      }
-    }
-    for (const pick of [plan.drink, plan.food]) {
-      if (pick) putConsumable(pick.kind === "food" ? result.food : result.drinks, pick.slot, pick.remove ? null : pick.hrid);
-    }
-    return result;
-  }
-  async function verifyPlan(pool, profile, plan, zone, settings, onProgress) {
-    const variants = [{ kind: "base", profile }, { kind: "plan", profile: applyPlan(profile, plan) }];
-    const [base, planned] = await simulateVariants(pool, variants, zone, settings, onProgress);
-    return { base: base.result, planned: planned.result };
-  }
-
-  // src/pool.js
-  var SimPool = class {
-    constructor(workerSource, tables, size) {
-      this.url = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
-      this.tables = tables;
-      this.size = size;
-      this.workers = [];
-      this.queue = [];
-      this.pending = /* @__PURE__ */ new Map();
-      this.nextId = 1;
-      this.cancelled = false;
-    }
-    async start() {
-      const ready = [];
-      for (let i = 0; i < this.size; i++) {
-        const worker = new Worker(this.url);
-        const entry = { worker, busy: true };
-        ready.push(
-          new Promise((resolve2, reject) => {
-            worker.onmessage = (event) => {
-              if (event.data.type === "ready") {
-                worker.onmessage = (e) => this.onResult(entry, e.data);
-                entry.busy = false;
-                resolve2();
-              }
-            };
-            worker.onerror = (event) => reject(new Error(event.message || "Simulation worker error"));
-          })
-        );
-        worker.postMessage({ type: "init", data: this.tables });
-        this.workers.push(entry);
-      }
-      await Promise.all(ready);
-    }
-    run(job) {
-      return new Promise((resolve2, reject) => {
-        this.queue.push({ id: this.nextId++, job, resolve: resolve2, reject });
-        this.pump();
-      });
-    }
-    // Runs all jobs; onProgress(done, total) is called as they finish.
-    async runAll(jobs, onProgress) {
-      this.cancelled = false;
-      let done2 = 0;
-      return Promise.all(
-        jobs.map(
-          (job) => this.run(job).then((result) => {
-            done2++;
-            onProgress?.(done2, jobs.length);
-            return result;
-          })
-        )
-      );
-    }
-    cancel() {
-      this.cancelled = true;
-      const error = new Error("Cancelled");
-      for (const task of this.queue) task.reject(error);
-      this.queue = [];
-    }
-    pump() {
-      for (const entry of this.workers) {
-        if (entry.busy || this.queue.length === 0) continue;
-        const task = this.queue.shift();
-        entry.busy = true;
-        this.pending.set(task.id, task);
-        entry.worker.postMessage({ type: "sim", id: task.id, job: task.job });
-      }
-    }
-    onResult(entry, message) {
-      entry.busy = false;
-      const task = this.pending.get(message.id);
-      this.pending.delete(message.id);
-      if (task) {
-        if (message.type === "result") task.resolve(message.result);
-        else task.reject(new Error(message.error));
-      }
-      this.pump();
-    }
-    terminate() {
-      for (const entry of this.workers) entry.worker.terminate();
-      this.workers = [];
-      URL.revokeObjectURL(this.url);
-    }
-  };
-
-  // src/style.js
-  var NARROW = "(max-width: 700px), (max-height: 500px)";
-  var CSS = `
-.mwia-launcher {
-  position: fixed; right: 44px; bottom: 74px; z-index: 999;
-  width: 36px; height: 36px; padding: 0; border-radius: 50%; border: 1px solid #5b6bb0;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(38,44,74,.85); color: #e8ebff; font: 18px/1 sans-serif; cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,.4); touch-action: none; user-select: none; -webkit-user-select: none;
-}
-.mwia-launcher:hover { background: #333b63; }
-.mwia-launcher.mwia-has-alert::after {
-  content: ""; position: absolute; top: -2px; right: -2px; width: 11px; height: 11px;
-  border-radius: 50%; background: #e5484d; border: 2px solid #171b2e;
-}
-.mwia-alert-row td { background: rgba(229,72,77,.08); }
-.mwia-version {
-  align-self: center; margin-left: 5px; font: 400 9px/1 sans-serif; color: #aab3d9; opacity: .6;
-  text-decoration: none; white-space: nowrap; cursor: default;
-}
-.mwia-version-old {
-  color: #ff5c5c; opacity: 1; font-weight: 700; cursor: pointer; text-shadow: 0 0 5px rgba(255,70,70,.8);
-  animation: mwia-version-glow 2s ease-in-out infinite alternate;
-}
-@keyframes mwia-version-glow { from { text-shadow: 0 0 2px rgba(255,70,70,.4); } to { text-shadow: 0 0 7px rgba(255,70,70,.95); } }
-.mwia-panel {
-  position: fixed; top: 48px; right: 44px; z-index: 1000;
-  width: min(880px, calc(100vw - 58px)); max-height: calc(100vh - 64px);
-  display: flex; flex-direction: column;
-  background: #171b2e; color: #dfe3f5; border: 1px solid #3c4677; border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0,0,0,.55); font: 13px/1.45 sans-serif;
-}
-.mwia-hidden { display: none; }
-.mwia-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #2c3459; }
-.mwia-tabs { display: flex; gap: 4px; padding: 8px 10px 0; border-bottom: 1px solid #2c3459; flex-wrap: wrap; }
-.mwia-tab { background: none; border: none; color: #aab2d8; padding: 6px 12px; cursor: pointer; border-bottom: 2px solid transparent; font: inherit; }
-.mwia-tab.mwia-active { color: #fff; border-bottom-color: #7c8cff; }
-.mwia-body { padding: 12px 14px 16px; overflow: auto; }
-.mwia-body h3 { margin: 14px 0 6px; font-size: 14px; color: #c9d0ff; }
-.mwia-body p { margin: 6px 0; }
-.mwia-body ul, .mwia-body ol { margin: 4px 0 8px; padding-left: 20px; }
-.mwia-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-.mwia-table { border-collapse: collapse; width: 100%; }
-.mwia-table td, .mwia-table th { padding: 3px 6px; border-bottom: 1px solid #262d4d; text-align: left; vertical-align: top; }
-.mwia-table th { color: #9aa3cf; font-weight: 600; }
-.mwia-wide { font-size: 12px; margin-bottom: 6px; }
-.mwia-num { text-align: right !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.mwia-sum td { font-weight: 700; }
-.mwia-best td { background: #1f3326; }
-.mwia-faded td { opacity: .55; }
-.mwia-settings { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0; }
-.mwia-settings label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #9aa3cf; }
-.mwia-settings select, .mwia-settings input { background: #0f1222; color: #e8ebff; border: 1px solid #3c4677; border-radius: 5px; padding: 3px 6px; font: inherit; max-width: 260px; }
-.mwia-focus-row { display: flex; align-items: center; gap: 6px; color: #aab2d8; }
-.mwia-settings .mwia-focus-row input { width: 130px; padding: 0; border: none; background: none; accent-color: #f2c25b; }
-.mwia-focus-text { color: #e8ebff; }
-.mwia-settings input.mwia-invalid { border-color: #ff7b7b; }
-.mwia-cart-btn { background: #1e3a33; color: #8fe0c0; border: 1px solid #2f6b5a; border-radius: 4px; padding: 0 6px; font: 11px/1.6 sans-serif; cursor: pointer; white-space: nowrap; }
-.mwia-cart-btn:hover { background: #26493f; }
-.mwia-notice { padding: 6px 10px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #3c4677; background: #1d2440; }
-.mwia-notice-ok { border-color: #2f6b5a; background: #17302a; }
-.mwia-notice-warn { border-color: #7a6a2a; background: #2e2a17; }
-.mwia-notice-bad { border-color: #a03a4c; background: #4a1f28; }
-.mwia-notice-diag { margin-top: 6px; font: 11px/1.35 monospace; opacity: .8; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
-.mwia-btn { background: #4c5bd4; color: #fff; border: none; border-radius: 6px; padding: 7px 14px; font: 600 13px sans-serif; cursor: pointer; margin: 4px 0 8px; }
-.mwia-btn:disabled { opacity: .5; cursor: default; }
-.mwia-link { background: none; border: none; color: #9aa3cf; cursor: pointer; font: inherit; padding: 2px 6px; }
-.mwia-link:hover { color: #fff; }
-.mwia-dim { color: #8189b0; }
-.mwia-ok { color: #6fdc8c; }
-.mwia-warn { color: #f2c25b; }
-.mwia-bad { color: #ff7b7b; }
-.mwia-enh { color: #7fd0ff; }
-.mwia-tier { color: #f2a65b; font-weight: 700; }
-.mwia-error { background: #4a1f28; border: 1px solid #a03a4c; padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; }
-.mwia-reco { background: #1d2b45; border-left: 3px solid #7c8cff; padding: 8px 10px; border-radius: 4px; margin: 8px 0; }
-.mwia-progress { margin: 6px 0 10px; }
-.mwia-progress-label { display: flex; justify-content: space-between; font-size: 12px; color: #aab2d8; }
-.mwia-bar { height: 6px; background: #262d4d; border-radius: 3px; overflow: hidden; }
-.mwia-bar div { height: 100%; background: #7c8cff; transition: width .2s; }
-.mwia-tips li { margin: 3px 0; }
-.mwia-tip-bad::marker { content: "\u2716 "; color: #ff7b7b; }
-.mwia-tip-warn::marker { content: "\u26A0 "; color: #f2c25b; }
-.mwia-tip-info::marker { content: "\u2139 "; color: #7fd0ff; }
-.mwia-tip-ok::marker { content: "\u2714 "; color: #6fdc8c; }
-.mwia-plan li { margin: 3px 0; }
-.mwia-guide p, .mwia-guide li { max-width: 72ch; }
-.mwia-train {
-  position: fixed; right: 44px; bottom: 112px; z-index: 1500;
-  width: min(330px, calc(100vw - 58px)); max-height: 55vh; overflow: auto;
-  padding: 8px 10px; background: #171b2e; color: #dfe3f5; border: 1px solid #3c4677; border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0,0,0,.55); font: 12px/1.45 sans-serif;
-}
-.mwia-train p { margin: 5px 0; }
-.mwia-train-head { display: flex; align-items: center; gap: 4px; }
-.mwia-train-head b { flex: 1; }
-.mwia-train-now { margin: 4px 0; padding: 4px 8px; border-radius: 6px; background: #1d2b45; border-left: 3px solid #f2c25b; font-weight: 600; }
-.mwia-train-buttons { display: flex; gap: 6px; margin: 4px 0 6px; }
-.mwia-train-buttons button:disabled { opacity: .5; cursor: default; }
-.mwia-train-stops { margin: 4px 0; padding-left: 22px; }
-.mwia-train-stops li { margin: 1px 0; }
-.mwia-train-stops .mwia-num { color: #c9d0ff; }
-.mwia-train-done { opacity: .5; text-decoration: line-through; }
-.mwia-train-current { color: #ffe27a; font-weight: 600; }
-.mwia-train-start {
-  margin-left: 8px; padding: 5px 10px; border-radius: 6px; border: 1px solid #f2c25b;
-  background: #43351f; color: #ffe2a0; font: 600 12px sans-serif; cursor: pointer; white-space: nowrap;
-}
-/* MWITools lays rows out as grids or flex rows; the cost line takes a whole row of its own.
-   The planning-tab prefix outweighs MWITools' own rules for text in a row. */
-.planning-step .mwia-plan-cost, .planning-stage .mwia-plan-costs {
-  grid-column: 1 / -1; flex-basis: 100%; width: 100%; box-sizing: border-box; text-align: left;
-  font: 400 12px/1.4 sans-serif; color: #aab3dc;
-}
-.planning-step .mwia-plan-cost { margin-top: 4px; }
-.planning-stage .mwia-plan-costs { margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; }
-.planning-step .mwia-plan-cost-best, .planning-stage .mwia-plan-cost-best { color: #7ee2b0; font-weight: 600; }
-.mwia-skill-list { display: flex; flex-direction: column; }
-.mwia-skill-row { border-bottom: 1px solid #262d4d; }
-.mwia-skill-row.mwia-best { background: #1f3326; }
-.mwia-skill-row.mwia-faded > summary { opacity: .6; }
-.mwia-skill-row > summary { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 6px 4px; cursor: pointer; list-style: none; }
-.mwia-skill-row > summary::-webkit-details-marker { display: none; }
-.mwia-skill-row > summary::before { content: "\u25B8"; color: #5b6bb0; flex: none; }
-.mwia-skill-row[open] > summary::before { content: "\u25BE"; }
-.mwia-skill-name { flex: 1; min-width: 0; }
-.mwia-skill-name small, .mwia-skill-hint { display: block; color: #8189b0; font-size: 11px; }
-.mwia-skill-hint { color: #7ee2b0; }
-.mwia-skill-nums { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.mwia-skill-nums .mwia-dim { font-size: 11px; }
-.mwia-skill-detail { padding: 2px 8px 8px 20px; font-size: 12px; color: #c3c9e8; overflow-wrap: anywhere; }
-.mwia-skill-detail p { margin: 4px 0; }
-.mwia-skill-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
-.mwia-skill-buttons .mwia-btn { margin: 0; }
-.mwia-btn-quiet { background: #2a3150; border: 1px solid #3c4677; }
-.mwia-upgrade { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid #262d4d; }
-.mwia-upgrade small { display: block; color: #8189b0; font-size: 11px; }
-.mwia-skill-sec { border-top: 1px solid #232a48; }
-.mwia-skill-sec > summary { padding: 5px 0; cursor: pointer; list-style: none; }
-.mwia-skill-sec > summary::-webkit-details-marker { display: none; }
-.mwia-skill-sec > summary::before { content: "\u25B8 "; color: #5b6bb0; }
-.mwia-skill-sec[open] > summary::before { content: "\u25BE "; }
-.mwia-skill-sec > p { margin: 2px 0 6px 14px; }
-.mwia-history { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
-.mwia-history-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
-.mwia-history-head span, .mwia-history-note, .mwia-history-scale { color: #8189b0; font-size: 11px; }
-.mwia-history-table { border-collapse: collapse; width: 100%; margin: 4px 0; font-variant-numeric: tabular-nums; }
-.mwia-history-table th, .mwia-history-table td { padding: 1px 4px; text-align: right; font-weight: 400; white-space: nowrap; }
-.mwia-history-table th:first-child { text-align: left; color: #9aa3cf; }
-.mwia-history-table tr:first-child th { color: #8189b0; font-size: 11px; }
-.mwia-history-high { color: #ff9b7b; }
-.mwia-history-low { color: #7ee2b0; }
-.mwia-history-chart { display: block; width: 100%; height: 64px; }
-.mwia-history-chart polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-polyline.mwia-history-ask { stroke: #f2a65b; }
-polyline.mwia-history-bid { stroke: #7ee2b0; }
-.mwia-history-scale { display: flex; justify-content: space-between; }
-.mwia-history-plot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 6px; }
-.mwia-history-y { flex-direction: column; text-align: right; }
-.mwia-history-ranges { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
-.mwia-history-ranges button { background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 2px 8px; font: 11px sans-serif; cursor: pointer; }
-.mwia-history-ranges button.mwia-active { background: #4c5bd4; }
-.mwia-history-export { flex-wrap: wrap; margin-top: 6px; }
-.mwia-history-export span { order: 3; margin-left: 0 !important; flex-basis: 100%; }
-.mwia-history-ranges span { margin-left: auto; color: #8189b0; font-size: 11px; }
-.mwia-history-ranges i { display: inline-block; width: 10px; height: 2px; margin: 0 3px 3px 6px; vertical-align: middle; }
-i.mwia-history-ask { background: #f2a65b; }
-i.mwia-history-bid { background: #7ee2b0; }
-.mwia-history-sum { margin: 2px 0; font-variant-numeric: tabular-nums; }
-.mwia-history-sum span { white-space: nowrap; }
-.mwia-history-more summary { cursor: pointer; color: #9aa3cf; font-size: 11px; margin-top: 2px; }
-.mwia-history-more[open] summary { margin-bottom: 4px; }
-.mwia-history-head .mwia-history-prelim { color: #ffd479; font-weight: 600; }
-.mwia-guide-box, .mwia-tool-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
-.mwia-guide-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
-.mwia-guide-head span, .mwia-guide-list li span, .mwia-guide-status { color: #8189b0; font-size: 11px; }
-.mwia-guide-sub { margin-top: 4px; color: #9aa3cf; font-size: 11px; }
-.mwia-guide-list { list-style: none; margin: 2px 0; padding: 0; }
-.mwia-guide-list li { margin: 1px 0; }
-.mwia-guide-keep { color: #7ee2b0; }
-.mwia-guide-add { color: #ffd479; font-weight: 600; }
-.mwia-guide-remove { color: #ff9b7b; }
-.mwia-guide-list li span .mwia-guide-low, .mwia-guide-low { color: #ffd479; font-weight: 600; }
-.mwia-guide-note { margin: 2px 0; }
-.mwia-guide-cart { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
-.mwia-listprice { margin: 6px 0; padding: 6px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
-.mwia-listprice-buttons { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
-.mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 44px; max-width: 80px; padding: 3px 2px; white-space: nowrap; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
-.mwia-listprice-buttons button small { font-weight: 400; font-size: 11px; color: #9aa3cf; }
-.mwia-listprice-buttons button.mwia-off { opacity: .5; cursor: help; }
-.mwia-listprice-info { margin-top: 4px; color: #9aa3cf; font-size: 11px; text-align: center; }
-.mwia-guide-hours { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
-.mwia-guide-hour { min-width: 32px; padding: 4px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
-.mwia-guide-hour.mwia-guide-picked { background: #4a5bb8; border-color: #8a98e8; }
-.mwia-guide-dim { color: #8189b0; font-size: 11px; }
-.mwia-tool-box { margin: 10px 0; }
-.mwia-tool-list { list-style: none; margin: 4px 0; padding: 0; }
-.mwia-tool-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid #2a3150; }
-.mwia-tool-list li .mwia-guide-cart { margin-top: 0; flex: 0 0 auto; }
-[data-mwia-tea="wrong"] { outline: 3px solid #ff4d4d !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-wrong 1.2s ease-in-out infinite; }
-[data-mwia-tea="right"] { outline: 3px solid #3ddc84 !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-right 1.2s ease-in-out infinite; }
-@keyframes mwia-tea-wrong { 0%, 100% { box-shadow: 0 0 4px 1px rgba(255, 77, 77, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(255, 77, 77, 0.95); } }
-@keyframes mwia-tea-right { 0%, 100% { box-shadow: 0 0 4px 1px rgba(61, 220, 132, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(61, 220, 132, 0.95); } }
-.mwia-tea-note { margin: 6px 4px 2px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
-.mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
-.mwia-narrow-only { display: none; }
-.mwia-tip-pop {
-  position: fixed; z-index: 2000; max-width: min(300px, calc(100vw - 16px)); padding: 6px 9px; border-radius: 6px;
-  background: #0f1222; color: #e8ebff; border: 1px solid #5b6bb0; box-shadow: 0 4px 16px rgba(0,0,0,.6); font: 12px/1.4 sans-serif;
-}
-
-/* Touch screens: bigger targets, and 16px inputs so iOS doesn't zoom in on focus. */
-@media (hover: none), (pointer: coarse) {
-  .mwia-panel button, .mwia-train button, .mwia-train-start { touch-action: manipulation; }
-  .mwia-launcher { width: 44px; height: 44px; font-size: 22px; }
-  .mwia-tab { padding: 10px 12px; }
-  .mwia-link { padding: 6px 10px; }
-  .mwia-btn { padding: 10px 16px; }
-  .mwia-cart-btn { font-size: 13px; padding: 4px 10px; min-height: 32px; }
-  .mwia-settings select, .mwia-settings input[type="text"] { font-size: 16px; padding: 6px 8px; }
-  .mwia-settings input[type="checkbox"] { width: 22px; height: 22px; }
-  .mwia-panel th[title], .mwia-panel span[title], .mwia-panel label[title] { text-decoration: underline dotted #5b6bb0; }
-}
-
-@media ${NARROW} {
-  .mwia-panel {
-    top: 0; right: 0; bottom: 0; left: 0; width: auto; max-height: none; z-index: 1400;
-    border: none; border-radius: 0; box-sizing: border-box;
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  }
-  .mwia-header .mwia-link { font-size: 20px; }
-  .mwia-tabs { flex-wrap: nowrap; overflow-x: auto; }
-  .mwia-tab { white-space: nowrap; }
-  .mwia-body { flex: 1; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 10px 12px 24px; }
-  .mwia-settings label { flex: 1 1 140px; }
-  .mwia-settings select, .mwia-settings input[type="text"] { max-width: none; width: 100%; box-sizing: border-box; }
-
-  /* Wide tables become one card per row. */
-  .mwia-wide, .mwia-wide tbody { display: block; }
-  .mwia-wide thead { display: none; }
-  .mwia-wide tr { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; padding: 8px 4px; border-bottom: 1px solid #2c3459; }
-  .mwia-wide td { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: none; text-align: left !important; }
-  .mwia-wide td::before { content: attr(data-label); color: #8189b0; white-space: nowrap; }
-  .mwia-wide td[data-label=""]::before, .mwia-wide td.mwia-card-title::before { content: none; }
-  .mwia-wide td[data-label=""] { grid-column: 1 / -1; justify-content: flex-start; }
-  .mwia-wide td[data-label=""]:empty { display: none; }
-  .mwia-wide td.mwia-card-title { grid-column: 1 / -1; order: -1; font-size: 13px; font-weight: 600; color: #e8ebff; }
-  .mwia-best { background: #1f3326; }
-  .mwia-faded { opacity: .55; }
-  .mwia-faded td { opacity: 1; }
-
-  .mwia-train {
-    top: calc(8px + env(safe-area-inset-top)); right: 8px; bottom: auto; left: 8px;
-    width: auto; max-height: 45vh; font-size: 13px;
-  }
-  .mwia-train-buttons button { flex: 1; }
-  .mwia-train.mwia-train-low { top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); }
-  .mwia-narrow-only { display: inline-block; }
-}
-`;
-
-  // src/format.js
-  function parseCoins(text) {
-    const cleaned = String(text).trim().toLowerCase().replace(/\s+/g, "");
-    const match = cleaned.match(/^(\d+(?:[.,]\d+)?|\d{1,3}(?:[.,]\d{3})+)([kmb]?)$/);
-    if (!match) return null;
-    const [, number, suffix] = match;
-    const value = suffix ? Number(number.replace(",", ".")) : Number(number.replace(/[.,](?=\d{3}(\D|$))/g, "").replace(",", "."));
-    const factor = { "": 1, k: 1e3, m: 1e6, b: 1e9 }[suffix];
-    return Number.isFinite(value) ? Math.round(value * factor) : null;
-  }
-  function coinsInput(n2) {
-    if (n2 >= 1e9 && n2 % 1e7 === 0) return n2 / 1e9 + "B";
-    if (n2 >= 1e6 && n2 % 1e4 === 0) return n2 / 1e6 + "M";
-    if (n2 >= 1e3 && n2 % 10 === 0) return n2 / 1e3 + "k";
-    return String(n2);
-  }
-  function shortCoins(n2) {
-    const abs = Math.abs(n2);
-    const fixed = (value, digits) => value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-    if (abs >= 1e9) return fixed(n2 / 1e9, 2) + "B";
-    if (abs >= 1e6) return fixed(n2 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
-    if (abs >= 1e4) return fixed(n2 / 1e3, abs >= 1e5 ? 0 : 1) + "k";
-    return Math.round(n2).toLocaleString("en-US");
-  }
-  var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c2) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c2]);
-
-  // src/mwitools-cart.js
-  var READY_TIMEOUT_MS = 5e3;
-  function shoppingApi(win2) {
-    try {
-      const api = win2.MWITools?.shopping;
-      return api && typeof api.addToCart === "function" ? api : null;
-    } catch {
-      return null;
-    }
-  }
-  async function whenReady(api) {
-    const start = Date.now();
-    while (!api.ready && Date.now() - start < READY_TIMEOUT_MS) {
-      await new Promise((resolve2) => setTimeout(resolve2, 100));
-    }
-  }
-  async function addToCart(win2, items) {
-    const api = shoppingApi(win2);
-    if (!api) {
-      throw new Error("MWITools' shopping cart was not found. Check that MWITools is installed, enabled and up to date, then reload the game.");
-    }
-    await whenReady(api);
-    const outcome = { added: [], updated: [], present: [], failed: [] };
-    for (const item of items) {
-      const enhancementLevel = item.enhancementLevel || 0;
-      const wanted = Math.max(1, Math.ceil(item.quantity));
-      const label3 = { hrid: item.hrid, enhancementLevel };
-      try {
-        const have4 = api.getCartItem(item.hrid, enhancementLevel)?.quantity || 0;
-        if (have4 >= wanted) {
-          outcome.present.push(label3);
-          continue;
-        }
-        const result = api.addToCart([{ itemHrid: item.hrid, enhancementLevel, quantity: wanted - have4, source: "manual" }]);
-        if (result?.ok) (have4 ? outcome.updated : outcome.added).push(label3);
-        else outcome.failed.push(label3);
-      } catch {
-        outcome.failed.push(label3);
-      }
-    }
-    return outcome;
-  }
-
   // src/alchemy.js
   var ALCHEMY = "alchemy";
   var TYPE = "/action_types/alchemy";
@@ -1968,7 +973,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     return { attempts, xp, reach };
   }
   var SOLVE = { a: new Float64Array(3 * (MAX_TARGET + 2)), b: new Float64Array(MAX_TARGET + 2), d: new Float64Array(MAX_TARGET + 2) };
-  function protectedCycle(p2, blessed, target, from, xpPer) {
+  function protectedCycle(p2, blessed, target, from, xpPer, start = 0) {
     const { a, b, d } = SOLVE;
     a.fill(0, 3 * target, 3 * (target + 2));
     b[target] = b[target + 1] = d[target] = d[target + 1] = 0;
@@ -1990,8 +995,25 @@ i.mwia-history-bid { background: #7ee2b0; }
       d[L] = (up1 * d[L + 1] + up2 * (b2 * d[L + 1] + d[L + 2]) + (guarded ? 0 : fail)) / keep;
     }
     const rest = 1 - d[0];
-    return rest > 1e-15 ? { attempts: a[0] / rest, xp: a[1] / rest, protections: a[2] / rest } : null;
+    if (rest <= 1e-15) return null;
+    const e0 = [a[0] / rest, a[1] / rest, a[2] / rest];
+    let e = e0;
+    for (let L = 1; L <= start && L < target; L++) e = e.map((prev, i) => a[3 * L + i] + b[L] * prev + d[L] * e0[i]);
+    return { attempts: e[0], xp: e[1], protections: e[2] };
   }
+  function protectedCycles(p2, blessed, target, from) {
+    if (!protectedCycle(p2, blessed, target, from, NO_XP)) return null;
+    const { a, b, d } = SOLVE;
+    const rest = 1 - d[0];
+    const attempts = [a[0] / rest];
+    const protections = [a[2] / rest];
+    for (let L = 1; L < target; L++) {
+      attempts[L] = a[3 * L] + b[L] * attempts[L - 1] + d[L] * attempts[0];
+      protections[L] = a[3 * L + 2] + b[L] * protections[L - 1] + d[L] * protections[0];
+    }
+    return { attempts, protections };
+  }
+  var NO_XP = new Array(MAX_TARGET + 2).fill(0);
   function cheapestProtection(detail, market) {
     let best = null;
     for (const itemHrid of /* @__PURE__ */ new Set([detail.hrid, MIRROR, ...detail.protectionItemHrids || []])) {
@@ -2052,14 +1074,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const price = market.buy(action.itemHrid);
     return price === null ? null : { price, owned: false };
   }
-  function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score: score2 = (r) => r.goldPerDay, target: fixedTarget = null } = {}) {
+  function enhanceRates(who, data, teas, itemLevel) {
     const buff = totals([...who.buffs?.[TYPE2] || [], ...teaBuffs(teas, who.concentration, data)]);
     const fraction = (type) => buff(type).flat + buff(type).ratio;
     const level = who.levels[SKILL2] ?? 1;
     const levelBuff = buff("/buff_types/enhancing_level");
     const effectiveLevel = (1 + levelBuff.ratio) * level + levelBuff.flat;
-    const itemLevel = action.levelRequirement.level;
-    const detail = data.itemDetailMap[action.itemHrid];
     const success = fraction(SUCCESS) + missingSuccess(who, data);
     const bonus = levelBonus(effectiveLevel, itemLevel);
     const multiplier = Math.max(0, 1 + bonus + success);
@@ -2067,7 +1087,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const blessed = Math.max(0, fraction("/buff_types/blessed"));
     const levelSpeed = Math.max(0, effectiveLevel - itemLevel) / 100;
     const speed = fraction("/buff_types/action_speed") + levelSpeed;
-    const cycleSeconds = BASE_SECONDS2 / (1 + speed);
+    return { fraction, level, effectiveLevel, success, bonus, multiplier, rates, blessed, levelSpeed, speed, cycleSeconds: BASE_SECONDS2 / (1 + speed) };
+  }
+  function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score: score2 = (r) => r.goldPerDay, target: fixedTarget = null } = {}) {
+    const itemLevel = action.levelRequirement.level;
+    const detail = data.itemDetailMap[action.itemHrid];
+    const { fraction, level, effectiveLevel, success, bonus, multiplier, rates, blessed, levelSpeed, speed, cycleSeconds } = enhanceRates(who, data, teas, itemLevel);
     const actionsPerHour = 3600 / cycleSeconds;
     const wisdom = fraction("/buff_types/wisdom");
     const xpAt = rates.map((_, L) => 1.4 * (1 + L) * (10 + itemLevel) * (1 + wisdom));
@@ -2179,6 +1204,50 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (fixedTarget) best = results.find((r) => r.target === Math.min(MAX_TARGET, fixedTarget)) || best;
     best.targets = results.map((r) => ({ target: r.target, attempts: r.attempts, protect: r.protect, goldPerDay: r.goldPerDay, xpPerDay: r.xpPerDay, coinsPerXp: r.coinsPerXp, sell: r.outputs[0].sell }));
     return best;
+  }
+  function selfEnhanceCosts(itemHrid, who, data, market, starts) {
+    const detail = data.itemDetailMap[itemHrid];
+    const inputs = detail?.enhancementCosts?.length ? materials(detail, market) : null;
+    if (!inputs) return () => null;
+    const costPerAttempt = inputs.reduce((sum, i) => sum + i.value, 0);
+    const guard = cheapestProtection(detail, market);
+    const firsts = [...new Set(starts)].filter((s) => s >= 0 && s < MAX_TARGET);
+    const best = /* @__PURE__ */ new Map();
+    for (const teas of costTeaSetups(who, data, market)) {
+      const { rates, blessed, cycleSeconds } = enhanceRates(who, data, teas, detail.itemLevel || 1);
+      const teaPerHour = teas.reduce((sum, hrid) => sum + (market.buy(hrid) ?? 0), 0) * 12 * (who.concentration || 1);
+      const perAttempt = costPerAttempt + teaPerHour * cycleSeconds / 3600;
+      for (let target = 1; target <= MAX_TARGET; target++) {
+        const froms = [target];
+        if (guard) for (let from = MIN_PROTECT; from < target; from++) froms.push(from);
+        for (const from of froms) {
+          const cycles = protectedCycles(rates, blessed, target, from);
+          if (!cycles) continue;
+          const guarded = from < target;
+          for (const start of firsts) {
+            if (start >= target) continue;
+            const attempts = cycles.attempts[start];
+            if (!Number.isFinite(attempts)) continue;
+            const protections = guarded ? cycles.protections[start] : 0;
+            const cost = attempts * perAttempt + (guarded ? protections * guard.price : 0);
+            const key = start * 100 + target;
+            const known = best.get(key);
+            if (known && known.cost <= cost) continue;
+            const hours = attempts * cycleSeconds / 3600;
+            best.set(key, { cost, attempts, protections, protect: guarded ? { ...guard, from } : null, teas, hours, drinks: hours * 12 * (who.concentration || 1), materials: inputs });
+          }
+        }
+      }
+    }
+    return (start, target) => best.get(start * 100 + target) || null;
+  }
+  var COST_BUFFS = /* @__PURE__ */ new Set([SUCCESS, "/buff_types/blessed", "/buff_types/enhancing_level", "/buff_types/action_speed"]);
+  function costTeaSetups(who, data, market) {
+    const drinks = who.drinks?.[TYPE2] || [];
+    const candidates = usableTeas(data, TYPE2).filter(
+      (hrid) => (market.buy(hrid) !== null || drinks.includes(hrid)) && (data.itemDetailMap[hrid]?.consumableDetail?.buffs || []).some((b) => COST_BUFFS.has(b.typeHrid))
+    );
+    return teaSetups(data, TYPE2, who.slots?.[TYPE2] ?? 1, candidates);
   }
 
   // src/skilling.js
@@ -3133,6 +2202,1125 @@ i.mwia-history-bid { background: #7ee2b0; }
       });
     }
     return notices2.sort((a, b) => a.skill.localeCompare(b.skill));
+  }
+
+  // src/analysis.js
+  var ACCURACY = {
+    fast: { label: "Fast", hours: 1, seeds: 3 },
+    normal: { label: "Normal", hours: 2, seeds: 4 },
+    thorough: { label: "Thorough", hours: 4, seeds: 6 }
+  };
+  var CONFIDENCE_LEVEL = 0.9;
+  var MAX_SEED_FACTOR = 3;
+  var BASE_SEED_FACTOR = 3;
+  var MAX_REFINED = 40;
+  var REFINE_BELOW = 0.99;
+  var seedFor = (index) => Math.imul(index + 1, 2654435761) >>> 1 || 1;
+  var SPENDING = {
+    frugal: { label: "Frugal", minPctPerMillion: 10 },
+    balanced: { label: "Balanced", minPctPerMillion: 3 },
+    all: { label: "All in", minPctPerMillion: 0 }
+  };
+  var STYLE_STATS = {
+    melee: ["stabAccuracy", "slashAccuracy", "smashAccuracy", "stabDamage", "slashDamage", "smashDamage", "meleeExperience", "defensiveDamage"],
+    ranged: ["rangedAccuracy", "rangedDamage", "rangedExperience"],
+    magic: ["magicAccuracy", "magicDamage", "magicExperience"]
+  };
+  var PHYSICAL_STATS = ["physicalAmplify", "armorPenetration"];
+  function offStyleStats(style) {
+    const own = /* @__PURE__ */ new Set([...STYLE_STATS[style], ...style === "magic" ? [] : PHYSICAL_STATS]);
+    return new Set([...Object.values(STYLE_STATS).flat(), ...PHYSICAL_STATS].filter((stat) => !own.has(stat)));
+  }
+  var MIN_GOLD_REF = 1e3;
+  function xpValue(result, settings) {
+    return settings?.countLevels && result.levels !== null && result.levels !== void 0 ? result.levels : result.xpTotal;
+  }
+  function makeGoal(settings, reference) {
+    return {
+      countLevels: !!settings.countLevels,
+      gold: Math.min(1, Math.max(0, Number(settings.goldWeight) || 0)),
+      xpRef: Math.max(settings.countLevels ? 1e-6 : 1, reference.xp),
+      goldRef: Math.max(MIN_GOLD_REF, reference.gold)
+    };
+  }
+  function score(result, goal) {
+    return (1 - goal.gold) * xpValue(result, goal) / goal.xpRef + goal.gold * result.profit / goal.goldRef;
+  }
+  var RARE_DEATHS_PER_HOUR = 0.5;
+  function deathLimit(settings) {
+    return settings.acceptRareDeaths ? RARE_DEATHS_PER_HOUR : 0;
+  }
+  var acceptable = (result, settings) => result.deaths <= deathLimit(settings);
+  function zoneGoal(zoneResults, settings) {
+    const safe = zoneResults.filter((z) => acceptable(z.result, settings));
+    const pool = safe.length ? safe : zoneResults;
+    return makeGoal(settings, {
+      xp: Math.max(...pool.map((z) => xpValue(z.result, settings))),
+      gold: Math.max(...pool.map((z) => z.result.loot))
+    });
+  }
+  function consumableCost(result) {
+    let cost = 0;
+    for (const [hrid, perHour] of Object.entries(result.consumables)) cost += perHour * (askPrice(hrid) ?? sellValue(hrid));
+    return cost;
+  }
+  function lootValue(result, tier) {
+    let value = 0;
+    for (const [monster, perHour] of Object.entries(result.kills)) value += perHour * expectedLootPerKill(monster, tier, result);
+    return value;
+  }
+  function average(results) {
+    const n2 = results.length;
+    const mean = (pick) => results.reduce((sum, r) => sum + pick(r), 0) / n2;
+    const meanMap = (pick) => {
+      const out = {};
+      for (const r of results) for (const [k, v] of Object.entries(pick(r))) out[k] = (out[k] || 0) + v / n2;
+      return out;
+    };
+    return {
+      ...results[0],
+      xp: meanMap((r) => r.xp),
+      xpTotal: mean((r) => r.xpTotal),
+      deaths: mean((r) => r.deaths),
+      encounters: mean((r) => r.encounters),
+      kills: meanMap((r) => r.kills),
+      consumables: meanMap((r) => r.consumables),
+      manaUsed: meanMap((r) => r.manaUsed)
+    };
+  }
+  var ENEMY_RESPAWN_SECONDS = 3;
+  var MAX_ENCOUNTERS_PER_HOUR = 3600 / ENEMY_RESPAWN_SECONDS;
+  function isSpawnCapped(result) {
+    return result.encounters >= 0.85 * MAX_ENCOUNTERS_PER_HOUR;
+  }
+  function combatLevelsPerHour(result, profile) {
+    const table = getClientData()?.levelExperienceTable;
+    if (!Array.isArray(table) || !profile) return null;
+    const skills = {};
+    for (const [skill, level] of Object.entries(profile.levels)) skills[skill] = { level, xp: profile.allExperience?.["/skills/" + skill] ?? null };
+    return levelsPerHour(table, skills, result.xp);
+  }
+  function enrich(result, tier, profile) {
+    const loot = lootValue(result, tier);
+    const cost = consumableCost(result);
+    return { ...result, loot, cost, profit: loot - cost, levels: combatLevelsPerHour(result, profile), killsTotal: Object.values(result.kills).reduce((a, b) => a + b, 0) };
+  }
+  async function simulateRuns(pool, items, zone, hours, onProgress) {
+    const data = getClientData();
+    const jobs = [];
+    for (const item of items) {
+      const player = toDTO(item.profile, data);
+      for (const seed of item.seeds) {
+        jobs.push({ player, zoneHrid: zone.zoneHrid, tier: zone.tier, hours, seed: seedFor(seed), extraBuffs: item.profile.extraBuffs });
+      }
+    }
+    const results = await pool.runAll(jobs, onProgress);
+    let next = 0;
+    return items.map((item) => item.seeds.map((seed) => ({ ...enrich(results[next++], zone.tier, item.profile), seed })));
+  }
+  var summarize = (runs, tier, profile) => enrich(average(runs), tier, profile);
+  async function simulateVariants(pool, variants, zone, settings, onProgress) {
+    const seeds = Array.from({ length: settings.seeds }, (_, i) => i);
+    const runs = await simulateRuns(pool, variants.map((v) => ({ profile: v.profile, seeds })), zone, settings.hours, onProgress);
+    return variants.map((variant, i) => ({ ...variant, result: summarize(runs[i], zone.tier, variant.profile), runs: runs[i] }));
+  }
+  async function analyzeZones(pool, profile, settings, onProgress) {
+    const variants = [];
+    for (const zone of combatZones()) {
+      for (let tier = 0; tier <= Math.min(settings.maxTier, zone.maxDifficulty ?? 0); tier++) {
+        variants.push({ zone: { zoneHrid: zone.hrid, tier } });
+      }
+    }
+    const data = getClientData();
+    const player = toDTO(profile, data);
+    const hours = Math.max(1, settings.hours / 2);
+    const jobs = variants.map((v) => ({ player, zoneHrid: v.zone.zoneHrid, tier: v.zone.tier, hours, seed: seedFor(0), extraBuffs: profile.extraBuffs }));
+    const results = await pool.runAll(jobs, onProgress);
+    return variants.map((v, i) => ({ ...v, result: enrich(results[i], v.zone.tier, profile) }));
+  }
+  function pickBestZone(zoneResults, settings) {
+    if (!zoneResults?.length) return null;
+    const goal = zoneGoal(zoneResults, settings);
+    const sorted = [...zoneResults].sort((a, b) => score(b.result, goal) - score(a.result, goal));
+    return sorted.find((z) => acceptable(z.result, settings)) || sorted[0];
+  }
+  function switchStyle(profile, style, budget) {
+    const data = getClientData();
+    if (!style || style === weaponStyle(profile, data)) return { profile, starter: null };
+    const fits = (item) => styleOfItem(item) === style && item.equipmentDetail.combatStats.primaryTraining === "/skills/" + style && meetsRequirements(profile, item.equipmentDetail.levelRequirements);
+    const weapons = new Map(Object.values(data.itemDetailMap).filter(fits).map((item) => [item.hrid, item]));
+    const owned = profile.inventory.filter((i) => weapons.has(i.hrid)).sort((a, b) => (weapons.get(b.hrid).itemLevel || 0) - (weapons.get(a.hrid).itemLevel || 0) || b.enhancementLevel - a.enhancementLevel)[0];
+    let starter = null;
+    if (owned) {
+      starter = { hrid: owned.hrid, enhancementLevel: owned.enhancementLevel, cost: 0, owned: true };
+    } else {
+      for (const item of weapons.values()) {
+        const price = askPrice(item.hrid, 0);
+        if (price === null || price > budget) continue;
+        if (!starter || price < starter.cost) starter = { hrid: item.hrid, enhancementLevel: 0, cost: price, owned: false };
+      }
+    }
+    if (!starter) return { profile, starter: null, missing: style };
+    const variant = cloneProfile(profile);
+    starter.slot = data.itemDetailMap[starter.hrid].equipmentDetail.type.split("/").pop();
+    starter.replaces = weaponOf(profile);
+    equip(variant, starter.slot, { hrid: starter.hrid, enhancementLevel: starter.enhancementLevel });
+    return { profile: variant, starter };
+  }
+  function isUsefulFor(style, stats) {
+    const offStyle = offStyleStats(style);
+    return Object.entries(stats || {}).some(([key, value]) => typeof value === "number" && value > 0 && !offStyle.has(key) && key !== "attackInterval");
+  }
+  function displaced(profile, type, starter) {
+    const slots = type === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : type === "main_hand" ? ["main_hand", "two_hand"] : [type];
+    return slots.filter((slot) => profile.equipment[slot] && !(starter && (slot === "main_hand" || slot === "two_hand"))).map((slot) => profile.equipment[slot]);
+  }
+  function resaleOf(gear, data) {
+    const bid = marketEntry(gear.hrid, gear.enhancementLevel)?.b;
+    return resaleValue(gear.hrid, gear.enhancementLevel, bid > 0 ? bid : null, data, marketBids).value;
+  }
+  function gearCandidates(profile, settings) {
+    const { budget, starter = null, enhanceCost = null } = settings;
+    const data = getClientData();
+    const style = weaponStyle(profile, data);
+    const candidates = [];
+    for (const item of Object.values(data.itemDetailMap)) {
+      const detail = item.equipmentDetail;
+      if (!detail) continue;
+      const type = detail.type?.split("/").pop();
+      if (!GEAR_TYPES.includes(type)) continue;
+      if (!meetsRequirements(profile, detail.levelRequirements)) continue;
+      const stats = detail.combatStats || {};
+      const weapon = type === "main_hand" || type === "two_hand";
+      if (weapon) {
+        if (styleOfItem(item) !== style) continue;
+      } else if (!isUsefulFor(style, stats)) {
+        continue;
+      }
+      if (type === "off_hand" && profile.equipment.two_hand) continue;
+      const current = profile.equipment[type];
+      const worn = current?.hrid === item.hrid && !(starter && weapon) ? current : null;
+      const taken = displaced(profile, type, starter);
+      const resale = taken.reduce((sum, gear) => sum + resaleOf(gear, data), 0);
+      let options = gearOptions(profile, item.hrid, budget, { worn, enhanceCost, resale });
+      if (type === "pouch") options = options.slice(0, 1);
+      for (const option of options) {
+        if (current && current.hrid === item.hrid && current.enhancementLevel >= option.enhancementLevel) continue;
+        const gear = { hrid: item.hrid, enhancementLevel: option.enhancementLevel };
+        const variant = cloneProfile(profile);
+        equip(variant, type, gear);
+        if (type === "pouch") {
+          const before = slotCounts(profile, data);
+          const after = slotCounts(variant, data);
+          if (after.food < before.food || after.drinks < before.drinks) continue;
+        }
+        const candidate = {
+          kind: "gear",
+          slot: type,
+          hrid: item.hrid,
+          enhancementLevel: option.enhancementLevel,
+          price: option.price,
+          resale: option.resale,
+          sold: option.resale ? taken : [],
+          cost: option.cost,
+          owned: option.owned,
+          enhance: option.enhance || null,
+          replaces: current || null,
+          profile: variant
+        };
+        candidates.push(candidate);
+        const foodSlotsNow = slotCounts(profile, data).food;
+        if (type === "pouch" && slotCounts(variant, data).food > foodSlotsNow) {
+          for (const food of combatConsumables("food")) {
+            if (profile.food.includes(food)) continue;
+            const withFood = cloneProfile(variant);
+            while (withFood.food.length <= foodSlotsNow) withFood.food.push(null);
+            withFood.food[foodSlotsNow] = food;
+            candidates.push({ ...candidate, extraFood: food, extraFoodSlot: foodSlotsNow, profile: withFood });
+          }
+        }
+      }
+    }
+    return candidates;
+  }
+  var MAX_LEVELS = 5;
+  function gearOptions(profile, hrid, budget, { worn = null, enhanceCost = null, resale = 0 } = {}) {
+    const owned = profile.inventory.filter((i) => i.hrid === hrid).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
+    const options = owned ? [{ enhancementLevel: owned.enhancementLevel, price: 0, resale, cost: 0, owned: true }] : [];
+    const cheapest = /* @__PURE__ */ new Map();
+    const offer = (o2) => {
+      o2.price = o2.cost;
+      o2.resale = o2.enhance?.start === "worn" ? 0 : resale;
+      o2.cost = Math.max(0, o2.price - o2.resale);
+      if (o2.cost > budget || owned && o2.enhancementLevel <= owned.enhancementLevel) return;
+      const known = cheapest.get(o2.enhancementLevel);
+      if (!known || o2.cost < known.cost) cheapest.set(o2.enhancementLevel, o2);
+    };
+    for (const listing of marketListings(hrid)) offer({ enhancementLevel: listing.enhancementLevel, cost: listing.price, owned: false });
+    if (enhanceCost) {
+      const starts = [];
+      if (worn) starts.push({ from: worn.enhancementLevel, base: 0, start: "worn" });
+      if (owned) starts.push({ from: owned.enhancementLevel, base: 0, start: "owned" });
+      const ask = askPrice(hrid, 0);
+      if (ask !== null) starts.push({ from: 0, base: ask, start: "buy" });
+      const lookup = starts.length ? enhanceCost(hrid, starts.map((s) => s.from)) : null;
+      for (let target = 1; lookup && target <= MAX_TARGET; target++) {
+        for (const s of starts) {
+          const made = s.from < target ? lookup(s.from, target) : null;
+          if (made) offer({ enhancementLevel: target, cost: s.base + made.cost, owned: false, enhance: { ...made, from: s.from, start: s.start, basePrice: s.base } });
+        }
+      }
+    }
+    const front = [];
+    for (const o2 of [...cheapest.values()].sort((a, b) => a.cost - b.cost || b.enhancementLevel - a.enhancementLevel)) {
+      if (front.length && o2.enhancementLevel <= front[front.length - 1].enhancementLevel) continue;
+      front.push(o2);
+    }
+    let picked = front;
+    if (front.length > MAX_LEVELS) {
+      const step = (front.length - 1) / (MAX_LEVELS - 1);
+      picked = Array.from({ length: MAX_LEVELS }, (_, i) => front[Math.round(i * step)]);
+    }
+    return [...options, ...picked];
+  }
+  function combatConsumables(kind) {
+    const category = kind === "food" ? "/item_categories/food" : "/item_categories/drink";
+    return Object.values(getClientData().itemDetailMap).filter((item) => item.categoryHrid === category && item.consumableDetail?.usableInActionTypeMap?.["/action_types/combat"]).filter((item) => askPrice(item.hrid, 0) !== null).map((item) => item.hrid);
+  }
+  function abilityCandidates(profile, budget) {
+    const data = getClientData();
+    const slots = slotCounts(profile, data);
+    if (slots.abilities === 0) return [];
+    const books = {};
+    for (const item of Object.values(data.itemDetailMap)) {
+      if (item.abilityBookDetail) books[item.abilityBookDetail.abilityHrid] = item;
+    }
+    const equipped = new Set(profile.abilities.filter(Boolean).map((a) => a.hrid));
+    const indices = [];
+    for (let i = 1; i <= slots.abilities; i++) indices.push(i);
+    const empty = indices.filter((i) => !profile.abilities[i]);
+    const placements = empty.length ? [empty[0]] : indices;
+    const candidates = [];
+    for (const ability of Object.values(data.abilityDetailMap)) {
+      if (ability.isSpecialAbility || equipped.has(ability.hrid)) continue;
+      let level = profile.learnedAbilities[ability.hrid];
+      let cost = 0;
+      const book = books[ability.hrid];
+      if (!level) {
+        if (!book || !meetsRequirements(profile, book.abilityBookDetail.levelRequirements)) continue;
+        const price = askPrice(book.hrid, 0);
+        if (price === null || price > budget) continue;
+        level = 1;
+        cost = price;
+      }
+      for (const index of placements) {
+        const variant = cloneProfile(profile);
+        variant.abilities[index] = { hrid: ability.hrid, level };
+        candidates.push({
+          kind: "ability",
+          slot: "ability" + index,
+          hrid: ability.hrid,
+          bookHrid: book?.hrid,
+          level,
+          cost,
+          owned: cost === 0,
+          replaces: profile.abilities[index]?.hrid || null,
+          profile: variant
+        });
+      }
+    }
+    return [...candidates, ...abilityLevelCandidates(profile, budget, books)];
+  }
+  var LEVEL_STEPS = [1, 2, 3, 5, 10, 20];
+  function abilityLevelCandidates(profile, budget, books) {
+    const data = getClientData();
+    const table = data.levelExperienceTable;
+    if (!table) return [];
+    const slots = slotCounts(profile, data);
+    const candidates = [];
+    profile.abilities.forEach((entry, index) => {
+      if (!entry || (index === 0 ? !slots.special : index > slots.abilities)) return;
+      const book = books[entry.hrid];
+      const xpPerBook = book?.abilityBookDetail?.experienceGain;
+      const price = book && askPrice(book.hrid, 0);
+      if (!xpPerBook || !price) return;
+      const xpNow = profile.abilityExperience[entry.hrid] ?? table[entry.level] ?? 0;
+      for (const step of LEVEL_STEPS) {
+        const target = entry.level + step;
+        if (table[target] === void 0) break;
+        const count2 = Math.max(1, Math.ceil((table[target] - xpNow) / xpPerBook));
+        if (count2 * price > budget) break;
+        const variant = cloneProfile(profile);
+        variant.abilities[index] = { hrid: entry.hrid, level: target };
+        candidates.push({
+          kind: "abilityLevel",
+          slot: "ability" + index,
+          hrid: entry.hrid,
+          bookHrid: book.hrid,
+          fromLevel: entry.level,
+          level: target,
+          books: count2,
+          cost: count2 * price,
+          owned: false,
+          replaces: null,
+          profile: variant
+        });
+      }
+    });
+    return candidates;
+  }
+  function consumableCandidates(profile, kind) {
+    const data = getClientData();
+    const slots = slotCounts(profile, data);
+    const count2 = kind === "food" ? slots.food : slots.drinks;
+    const current = (kind === "food" ? profile.food : profile.drinks).slice(0, count2);
+    while (current.length < count2) current.push(null);
+    const empty = current.findIndex((h2) => !h2);
+    const placements = empty !== -1 ? [empty] : current.map((_, i) => i);
+    const candidates = [];
+    for (const hrid of combatConsumables(kind)) {
+      if (current.includes(hrid)) continue;
+      for (const index of placements) {
+        const variant = cloneProfile(profile);
+        const list = kind === "food" ? variant.food : variant.drinks;
+        while (list.length < count2) list.push(null);
+        list[index] = hrid;
+        candidates.push({ kind, slot: kind + index, hrid, cost: 0, replaces: current[index] || null, profile: variant });
+      }
+    }
+    current.forEach((hrid, index) => {
+      if (!hrid) return;
+      const variant = cloneProfile(profile);
+      (kind === "food" ? variant.food : variant.drinks)[index] = null;
+      candidates.push({ kind, remove: true, slot: kind + index, hrid, cost: 0, replaces: hrid, profile: variant });
+    });
+    return candidates;
+  }
+  function houseCandidates(profile, budget) {
+    const data = getClientData();
+    const candidates = [];
+    for (const room of Object.values(data.houseRoomDetailMap || {})) {
+      if (!room.usableInActionTypeMap?.["/action_types/combat"]) continue;
+      const level = profile.houseRooms?.[room.hrid] || 0;
+      const costs = room.upgradeCostsMap?.[String(level + 1)];
+      if (!costs?.length) continue;
+      const materials2 = costs.map((c2) => ({ hrid: c2.itemHrid, count: c2.count, price: askPrice(c2.itemHrid, 0) }));
+      if (materials2.some((m) => m.price === null)) continue;
+      const cost = materials2.reduce((sum, m) => sum + m.count * m.price, 0);
+      if (cost > budget) continue;
+      const variant = cloneProfile(profile);
+      variant.houseRooms = { ...variant.houseRooms, [room.hrid]: level + 1 };
+      candidates.push({ kind: "house", slot: "house:" + room.hrid, hrid: room.hrid, name: room.name, fromLevel: level, level: level + 1, cost, materials: materials2, owned: false, replaces: null, profile: variant });
+    }
+    return candidates;
+  }
+  var SKILL_STEPS = [1, 5];
+  function skillLevelCandidates(profile) {
+    const data = getClientData();
+    const style = weaponStyle(profile, data);
+    const top = Array.isArray(data.levelExperienceTable) ? data.levelExperienceTable.length - 1 : 200;
+    const candidates = [];
+    for (const skill of COMBAT_SKILLS) {
+      if (["melee", "ranged", "magic"].includes(skill) && skill !== style) continue;
+      const from = profile.levels[skill];
+      for (const step of SKILL_STEPS) {
+        if (from + step > top) break;
+        const variant = cloneProfile(profile);
+        variant.levels[skill] = from + step;
+        candidates.push({ kind: "skillLevel", slot: "skill:" + skill, hrid: skill, fromLevel: from, level: from + step, cost: 0, owned: true, replaces: null, profile: variant });
+      }
+    }
+    return candidates;
+  }
+  function abilityOrderCandidates(profile) {
+    const slots = slotCounts(profile, getClientData());
+    const indices = [];
+    for (let i = 1; i <= slots.abilities; i++) if (profile.abilities[i]) indices.push(i);
+    if (indices.length < 2) return [];
+    const entries = indices.map((i) => profile.abilities[i]);
+    const now = entries.map((e) => e.hrid).join(">");
+    const candidates = [];
+    for (const order of permutations(entries)) {
+      const key = order.map((e) => e.hrid).join(">");
+      if (key === now) continue;
+      const variant = cloneProfile(profile);
+      indices.forEach((slot, k) => variant.abilities[slot] = { ...order[k] });
+      candidates.push({ kind: "abilityOrder", slot: "abilityOrder", hrid: key, order: order.map((e) => e.hrid), was: entries.map((e) => e.hrid), cost: 0, owned: true, replaces: null, profile: variant });
+    }
+    return candidates;
+  }
+  function permutations(list) {
+    if (list.length <= 1) return [list];
+    return list.flatMap((item, i) => permutations([...list.slice(0, i), ...list.slice(i + 1)]).map((rest) => [item, ...rest]));
+  }
+  function bestPerItem(evaluated) {
+    const groups = /* @__PURE__ */ new Map();
+    for (const c2 of evaluated) {
+      const key = [c2.kind, c2.hrid, c2.enhancementLevel ?? "", ["abilityLevel", "house", "skillLevel"].includes(c2.kind) ? c2.level : "", c2.remove ? "remove" : ""].join("|");
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c2);
+    }
+    return [...groups.values()].map((options) => {
+      const pool = options.some((c2) => c2.safe) ? options.filter((c2) => c2.safe) : options;
+      const top = pool.reduce((a, b) => b.delta > a.delta ? b : a);
+      if (!top.extraFood || top.delta <= 0) return top;
+      return pool.filter((c2) => c2.delta >= 0.85 * top.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta)[0];
+    });
+  }
+  async function analyzeUpgrades(pool, profile, zone, settings, onProgress, onRefineProgress) {
+    const budget = settings.budget;
+    const candidates = [
+      ...gearCandidates(profile, settings),
+      ...abilityCandidates(profile, budget),
+      ...abilityOrderCandidates(profile),
+      ...houseCandidates(profile, budget),
+      ...skillLevelCandidates(profile),
+      ...consumableCandidates(profile, "drinks"),
+      ...consumableCandidates(profile, "food")
+    ].map((c2, id) => ({ ...c2, id }));
+    const seeds = (n2) => Array.from({ length: n2 }, (_, i) => i);
+    const items = [{ profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR) }, ...candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings.seeds) }))];
+    const runs = await simulateRuns(pool, items, zone, settings.hours, onProgress);
+    const simulated = [{ profile }, ...candidates].map((v, i) => ({ ...v, result: summarize(runs[i], zone.tier, v.profile), runs: runs[i] }));
+    const slots = slotCounts(profile, getClientData());
+    const emptyAbilitySlots = [];
+    for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
+    const raw = {
+      zone,
+      hours: settings.hours,
+      seedsPerRound: settings.seeds,
+      emptyAbilitySlots,
+      starter: settings.starter || null,
+      baseProfile: profile,
+      base: simulated[0].result,
+      baseRuns: simulated[0].runs,
+      candidates: simulated.slice(1)
+    };
+    for (let round = 0; round < 2; round++) {
+      if (!await refineUncertain(pool, raw, settings, onRefineProgress)) break;
+    }
+    return raw;
+  }
+  function uncertainCandidates(raw, settings) {
+    const rated = rateUpgrades(raw, settings);
+    const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
+    return [...rated.gear, ...rated.abilities, ...rated.house, ...rated.orders, ...rated.drinks, ...rated.food].filter((c2) => c2.delta > 0 && c2.safe && c2.confidence < REFINE_BELOW && c2.runs.length < maxRuns).sort((a, b) => b.delta - a.delta).slice(0, MAX_REFINED);
+  }
+  async function refineUncertain(pool, raw, settings, onProgress) {
+    const targets = uncertainCandidates(raw, settings).map((c2) => raw.candidates.find((x) => x.id === c2.id));
+    if (!targets.length) return 0;
+    const items = targets.map((c2) => {
+      const first = Math.max(...c2.runs.map((r) => r.seed)) + 1;
+      return { profile: c2.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
+    });
+    const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
+    targets.forEach((c2, i) => {
+      c2.runs = [...c2.runs, ...runs[i]];
+      c2.result = summarize(c2.runs, raw.zone.tier, c2.profile);
+    });
+    return targets.length;
+  }
+  function rateUpgrades(raw, settings) {
+    const { base } = raw;
+    const goal = makeGoal(settings, { xp: xpValue(base, settings), gold: base.loot });
+    const baseScore = score(base, goal);
+    const baseScores = raw.baseRuns.map((r) => score(r, goal));
+    const used = (c2) => c2.remove || !["food", "drinks"].includes(c2.kind) || (c2.result.consumables[c2.hrid] || 0) > 0.01;
+    const evaluated = raw.candidates.filter(used).map((c2) => {
+      const delta = score(c2.result, goal) - baseScore;
+      const confidence = confidenceGreater(c2.runs.map((r) => score(r, goal)), baseScores) ?? 0.5;
+      return {
+        ...c2,
+        delta,
+        deltaPct: delta,
+        // scores are already fractions of the reference
+        confidence,
+        significant: confidence >= CONFIDENCE_LEVEL,
+        xpDelta: xpValue(c2.result, settings) - xpValue(base, settings),
+        profitDelta: c2.result.profit - base.profit,
+        // A change that makes you die noticeably more often is never recommended, whatever the
+        // gain – unless you accept rare deaths and it stays within that limit.
+        safe: c2.result.deaths <= Math.max(base.deaths * 1.1 + 0.3, deathLimit(settings)),
+        costPerHourDelta: c2.result.cost - base.cost,
+        deathsDelta: c2.result.deaths - base.deaths
+      };
+    });
+    const best = bestPerItem(evaluated);
+    const byDelta = (a, b) => b.delta - a.delta;
+    const table = getClientData()?.levelExperienceTable;
+    for (const c2 of best) {
+      if (c2.kind !== "skillLevel") continue;
+      const rate = base.xp?.[c2.hrid] || 0;
+      const xpNow = Array.isArray(table) ? experienceOf(table, raw.baseProfile.allExperience?.["/skills/" + c2.hrid], c2.fromLevel) : null;
+      const need = Array.isArray(table) && table[c2.level] !== void 0 ? Math.max(0, table[c2.level] - xpNow) : null;
+      c2.xpNeeded = need;
+      c2.hoursToReach = need === null || !(rate > 0) ? null : need / rate;
+    }
+    return {
+      ...raw,
+      goal,
+      baseScore,
+      gear: best.filter((c2) => c2.kind === "gear").sort(byDelta),
+      abilities: best.filter((c2) => c2.kind === "ability" || c2.kind === "abilityLevel").sort(byDelta),
+      orders: best.filter((c2) => c2.kind === "abilityOrder").sort(byDelta),
+      house: best.filter((c2) => c2.kind === "house").sort(byDelta),
+      levels: best.filter((c2) => c2.kind === "skillLevel").sort((a, b) => a.hrid.localeCompare(b.hrid) || a.level - b.level),
+      drinks: best.filter((c2) => c2.kind === "drinks").sort(byDelta),
+      food: best.filter((c2) => c2.kind === "food").sort(byDelta)
+    };
+  }
+  function stepConfidence(analysis, from, to) {
+    if (!from) return to.confidence;
+    const scores = (c2) => c2.runs.map((r) => score(r, analysis.goal));
+    return confidenceGreater(scores(to), scores(from)) ?? 0.5;
+  }
+  function hullSteps(group, options, minGain, minEfficiency, confident) {
+    const points = [{ cost: 0, delta: 0, candidate: null }, ...options.map((c2) => ({ cost: c2.cost, delta: c2.delta, candidate: c2 }))].sort(
+      (a, b) => a.cost - b.cost || b.delta - a.delta
+    );
+    const rising = [];
+    for (const p2 of points) {
+      const last = rising[rising.length - 1];
+      if (last && (p2.cost === last.cost || p2.delta <= last.delta)) continue;
+      rising.push(p2);
+    }
+    const slope = (a, b) => (b.delta - a.delta) / (b.cost - a.cost);
+    const hull = [];
+    for (const p2 of rising) {
+      while (hull.length >= 2 && slope(hull[hull.length - 2], hull[hull.length - 1]) <= slope(hull[hull.length - 1], p2)) hull.pop();
+      hull.push(p2);
+    }
+    const steps = [];
+    if (hull[0].candidate) steps.push({ group, to: hull[0].candidate, cost: 0, gain: hull[0].delta, efficiency: Infinity });
+    let from = hull[0];
+    let firstPaidEfficiency = null;
+    for (let i = 1; i < hull.length; i++) {
+      const to = hull[i];
+      const gain = to.delta - from.delta;
+      if (gain < (firstPaidEfficiency === null ? minGain : 2 * minGain) || !confident(from.candidate, to.candidate)) continue;
+      const efficiency = gain / (to.cost - from.cost);
+      if (efficiency < minEfficiency) break;
+      if (firstPaidEfficiency === null) firstPaidEfficiency = efficiency;
+      else if (efficiency < firstPaidEfficiency / 4) break;
+      steps.push({ group, to: to.candidate, cost: to.cost - from.cost, gain, efficiency });
+      from = to;
+    }
+    return steps;
+  }
+  function pickConsumable(list, gold) {
+    const ok = list.filter((c2) => c2.significant && c2.safe && c2.delta > 0);
+    if (!ok.length) return { value: null, max: null };
+    const max = ok.reduce((a, b) => b.delta > a.delta + 1e-9 || Math.abs(b.delta - a.delta) <= 1e-9 && b.remove ? b : a);
+    const preferStopping = (a, b) => (b.remove ? 1 : 0) - (a.remove ? 1 : 0);
+    const value = gold > 0 ? max : ok.filter((c2) => c2.delta >= 0.5 * max.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta || preferStopping(a, b))[0];
+    const stop = ok.find((c2) => c2.remove && c2.slot === value.slot && c2 !== value && c2.delta >= value.delta - STOP_TOLERANCE);
+    const chosen = stop || value;
+    return { value: chosen, max: max === chosen ? null : max };
+  }
+  var STOP_TOLERANCE = 5e-3;
+  function buildPlan(analysis, budget, spending = "balanced") {
+    budget -= analysis.starter?.cost || 0;
+    const minGain = 0.01;
+    const minEfficiency = (SPENDING[spending] || SPENDING.balanced).minPctPerMillion / 100 / 1e6;
+    const usable = (c2) => c2.significant && c2.safe && c2.delta > 0;
+    const groups = /* @__PURE__ */ new Map();
+    for (const c2 of analysis.gear.filter(usable)) {
+      const key = c2.slot === "main_hand" || c2.slot === "two_hand" ? "weapon" : c2.slot;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c2);
+    }
+    for (const c2 of analysis.abilities.filter(usable)) {
+      const key = c2.kind === "abilityLevel" || c2.replaces ? c2.slot : "new-ability:" + c2.hrid;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c2);
+    }
+    for (const c2 of (analysis.house || []).filter(usable)) groups.set(c2.slot, [...groups.get(c2.slot) || [], c2]);
+    const confident = (from, to) => stepConfidence(analysis, from, to) >= CONFIDENCE_LEVEL;
+    const steps = [...groups.entries()].flatMap(([key, options]) => hullSteps(key, options, minGain, minEfficiency, confident));
+    steps.sort((a, b) => b.efficiency - a.efficiency || b.gain - a.gain);
+    const chosen = /* @__PURE__ */ new Map();
+    const blocked = /* @__PURE__ */ new Set();
+    const freeAbilitySlots = [...analysis.emptyAbilitySlots];
+    const usedAbilities = /* @__PURE__ */ new Set();
+    let spent = 0;
+    for (const step of steps) {
+      if (blocked.has(step.group)) continue;
+      const isNewAbility = step.group.startsWith("new-ability:");
+      if (spent + step.cost > budget || isNewAbility && !freeAbilitySlots.length || usedAbilities.has(step.to.hrid)) {
+        blocked.add(step.group);
+        continue;
+      }
+      spent += step.cost;
+      if (isNewAbility) {
+        chosen.set(step.group, { ...step.to, slot: "ability" + freeAbilitySlots.shift() });
+      } else {
+        chosen.set(step.group, step.to);
+      }
+      if (step.to.kind === "ability") usedAbilities.add(step.to.hrid);
+    }
+    let picks = [...chosen.values()];
+    if (picks.some((p2) => p2.slot === "two_hand")) picks = picks.filter((p2) => p2.slot !== "off_hand");
+    const isWeapon = (p2) => p2.slot === "main_hand" || p2.slot === "two_hand";
+    const starter = analysis.starter && !picks.some(isWeapon) ? analysis.starter : null;
+    if (analysis.starter) picks = picks.map((p2) => isWeapon(p2) ? { ...p2, replaces: analysis.starter.replaces } : p2);
+    spent = picks.reduce((sum, p2) => sum + p2.cost, 0) + (starter?.cost || 0);
+    const drink = pickConsumable(analysis.drinks, analysis.goal.gold);
+    const food = pickConsumable(analysis.food, analysis.goal.gold);
+    if (food.value && picks.some((p2) => p2.extraFood === food.value.hrid)) food.value = null;
+    const order = (analysis.orders || []).filter((c2) => usable(c2) && c2.delta >= STOP_TOLERANCE).sort((a, b) => b.delta - a.delta)[0] || null;
+    return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max, order };
+  }
+  function reorderAbilities(profile, order) {
+    const slots = [];
+    profile.abilities.forEach((entry, index) => {
+      if (index > 0 && entry && order.includes(entry.hrid)) slots.push(index);
+    });
+    const entries = slots.map((i) => profile.abilities[i]).sort((a, b) => order.indexOf(a.hrid) - order.indexOf(b.hrid));
+    slots.forEach((slot, k) => profile.abilities[slot] = entries[k]);
+  }
+  function putConsumable(list, slot, hrid) {
+    const index = Number(slot.replace(/\D+/g, ""));
+    while (list.length <= index) list.push(null);
+    list[index] = hrid;
+  }
+  function applyPlan(profile, plan) {
+    const result = cloneProfile(profile);
+    for (const pick of plan.picks) {
+      if (pick.kind === "gear") {
+        equip(result, pick.slot, { hrid: pick.hrid, enhancementLevel: pick.enhancementLevel });
+        if (pick.extraFood) putConsumable(result.food, "food" + pick.extraFoodSlot, pick.extraFood);
+      } else if (pick.kind === "ability" || pick.kind === "abilityLevel") {
+        result.abilities[Number(pick.slot.replace("ability", ""))] = { hrid: pick.hrid, level: pick.level };
+      } else if (pick.kind === "house") {
+        result.houseRooms = { ...result.houseRooms, [pick.hrid]: pick.level };
+      }
+    }
+    if (plan.order) reorderAbilities(result, plan.order.order);
+    for (const pick of [plan.drink, plan.food]) {
+      if (pick) putConsumable(pick.kind === "food" ? result.food : result.drinks, pick.slot, pick.remove ? null : pick.hrid);
+    }
+    return result;
+  }
+  async function verifyPlan(pool, profile, plan, zone, settings, onProgress) {
+    const variants = [{ kind: "base", profile }, { kind: "plan", profile: applyPlan(profile, plan) }];
+    const [base, planned] = await simulateVariants(pool, variants, zone, settings, onProgress);
+    return { base: base.result, planned: planned.result };
+  }
+
+  // src/pool.js
+  var SimPool = class {
+    constructor(workerSource, tables, size) {
+      this.url = URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" }));
+      this.tables = tables;
+      this.size = size;
+      this.workers = [];
+      this.queue = [];
+      this.pending = /* @__PURE__ */ new Map();
+      this.nextId = 1;
+      this.cancelled = false;
+    }
+    async start() {
+      const ready = [];
+      for (let i = 0; i < this.size; i++) {
+        const worker = new Worker(this.url);
+        const entry = { worker, busy: true };
+        ready.push(
+          new Promise((resolve2, reject) => {
+            worker.onmessage = (event) => {
+              if (event.data.type === "ready") {
+                worker.onmessage = (e) => this.onResult(entry, e.data);
+                entry.busy = false;
+                resolve2();
+              }
+            };
+            worker.onerror = (event) => reject(new Error(event.message || "Simulation worker error"));
+          })
+        );
+        worker.postMessage({ type: "init", data: this.tables });
+        this.workers.push(entry);
+      }
+      await Promise.all(ready);
+    }
+    run(job) {
+      return new Promise((resolve2, reject) => {
+        this.queue.push({ id: this.nextId++, job, resolve: resolve2, reject });
+        this.pump();
+      });
+    }
+    // Runs all jobs; onProgress(done, total) is called as they finish.
+    async runAll(jobs, onProgress) {
+      this.cancelled = false;
+      let done2 = 0;
+      return Promise.all(
+        jobs.map(
+          (job) => this.run(job).then((result) => {
+            done2++;
+            onProgress?.(done2, jobs.length);
+            return result;
+          })
+        )
+      );
+    }
+    cancel() {
+      this.cancelled = true;
+      const error = new Error("Cancelled");
+      for (const task of this.queue) task.reject(error);
+      this.queue = [];
+    }
+    pump() {
+      for (const entry of this.workers) {
+        if (entry.busy || this.queue.length === 0) continue;
+        const task = this.queue.shift();
+        entry.busy = true;
+        this.pending.set(task.id, task);
+        entry.worker.postMessage({ type: "sim", id: task.id, job: task.job });
+      }
+    }
+    onResult(entry, message) {
+      entry.busy = false;
+      const task = this.pending.get(message.id);
+      this.pending.delete(message.id);
+      if (task) {
+        if (message.type === "result") task.resolve(message.result);
+        else task.reject(new Error(message.error));
+      }
+      this.pump();
+    }
+    terminate() {
+      for (const entry of this.workers) entry.worker.terminate();
+      this.workers = [];
+      URL.revokeObjectURL(this.url);
+    }
+  };
+
+  // src/style.js
+  var NARROW = "(max-width: 700px), (max-height: 500px)";
+  var CSS = `
+.mwia-launcher {
+  position: fixed; right: 44px; bottom: 74px; z-index: 999;
+  width: 36px; height: 36px; padding: 0; border-radius: 50%; border: 1px solid #5b6bb0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(38,44,74,.85); color: #e8ebff; font: 18px/1 sans-serif; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.4); touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.mwia-launcher:hover { background: #333b63; }
+.mwia-launcher.mwia-has-alert::after {
+  content: ""; position: absolute; top: -2px; right: -2px; width: 11px; height: 11px;
+  border-radius: 50%; background: #e5484d; border: 2px solid #171b2e;
+}
+.mwia-alert-row td { background: rgba(229,72,77,.08); }
+.mwia-version {
+  align-self: center; margin-left: 5px; font: 400 9px/1 sans-serif; color: #aab3d9; opacity: .6;
+  text-decoration: none; white-space: nowrap; cursor: default;
+}
+.mwia-version-old {
+  color: #ff5c5c; opacity: 1; font-weight: 700; cursor: pointer; text-shadow: 0 0 5px rgba(255,70,70,.8);
+  animation: mwia-version-glow 2s ease-in-out infinite alternate;
+}
+@keyframes mwia-version-glow { from { text-shadow: 0 0 2px rgba(255,70,70,.4); } to { text-shadow: 0 0 7px rgba(255,70,70,.95); } }
+.mwia-panel {
+  position: fixed; top: 48px; right: 44px; z-index: 1000;
+  width: min(880px, calc(100vw - 58px)); max-height: calc(100vh - 64px);
+  display: flex; flex-direction: column;
+  background: #171b2e; color: #dfe3f5; border: 1px solid #3c4677; border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.55); font: 13px/1.45 sans-serif;
+}
+.mwia-hidden { display: none; }
+.mwia-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #2c3459; }
+.mwia-tabs { display: flex; gap: 4px; padding: 8px 10px 0; border-bottom: 1px solid #2c3459; flex-wrap: wrap; }
+.mwia-tab { background: none; border: none; color: #aab2d8; padding: 6px 12px; cursor: pointer; border-bottom: 2px solid transparent; font: inherit; }
+.mwia-tab.mwia-active { color: #fff; border-bottom-color: #7c8cff; }
+.mwia-body { padding: 12px 14px 16px; overflow: auto; }
+.mwia-body h3 { margin: 14px 0 6px; font-size: 14px; color: #c9d0ff; }
+.mwia-body p { margin: 6px 0; }
+.mwia-body ul, .mwia-body ol { margin: 4px 0 8px; padding-left: 20px; }
+.mwia-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.mwia-table { border-collapse: collapse; width: 100%; }
+.mwia-table td, .mwia-table th { padding: 3px 6px; border-bottom: 1px solid #262d4d; text-align: left; vertical-align: top; }
+.mwia-table th { color: #9aa3cf; font-weight: 600; }
+.mwia-wide { font-size: 12px; margin-bottom: 6px; }
+.mwia-num { text-align: right !important; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mwia-sum td { font-weight: 700; }
+.mwia-best td { background: #1f3326; }
+.mwia-faded td { opacity: .55; }
+.mwia-settings { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 8px 0; }
+.mwia-settings label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #9aa3cf; }
+.mwia-settings select, .mwia-settings input { background: #0f1222; color: #e8ebff; border: 1px solid #3c4677; border-radius: 5px; padding: 3px 6px; font: inherit; max-width: 260px; }
+.mwia-focus-row { display: flex; align-items: center; gap: 6px; color: #aab2d8; }
+.mwia-settings .mwia-focus-row input { width: 130px; padding: 0; border: none; background: none; accent-color: #f2c25b; }
+.mwia-focus-text { color: #e8ebff; }
+.mwia-settings input.mwia-invalid { border-color: #ff7b7b; }
+.mwia-cart-btn { background: #1e3a33; color: #8fe0c0; border: 1px solid #2f6b5a; border-radius: 4px; padding: 0 6px; font: 11px/1.6 sans-serif; cursor: pointer; white-space: nowrap; }
+.mwia-cart-btn:hover { background: #26493f; }
+.mwia-notice { padding: 6px 10px; border-radius: 6px; margin-bottom: 8px; border: 1px solid #3c4677; background: #1d2440; }
+.mwia-notice-ok { border-color: #2f6b5a; background: #17302a; }
+.mwia-notice-warn { border-color: #7a6a2a; background: #2e2a17; }
+.mwia-notice-bad { border-color: #a03a4c; background: #4a1f28; }
+.mwia-notice-diag { margin-top: 6px; font: 11px/1.35 monospace; opacity: .8; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.mwia-btn { background: #4c5bd4; color: #fff; border: none; border-radius: 6px; padding: 7px 14px; font: 600 13px sans-serif; cursor: pointer; margin: 4px 0 8px; }
+.mwia-btn:disabled { opacity: .5; cursor: default; }
+.mwia-link { background: none; border: none; color: #9aa3cf; cursor: pointer; font: inherit; padding: 2px 6px; }
+.mwia-link:hover { color: #fff; }
+.mwia-dim { color: #8189b0; }
+.mwia-ok { color: #6fdc8c; }
+.mwia-warn { color: #f2c25b; }
+.mwia-bad { color: #ff7b7b; }
+.mwia-enh { color: #7fd0ff; }
+.mwia-tier { color: #f2a65b; font-weight: 700; }
+.mwia-error { background: #4a1f28; border: 1px solid #a03a4c; padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; }
+.mwia-reco { background: #1d2b45; border-left: 3px solid #7c8cff; padding: 8px 10px; border-radius: 4px; margin: 8px 0; }
+.mwia-progress { margin: 6px 0 10px; }
+.mwia-progress-label { display: flex; justify-content: space-between; font-size: 12px; color: #aab2d8; }
+.mwia-bar { height: 6px; background: #262d4d; border-radius: 3px; overflow: hidden; }
+.mwia-bar div { height: 100%; background: #7c8cff; transition: width .2s; }
+.mwia-tips li { margin: 3px 0; }
+.mwia-tip-bad::marker { content: "\u2716 "; color: #ff7b7b; }
+.mwia-tip-warn::marker { content: "\u26A0 "; color: #f2c25b; }
+.mwia-tip-info::marker { content: "\u2139 "; color: #7fd0ff; }
+.mwia-tip-ok::marker { content: "\u2714 "; color: #6fdc8c; }
+.mwia-plan li { margin: 3px 0; }
+.mwia-guide p, .mwia-guide li { max-width: 72ch; }
+.mwia-train {
+  position: fixed; right: 44px; bottom: 112px; z-index: 1500;
+  width: min(330px, calc(100vw - 58px)); max-height: 55vh; overflow: auto;
+  padding: 8px 10px; background: #171b2e; color: #dfe3f5; border: 1px solid #3c4677; border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.55); font: 12px/1.45 sans-serif;
+}
+.mwia-train p { margin: 5px 0; }
+.mwia-train-head { display: flex; align-items: center; gap: 4px; }
+.mwia-train-head b { flex: 1; }
+.mwia-train-now { margin: 4px 0; padding: 4px 8px; border-radius: 6px; background: #1d2b45; border-left: 3px solid #f2c25b; font-weight: 600; }
+.mwia-train-buttons { display: flex; gap: 6px; margin: 4px 0 6px; }
+.mwia-train-buttons button:disabled { opacity: .5; cursor: default; }
+.mwia-train-stops { margin: 4px 0; padding-left: 22px; }
+.mwia-train-stops li { margin: 1px 0; }
+.mwia-train-stops .mwia-num { color: #c9d0ff; }
+.mwia-train-done { opacity: .5; text-decoration: line-through; }
+.mwia-train-current { color: #ffe27a; font-weight: 600; }
+.mwia-train-start {
+  margin-left: 8px; padding: 5px 10px; border-radius: 6px; border: 1px solid #f2c25b;
+  background: #43351f; color: #ffe2a0; font: 600 12px sans-serif; cursor: pointer; white-space: nowrap;
+}
+/* MWITools lays rows out as grids or flex rows; the cost line takes a whole row of its own.
+   The planning-tab prefix outweighs MWITools' own rules for text in a row. */
+.planning-step .mwia-plan-cost, .planning-stage .mwia-plan-costs {
+  grid-column: 1 / -1; flex-basis: 100%; width: 100%; box-sizing: border-box; text-align: left;
+  font: 400 12px/1.4 sans-serif; color: #aab3dc;
+}
+.planning-step .mwia-plan-cost { margin-top: 4px; }
+.planning-stage .mwia-plan-costs { margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; }
+.planning-step .mwia-plan-cost-best, .planning-stage .mwia-plan-cost-best { color: #7ee2b0; font-weight: 600; }
+.mwia-skill-list { display: flex; flex-direction: column; }
+.mwia-skill-row { border-bottom: 1px solid #262d4d; }
+.mwia-skill-row.mwia-best { background: #1f3326; }
+.mwia-skill-row.mwia-faded > summary { opacity: .6; }
+.mwia-skill-row > summary { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 6px 4px; cursor: pointer; list-style: none; }
+.mwia-skill-row > summary::-webkit-details-marker { display: none; }
+.mwia-skill-row > summary::before { content: "\u25B8"; color: #5b6bb0; flex: none; }
+.mwia-skill-row[open] > summary::before { content: "\u25BE"; }
+.mwia-skill-name { flex: 1; min-width: 0; }
+.mwia-skill-name small, .mwia-skill-hint { display: block; color: #8189b0; font-size: 11px; }
+.mwia-skill-hint { color: #7ee2b0; }
+.mwia-skill-nums { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mwia-skill-nums .mwia-dim { font-size: 11px; }
+.mwia-skill-detail { padding: 2px 8px 8px 20px; font-size: 12px; color: #c3c9e8; overflow-wrap: anywhere; }
+.mwia-skill-detail p { margin: 4px 0; }
+.mwia-skill-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.mwia-skill-buttons .mwia-btn { margin: 0; }
+.mwia-btn-quiet { background: #2a3150; border: 1px solid #3c4677; }
+.mwia-upgrade { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 4px; border-bottom: 1px solid #262d4d; }
+.mwia-upgrade small { display: block; color: #8189b0; font-size: 11px; }
+.mwia-skill-sec { border-top: 1px solid #232a48; }
+.mwia-skill-sec > summary { padding: 5px 0; cursor: pointer; list-style: none; }
+.mwia-skill-sec > summary::-webkit-details-marker { display: none; }
+.mwia-skill-sec > summary::before { content: "\u25B8 "; color: #5b6bb0; }
+.mwia-skill-sec[open] > summary::before { content: "\u25BE "; }
+.mwia-skill-sec > p { margin: 2px 0 6px 14px; }
+.mwia-history { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-history-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
+.mwia-history-head span, .mwia-history-note, .mwia-history-scale { color: #8189b0; font-size: 11px; }
+.mwia-history-table { border-collapse: collapse; width: 100%; margin: 4px 0; font-variant-numeric: tabular-nums; }
+.mwia-history-table th, .mwia-history-table td { padding: 1px 4px; text-align: right; font-weight: 400; white-space: nowrap; }
+.mwia-history-table th:first-child { text-align: left; color: #9aa3cf; }
+.mwia-history-table tr:first-child th { color: #8189b0; font-size: 11px; }
+.mwia-history-high { color: #ff9b7b; }
+.mwia-history-low { color: #7ee2b0; }
+.mwia-history-chart { display: block; width: 100%; height: 64px; }
+.mwia-history-chart polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+polyline.mwia-history-ask { stroke: #f2a65b; }
+polyline.mwia-history-bid { stroke: #7ee2b0; }
+.mwia-history-scale { display: flex; justify-content: space-between; }
+.mwia-history-plot { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 6px; }
+.mwia-history-y { flex-direction: column; text-align: right; }
+.mwia-history-ranges { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.mwia-history-ranges button { background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 2px 8px; font: 11px sans-serif; cursor: pointer; }
+.mwia-history-ranges button.mwia-active { background: #4c5bd4; }
+.mwia-history-export { flex-wrap: wrap; margin-top: 6px; }
+.mwia-history-export span { order: 3; margin-left: 0 !important; flex-basis: 100%; }
+.mwia-history-ranges span { margin-left: auto; color: #8189b0; font-size: 11px; }
+.mwia-history-ranges i { display: inline-block; width: 10px; height: 2px; margin: 0 3px 3px 6px; vertical-align: middle; }
+i.mwia-history-ask { background: #f2a65b; }
+i.mwia-history-bid { background: #7ee2b0; }
+.mwia-history-sum { margin: 2px 0; font-variant-numeric: tabular-nums; }
+.mwia-history-sum span { white-space: nowrap; }
+.mwia-history-more summary { cursor: pointer; color: #9aa3cf; font-size: 11px; margin-top: 2px; }
+.mwia-history-more[open] summary { margin-bottom: 4px; }
+.mwia-history-head .mwia-history-prelim { color: #ffd479; font-weight: 600; }
+.mwia-guide-box, .mwia-tool-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-guide-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
+.mwia-guide-head span, .mwia-guide-list li span, .mwia-guide-status { color: #8189b0; font-size: 11px; }
+.mwia-guide-sub { margin-top: 4px; color: #9aa3cf; font-size: 11px; }
+.mwia-guide-list { list-style: none; margin: 2px 0; padding: 0; }
+.mwia-guide-list li { margin: 1px 0; }
+.mwia-guide-keep { color: #7ee2b0; }
+.mwia-guide-add { color: #ffd479; font-weight: 600; }
+.mwia-guide-remove { color: #ff9b7b; }
+.mwia-guide-list li span .mwia-guide-low, .mwia-guide-low { color: #ffd479; font-weight: 600; }
+.mwia-guide-note { margin: 2px 0; }
+.mwia-guide-cart { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
+.mwia-listprice { margin: 6px 0; padding: 6px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-listprice-buttons { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 44px; max-width: 80px; padding: 3px 2px; white-space: nowrap; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
+.mwia-listprice-buttons button small { font-weight: 400; font-size: 11px; color: #9aa3cf; }
+.mwia-listprice-buttons button.mwia-off { opacity: .5; cursor: help; }
+.mwia-listprice-info { margin-top: 4px; color: #9aa3cf; font-size: 11px; text-align: center; }
+.mwia-guide-hours { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
+.mwia-guide-hour { min-width: 32px; padding: 4px 6px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
+.mwia-guide-hour.mwia-guide-picked { background: #4a5bb8; border-color: #8a98e8; }
+.mwia-guide-dim { color: #8189b0; font-size: 11px; }
+.mwia-tool-box { margin: 10px 0; }
+.mwia-tool-list { list-style: none; margin: 4px 0; padding: 0; }
+.mwia-tool-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid #2a3150; }
+.mwia-tool-list li .mwia-guide-cart { margin-top: 0; flex: 0 0 auto; }
+[data-mwia-tea="wrong"] { outline: 3px solid #ff4d4d !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-wrong 1.2s ease-in-out infinite; }
+[data-mwia-tea="right"] { outline: 3px solid #3ddc84 !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-right 1.2s ease-in-out infinite; }
+@keyframes mwia-tea-wrong { 0%, 100% { box-shadow: 0 0 4px 1px rgba(255, 77, 77, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(255, 77, 77, 0.95); } }
+@keyframes mwia-tea-right { 0%, 100% { box-shadow: 0 0 4px 1px rgba(61, 220, 132, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(61, 220, 132, 0.95); } }
+.mwia-tea-note { margin: 6px 4px 2px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
+.mwia-narrow-only { display: none; }
+.mwia-tip-pop {
+  position: fixed; z-index: 2000; max-width: min(300px, calc(100vw - 16px)); padding: 6px 9px; border-radius: 6px;
+  background: #0f1222; color: #e8ebff; border: 1px solid #5b6bb0; box-shadow: 0 4px 16px rgba(0,0,0,.6); font: 12px/1.4 sans-serif;
+}
+
+/* Touch screens: bigger targets, and 16px inputs so iOS doesn't zoom in on focus. */
+@media (hover: none), (pointer: coarse) {
+  .mwia-panel button, .mwia-train button, .mwia-train-start { touch-action: manipulation; }
+  .mwia-launcher { width: 44px; height: 44px; font-size: 22px; }
+  .mwia-tab { padding: 10px 12px; }
+  .mwia-link { padding: 6px 10px; }
+  .mwia-btn { padding: 10px 16px; }
+  .mwia-cart-btn { font-size: 13px; padding: 4px 10px; min-height: 32px; }
+  .mwia-settings select, .mwia-settings input[type="text"] { font-size: 16px; padding: 6px 8px; }
+  .mwia-settings input[type="checkbox"] { width: 22px; height: 22px; }
+  .mwia-panel th[title], .mwia-panel span[title], .mwia-panel label[title] { text-decoration: underline dotted #5b6bb0; }
+}
+
+@media ${NARROW} {
+  .mwia-panel {
+    top: 0; right: 0; bottom: 0; left: 0; width: auto; max-height: none; z-index: 1400;
+    border: none; border-radius: 0; box-sizing: border-box;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .mwia-header .mwia-link { font-size: 20px; }
+  .mwia-tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .mwia-tab { white-space: nowrap; }
+  .mwia-body { flex: 1; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 10px 12px 24px; }
+  .mwia-settings label { flex: 1 1 140px; }
+  .mwia-settings select, .mwia-settings input[type="text"] { max-width: none; width: 100%; box-sizing: border-box; }
+
+  /* Wide tables become one card per row. */
+  .mwia-wide, .mwia-wide tbody { display: block; }
+  .mwia-wide thead { display: none; }
+  .mwia-wide tr { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; padding: 8px 4px; border-bottom: 1px solid #2c3459; }
+  .mwia-wide td { display: flex; justify-content: space-between; gap: 8px; padding: 0; border: none; text-align: left !important; }
+  .mwia-wide td::before { content: attr(data-label); color: #8189b0; white-space: nowrap; }
+  .mwia-wide td[data-label=""]::before, .mwia-wide td.mwia-card-title::before { content: none; }
+  .mwia-wide td[data-label=""] { grid-column: 1 / -1; justify-content: flex-start; }
+  .mwia-wide td[data-label=""]:empty { display: none; }
+  .mwia-wide td.mwia-card-title { grid-column: 1 / -1; order: -1; font-size: 13px; font-weight: 600; color: #e8ebff; }
+  .mwia-best { background: #1f3326; }
+  .mwia-faded { opacity: .55; }
+  .mwia-faded td { opacity: 1; }
+
+  .mwia-train {
+    top: calc(8px + env(safe-area-inset-top)); right: 8px; bottom: auto; left: 8px;
+    width: auto; max-height: 45vh; font-size: 13px;
+  }
+  .mwia-train-buttons button { flex: 1; }
+  .mwia-train.mwia-train-low { top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .mwia-narrow-only { display: inline-block; }
+}
+`;
+
+  // src/format.js
+  function parseCoins(text) {
+    const cleaned = String(text).trim().toLowerCase().replace(/\s+/g, "");
+    const match = cleaned.match(/^(\d+(?:[.,]\d+)?|\d{1,3}(?:[.,]\d{3})+)([kmb]?)$/);
+    if (!match) return null;
+    const [, number, suffix] = match;
+    const value = suffix ? Number(number.replace(",", ".")) : Number(number.replace(/[.,](?=\d{3}(\D|$))/g, "").replace(",", "."));
+    const factor = { "": 1, k: 1e3, m: 1e6, b: 1e9 }[suffix];
+    return Number.isFinite(value) ? Math.round(value * factor) : null;
+  }
+  function coinsInput(n2) {
+    if (n2 >= 1e9 && n2 % 1e7 === 0) return n2 / 1e9 + "B";
+    if (n2 >= 1e6 && n2 % 1e4 === 0) return n2 / 1e6 + "M";
+    if (n2 >= 1e3 && n2 % 10 === 0) return n2 / 1e3 + "k";
+    return String(n2);
+  }
+  function shortCoins(n2) {
+    const abs = Math.abs(n2);
+    const fixed = (value, digits) => value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    if (abs >= 1e9) return fixed(n2 / 1e9, 2) + "B";
+    if (abs >= 1e6) return fixed(n2 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
+    if (abs >= 1e4) return fixed(n2 / 1e3, abs >= 1e5 ? 0 : 1) + "k";
+    return Math.round(n2).toLocaleString("en-US");
+  }
+  var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c2) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c2]);
+
+  // src/mwitools-cart.js
+  var READY_TIMEOUT_MS = 5e3;
+  function shoppingApi(win2) {
+    try {
+      const api = win2.MWITools?.shopping;
+      return api && typeof api.addToCart === "function" ? api : null;
+    } catch {
+      return null;
+    }
+  }
+  async function whenReady(api) {
+    const start = Date.now();
+    while (!api.ready && Date.now() - start < READY_TIMEOUT_MS) {
+      await new Promise((resolve2) => setTimeout(resolve2, 100));
+    }
+  }
+  async function addToCart(win2, items) {
+    const api = shoppingApi(win2);
+    if (!api) {
+      throw new Error("MWITools' shopping cart was not found. Check that MWITools is installed, enabled and up to date, then reload the game.");
+    }
+    await whenReady(api);
+    const outcome = { added: [], updated: [], present: [], failed: [] };
+    for (const item of items) {
+      const enhancementLevel = item.enhancementLevel || 0;
+      const wanted = Math.max(1, Math.ceil(item.quantity));
+      const label3 = { hrid: item.hrid, enhancementLevel };
+      try {
+        const have4 = api.getCartItem(item.hrid, enhancementLevel)?.quantity || 0;
+        if (have4 >= wanted) {
+          outcome.present.push(label3);
+          continue;
+        }
+        const result = api.addToCart([{ itemHrid: item.hrid, enhancementLevel, quantity: wanted - have4, source: "manual" }]);
+        if (result?.ok) (have4 ? outcome.updated : outcome.added).push(label3);
+        else outcome.failed.push(label3);
+      } catch {
+        outcome.failed.push(label3);
+      }
+    }
+    return outcome;
   }
 
   // src/price-history.js
@@ -6903,6 +7091,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     const perHour = { ...raw.base.consumables, ...plan.drink?.result?.consumables || {}, ...plan.food?.result?.consumables || {}, ...ui.verified?.planned?.consumables || {} };
     rememberCombatSetup(raw.zone, { drinks: target.drinks.slice(0, slots.drinks), food: target.food.slice(0, slots.food), perHour, encountersPerHour: raw.base.encounters });
   }
+  function enhanceCostFor() {
+    const data = getClientData();
+    try {
+      const who = skillingCharacter(state.character, state.items, data);
+      const market = skillingMarket("bid");
+      return (hrid, starts) => selfEnhanceCosts(hrid, who, data, market, starts);
+    } catch (error) {
+      console.warn("[MWI Advisor] enhancing costs unavailable", error);
+      return null;
+    }
+  }
   async function doRefine() {
     await refineUncertain(ui.pool, ui.upgradeRaw, ui.settings, progress("Re-running uncertain suggestions"));
     rerateUpgrades();
@@ -6913,10 +7112,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const zone = chosenZone(profile);
     if (!zone) throw new Error("Pick a zone first.");
     const run = runSettings();
-    const settings = { ...run, budget: Math.max(0, run.budget - (starter?.cost || 0)), starter };
+    const settings = { ...run, budget: Math.max(0, run.budget - (starter?.cost || 0)), starter, enhanceCost: enhanceCostFor() };
     ui.upgradeRaw = await analyzeUpgrades(ui.pool, profile, zone, settings, progress("Testing upgrades"), progress("Re-running uncertain suggestions"));
     rerateUpgrades();
-    if (ui.plan.picks.length || ui.plan.drink || ui.plan.food) {
+    if (ui.plan.picks.length || ui.plan.drink || ui.plan.food || ui.plan.order) {
       ui.verified = await verifyPlan(ui.pool, profile, ui.plan, zone, settings, progress("Checking the shopping list"));
       saveCombatSetup();
     }
@@ -7185,19 +7384,61 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function upgradeNotes(c2, base) {
     const notes = [];
-    if (c2.owned && c2.cost === 0) notes.push('<span class="mwia-ok">you own it</span>');
+    if (c2.owned && c2.cost === 0 && c2.kind === "gear") notes.push('<span class="mwia-ok">you own it</span>');
+    if (c2.enhance) notes.push(`<span class="mwia-dim" title="${esc(enhanceDetail(c2))}">\u{1F528} enhance yourself</span>`);
     if (c2.deathsDelta < 0 && base.deaths > 0) notes.push(`<span class="mwia-ok">fewer deaths</span>`);
     if (!c2.safe) notes.push(`<span class="mwia-bad">more deaths</span>`);
     return notes.join(" ");
   }
   function cartItems(c2) {
     const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c2.result?.consumables?.[hrid] || 0)));
+    if (c2.kind === "house") return c2.materials.filter((m) => m.hrid !== COIN5).map((m) => ({ hrid: m.hrid, quantity: m.count }));
+    if (c2.kind === "abilityOrder" || c2.kind === "skillLevel") return [];
+    if (c2.enhance) return mergeCart([...enhanceCart(c2), ...c2.extraFood ? [{ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) }] : []]);
     if (c2.kind === "abilityLevel") return [{ hrid: c2.bookHrid, quantity: c2.books }];
     if (c2.kind === "ability") return c2.cost ? [{ hrid: c2.bookHrid, quantity: 1 }] : [];
     if (c2.kind === "food" || c2.kind === "drinks") return c2.remove ? [] : [{ hrid: c2.hrid, quantity: forOneDay(c2.hrid) }];
     const items = c2.cost ? [{ hrid: c2.hrid, quantity: 1, enhancementLevel: c2.enhancementLevel || 0 }] : [];
     if (c2.extraFood) items.push({ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) });
     return items;
+  }
+  var COIN5 = "/items/coin";
+  function enhanceCart(c2) {
+    const e = c2.enhance;
+    const items = e.start === "buy" ? [{ hrid: c2.hrid, quantity: 1, enhancementLevel: 0 }] : [];
+    for (const m of e.materials) if (m.itemHrid !== COIN5) items.push({ hrid: m.itemHrid, quantity: Math.ceil(m.count * e.attempts) });
+    if (e.protect && e.protections > 0) items.push({ hrid: e.protect.itemHrid, quantity: Math.ceil(e.protections), enhancementLevel: 0 });
+    for (const tea of e.teas) items.push({ hrid: tea, quantity: Math.ceil(e.drinks) });
+    return items;
+  }
+  function mergeCart(items) {
+    const merged = /* @__PURE__ */ new Map();
+    for (const i of items) {
+      const key = i.hrid + "#" + (i.enhancementLevel || 0);
+      const known = merged.get(key);
+      if (known) known.quantity += i.quantity;
+      else merged.set(key, { ...i });
+    }
+    return [...merged.values()];
+  }
+  function hoursText2(h2) {
+    if (h2 === null || h2 === void 0 || !Number.isFinite(h2)) return "\u2013";
+    if (h2 < 1) return `${Math.max(1, Math.round(h2 * 60))} min`;
+    if (h2 < 48) return `${dec3(h2, 1)} h`;
+    return `${dec3(h2 / 24, 1)} days`;
+  }
+  function enhanceDetail(c2) {
+    const e = c2.enhance;
+    const from = e.start === "worn" ? `your +${e.from}` : e.start === "owned" ? `your copy at +${e.from}` : `a +0 bought for ${coins5(e.basePrice)}`;
+    const parts = [`from ${from} to +${c2.enhancementLevel}: about ${int(e.attempts)} attempts (${hoursText2(e.hours)} of Enhancing), materials and teas ${coins5(c2.price - e.basePrice)}`];
+    if (e.protect) parts.push(`protected from +${e.protect.from} with ${itemName(e.protect.itemHrid)} (about ${dec3(e.protections, 1)})`);
+    parts.push(e.teas.length ? `teas: ${e.teas.map(itemName).join(", ")}` : "no teas");
+    return parts.join("; ");
+  }
+  function costText2(c2) {
+    if (!c2.cost && !c2.resale) return "(free)";
+    const sold = c2.resale ? ` (${coins5(c2.price)} \u2212 ${coins5(c2.resale)} selling your ${c2.sold.map((g2) => gearLabel(g2)).join(" and ")})` : "";
+    return `for ${c2.cost ? coins5(c2.cost) : "nothing"}${sold}`;
   }
   var starterCart = (w) => w?.cost ? [{ hrid: w.hrid, quantity: 1, enhancementLevel: w.enhancementLevel }] : [];
   var cartLabel = (i) => `${i.quantity ? i.quantity + "\xD7 " : ""}${itemName(i.hrid)}${i.enhancementLevel ? " +" + i.enhancementLevel : ""}`;
@@ -7227,7 +7468,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     render2();
   }
   function renderUpgrades() {
-    let html = `<p>Tests one change at a time (gear incl. enhanced +N copies, new abilities, levelling abilities with extra books, drinks, food) in the chosen zone
+    let html = `<p>Tests one change at a time (gear incl. enhanced +N copies \u2013 bought or enhanced yourself \u2013, new abilities, levelling abilities with extra books,
+      the order of your abilities, combat house rooms, drinks, food, and a few more levels in each skill) in the chosen zone
       and measures how much it improves your focus \u2013 XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
       ${settingsHtml(["focus", "levels", "style", "zone", "budget", "spending", "risk", "accuracy"])}
       <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>`;
@@ -7252,7 +7494,7 @@ i.mwia-history-bid { background: #7ee2b0; }
           <button class="mwia-btn" data-action="refine" ${ui.busy ? "disabled" : ""}>\u{1F3AF} Run more simulations for them</button></p>`;
     }
     html += `<h3>\u{1F4CB} Recommended shopping list</h3>`;
-    if (!plan || !plan.picks.length && !plan.starter && !plan.drink && !plan.food) {
+    if (!plan || !plan.picks.length && !plan.starter && !plan.drink && !plan.food && !plan.order) {
       html += `<p>Nothing within budget gave a reliable improvement that is worth its price. Try Spending "All in", raise the budget, try another zone,
           or just keep levelling \u2013 at some levels that really is the best move.</p>`;
     } else {
@@ -7268,11 +7510,24 @@ i.mwia-history-bid { background: #7ee2b0; }
           what = `${p2.books}\xD7 <b>${esc(itemName(p2.bookHrid))}</b> and read them: ${esc(abilityName(p2.hrid))} level ${p2.fromLevel} \u2192 ${p2.level}`;
         } else if (p2.kind === "ability") {
           what = `ability <b>${esc(abilityName(p2.hrid))}</b>${p2.cost ? ` (buy the book ${esc(itemName(p2.bookHrid))})` : ` (level ${p2.level})`}`;
+        } else if (p2.kind === "house") {
+          html += `<li>Build <b>${esc(p2.name)}</b> level ${p2.fromLevel} \u2192 ${p2.level} <span class="mwia-dim">(${houseMaterials(p2)})</span>: ${gainText(p2)} for ${coins5(p2.cost)} ${cartButton3(cartItems(p2), "\u{1F6D2} Materials")}</li>`;
+          continue;
+        } else if (p2.enhance) {
+          const own = p2.enhance.start === "worn" ? `your <b>${gearLabel(p2.replaces)}</b>` : p2.enhance.start === "owned" ? `your <b>${gearLabel({ hrid: p2.hrid, enhancementLevel: p2.enhance.from })}</b>` : `a <b>${gearLabel({ hrid: p2.hrid })}</b>`;
+          const replaces2 = p2.enhance.start !== "worn" && p2.replaces ? ` \u2013 replaces ${gearLabel(p2.replaces)}` : "";
+          html += `<li>${p2.enhance.start === "buy" ? "Buy" : "Take"} ${own} and enhance it to <span class="mwia-enh">+${p2.enhancementLevel}</span> yourself
+                  <span class="mwia-dim">(${esc(enhanceDetail(p2))})</span>${replaces2}: ${gainText(p2)} ${costText2(p2)} ${cartButton3(cartItems(p2))}</li>`;
+          continue;
         } else {
           what = `<b>${gearLabel(p2)}</b> in ${SLOT_NAMES[p2.slot]}${p2.extraFood ? ` and put <b>${esc(itemName(p2.extraFood))}</b> in the new food slot` : ""}`;
         }
         const replaces = p2.replaces ? ` \u2013 replaces ${p2.kind === "ability" ? esc(abilityName(p2.replaces)) : gearLabel(p2.replaces)}` : "";
-        html += `<li>${p2.cost ? "Buy" : "Use"} ${what}${replaces}: ${gainText(p2)} ${p2.cost ? `for ${coins5(p2.cost)}` : "(free)"} ${cartButton3(cartItems(p2))}</li>`;
+        html += `<li>${p2.cost || p2.price ? "Buy" : "Use"} ${what}${replaces}: ${gainText(p2)} ${costText2(p2)} ${cartButton3(cartItems(p2))}</li>`;
+      }
+      if (plan.order) {
+        html += `<li>Put your abilities in this order: <b>${plan.order.order.map((h2) => esc(abilityName(h2))).join(" \u2192 ")}</b>
+              <span class="mwia-dim">(now ${plan.order.was.map((h2) => esc(abilityName(h2))).join(" \u2192 ")})</span>: ${gainText(plan.order)} (free)</li>`;
       }
       for (const [kind, pick, max] of [["Food", plan.food, plan.foodMax], ["Drink", plan.drink, plan.drinkMax]]) {
         if (!pick) continue;
@@ -7316,13 +7571,19 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!getClientData().levelExperienceTable) {
       html += `<p class="mwia-dim">The game data has no level table, so levelling up abilities with extra books could not be evaluated.</p>`;
     }
+    html += orderTable(result.orders || []);
+    html += upgradeTable("House", result.house || [], base, () => "House", (c2) => `${esc(c2.name)} <span class="mwia-dim">lvl ${c2.fromLevel} \u2192 ${c2.level}</span>`, () => "\u2013", "Room");
+    html += levelTable(result.levels || [], base);
     html += consumableTable("Drinks", result.drinks, base);
     html += consumableTable("Food", result.food, base);
     if (result.food.some((c2) => !c2.safe && c2.delta > 0) && result.gear.some((c2) => c2.extraFood && c2.safe && c2.delta > 0)) {
       html += `<p class="mwia-reco">Some food gives more XP but makes you die, because it replaces your only HP food. A bigger pouch gives an extra
           food slot so you can keep both \u2013 see the pouch row under Equipment.</p>`;
     }
-    html += `<p class="mwia-dim">Prices = lowest sell order on the market right now, also for enhanced (+N) gear. "Gain" = improvement of your focus as a share of
+    html += `<p class="mwia-dim">Prices = lowest sell order on the market right now, also for enhanced (+N) gear \u2013 or, when it is cheaper, enhancing it yourself (\u{1F528}:
+      your Enhancing level, tool and Observatory, the cheapest teas and protection; from the copy you wear or own, or a +0 bought for it). Gear you take off is
+      counted as sold at the best bid after the 4% tax, so the price is what the change really costs (* in the Price column); that is what the budget counts.
+      House rooms cost their coins and materials at the lowest sell order. "Gain" = improvement of your focus as a share of
       what you have now (XP/h and/or profit/h, weighted by the slider); "Gain per 1M" = gain per million coins spent. Profit counts loot minus food/drink cost,
       so with a gold focus expensive drinks drop out by themselves.
       Items you already own cost 0. "Sure" = how certain it is that a suggestion is a real improvement and not luck; faded rows are below ${Math.round(CONFIDENCE_LEVEL * 100)}%
@@ -7362,9 +7623,39 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const c2 of shown) {
       const efficiency = c2.cost > 0 ? pct3(c2.delta / c2.cost * 1e6) : "\u221E";
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${slotText(c2)}</td><td>${nameHtml(c2)}</td><td>${replacesHtml(c2)}</td>
-          <td class="mwia-num">${c2.cost ? coins5(c2.cost) : "0"}</td><td class="mwia-num">${signed(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed(coins5, perDay(c2.profitDelta))}</td>
+          <td class="mwia-num"${c2.resale ? ` title="${coins5(c2.price)} \u2212 ${coins5(c2.resale)} for what it replaces"` : ""}>${c2.cost ? coins5(c2.cost) : "0"}${c2.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed(coins5, perDay(c2.profitDelta))}</td>
           <td class="mwia-num">${pct3(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td>${upgradeNotes(c2, base)}</td><td>${cartButton3(cartItems(c2))}</td></tr>`;
+    }
+    return html + `</tbody></table>`;
+  }
+  function houseMaterials(c2) {
+    return c2.materials.map((m) => m.hrid === COIN5 ? `${coins5(m.count)} coins` : `${int(m.count)}\xD7 ${esc(itemName(m.hrid))}`).join(", ");
+  }
+  function orderTable(list) {
+    const shown = list.filter((c2) => c2.delta > 0).slice(0, 5);
+    let html = `<h3>Ability order</h3>`;
+    if (!list.length) return html + `<p class="mwia-dim">Fewer than two abilities in your slots \u2013 nothing to reorder.</p>`;
+    if (!shown.length) return html + `<p class="mwia-dim">Your order is the best of the ${list.length + 1} orders tried.</p>`;
+    html += `<table class="mwia-table mwia-wide"><thead><tr><th>Order</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
+      <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th></tr></thead><tbody>`;
+    for (const c2 of shown) {
+      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${c2.order.map((h2) => esc(abilityName(h2))).join(" \u2192 ")}</td>
+          <td class="mwia-num">${signed(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed(coins5, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct3(c2.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c2)}</td><td>${upgradeNotes(c2, ui.upgradeResult.base)}</td></tr>`;
+    }
+    return html + `</tbody></table>`;
+  }
+  function levelTable(list, base) {
+    if (!list.length) return "";
+    let html = `<h3>More levels (not for sale)</h3><p class="mwia-dim">What a few more levels in a skill would give, to weigh against what you can buy.
+      The time is at the XP an hour that skill gets now, in this zone.</p>`;
+    html += `<table class="mwia-table mwia-wide"><thead><tr><th>Skill</th><th>Levels</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
+      <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num" title="Time to get there at the XP an hour the skill gets now">Time</th><th></th></tr></thead><tbody>`;
+    for (const c2 of list) {
+      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${SKILL_NAMES[c2.hrid] || esc(c2.hrid)}</td><td>${c2.fromLevel} \u2192 ${c2.level}</td>
+          <td class="mwia-num">${signed(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed(coins5, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct3(c2.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c2)}</td><td class="mwia-num">${hoursText2(c2.hoursToReach)}</td><td>${upgradeNotes(c2, base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -7967,7 +8258,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION3 = true ? "0.44.0" : "dev";
+  var VERSION3 = true ? "0.45.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;

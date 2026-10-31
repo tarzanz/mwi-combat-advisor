@@ -333,7 +333,7 @@ export function evaluateAction(action, who, data, market, teas = who.drinks[acti
 }
 
 // Every tea setup that fits the slots (teas sharing a buff don't stack: Foraging and Super Foraging Tea).
-function teaSetups(data, type, slots, candidates) {
+export function teaSetups(data, type, slots, candidates) {
     const unique = (hrid) => data.itemDetailMap[hrid]?.consumableDetail?.buffs?.[0]?.uniqueHrid || hrid;
     const setups = [[]];
     const grow = (start, chosen) => {

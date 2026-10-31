@@ -1,9 +1,11 @@
 // The actual advice: which zone to fight in and which purchases help most.
 
-import { askPrice, combatZones, expectedLootPerKill, getClientData, marketListings, sellValue } from "./game-data.js";
+import { askPrice, combatZones, expectedLootPerKill, getClientData, marketBids, marketEntry, marketListings, sellValue } from "./game-data.js";
 import { confidenceGreater } from "./stats.js";
-import { GEAR_TYPES, cloneProfile, equip, meetsRequirements, slotCounts, styleOfItem, toDTO, weaponOf, weaponStyle } from "./profile.js";
-import { levelsPerHour } from "./levels.js";
+import { COMBAT_SKILLS, GEAR_TYPES, cloneProfile, equip, meetsRequirements, slotCounts, styleOfItem, toDTO, weaponOf, weaponStyle } from "./profile.js";
+import { experienceOf, levelsPerHour } from "./levels.js";
+import { resaleValue } from "./skilling-upgrades.js";
+import { MAX_TARGET } from "./enhancing.js";
 
 // Many short runs (each with its own random seed) rather than a few long ones: the
 // same total time, but the spread between runs tells how sure a result is.
@@ -240,7 +242,24 @@ function isUsefulFor(style, stats) {
     return Object.entries(stats || {}).some(([key, value]) => typeof value === "number" && value > 0 && !offStyle.has(key) && key !== "attackInterval");
 }
 
-function gearCandidates(profile, budget) {
+// The gear an upgrade in this slot takes off: a two-handed weapon both hands.
+// Fighting as another style, the weapon is the starter (not bought yet) and the
+// one you have is kept, so neither is sold.
+function displaced(profile, type, starter) {
+    const slots = type === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : type === "main_hand" ? ["main_hand", "two_hand"] : [type];
+    return slots.filter((slot) => profile.equipment[slot] && !(starter && (slot === "main_hand" || slot === "two_hand"))).map((slot) => profile.equipment[slot]);
+}
+
+// What gear you take off brings back: the best bid at its +level after tax (a
+// lower level's bid with nobody buying that level), else the vendor price.
+function resaleOf(gear, data) {
+    const bid = marketEntry(gear.hrid, gear.enhancementLevel)?.b;
+    return resaleValue(gear.hrid, gear.enhancementLevel, bid > 0 ? bid : null, data, marketBids).value;
+}
+
+// settings: { budget, starter, enhanceCost } – see gearOptions for enhanceCost.
+function gearCandidates(profile, settings) {
+    const { budget, starter = null, enhanceCost = null } = settings;
     const data = getClientData();
     const style = weaponStyle(profile, data);
     const candidates = [];
@@ -251,7 +270,8 @@ function gearCandidates(profile, budget) {
         if (!GEAR_TYPES.includes(type)) continue;
         if (!meetsRequirements(profile, detail.levelRequirements)) continue;
         const stats = detail.combatStats || {};
-        if (type === "main_hand" || type === "two_hand") {
+        const weapon = type === "main_hand" || type === "two_hand";
+        if (weapon) {
             if (styleOfItem(item) !== style) continue;
         } else if (!isUsefulFor(style, stats)) {
             continue;
@@ -259,7 +279,11 @@ function gearCandidates(profile, budget) {
         if (type === "off_hand" && profile.equipment.two_hand) continue;
 
         const current = profile.equipment[type];
-        let options = gearOptions(profile, item.hrid, budget);
+        // The copy you wear can be enhanced further – not a starter weapon you haven't bought.
+        const worn = current?.hrid === item.hrid && !(starter && weapon) ? current : null;
+        const taken = displaced(profile, type, starter);
+        const resale = taken.reduce((sum, gear) => sum + resaleOf(gear, data), 0);
+        let options = gearOptions(profile, item.hrid, budget, { worn, enhanceCost, resale });
         if (type === "pouch") options = options.slice(0, 1); // enhancing a pouch adds little; keep the sim count down
         for (const option of options) {
             if (current && current.hrid === item.hrid && current.enhancementLevel >= option.enhancementLevel) continue;
@@ -278,8 +302,12 @@ function gearCandidates(profile, budget) {
                 slot: type,
                 hrid: item.hrid,
                 enhancementLevel: option.enhancementLevel,
+                price: option.price,
+                resale: option.resale,
+                sold: option.resale ? taken : [],
                 cost: option.cost,
                 owned: option.owned,
+                enhance: option.enhance || null,
                 replaces: current || null,
                 profile: variant,
             };
@@ -301,27 +329,55 @@ function gearCandidates(profile, budget) {
     return candidates;
 }
 
-// The copies of an item worth testing: the best one you own (free) and the
-// market listings where a higher enhancement level also costs more (a +5 that
-// is cheaper than a +3 makes the +3 pointless). At most MAX_LEVELS listings.
+// The copies of an item worth testing, each +level at its cheapest: the best
+// one you own (free), market listings and – with enhanceCost – enhancing it
+// yourself from the copy you wear (worn) or own, or from a +0 bought at the
+// ask. Of those, the levels where a higher level also costs more (a +5 that is
+// cheaper than a +3 makes the +3 pointless); at most MAX_LEVELS of them.
+// Each option has its price and its cost: the price less the resale of what
+// it replaces (sold), which counts against the budget; enhancing the copy you
+// wear sells nothing.
+// enhanceCost(hrid, starts) -> lookup(start, target) -> { cost, … } | null (see selfEnhanceCosts).
 const MAX_LEVELS = 5;
 
-function gearOptions(profile, hrid, budget) {
+function gearOptions(profile, hrid, budget, { worn = null, enhanceCost = null, resale = 0 } = {}) {
     const owned = profile.inventory.filter((i) => i.hrid === hrid).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
-    const options = owned ? [{ enhancementLevel: owned.enhancementLevel, cost: 0, owned: true }] : [];
+    const options = owned ? [{ enhancementLevel: owned.enhancementLevel, price: 0, resale, cost: 0, owned: true }] : [];
+    const cheapest = new Map(); // +level -> cheapest offer
+    const offer = (o) => {
+        o.price = o.cost;
+        o.resale = o.enhance?.start === "worn" ? 0 : resale;
+        o.cost = Math.max(0, o.price - o.resale);
+        if (o.cost > budget || (owned && o.enhancementLevel <= owned.enhancementLevel)) return;
+        const known = cheapest.get(o.enhancementLevel);
+        if (!known || o.cost < known.cost) cheapest.set(o.enhancementLevel, o);
+    };
+    for (const listing of marketListings(hrid)) offer({ enhancementLevel: listing.enhancementLevel, cost: listing.price, owned: false });
+    if (enhanceCost) {
+        const starts = [];
+        if (worn) starts.push({ from: worn.enhancementLevel, base: 0, start: "worn" });
+        if (owned) starts.push({ from: owned.enhancementLevel, base: 0, start: "owned" });
+        const ask = askPrice(hrid, 0);
+        if (ask !== null) starts.push({ from: 0, base: ask, start: "buy" });
+        const lookup = starts.length ? enhanceCost(hrid, starts.map((s) => s.from)) : null;
+        for (let target = 1; lookup && target <= MAX_TARGET; target++) {
+            for (const s of starts) {
+                const made = s.from < target ? lookup(s.from, target) : null;
+                if (made) offer({ enhancementLevel: target, cost: s.base + made.cost, owned: false, enhance: { ...made, from: s.from, start: s.start, basePrice: s.base } });
+            }
+        }
+    }
     const front = [];
-    for (const listing of marketListings(hrid)) {
-        if (listing.price > budget || (owned && listing.enhancementLevel <= owned.enhancementLevel)) continue;
-        if (front.length && listing.enhancementLevel <= front[front.length - 1].enhancementLevel) continue;
-        front.push(listing);
+    for (const o of [...cheapest.values()].sort((a, b) => a.cost - b.cost || b.enhancementLevel - a.enhancementLevel)) {
+        if (front.length && o.enhancementLevel <= front[front.length - 1].enhancementLevel) continue;
+        front.push(o);
     }
     let picked = front;
     if (front.length > MAX_LEVELS) {
         const step = (front.length - 1) / (MAX_LEVELS - 1);
         picked = Array.from({ length: MAX_LEVELS }, (_, i) => front[Math.round(i * step)]);
     }
-    for (const listing of picked) options.push({ enhancementLevel: listing.enhancementLevel, cost: listing.price, owned: false });
-    return options;
+    return [...options, ...picked];
 }
 
 function combatConsumables(kind) {
@@ -450,12 +506,82 @@ function consumableCandidates(profile, kind) {
     return candidates;
 }
 
+// The combat house rooms (Dojo, Gym, Armory, …) one level up: the coins and
+// materials of the next level, materials at the ask. Every room also adds a
+// little wisdom and rare find everywhere; the simulator counts that too.
+function houseCandidates(profile, budget) {
+    const data = getClientData();
+    const candidates = [];
+    for (const room of Object.values(data.houseRoomDetailMap || {})) {
+        if (!room.usableInActionTypeMap?.["/action_types/combat"]) continue;
+        const level = profile.houseRooms?.[room.hrid] || 0;
+        const costs = room.upgradeCostsMap?.[String(level + 1)];
+        if (!costs?.length) continue;
+        const materials = costs.map((c) => ({ hrid: c.itemHrid, count: c.count, price: askPrice(c.itemHrid, 0) }));
+        if (materials.some((m) => m.price === null)) continue;
+        const cost = materials.reduce((sum, m) => sum + m.count * m.price, 0);
+        if (cost > budget) continue;
+        const variant = cloneProfile(profile);
+        variant.houseRooms = { ...variant.houseRooms, [room.hrid]: level + 1 };
+        candidates.push({ kind: "house", slot: "house:" + room.hrid, hrid: room.hrid, name: room.name, fromLevel: level, level: level + 1, cost, materials, owned: false, replaces: null, profile: variant });
+    }
+    return candidates;
+}
+
+// What more levels in a combat skill would give – not something to buy, but to
+// weigh against what is (is a +2 sword worth more than 5 Magic levels?). Only
+// the skills your style uses: never the other two styles' own skill.
+export const SKILL_STEPS = [1, 5];
+
+function skillLevelCandidates(profile) {
+    const data = getClientData();
+    const style = weaponStyle(profile, data);
+    const top = Array.isArray(data.levelExperienceTable) ? data.levelExperienceTable.length - 1 : 200;
+    const candidates = [];
+    for (const skill of COMBAT_SKILLS) {
+        if (["melee", "ranged", "magic"].includes(skill) && skill !== style) continue;
+        const from = profile.levels[skill];
+        for (const step of SKILL_STEPS) {
+            if (from + step > top) break;
+            const variant = cloneProfile(profile);
+            variant.levels[skill] = from + step;
+            candidates.push({ kind: "skillLevel", slot: "skill:" + skill, hrid: skill, fromLevel: from, level: from + step, cost: 0, owned: true, replaces: null, profile: variant });
+        }
+    }
+    return candidates;
+}
+
+// Every order of the abilities in the normal slots: each round the first one
+// whose triggers hold and whose mana is there is cast, so the order matters.
+function abilityOrderCandidates(profile) {
+    const slots = slotCounts(profile, getClientData());
+    const indices = [];
+    for (let i = 1; i <= slots.abilities; i++) if (profile.abilities[i]) indices.push(i);
+    if (indices.length < 2) return [];
+    const entries = indices.map((i) => profile.abilities[i]);
+    const now = entries.map((e) => e.hrid).join(">");
+    const candidates = [];
+    for (const order of permutations(entries)) {
+        const key = order.map((e) => e.hrid).join(">");
+        if (key === now) continue;
+        const variant = cloneProfile(profile);
+        indices.forEach((slot, k) => (variant.abilities[slot] = { ...order[k] }));
+        candidates.push({ kind: "abilityOrder", slot: "abilityOrder", hrid: key, order: order.map((e) => e.hrid), was: entries.map((e) => e.hrid), cost: 0, owned: true, replaces: null, profile: variant });
+    }
+    return candidates;
+}
+
+function permutations(list) {
+    if (list.length <= 1) return [list];
+    return list.flatMap((item, i) => permutations([...list.slice(0, i), ...list.slice(i + 1)]).map((rest) => [item, ...rest]));
+}
+
 // Keeps one row per item/ability: its best placement, and for a pouch the food
 // for the new slot that gives (nearly) the most XP for the least running cost.
 function bestPerItem(evaluated) {
     const groups = new Map();
     for (const c of evaluated) {
-        const key = [c.kind, c.hrid, c.enhancementLevel ?? "", c.kind === "abilityLevel" ? c.level : "", c.remove ? "remove" : ""].join("|");
+        const key = [c.kind, c.hrid, c.enhancementLevel ?? "", ["abilityLevel", "house", "skillLevel"].includes(c.kind) ? c.level : "", c.remove ? "remove" : ""].join("|");
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(c);
     }
@@ -470,8 +596,11 @@ function bestPerItem(evaluated) {
 export async function analyzeUpgrades(pool, profile, zone, settings, onProgress, onRefineProgress) {
     const budget = settings.budget;
     const candidates = [
-        ...gearCandidates(profile, budget),
+        ...gearCandidates(profile, settings),
         ...abilityCandidates(profile, budget),
+        ...abilityOrderCandidates(profile),
+        ...houseCandidates(profile, budget),
+        ...skillLevelCandidates(profile),
         ...consumableCandidates(profile, "drinks"),
         ...consumableCandidates(profile, "food"),
     ].map((c, id) => ({ ...c, id }));
@@ -504,7 +633,7 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
 export function uncertainCandidates(raw, settings) {
     const rated = rateUpgrades(raw, settings);
     const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
-    return [...rated.gear, ...rated.abilities, ...rated.drinks, ...rated.food]
+    return [...rated.gear, ...rated.abilities, ...rated.house, ...rated.orders, ...rated.drinks, ...rated.food]
         .filter((c) => c.delta > 0 && c.safe && c.confidence < REFINE_BELOW && c.runs.length < maxRuns)
         .sort((a, b) => b.delta - a.delta)
         .slice(0, MAX_REFINED);
@@ -557,12 +686,25 @@ export function rateUpgrades(raw, settings) {
     });
     const best = bestPerItem(evaluated);
     const byDelta = (a, b) => b.delta - a.delta;
+    // Hours until a skill reaches the level, at the XP an hour it gets now.
+    const table = getClientData()?.levelExperienceTable;
+    for (const c of best) {
+        if (c.kind !== "skillLevel") continue;
+        const rate = base.xp?.[c.hrid] || 0;
+        const xpNow = Array.isArray(table) ? experienceOf(table, raw.baseProfile.allExperience?.["/skills/" + c.hrid], c.fromLevel) : null;
+        const need = Array.isArray(table) && table[c.level] !== undefined ? Math.max(0, table[c.level] - xpNow) : null;
+        c.xpNeeded = need;
+        c.hoursToReach = need === null || !(rate > 0) ? null : need / rate;
+    }
     return {
         ...raw,
         goal,
         baseScore,
         gear: best.filter((c) => c.kind === "gear").sort(byDelta),
         abilities: best.filter((c) => c.kind === "ability" || c.kind === "abilityLevel").sort(byDelta),
+        orders: best.filter((c) => c.kind === "abilityOrder").sort(byDelta),
+        house: best.filter((c) => c.kind === "house").sort(byDelta),
+        levels: best.filter((c) => c.kind === "skillLevel").sort((a, b) => a.hrid.localeCompare(b.hrid) || a.level - b.level),
         drinks: best.filter((c) => c.kind === "drinks").sort(byDelta),
         food: best.filter((c) => c.kind === "food").sort(byDelta),
     };
@@ -658,6 +800,7 @@ export function buildPlan(analysis, budget, spending = "balanced") {
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(c);
     }
+    for (const c of (analysis.house || []).filter(usable)) groups.set(c.slot, [...(groups.get(c.slot) || []), c]);
     const confident = (from, to) => stepConfidence(analysis, from, to) >= CONFIDENCE_LEVEL;
     const steps = [...groups.entries()].flatMap(([key, options]) => hullSteps(key, options, minGain, minEfficiency, confident));
     steps.sort((a, b) => b.efficiency - a.efficiency || b.gain - a.gain);
@@ -693,7 +836,20 @@ export function buildPlan(analysis, budget, spending = "balanced") {
     const drink = pickConsumable(analysis.drinks, analysis.goal.gold);
     const food = pickConsumable(analysis.food, analysis.goal.gold);
     if (food.value && picks.some((p) => p.extraFood === food.value.hrid)) food.value = null;
-    return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max };
+    // A better ability order is free: the surest clear gain, if any.
+    const order = (analysis.orders || []).filter((c) => usable(c) && c.delta >= STOP_TOLERANCE).sort((a, b) => b.delta - a.delta)[0] || null;
+    return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max, order };
+}
+
+// Puts the abilities named in order into that order, in the slots they hold now;
+// abilities the plan swapped in stay where they are.
+function reorderAbilities(profile, order) {
+    const slots = [];
+    profile.abilities.forEach((entry, index) => {
+        if (index > 0 && entry && order.includes(entry.hrid)) slots.push(index);
+    });
+    const entries = slots.map((i) => profile.abilities[i]).sort((a, b) => order.indexOf(a.hrid) - order.indexOf(b.hrid));
+    slots.forEach((slot, k) => (profile.abilities[slot] = entries[k]));
 }
 
 function putConsumable(list, slot, hrid) { // hrid null empties the slot
@@ -710,8 +866,11 @@ export function applyPlan(profile, plan) {
             if (pick.extraFood) putConsumable(result.food, "food" + pick.extraFoodSlot, pick.extraFood);
         } else if (pick.kind === "ability" || pick.kind === "abilityLevel") {
             result.abilities[Number(pick.slot.replace("ability", ""))] = { hrid: pick.hrid, level: pick.level };
+        } else if (pick.kind === "house") {
+            result.houseRooms = { ...result.houseRooms, [pick.hrid]: pick.level };
         }
     }
+    if (plan.order) reorderAbilities(result, plan.order.order);
     for (const pick of [plan.drink, plan.food]) {
         if (pick) putConsumable(pick.kind === "food" ? result.food : result.drinks, pick.slot, pick.remove ? null : pick.hrid);
     }

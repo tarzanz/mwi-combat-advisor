@@ -34,6 +34,24 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   or `2M`) and simulates the whole list together. *Spending* (Frugal / Balanced / All in) sets how much XP a purchase
   must give per coin; pricier +N versions are only bought when they are clearly better. Changes that make you die
   more often are never recommended.
+  - **Enhance it yourself** – every +level of an item is priced at the cheaper of the market listing and enhancing it
+    yourself: from the copy you wear (Hat +3 → +6), a copy in your inventory, or a +0 bought at the ask. The expected
+    attempts, materials and protections are solved exactly (the same maths as the Enhancing tab) with your Enhancing
+    level, tool and Observatory, the tea setup and *protect from* +level that cost the least; the row and the list
+    say 🔨 with the attempts, hours of Enhancing, protection and teas, and 🛒 adds the +0, materials, protections
+    and teas. Essence, crates and the XP the attempts give are not counted.
+  - **Selling what you take off** – the price of a new piece is less what the piece it replaces sells for (the best
+    bid at its +level after the 4% tax; a lower level's bid, else the vendor price), and that net price is what the
+    budget and *Gain per 1M* count (never below 0). The list says e.g. *for 1.5M (2.0M − 500k selling your
+    Cheese Helmet)*. Enhancing the piece you wear sells nothing; a weapon for another style (*Fight as*) keeps yours.
+  - **House rooms** – the combat rooms (Dojo, Gym, Armory, Archery Range, Mystical Study, Library, Dining Room) one
+    level up, for their coins and materials at the ask; they go on the shopping list like gear, and 🛒 adds the
+    materials. The small wisdom and rare find every room adds are simulated too.
+  - **Ability order** – every order of the abilities in your normal slots (up to 24); a better one goes on the list
+    as a free change (*Put your abilities in this order: …*).
+  - **More levels (not for sale)** – +1 and +5 levels in each combat skill your style uses (never the other two
+    styles' own skill), with how long they take at the XP an hour that skill gets in the zone now: to weigh a
+    purchase against simply levelling. They never go on the shopping list.
 - **MWITools shopping cart** – every suggestion gets a **🛒 Add** button (and the shopping list an "add all purchases"
   button) that puts it in the MWITools cart through its public API (`window.MWITools.shopping`), including the +N
   enhancement level. Gear and books are added once; food and drinks as one day of combat. Something already in the
@@ -279,7 +297,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - Solo combat only (no parties, no dungeons/labyrinth). Guild buffs are not modelled by the engine.
 - *Fight as* picks one starter weapon; other weapons of the style are tested as upgrades within the budget left after
   it. Levels are counted over a day at today's rate, so a skill you would level past in an hour is still worth a lot.
-- At most five enhancement levels per item are tested (those where a higher level also costs more).
+- At most five enhancement levels per item are tested (those where a higher level also costs more, bought or
+  enhanced yourself). House rooms are tested one level up only.
 - Ability level-ups need the game's `levelExperienceTable`; if the client lacks it they are skipped (the panel says so).
 - New food/drinks use the game's default triggers; your own trigger settings are used for things you already have.
 - Results are estimates – a few percent either way is normal.
