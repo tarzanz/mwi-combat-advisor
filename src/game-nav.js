@@ -193,39 +193,61 @@ function callGameHandler(win, actionHrid) {
     return callReactHandler(NAV_HANDLERS, [actionHrid]);
 }
 
-// Calls the first of the named methods found on the game's React components.
-function callReactHandler(names, args) {
-    const fibers = [];
-    const docs = [...new Set([document, pageDocument()])];
-    for (const doc of docs) {
+// The game's React root fibers: the keys React puts on #root (createRoot), or
+// its legacy root, #root._reactRootContainer – current MWI builds keep no
+// React keys on the other elements.
+function rootFibers() {
+    for (const doc of [...new Set([document, pageDocument()])]) {
+        const fibers = [];
         for (const found of [doc.getElementById("root"), doc.querySelector('[class*="GamePage_gamePage"]')]) {
             const element = pageView(found);
             for (const key of reactKeys(element)) fibers.push(element[key]?.current ?? element[key]);
+            const legacy = attempt(() => element?._reactRootContainer);
+            const current = legacy?.current ?? legacy?._internalRoot?.current;
+            if (current) fibers.push(current);
         }
-        if (fibers.length) break;
+        if (fibers.length) return fibers;
     }
+    return [];
+}
+
+// Walks the React tree from the roots until found(fiber) holds: { fiber, roots, seen }.
+function walkFibers(found) {
+    const fibers = rootFibers();
     const roots = fibers.length;
     const visited = new Set();
     while (fibers.length && visited.size < 50000) {
         const fiber = fibers.pop();
         if (!fiber || visited.has(fiber)) continue;
         visited.add(fiber);
-        const instance = fiber.stateNode;
+        if (found(fiber)) return { fiber, roots, seen: visited.size };
+        if (fiber.return) fibers.push(fiber.return);
+        if (fiber.child) fibers.push(fiber.child);
+        if (fiber.sibling) fibers.push(fiber.sibling);
+    }
+    return { fiber: null, roots, seen: visited.size };
+}
+
+// Calls the first of the named methods found on the game's React components.
+function callReactHandler(names, args) {
+    let called = null;
+    const { fiber, roots, seen } = walkFibers((f) => {
+        const instance = f.stateNode;
         for (const handler of names) {
             if (instance && typeof instance[handler] === "function") {
                 try {
                     instance[handler](...args);
-                    return `react: ${handler} called`;
+                    called = handler;
+                    return true;
                 } catch {
                     // try the next one
                 }
             }
         }
-        if (fiber.return) fibers.push(fiber.return);
-        if (fiber.child) fibers.push(fiber.child);
-        if (fiber.sibling) fibers.push(fiber.sibling);
-    }
-    return `react: no handler (roots ${roots}, fibers ${visited.size}; ${worldReport()})`;
+        return false;
+    });
+    if (fiber) return `react: ${called} called`;
+    return `react: no handler (roots ${roots}, fibers ${seen}; ${worldReport()})`;
 }
 
 // Opens the action's panel: skill page, category tab, action card. Resolves
@@ -270,14 +292,22 @@ export const inventoryItemHash = (characterId, itemHrid, level = 0) => `${charac
 
 // The React component behind an element that has the named method.
 function componentWith(element, method) {
-    for (const found of element ? [element, ...element.querySelectorAll("input, button, select")] : []) {
-        const node = pageView(found);
-        const key = reactKeys(node).find((k) => !k.startsWith("__reactContainer"));
-        for (let fiber = key ? node[key] : null, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
+    const nodes = element ? [element, ...element.querySelectorAll("input, button, select")].map(pageView) : [];
+    const upFrom = (start) => {
+        for (let fiber = start, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
             if (typeof fiber.stateNode?.[method] === "function") return fiber.stateNode;
         }
+        return null;
+    };
+    for (const node of nodes) {
+        const key = reactKeys(node).find((k) => !k.startsWith("__reactContainer"));
+        const found = key && upFrom(node[key]);
+        if (found) return found;
     }
-    return null;
+    // No keys on the elements (current builds): find their fibers from the root.
+    if (!nodes.length) return null;
+    const hosts = new Set(nodes);
+    return upFrom(walkFibers((f) => hosts.has(f.stateNode)).fiber);
 }
 
 async function waitFor(find, timeoutMs) {

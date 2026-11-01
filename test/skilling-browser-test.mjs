@@ -150,7 +150,13 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
       // Changing the tab empties the slot, as a fresh window would.
       selectAlchemyItemHandler: (h) => { comp.state.primaryItemHash = h; window.alchemyItem = h; },
       maxActionCountChanged: (e) => { window.alchemyCount = e.target.value; } };
-    box.querySelector("input")["__reactFiber$t"] = { stateNode: null, return: { stateNode: comp, return: null } };
+    // Current builds: no keys on the elements, the component is found from the legacy root.
+    if (window.legacyReact) {
+      const rootFiber = gameRoot._reactRootContainer._internalRoot.current;
+      const compFiber = { stateNode: comp, return: rootFiber };
+      compFiber.child = { stateNode: box.querySelector("input"), return: compFiber };
+      rootFiber.child = compFiber;
+    } else box.querySelector("input")["__reactFiber$t"] = { stateNode: null, return: { stateNode: comp, return: null } };
     box.querySelectorAll("[role=tab]").forEach((b) => b.onclick = () => { box.querySelectorAll("[role=tab]").forEach((x) => x.setAttribute("aria-selected", String(x === b))); window.alchemyTab = b.textContent; comp.state.primaryItemHash = null; });
   }
   function openPanel(action) {
@@ -900,6 +906,19 @@ try {
         const st = await lvlState();
         check("React seen only as wrappedJSObject still opens the window", st.call === "1::/item_locations/inventory::/items/donut::0", JSON.stringify(st));
         await page.evaluate(() => { const root = document.getElementById("root"); delete root.wrappedJSObject; root["__reactContainer$t"] = window.reactKey; document.querySelector(".lvl")?.remove(); });
+        // As the game is built now: only #root._reactRootContainer, no React keys on any element.
+        await page.evaluate(() => {
+            const root = document.getElementById("root");
+            root._reactRootContainer = { _internalRoot: { current: { stateNode: window.reactKey.current.stateNode } } };
+            delete root["__reactContainer$t"];
+            window.legacyReact = true;
+            window.alchemyCall = window.alchemyCount = undefined;
+        });
+        await clickLevel(trans.hrid);
+        await page.waitForFunction(() => window.alchemyCount !== undefined, { timeout: 8000 }).catch(() => null);
+        const legacy = await lvlState();
+        check("legacy React root: the item goes in and the count is set", legacy.call === "1::/item_locations/inventory::/items/donut::0" && legacy.item === legacy.call && legacy.tab === "Transmute" && legacy.count === String(trans.suggestion?.count ?? 0) && !legacy.notice, JSON.stringify(legacy));
+        await page.evaluate(() => { const root = document.getElementById("root"); delete root._reactRootContainer; root["__reactContainer$t"] = window.reactKey; window.legacyReact = false; document.querySelector(".lvl")?.remove(); });
     }
     await page.evaluate(() => document.querySelector(".lvl")?.remove());
 

@@ -157,6 +157,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     the error; **📋 Copy** copies it with the script's version and your browser, to paste into a chat. When the game's
     handlers can't be found it also says where the script runs (the userscript manager and its sandbox), and it
     looks for the game's React from the page's side too (the page's document, or a sandbox's wrappedJSObject).
+    Current game builds keep React only on `#root._reactRootContainer`: the game's handlers and the Enhancing and
+    Alchemy windows are found by walking React's tree from there.
   - Only the 40 items that do best without teas in gold, in XP and in XP per coin (and those you have) are tried with
     every tea setup, so the list stays quick.
   - **Upgrades that pay back** work here too: enhancers and alembics, the skill's clothes, charms, capes, jewellery

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.47.2
+// @version      0.47.3
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -4498,7 +4498,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.47.2" : "dev";
+  var VERSION = true ? "0.47.3" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5091,37 +5091,53 @@ i.mwia-history-bid { background: #7ee2b0; }
   function callGameHandler(win2, actionHrid) {
     return callReactHandler(NAV_HANDLERS, [actionHrid]);
   }
-  function callReactHandler(names2, args) {
-    const fibers = [];
-    const docs = [.../* @__PURE__ */ new Set([document, pageDocument()])];
-    for (const doc of docs) {
+  function rootFibers() {
+    for (const doc of [.../* @__PURE__ */ new Set([document, pageDocument()])]) {
+      const fibers = [];
       for (const found of [doc.getElementById("root"), doc.querySelector('[class*="GamePage_gamePage"]')]) {
         const element = pageView(found);
         for (const key of reactKeys(element)) fibers.push(element[key]?.current ?? element[key]);
+        const legacy = attempt(() => element?._reactRootContainer);
+        const current = legacy?.current ?? legacy?._internalRoot?.current;
+        if (current) fibers.push(current);
       }
-      if (fibers.length) break;
+      if (fibers.length) return fibers;
     }
+    return [];
+  }
+  function walkFibers(found) {
+    const fibers = rootFibers();
     const roots = fibers.length;
     const visited = /* @__PURE__ */ new Set();
     while (fibers.length && visited.size < 5e4) {
       const fiber = fibers.pop();
       if (!fiber || visited.has(fiber)) continue;
       visited.add(fiber);
-      const instance = fiber.stateNode;
-      for (const handler of names2) {
-        if (instance && typeof instance[handler] === "function") {
-          try {
-            instance[handler](...args);
-            return `react: ${handler} called`;
-          } catch {
-          }
-        }
-      }
+      if (found(fiber)) return { fiber, roots, seen: visited.size };
       if (fiber.return) fibers.push(fiber.return);
       if (fiber.child) fibers.push(fiber.child);
       if (fiber.sibling) fibers.push(fiber.sibling);
     }
-    return `react: no handler (roots ${roots}, fibers ${visited.size}; ${worldReport()})`;
+    return { fiber: null, roots, seen: visited.size };
+  }
+  function callReactHandler(names2, args) {
+    let called = null;
+    const { fiber, roots, seen } = walkFibers((f) => {
+      const instance = f.stateNode;
+      for (const handler of names2) {
+        if (instance && typeof instance[handler] === "function") {
+          try {
+            instance[handler](...args);
+            called = handler;
+            return true;
+          } catch {
+          }
+        }
+      }
+      return false;
+    });
+    if (fiber) return `react: ${called} called`;
+    return `react: no handler (roots ${roots}, fibers ${seen}; ${worldReport()})`;
   }
   async function openAction(win2, action, data, timeoutMs = 4e3) {
     lastDiagnostics = "";
@@ -5154,14 +5170,21 @@ i.mwia-history-bid { background: #7ee2b0; }
   var ALCHEMY_PANEL = '[class*="SkillActionDetail_alchemyComponent"]';
   var inventoryItemHash = (characterId2, itemHrid, level = 0) => `${characterId2}::/item_locations/inventory::${itemHrid}::${level}`;
   function componentWith(element, method) {
-    for (const found of element ? [element, ...element.querySelectorAll("input, button, select")] : []) {
-      const node = pageView(found);
-      const key = reactKeys(node).find((k) => !k.startsWith("__reactContainer"));
-      for (let fiber = key ? node[key] : null, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
+    const nodes = element ? [element, ...element.querySelectorAll("input, button, select")].map(pageView) : [];
+    const upFrom = (start) => {
+      for (let fiber = start, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
         if (typeof fiber.stateNode?.[method] === "function") return fiber.stateNode;
       }
+      return null;
+    };
+    for (const node of nodes) {
+      const key = reactKeys(node).find((k) => !k.startsWith("__reactContainer"));
+      const found = key && upFrom(node[key]);
+      if (found) return found;
     }
-    return null;
+    if (!nodes.length) return null;
+    const hosts = new Set(nodes);
+    return upFrom(walkFibers((f) => hosts.has(f.stateNode)).fiber);
   }
   async function waitFor(find, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
@@ -8111,6 +8134,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const data = getClientData();
     const action = data?.actionDetailMap[actionHrid];
     if (!action || !count2) return;
+    clearNotice();
     ui.root.classList.add("mwia-hidden");
     if (await openAction(ui.win, action, data)) {
       const found = findActionPanel(action.name);
@@ -8130,6 +8154,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const characterId2 = state.character?.character?.id;
     if (owned && !characterId2) steps.push("no character id");
     const hash = owned && characterId2 ? inventoryItemHash(characterId2, item) : null;
+    clearNotice();
     ui.root.classList.add("mwia-hidden");
     const opened = kind === "enhance" ? await openEnhancing(hash, value) : await openAlchemy(hash, label3, value);
     if (opened === "item") return;
@@ -8139,7 +8164,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.47.2" : "dev";
+  var VERSION3 = true ? "0.47.3" : "dev";
+  function clearNotice() {
+    ui.notice = null;
+    ui.root.querySelector(".mwia-notice")?.remove();
+  }
   function showNotice(notice) {
     ui.notice = notice;
     ui.showNotice = true;

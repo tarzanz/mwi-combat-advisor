@@ -1073,6 +1073,7 @@ async function openWithCount(actionHrid, count) {
     const data = getClientData();
     const action = data?.actionDetailMap[actionHrid];
     if (!action || !count) return;
+    clearNotice();
     ui.root.classList.add("mwia-hidden");
     if (await openAction(ui.win, action, data)) {
         const found = findActionPanel(action.name);
@@ -1096,6 +1097,7 @@ async function openLeveling(dataset) {
     const characterId = state.character?.character?.id;
     if (owned && !characterId) steps.push("no character id");
     const hash = owned && characterId ? inventoryItemHash(characterId, item) : null;
+    clearNotice();
     ui.root.classList.add("mwia-hidden");
     const opened = kind === "enhance" ? await openEnhancing(hash, value) : await openAlchemy(hash, label, value);
     if (opened === "item") return;
@@ -1111,6 +1113,12 @@ async function openLeveling(dataset) {
 // ---------- notices ----------
 
 const VERSION = typeof __MWIA_VERSION__ !== "undefined" ? __MWIA_VERSION__ : "dev";
+
+// An old notice doesn't belong to a new try.
+function clearNotice() {
+    ui.notice = null;
+    ui.root.querySelector(".mwia-notice")?.remove();
+}
 
 // A notice in view, also when the button that set it is far down the list.
 function showNotice(notice) {
