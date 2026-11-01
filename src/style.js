@@ -129,6 +129,10 @@ export const CSS = `
 .mwia-skill-hint { color: #7ee2b0; }
 .mwia-skill-nums { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .mwia-skill-nums .mwia-dim { font-size: 11px; }
+.mwia-skill-full { font-size: 11px; color: #8189b0; }
+.mwia-export { margin: 4px 0; }
+.mwia-export-btn { font: inherit; font-size: 12px; padding: 3px 8px; border-radius: 6px; border: 1px solid #4b5585; background: #1d2240; color: #dfe3ff; cursor: pointer; }
+.mwia-skill-full.mwia-warn { color: #f2c25b; }
 .mwia-skill-detail { padding: 2px 8px 8px 20px; font-size: 12px; color: #c3c9e8; overflow-wrap: anywhere; }
 .mwia-skill-detail p { margin: 4px 0; }
 .mwia-skill-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }

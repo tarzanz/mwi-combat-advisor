@@ -42,7 +42,8 @@ import { SimPool } from "./pool.js";
 import { CSS } from "./style.js";
 import { coinsInput, esc, parseCoins } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
-import { rememberToggle, renderSkilling, skillingMarket, toggleShowAll } from "./skilling-ui.js";
+import { rememberToggle, renderSkilling, skillingExportLines, skillingMarket, toggleShowAll } from "./skilling-ui.js";
+import { exportClicked, setExportContext } from "./export.js";
 import { onHistoryChange } from "./price-history-ui.js";
 import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js";
 import { startToolNotice } from "./tool-notice.js";
@@ -567,7 +568,31 @@ function totalLevelHtml(profile, data) {
       ${rows.map((r) => `<tr><td>${esc(SKILL_NAMES[r.hrid.split("/").pop()] || SKILLING_NAMES(r.hrid))}</td><td class="mwia-num">${r.level}</td><td class="mwia-num">${int(r.need)}</td></tr>`).join("")}
       </tbody></table>
       <p class="mwia-dim">Tick <i>Count levels, not XP</i> in Where to fight, Upgrades or Skilling to rank by levels gained.</p></details>`;
+    html += `<p><button class="mwia-btn" data-action="export">🧭 Export for chat</button> <span class="mwia-dim">A text file with your character, inventory, orders and the advice, to paste into a chat. The same button is above the game's inventory.</span></p>`;
     return html;
+}
+
+// What the export adds from the panel: the settings, the top Skilling rows,
+// and the last zone and upgrade analyses (as their text on screen).
+function exportContext() {
+    const sections = [];
+    const textOf = (html, selector) => {
+        const box = document.createElement("div");
+        box.innerHTML = html;
+        return [...box.querySelectorAll(selector)].map((node) => (node.tagName === "TR" ? [...node.children].map((cell) => cell.textContent.trim()).join(" | ") : node.textContent).replace(/\s+/g, " ").trim()).filter(Boolean);
+    };
+    const attempt = (title, lines) => {
+        try {
+            const got = lines();
+            if (got.length) sections.push({ title, lines: got });
+        } catch (error) {
+            sections.push({ title, lines: [`(not available: ${error?.message || error})`] });
+        }
+    };
+    attempt("Skilling: best now", () => (getClientData() ? skillingExportLines(ui.settings) : []));
+    if (ui.zoneResults) attempt("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
+    if (ui.upgradeResult) attempt("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
+    return { settings: ui.settings, sections };
 }
 
 const CAPPED_TITLE = "You kill faster than new monsters appear (one encounter per 3 s at most), so more damage barely helps here";
@@ -1132,6 +1157,9 @@ function onClick(event) {
                 render();
             }
             break;
+        case "export":
+            exportClicked(target);
+            break;
         case "skilling-all":
             toggleShowAll();
             render();
@@ -1211,6 +1239,7 @@ function scheduleDot() {
 export function mountUI(win, workerSource) {
     ui.win = win;
     ui.workerSource = workerSource;
+    setExportContext(exportContext);
 
     const style = document.createElement("style");
     style.textContent = CSS;

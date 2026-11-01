@@ -95,6 +95,8 @@ const orderBook = { type: "market_item_order_books_updated", marketItemOrderBook
     bids: [{ price: askPrice, quantity: 60 }, { price: Math.round(askPrice * 0.9), quantity: 30 }, { price: 1, quantity: 1000 }],
 }] } };
 const coinText = (n) => (n < 0 ? "−" : "") + shortCoins(Math.abs(n));
+// A row's gold: what the planned hours give, so a job shorter than them shows less.
+const rowGold = (e) => `${coinText(e.goldPerDay * (e.suggestion?.count && e.fill < 1 ? e.fill : 1))}/day`;
 
 const MOBILE = !!process.env.MOBILE;
 const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="/advisor.user.js"></script>
@@ -225,7 +227,7 @@ try {
     const expected = expectRank(character, { skill: "all", teaMode: "current" });
     const shown = await rows(page);
     check("ranked list shown", shown.length > 0, `${shown.length} rows`);
-    check("top rows match the calculation", expected.available.slice(0, 5).every((e, i) => shown[i]?.name === e.action.name && shown[i].gold === `${coinText(e.goldPerDay)}/day`),
+    check("top rows match the calculation", expected.available.slice(0, 5).every((e, i) => shown[i]?.name === e.action.name && shown[i].gold === rowGold(e)),
         JSON.stringify(shown.slice(0, 3)) + " vs " + expected.available.slice(0, 3).map((e) => `${e.action.name} ${coinText(e.goldPerDay)}`).join(", "));
     check("XP per day shown", shown.every((r) => /XP\/day$/.test(r.xp)));
     const levels = Object.fromEntries(character.characterSkills.map((s) => [s.skillHrid.split("/").pop(), s.level]));
@@ -266,7 +268,7 @@ try {
     await select(page, "skillingTeas", "best");
     const best = await rows(page);
     const expBest = expectRank(character, { skill: "foraging", teaMode: "best" });
-    check("best-teas ranking matches", best[0].gold === `${coinText(expBest.available[0].goldPerDay)}/day`, `${best[0].gold} vs ${coinText(expBest.available[0].goldPerDay)}`);
+    check("best-teas ranking matches", best[0].gold === rowGold(expBest.available[0]), `${best[0].gold} vs ${rowGold(expBest.available[0])}`);
     check("best teas earn at least as much", expBest.available[0].profitPerHour >= top.profitPerHour - 1e-6);
 
     // Thin market: nobody bids on Cotton Fabric.
@@ -280,7 +282,7 @@ try {
     await select(page, "skillingSellAt", "bid");
     const bid = await rows(page);
     const expBid = expectRank(character, { skill: "tailoring", teaMode: "current", sellAt: "bid" });
-    check("sell at bid matches", bid[0].gold === (expBid.available[0].valid ? `${coinText(expBid.available[0].goldPerDay)}/day` : "–"), `${bid[0].name} ${bid[0].gold} vs ${expBid.available[0].action.name}`);
+    check("sell at bid matches", bid[0].gold === (expBid.available[0].valid ? rowGold(expBid.available[0]) : "–"), `${bid[0].name} ${bid[0].gold} vs ${expBid.available[0].action.name} ${rowGold(expBid.available[0])}`);
     await select(page, "skillingSellAt", "ask");
 
     // Thin margin (shown in active mode; away leaves it out).
@@ -307,6 +309,10 @@ try {
     const planRow = (await rows(page)).find((r) => r.name === topTailoring.action.name);
     check("suggestion without the market, less stock and listings", expPlan.known && expPlan.held === 8 && expPlan.liquidity.rating === "thin" && expPlan.count > 0 && planRow?.sub.includes(`🔴 thin market · make ${expPlan.count.toLocaleString("en-US")}`),
         `${JSON.stringify(expPlan && { held: expPlan.held, count: expPlan.count, coins: expPlan.limitedByCoins })} / ${planRow?.sub}`);
+    const planNums = await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] summary`, (n) => ({ time: n.querySelector("small .mwia-warn")?.textContent || "", full: n.querySelector(".mwia-skill-full")?.textContent || "", short: !!n.querySelector(".mwia-skill-full.mwia-warn") }));
+    const planEntry = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid);
+    check("a job short of 8 h: the time marked with what cut it, the gold for the 8 h", expPlan.fill < 0.95 && expPlan.short === "coins" && /^[\d.]+ (h|min) of 8 h – coins$/.test(planNums.time) && planNums.short && planNums.full === `full 8 h: ${coinText(planEntry.goldPerDay)}/day` && planRow.gold === rowGold(planEntry),
+        JSON.stringify({ planNums, fill: expPlan.fill, short: expPlan.short, gold: planRow.gold }));
     check("a thin market gets 10% of the coins", expPlan.limitedByCoins && expPlan.batch.toBuy <= 500000 * 0.1 + 1e-6 && expPlan.coinShare === 0.1, JSON.stringify({ toBuy: expPlan.batch.toBuy, share: expPlan.coinShare }));
     const batch = expPlan.batch;
     check("batch cost and profit add up", Math.abs(batch.materials - expPlan.count * topTailoring.costPerAction) < 1e-6 && Math.abs(batch.profit - (batch.revenue - batch.materials - batch.teas)) < 1e-6 && planRow.sub.includes(`${coinText(batch.materials)} in, +${coinText(batch.profit)}`),

@@ -81,16 +81,19 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   something sold in ≥ 75% of the hours; ok with ≥ 75%, ≤ 15%, ≤ ±8% and sales in ≥ 30% of the hours (until 12 hours
   of sales are collected, the lowest ask moving in ≥ 30% of the hours stands in for stable, and ok has no such need);
   thin otherwise, or with too little history. **How many to make:** for each crafted item a row suggests a count
-  without opening the market: the planned hours of crafting, less what you already have in the inventory or on your
-  own sell orders, never past about a day of the product's sales with those counted in (an item you already hold a
-  day's sales of shows *you hold a day of sales*), smaller on a swinging price, and no more than the rating's share
+  without opening the market: the planned hours of crafting, never past about a day of the product's sales with what
+  you already have in the inventory or on your own sell orders counted in – so what you hold only shortens the job
+  when the market can't take it all (an item you already hold a day's sales of shows *you hold a day of sales*;
+  without known sales what you hold is taken off the planned hours), smaller on a swinging price, and no more than the rating's share
   of your coins buys materials for (using materials you have first). The materials you still have to buy are rated
   too, and the thinnest market of the product and those materials sets the share. A material you opened on the
   market in the last 12 hours caps the job at what others had listed within 5% of its lowest ask (plus what you
   have) – worth a look for a 🔴 material before buying a lot of it. The game only trades within a price band
   (*Tradable range*) the order book doesn't include, so listings near the top of it may not be buyable. The list is ranked by what the planned hours
   give, so a job your coins or your stock keep short ranks lower, and an item you already hold a whole job of goes
-  last. The row and *📦 How many* show the rating, what the batch's materials cost (and how much of it you still have
+  last. Such a row shows the gold and XP a day for the planned hours (what it is ranked by), with *full 8 h: …/day*
+  under it; a job under 95% of the planned hours has its time in yellow with what cut it (*5.8 h of 8 h – coins*,
+  *– 268 in stock*, *– a day of sales*, *– price swings*, *– few Cocoon listed*). The row and *📦 How many* show the rating, what the batch's materials cost (and how much of it you still have
   to buy) and its profit once it sells, and each material to buy with its rating; the product's order book, if you
   saw it on the market, is shown there too, but doesn't set the count. *▶ Make N* opens the action in the game with the count filled in; you click the game's button. **🍵 Buy teas** puts the best teas for the job in the MWITools
   cart (a gathering job runs for the planned hours), less what you have. The **Focus** slider ranks by gold, XP or a mix
@@ -257,6 +260,13 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   touch screen, 36 px with a mouse) can be
   dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact
   (current stop and buttons only; ▸ shows the list) and ⇅ moves it between the top and bottom of the screen.
+- **Export for chat** – a **🧭 Export for chat** button above the game's inventory (and on the Overview tab) makes a
+  text file with what the advice rests on: version and the prices' age, the settings, levels and XP, gear, drinks,
+  food, house, abilities, coins, the inventory (most valuable first, with ask, bid and worth), your market orders,
+  the action queue, the Skilling tab's top 10 rows with what each was worked out from (speed, materials, the job's
+  count and what cut it, the coins it may use) and the last *Where to fight* and *Upgrades* results. On a phone it
+  goes to the share sheet (save to Files, copy, send); on a computer it downloads and is copied. The first tap may
+  only load the game data and prices (*Ready – tap again*).
 - **Version and updates** – the script's version stands in tiny letters next to your character's name at the top of
   the game. At start (and every 6 hours while the game stays open) the script reads the newest version number from
   GitHub (`package.json`, a few hundred bytes); if there is a newer one the number glows red with *– update*, and a
@@ -330,6 +340,7 @@ node test/price-history-browser-test.mjs /tmp             # price history: marke
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
 node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, Pi down, unlink
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
+node test/export-browser-test.mjs /tmp                    # Export for chat: above the inventory, share sheet or download
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox
 ```

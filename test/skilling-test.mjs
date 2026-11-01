@@ -103,20 +103,26 @@ const stable = { rating: "stable", known: true };
 const full = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, ...away });
 check("8 h job", full.count === 800 && full.fill === 1 && !full.limitedByCoins, JSON.stringify({ c: full.count, f: full.fill }));
 const held = suggestCount(job, { stock: { inventory: 300, listed: 200, listings: [] }, coins: 1e9, liquidity: stable, ...away });
-check("stock and listings are taken off", held.count === 300 && Math.abs(held.fill - 3 / 8) < 1e-9);
+check("stock and listings are taken off (sales unknown)", held.count === 300 && Math.abs(held.fill - 3 / 8) < 1e-9 && held.short === "held" && held.heldOff === 500);
+check("a full job has no cut", full.short === null && full.heldOff === 0);
+// Stock only takes room when the market can't take it all.
+const roomy = suggestCount(job, { stock: { inventory: 300, listed: 0, listings: [] }, coins: 1e9, liquidity: { ...stable, sold: { enough: true, perDay: 5000 } }, ...away });
+check("stock the market can take doesn't shorten the job", roomy.count === 800 && roomy.fill === 1 && roomy.heldOff === 0 && roomy.held === 300 && roomy.short === null, JSON.stringify({ c: roomy.count, o: roomy.heldOff }));
+const tight = suggestCount(job, { stock: { inventory: 300, listed: 0, listings: [] }, coins: 1e9, liquidity: { ...stable, sold: { enough: true, perDay: 1000 } }, ...away });
+check("stock past a day of sales does", tight.count === 700 && tight.heldOff === 100 && tight.short === "held", JSON.stringify({ c: tight.count, o: tight.heldOff }));
 const done = suggestCount(job, { stock: { inventory: 900, listed: 0, listings: [] }, coins: 1e9, liquidity: stable, ...away });
 check("holding a whole job means nothing to make", done.count === 0 && done.fill === 0);
 // No more than a day of sales, with what you hold counted in.
 const selling = (perDay) => ({ ...stable, sold: { enough: true, perDay } });
 const day = suggestCount(job, { stock: none, coins: 1e9, liquidity: selling(300), ...away });
-check("a day of sales caps the job", day.count === 300 && day.cappedBySales && Math.abs(day.fill - 3 / 8) < 1e-9, JSON.stringify({ c: day.count, f: day.fill }));
+check("a day of sales caps the job", day.count === 300 && day.short === "sales" && day.cappedBySales && Math.abs(day.fill - 3 / 8) < 1e-9, JSON.stringify({ c: day.count, f: day.fill }));
 const dayHeld = suggestCount(job, { stock: { inventory: 0, listed: 320, listings: [] }, coins: 1e9, liquidity: selling(300), ...away });
 check("holding a day of sales means nothing to make", dayHeld.count === 0 && dayHeld.fill === 0, String(dayHeld.count));
 const notYet = suggestCount(job, { stock: none, coins: 1e9, liquidity: { ...stable, sold: { enough: false, perDay: 10 } }, ...away });
 check("too few hours of sales: no cap", notYet.count === 800 && !notYet.cappedBySales);
 const poorStable = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, ...away });
 const poorThin = suggestCount(job, { stock: none, coins: 10000, liquidity: { rating: "thin", known: true }, ...away });
-check("a stable market may use 60% of the coins", poorStable.limitedByCoins && poorStable.count === 120, String(poorStable.count));
+check("a stable market may use 60% of the coins", poorStable.limitedByCoins && poorStable.short === "coins" && poorStable.count === 120, String(poorStable.count));
 check("a thin market only 10%", poorThin.limitedByCoins && poorThin.count === 20, String(poorThin.count));
 const active = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, ...PLAN_MODES.active });
 check("active: half-hour jobs", active.count === 50 && active.plannedHours === 0.5, String(active.count));
@@ -154,14 +160,14 @@ check("a material you hold enough of doesn't rate the job", owned.ratedBy === nu
 const now = Date.now();
 const book = (at) => ({ at, asks: [{ price: 50, quantity: 60 }, { price: 52, quantity: 40 }, { price: 80, quantity: 1000 }], bids: [] });
 const booked = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), have: (h) => (h === "/items/x" ? 30 : 0), now, ...away });
-check("a fresh material order book caps the job", booked.count === 130 && booked.limitedByBook === "/items/x" && booked.inputs[0].nearAsks === 100 && booked.inputs[0].toBuy === 100, JSON.stringify({ c: booked.count, i: booked.inputs }));
+check("a fresh material order book caps the job", booked.count === 130 && booked.limitedByBook === "/items/x" && booked.short === "book" && booked.inputs[0].nearAsks === 100 && booked.inputs[0].toBuy === 100, JSON.stringify({ c: booked.count, i: booked.inputs }));
 const stale = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 13 * 3600000) }), now, ...away });
 check("an old material order book doesn't", stale.count === 800 && stale.limitedByBook === null && stale.inputs[0].bookAt === null);
 
 // The whole chain in the planned hours, with what it still buys within the coins.
 const chain = { profitPerHour: 2000, hoursPerAction: 0.04, cashPerAction: 10, bought: ["/items/y"] };
 const chained = suggestChainCount(job, chain, { stock: { inventory: 20, listed: 0, listings: [] }, coins: 1e9, liquidity: stable, ...away });
-check("chain: the planned hours for the whole chain, less stock", chained.count === 180 && Math.abs(chained.hours - 7.2) < 1e-9 && chained.cash === 1800, JSON.stringify(chained));
+check("chain: the planned hours for the whole chain, less stock", chained.heldOff === 20 && chained.count === 180 && Math.abs(chained.hours - 7.2) < 1e-9 && chained.cash === 1800, JSON.stringify(chained));
 const chainPoor = suggestChainCount(job, chain, { stock: none, coins: 1000, liquidity: stable, inputMarket: () => ({ liquidity: { rating: "thin", known: true } }), ...away });
 check("chain: what it buys within the coins of its thinnest market", chainPoor.count === 10 && chainPoor.limitedByCoins && chainPoor.ratedBy === "/items/y", JSON.stringify(chainPoor));
 

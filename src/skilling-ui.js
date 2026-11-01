@@ -303,7 +303,12 @@ function rowHtml(entry, best, upcoming = false, first = false) {
     const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas
         ? `<span class="mwia-skill-hint">🍵 ${teaGain(entry.best.result, entry.current)} with other teas</span>`
         : "";
-    const gold = entry.valid ? `<span class="${day < 0 && !leveling ? "mwia-bad" : day > 0 && (best || leveling) ? "mwia-ok" : ""}">${coins(day)}/day</span>` : `<span class="mwia-dim">–</span>`;
+    // A job shorter than the planned hours: the row shows (and ranks by) what it gives in them.
+    const fill = !leveling && !upcoming && entry.suggestion?.count && entry.fill < 1 ? entry.fill : 1;
+    const shownDay = day * fill;
+    const cut = fill < 1 && coins(shownDay) !== coins(day);
+    const gold = entry.valid ? `<span class="${shownDay < 0 && !leveling ? "mwia-bad" : shownDay > 0 && (best || leveling) ? "mwia-ok" : ""}">${coins(shownDay)}/day</span>` : `<span class="mwia-dim">–</span>`;
+    const full = cut ? `<span class="mwia-skill-full${fill < SHORT_FILL ? " mwia-warn" : ""}">full ${hoursText(entry.suggestion.plannedHours)}: ${coins(day)}/day</span>` : "";
     const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1
         ? `<span class="mwia-skill-hint">⛓ ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>`
         : "";
@@ -311,7 +316,7 @@ function rowHtml(entry, best, upcoming = false, first = false) {
     const faded = !entry.valid || (!leveling && day <= 0) || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
     return `<details class="mwia-skill-row${(best || (leveling && first)) && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">→ +${entry.target}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
-        <span class="mwia-skill-nums"><b>${gold}</b><span class="mwia-dim">${coins(entry.xpPerDay)} XP/day${entry.levelsPerDay !== null && entry.levelsPerDay !== undefined ? ` · ${dec(entry.levelsPerDay, 2)} lvl/day` : ""}</span></span></summary>
+        <span class="mwia-skill-nums"><b>${gold}</b>${full}<span class="mwia-dim">${coins(entry.xpPerDay * fill)} XP/day${entry.levelsPerDay !== null && entry.levelsPerDay !== undefined ? ` · ${dec(entry.levelsPerDay, 2)} lvl/day` : ""}</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
 }
 
@@ -427,8 +432,8 @@ function chainTrainText(e) {
     if (!t) return "";
     const rating = `${RATING[t.liquidity.rating]}${t.ratedBy ? ` (${esc(itemName(t.ratedBy))})` : ""}`;
     const coinsText = e.chain.cashPerAction > 0 ? ` What it buys may take ${Math.round(t.coinShare * 100)}% of your coins (${coins(t.budget)}) for a ${rating}${t.limitedByCoins ? " – that caps it" : ""}.` : "";
-    if (!t.count) return `<br>🚂 Nothing to train: ${t.held ? "you already hold a whole job" : "your coins don't stretch to one"}.${coinsText}`;
-    return `<br>🚂 <b>Train ${t.count.toLocaleString("en-US")}</b>: the whole chain in about ${hoursText(t.hours)}${t.held ? `, less the ${t.held.toLocaleString("en-US")} you hold` : ""}${t.cash > 1 ? `, ${coins(t.cash)} of materials to buy` : ""}.${coinsText}`;
+    if (!t.count) return `<br>🚂 Nothing to train: ${t.heldOff ? "you already hold a day of sales" : "your coins don't stretch to one"}.${coinsText}`;
+    return `<br>🚂 <b>Train ${t.count.toLocaleString("en-US")}</b>: the whole chain in about ${hoursText(t.hours)}${t.heldOff ? `, less the ${t.heldOff.toLocaleString("en-US")} you hold` : ""}${t.cash > 1 ? `, ${coins(t.cash)} of materials to buy` : ""}.${coinsText}`;
 }
 
 // Enhancing and Alchemy: ▶ opens the game's page with the item, 🛒 buys what
@@ -555,9 +560,20 @@ function suggestionShort(suggestion) {
 
 function suggestionSummary(s) {
     const rating = RATING[s.liquidity.rating] + (s.ratedBy ? " (materials)" : "");
-    if (!s.count) return `${rating} · ${s.held ? (s.cappedBySales ? "you hold a day of sales" : "you hold enough") : s.cappedBySales && !s.plannedUnits ? "none sold lately" : "your coins don't stretch to one"}`;
-    return `${rating} · ${s.verb || "make"} ${s.count.toLocaleString("en-US")} (${hoursText(s.hours)}) · ${coins(s.batch.materials)} in, ${s.batch.profit >= 0 ? "+" : "−"}${coins(Math.abs(s.batch.profit))}`;
+    if (!s.count) return `${rating} · ${s.heldOff ? (s.productLiquidity.sold?.enough ? "you hold a day of sales" : "you hold enough") : s.cappedBySales && !s.plannedUnits ? "none sold lately" : "your coins don't stretch to one"}`;
+    const time = s.fill < SHORT_FILL ? `<span class="mwia-warn">${hoursText(s.hours)} of ${hoursText(s.plannedHours)}${SHORT_WHY[s.short] ? ` – ${SHORT_WHY[s.short](s)}` : ""}</span>` : hoursText(s.hours);
+    return `${rating} · ${s.verb || "make"} ${s.count.toLocaleString("en-US")} (${time}) · ${coins(s.batch.materials)} in, ${s.batch.profit >= 0 ? "+" : "−"}${coins(Math.abs(s.batch.profit))}`;
 }
+
+// A job under this share of the planned hours is marked on its row, with what cut it.
+export const SHORT_FILL = 0.95;
+const SHORT_WHY = {
+    held: (s) => `${s.held.toLocaleString("en-US")} in stock`,
+    sales: () => "a day of sales",
+    swing: () => "price swings",
+    book: (s) => `few ${esc(itemName(s.limitedByBook))} listed`,
+    coins: () => "coins",
+};
 
 // Made all day, more than the market takes: the rest goes for the floor.
 function salesCapText(cap, name, mean) {
@@ -612,8 +628,11 @@ function suggestionHtml(e) {
         : s.cappedBySales
         ? `A ${hoursText(s.plannedHours)} job would make more than sells in a day: about a day of sales is ${s.plannedUnits.toLocaleString("en-US")} ${product}`
         : `A ${hoursText(s.plannedHours)} job is ${s.plannedUnits.toLocaleString("en-US")} ${product}`;
-    if (s.held) plan += ` − ${s.held.toLocaleString("en-US")} you already have (${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)`;
+    const where = `(${s.stock.inventory.toLocaleString("en-US")} in inventory, ${s.stock.listed.toLocaleString("en-US")} listed)`;
+    const sold = s.productLiquidity.sold?.enough ? soldText(s.productLiquidity.sold.perDay) : null;
+    if (s.heldOff) plan += ` − ${s.heldOff === s.held ? "the" : `${s.heldOff.toLocaleString("en-US")} of the`} ${s.held.toLocaleString("en-US")} you already have ${where}${sold && !s.cappedBySales ? `: with them, more than the ~${sold} that sell in a day` : ""}`;
     lines.push(plan + ".");
+    if (s.held && !s.heldOff) lines.push(`<span class="mwia-dim">The ${s.held.toLocaleString("en-US")} you already have ${where} don't shorten it: the market takes about ${sold} a day.</span>`);
     const sw = s.swing;
     if (sw && sw.share < 1) {
         const why = [];
@@ -636,7 +655,7 @@ function suggestionHtml(e) {
         const seen = [s.profitableBids !== null && `${s.profitableBids.toLocaleString("en-US")} in buy orders at ≥ ${coins(s.breakEven)} (break-even)`, s.nearAsks !== null && `${s.nearAsks.toLocaleString("en-US")} listed by others within ${dec(ASK_WINDOW * 100, 0)}% of the lowest ask`].filter(Boolean);
         if (seen.length) lines.push(`<span class="mwia-dim">On the market ${age} ago: ${seen.join(" · ")}.</span>`);
     }
-    if (!s.count) return lines.join("<br>") + (s.held ? " You already hold enough – nothing to make." : " Not enough coins for one.");
+    if (!s.count) return lines.join("<br>") + (s.heldOff ? " You already hold enough – nothing to make." : " Not enough coins for one.");
     lines.push(`→ <b>${s.verb || "make"} ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}).`);
     const b = s.batch;
     const owned = b.materials - b.toBuy;
@@ -757,4 +776,42 @@ function slotsText(u) {
     if (!u.extraSlots) return "";
     const slots = `${u.extraSlots > 0 ? "+" : ""}${u.extraSlots} tea slot${Math.abs(u.extraSlots) === 1 ? "" : "s"}`;
     return ` · ${slots}${u.teas?.length ? ` (with ${esc(names(u.teas))} on ${esc(u.bestAction.name)})` : ""}`;
+}
+
+// The Skilling tab's top rows as plain text, with what each was worked out from – for the export.
+export function skillingExportLines(settings, count = 10) {
+    const { available } = ranking(settings);
+    const mode = PLAN_MODES[planMode(settings)];
+    const n = (x) => Math.round(x).toLocaleString("en-US");
+    const lines = [`Skill ${settings.skillingSkill} · sell at ${settings.skillingSellAt} · teas ${settings.skillingTeas} · plan ${planMode(settings)} (${hoursText(mode.hours)}) · focus ${goldShare(settings)}% gold${settings.countLevels ? " · counting levels" : ""}`];
+    available.filter((e) => e.valid).slice(0, count).forEach((e, i) => {
+        const fill = e.fill ?? 1;
+        const head = `${i + 1}. ${adviceName(e)} – ${skillLabel(skillOf(e))} ${e.action.levelRequirement.level} · ranked on ${coins(e.goldPerDay * fill)}/day${fill < 1 ? ` (${coins(e.goldPerDay)}/day running all ${hoursText(mode.hours)}, the job fills ${Math.round(fill * 100)}%)` : ""} · ${coins(e.xpPerDay * fill)} XP/day · score ${dec(e.score, 3)}`;
+        const parts = [`${dec(e.actionsPerHour, 0)} actions/h`, `profit ${coins(e.profitPerHour)}/h`, `margin ${dec((e.margin || 0) * 100, 1)}%`];
+        if (e.teas?.length) parts.push(`teas ${e.teas.map(itemName).join(", ")}`);
+        if (e.inputs?.length) parts.push(`buys ${e.inputs.map((input) => `${dec(input.count, 2)} ${itemName(input.itemHrid)} @ ${coins(input.price || 0)}`).join(" + ")} per action`);
+        const out = e.outputs?.find((o) => o.kind === "product");
+        if (out) parts.push(`sells ${dec(out.count, 2)} ${itemName(out.itemHrid)} @ ${coins(out.price ?? out.value ?? 0)} after tax`);
+        const lines2 = [head, `   ${parts.join(" · ")}`];
+        const s = e.suggestion;
+        if (s?.known) {
+            const sold = s.productLiquidity.sold?.enough ? `~${n(s.productLiquidity.sold.perDay)} sold/day` : "sales unknown";
+            const job = [
+                `make ${n(s.count)} (${hoursText(s.hours)} of ${hoursText(s.plannedHours)}${s.short ? `, cut by ${s.short}` : ""})`,
+                `market ${s.liquidity.rating}${s.ratedBy ? ` (set by ${itemName(s.ratedBy)})` : ""}, product ${s.productLiquidity.rating}, ${sold}`,
+                `you hold ${n(s.held)} (${n(s.stock.inventory)} inventory, ${n(s.stock.listed)} listed)${s.heldOff ? `, ${n(s.heldOff)} taken off the job` : ""}`,
+                `coins for materials ${coins(s.budget)} (${Math.round(s.coinShare * 100)}%)${s.limitedByCoins ? " – the cap" : ""}`,
+                `batch materials ${coins(s.batch.materials)} (buy ${coins(s.batch.toBuy)}), sells ${coins(s.batch.revenue)}, profit ${coins(s.batch.profit)}`,
+            ];
+            if (s.swing && s.swing.share < 1) job.push(`made ${Math.round(s.swing.share * 100)}% for the price swing (±${dec(s.swing.swing * 100, 1)}%)`);
+            if (s.limitedByBook) job.push(`${itemName(s.limitedByBook)} listed near the lowest ask caps it`);
+            lines2.push(`   ${job.join(" · ")}`);
+        } else if (e.budget) {
+            lines2.push(`   coins last ${hoursText(e.budget.hours)} of ${hoursText(e.budget.plannedHours)} · budget ${coins(e.budget.budget)} (${Math.round(e.budget.share * 100)}%)`);
+        }
+        const warnings = e.warnings.map(warningText).filter(Boolean);
+        if (warnings.length) lines2.push(`   ⚠ ${warnings.join(" ")}`);
+        lines.push(...lines2);
+    });
+    return lines;
 }

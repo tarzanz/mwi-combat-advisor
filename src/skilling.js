@@ -503,6 +503,14 @@ const PRICE_BAND = 0.1;
 export const SALES_DAYS = 1;
 const salesDay = (liquidity) => (liquidity?.sold?.enough ? Math.floor(SALES_DAYS * liquidity.sold.perDay) : Infinity);
 
+// Units to make in the planned hours: what you hold only takes room when the
+// market can't take it all – no more than a day of sales with it counted in.
+// Without known sales, what you hold is taken off the job as before.
+function unitsToMake(planned, daySales, held) {
+    const room = Number.isFinite(daySales) ? daySales - held : planned - held;
+    return Math.max(0, Math.min(planned, room));
+}
+
 // How much of the batch to make given the price's swing and where it is now
 // (price: { swing, diff } – the selling side's typical swing and now vs usual).
 export function swingShare(price) {
@@ -531,9 +539,16 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
     const planned = Math.max(1, Math.floor(hours * entry.actionsPerHour));
     const plannedUnits = Math.min(planned * entry.mainCount, salesDay(product));
     const held = stock.inventory + stock.listed;
-    let count = Math.max(0, Math.ceil((plannedUnits - held) / entry.mainCount - 1e-9));
+    const units = unitsToMake(planned * entry.mainCount, salesDay(product), held);
+    let count = Math.max(0, Math.ceil(units / entry.mainCount - 1e-9));
+    // What keeps the job under the planned hours, the last limit that cut it.
+    let short = units < planned * entry.mainCount ? (units < plannedUnits ? "held" : "sales") : null;
     const swing = swingShare(price);
-    if (swing && swing.share < 1) count = Math.ceil(count * swing.share);
+    if (swing && swing.share < 1) {
+        const before = count;
+        count = Math.ceil(count * swing.share);
+        if (count < before) short = "swing";
+    }
     // Materials bought for n actions, using what is in the inventory first.
     // Coins an action costs (Alchemy) are paid from the coins, not bought.
     const toBuy = (input, n) => (input.itemHrid === COIN ? input.count * n : Math.max(0, input.count * n - have(input.itemHrid)));
@@ -560,6 +575,7 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
         if (input.maxCount < count) {
             count = input.maxCount;
             limitedByBook = input.itemHrid;
+            short = "book";
         }
     }
     // The worst market of the product and its bought materials sets the coins.
@@ -584,6 +600,7 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
         }
         count = low;
         limitedByCoins = true;
+        short = "coins";
     }
     const jobHours = count / entry.actionsPerHour;
     // The batch: what its materials are worth, the part you still have to buy,
@@ -604,8 +621,10 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
         bookAt: book?.at ?? null,
         stock,
         held,
+        heldOff: Math.max(0, plannedUnits - units),
         plannedHours: hours,
         plannedUnits,
+        short,
         cappedBySales: plannedUnits < planned * entry.mainCount,
         liquidity: rating,
         productLiquidity: product,
@@ -645,9 +664,10 @@ export function enhanceBudget(entry, { hours = PLAN_MODES.away.hours, coinShare 
 export function suggestChainCount(entry, chain, { stock, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, price = null, liquidity = null, inputMarket = null }) {
     if (!chain || !entry.mainCount || chain.profitPerHour <= 0) return null;
     const planned = Math.max(1, Math.floor(hours / chain.hoursPerAction));
-    const plannedUnits = Math.min(planned * entry.mainCount, salesDay(liquidity));
     const held = stock.inventory + stock.listed;
-    let count = Math.max(0, Math.ceil((plannedUnits - held) / entry.mainCount - 1e-9));
+    const units = unitsToMake(planned * entry.mainCount, salesDay(liquidity), held);
+    const heldOff = Math.max(0, Math.min(planned * entry.mainCount, salesDay(liquidity)) - units);
+    let count = Math.max(0, Math.ceil(units / entry.mainCount - 1e-9));
     const swing = swingShare(price);
     if (swing && swing.share < 1) count = Math.ceil(count * swing.share);
     let rating = liquidity || { rating: "thin", known: false };
@@ -663,7 +683,7 @@ export function suggestChainCount(entry, chain, { stock, hours = PLAN_MODES.away
     const budget = coins * share;
     const limitedByCoins = chain.cashPerAction > 0 && count * chain.cashPerAction > budget;
     if (limitedByCoins) count = Math.floor(budget / chain.cashPerAction);
-    return { count, hours: count * chain.hoursPerAction, cash: count * chain.cashPerAction, liquidity: rating, ratedBy, coinShare: share, budget, limitedByCoins, held };
+    return { count, hours: count * chain.hoursPerAction, cash: count * chain.cashPerAction, liquidity: rating, ratedBy, coinShare: share, budget, limitedByCoins, held, heldOff };
 }
 
 // Making it all yourself: every material your levels let you make or gather is
@@ -881,6 +901,8 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
             suggestion,
             budget,
             chain: chained,
+            // The share of the planned hours the job runs: what the ranking goes by.
+            fill,
             // A train that makes the materials too, when that pays at least as well as buying them.
             chainSuggestion: plan && chained && chained.profitPerHour >= shown.profitPerHour ? suggestChainCount(shown, chained, { ...plan, stock: plan.stock(shown.action), price, liquidity }) : null,
             score: score({ skill: shown.skill, valid: shown.valid, goldPerDay: shown.goldPerDay * fill, xpPerDay: shown.xpPerDay * fill }),

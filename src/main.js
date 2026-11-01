@@ -7,6 +7,7 @@ import { startListingPrices } from "./listing-price-ui.js";
 import { readPairing } from "./pi-sync.js";
 import { startOrderLog } from "./order-log.js";
 import { startVersionTag } from "./version-tag.js";
+import { startExportButton } from "./export.js";
 
 const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
@@ -28,4 +29,5 @@ function mount() {
     startPriceHistory(win);
     startListingPrices(win);
     startVersionTag();
+    startExportButton(win);
 }
