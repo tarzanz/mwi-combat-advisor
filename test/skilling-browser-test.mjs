@@ -886,6 +886,21 @@ try {
         check("a ▶ that throws shows the error with the panel", /Transmute[^]*failed: test failure/.test(broke.text) && broke.shown && /📋 Copy/.test(broke.text), JSON.stringify(broke));
         await page.evaluate(() => document.querySelector(".lvl")?.remove());
     }
+    // A userscript sandbox hides the game's React keys on the elements: the notice says where the script runs…
+    if (trans) {
+        await page.evaluate(() => { const root = document.getElementById("root"); window.reactKey = root["__reactContainer$t"]; delete root["__reactContainer$t"]; });
+        await clickLevel(trans.hrid);
+        await page.waitForFunction(() => /no handler/.test(document.querySelector(".mwia-notice")?.textContent || ""), { timeout: 8000 }).catch(() => null);
+        const hidden = await page.evaluate(() => document.querySelector(".mwia-notice .mwia-notice-diag")?.textContent || "");
+        check("no React on the page: the notice says where the script runs", /react: no handler \(roots 0/.test(hidden) && /window own/.test(hidden) && /#root found, react keys 0/.test(hidden), hidden);
+        // …and React seen through the sandbox's wrappedJSObject still opens the window.
+        await page.evaluate(() => { document.getElementById("root").wrappedJSObject = { "__reactContainer$t": window.reactKey }; });
+        await clickLevel(trans.hrid);
+        await page.waitForFunction(() => window.alchemyCall !== undefined, { timeout: 5000 }).catch(() => null);
+        const st = await lvlState();
+        check("React seen only as wrappedJSObject still opens the window", st.call === "1::/item_locations/inventory::/items/donut::0", JSON.stringify(st));
+        await page.evaluate(() => { const root = document.getElementById("root"); delete root.wrappedJSObject; root["__reactContainer$t"] = window.reactKey; document.querySelector(".lvl")?.remove(); });
+    }
     await page.evaluate(() => document.querySelector(".lvl")?.remove());
 
     // Tea slots on the Enhancing page: the first Enhancing job in the queue (its item and target) decides.

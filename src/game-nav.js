@@ -23,6 +23,44 @@ const NAV_HANDLERS = [
 
 // What the last failed openAction saw, so a player without developer tools can report it.
 let lastDiagnostics = "";
+
+// The game's window. A userscript manager may run the script in a sandbox
+// (Violentmonkey's "content" mode): the page's elements are shared, but what
+// the game's code put on them (React's keys) is only seen from the page's side.
+let pageWindow = window;
+export function usePageWindow(win) {
+    pageWindow = win || window;
+}
+const attempt = (read, fallback = null) => {
+    try {
+        return read();
+    } catch {
+        return fallback;
+    }
+};
+const pageDocument = () => attempt(() => pageWindow.document) || document;
+// An element as the game's code sees it (Firefox-style sandboxes hand it over as wrappedJSObject).
+const pageView = (node) => attempt(() => node?.wrappedJSObject) || node;
+const REACT_KEY = /^__react(Container|Fiber|InternalInstance)\$/;
+const reactKeys = (node) => attempt(() => Object.getOwnPropertyNames(node).filter((k) => REACT_KEY.test(k)), []);
+
+// Where the script runs and whether it can see the game's React, for the diagnostics.
+export function worldReport() {
+    const info = attempt(() => (typeof GM_info !== "undefined" ? GM_info : null));
+    const root = document.getElementById("root");
+    const doc = pageDocument();
+    const pageRoot = doc !== document ? attempt(() => doc.getElementById("root")) : null;
+    const wrapped = attempt(() => root?.wrappedJSObject);
+    return [
+        `${info?.scriptHandler || "manager ?"} ${info?.version || ""} inject ${info?.injectInto || "?"}`.replace(/\s+/g, " "),
+        `window ${pageWindow === window ? "own" : "page's"}`,
+        `document ${doc === document ? "own" : "page's"}`,
+        `#root ${root ? `found, react keys ${reactKeys(root).length}` : "missing"}`,
+        pageRoot ? `page #root react keys ${reactKeys(pageRoot).length}` : "",
+        wrapped ? `wrapped #root react keys ${reactKeys(wrapped).length}` : "",
+        `MWITools ${attempt(() => !!pageWindow.MWITools, "?")}`,
+    ].filter(Boolean).join(", ");
+}
 export function navDiagnostics() {
     return lastDiagnostics;
 }
@@ -138,11 +176,13 @@ function callGameHandler(win, actionHrid) {
 // Calls the first of the named methods found on the game's React components.
 function callReactHandler(names, args) {
     const fibers = [];
-    const root = document.getElementById("root");
-    for (const element of [root, document.querySelector('[class*="GamePage_gamePage"]')]) {
-        for (const key of Object.getOwnPropertyNames(element || {})) {
-            if (/^__react(Container|Fiber|InternalInstance)\$/.test(key)) fibers.push(element[key]?.current ?? element[key]);
+    const docs = [...new Set([document, pageDocument()])];
+    for (const doc of docs) {
+        for (const found of [doc.getElementById("root"), doc.querySelector('[class*="GamePage_gamePage"]')]) {
+            const element = pageView(found);
+            for (const key of reactKeys(element)) fibers.push(element[key]?.current ?? element[key]);
         }
+        if (fibers.length) break;
     }
     const roots = fibers.length;
     const visited = new Set();
@@ -165,7 +205,7 @@ function callReactHandler(names, args) {
         if (fiber.child) fibers.push(fiber.child);
         if (fiber.sibling) fibers.push(fiber.sibling);
     }
-    return `react: no handler (roots ${roots}, fibers ${visited.size})`;
+    return `react: no handler (roots ${roots}, fibers ${visited.size}; ${worldReport()})`;
 }
 
 // Opens the action's panel: skill page, category tab, action card. Resolves
@@ -210,8 +250,9 @@ export const inventoryItemHash = (characterId, itemHrid, level = 0) => `${charac
 
 // The React component behind an element that has the named method.
 function componentWith(element, method) {
-    for (const node of element ? [element, ...element.querySelectorAll("input, button, select")] : []) {
-        const key = Object.getOwnPropertyNames(node).find((k) => /^__react(Fiber|InternalInstance)\$/.test(k));
+    for (const found of element ? [element, ...element.querySelectorAll("input, button, select")] : []) {
+        const node = pageView(found);
+        const key = reactKeys(node).find((k) => !k.startsWith("__reactContainer"));
         for (let fiber = key ? node[key] : null, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
             if (typeof fiber.stateNode?.[method] === "function") return fiber.stateNode;
         }
@@ -228,14 +269,15 @@ async function waitFor(find, timeoutMs) {
     }
 }
 
-const visiblePanel = (selector) => [...document.querySelectorAll(selector)].find(visible) || null;
+// Found from the page's side, where the game's React can be seen.
+const visiblePanel = (selector) => [...pageDocument().querySelectorAll(selector)].find(visible) || null;
 
 // The Enhancing and Alchemy windows on screen: the item in the slot, the
 // target set (Enhancing) and the selected tab (Alchemy), as the game holds them.
 export function levelingPanels() {
     const out = [];
     for (const [kind, selector, method] of [["enhancing", ENHANCING_PANEL, "enhancingMaxLevelChanged"], ["alchemy", ALCHEMY_PANEL, "selectAlchemyItemHandler"]]) {
-        for (const panel of document.querySelectorAll(selector)) {
+        for (const panel of pageDocument().querySelectorAll(selector)) {
             if (!visible(panel)) continue;
             const held = componentWith(panel, method)?.state || {};
             const tab = kind === "alchemy" ? [...document.querySelectorAll(TABS)].find((t) => visible(t) && t.getAttribute("aria-selected") === "true" && /^(Coinify|Decompose|Transmute)$/.test(clean(t.textContent))) : null;

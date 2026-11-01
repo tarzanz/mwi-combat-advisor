@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.47.0
+// @version      0.47.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -4498,7 +4498,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.47.0" : "dev";
+  var VERSION = true ? "0.47.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -4954,6 +4954,37 @@ i.mwia-history-bid { background: #7ee2b0; }
     "handleGoToAction"
   ];
   var lastDiagnostics = "";
+  var pageWindow = window;
+  function usePageWindow(win2) {
+    pageWindow = win2 || window;
+  }
+  var attempt = (read, fallback = null) => {
+    try {
+      return read();
+    } catch {
+      return fallback;
+    }
+  };
+  var pageDocument = () => attempt(() => pageWindow.document) || document;
+  var pageView = (node) => attempt(() => node?.wrappedJSObject) || node;
+  var REACT_KEY = /^__react(Container|Fiber|InternalInstance)\$/;
+  var reactKeys = (node) => attempt(() => Object.getOwnPropertyNames(node).filter((k) => REACT_KEY.test(k)), []);
+  function worldReport() {
+    const info = attempt(() => typeof GM_info !== "undefined" ? GM_info : null);
+    const root = document.getElementById("root");
+    const doc = pageDocument();
+    const pageRoot = doc !== document ? attempt(() => doc.getElementById("root")) : null;
+    const wrapped = attempt(() => root?.wrappedJSObject);
+    return [
+      `${info?.scriptHandler || "manager ?"} ${info?.version || ""} inject ${info?.injectInto || "?"}`.replace(/\s+/g, " "),
+      `window ${pageWindow === window ? "own" : "page's"}`,
+      `document ${doc === document ? "own" : "page's"}`,
+      `#root ${root ? `found, react keys ${reactKeys(root).length}` : "missing"}`,
+      pageRoot ? `page #root react keys ${reactKeys(pageRoot).length}` : "",
+      wrapped ? `wrapped #root react keys ${reactKeys(wrapped).length}` : "",
+      `MWITools ${attempt(() => !!pageWindow.MWITools, "?")}`
+    ].filter(Boolean).join(", ");
+  }
   function navDiagnostics() {
     return lastDiagnostics;
   }
@@ -5045,11 +5076,13 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function callReactHandler(names2, args) {
     const fibers = [];
-    const root = document.getElementById("root");
-    for (const element of [root, document.querySelector('[class*="GamePage_gamePage"]')]) {
-      for (const key of Object.getOwnPropertyNames(element || {})) {
-        if (/^__react(Container|Fiber|InternalInstance)\$/.test(key)) fibers.push(element[key]?.current ?? element[key]);
+    const docs = [.../* @__PURE__ */ new Set([document, pageDocument()])];
+    for (const doc of docs) {
+      for (const found of [doc.getElementById("root"), doc.querySelector('[class*="GamePage_gamePage"]')]) {
+        const element = pageView(found);
+        for (const key of reactKeys(element)) fibers.push(element[key]?.current ?? element[key]);
       }
+      if (fibers.length) break;
     }
     const roots = fibers.length;
     const visited = /* @__PURE__ */ new Set();
@@ -5071,7 +5104,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (fiber.child) fibers.push(fiber.child);
       if (fiber.sibling) fibers.push(fiber.sibling);
     }
-    return `react: no handler (roots ${roots}, fibers ${visited.size})`;
+    return `react: no handler (roots ${roots}, fibers ${visited.size}; ${worldReport()})`;
   }
   async function openAction(win2, action, data, timeoutMs = 4e3) {
     lastDiagnostics = "";
@@ -5104,8 +5137,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   var ALCHEMY_PANEL = '[class*="SkillActionDetail_alchemyComponent"]';
   var inventoryItemHash = (characterId2, itemHrid, level = 0) => `${characterId2}::/item_locations/inventory::${itemHrid}::${level}`;
   function componentWith(element, method) {
-    for (const node of element ? [element, ...element.querySelectorAll("input, button, select")] : []) {
-      const key = Object.getOwnPropertyNames(node).find((k) => /^__react(Fiber|InternalInstance)\$/.test(k));
+    for (const found of element ? [element, ...element.querySelectorAll("input, button, select")] : []) {
+      const node = pageView(found);
+      const key = reactKeys(node).find((k) => !k.startsWith("__reactContainer"));
       for (let fiber = key ? node[key] : null, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
         if (typeof fiber.stateNode?.[method] === "function") return fiber.stateNode;
       }
@@ -5120,11 +5154,11 @@ i.mwia-history-bid { background: #7ee2b0; }
       await sleep(100);
     }
   }
-  var visiblePanel = (selector) => [...document.querySelectorAll(selector)].find(visible) || null;
+  var visiblePanel = (selector) => [...pageDocument().querySelectorAll(selector)].find(visible) || null;
   function levelingPanels() {
     const out = [];
     for (const [kind, selector, method] of [["enhancing", ENHANCING_PANEL, "enhancingMaxLevelChanged"], ["alchemy", ALCHEMY_PANEL, "selectAlchemyItemHandler"]]) {
-      for (const panel of document.querySelectorAll(selector)) {
+      for (const panel of pageDocument().querySelectorAll(selector)) {
         if (!visible(panel)) continue;
         const held = componentWith(panel, method)?.state || {};
         const tab = kind === "alchemy" ? [...document.querySelectorAll(TABS)].find((t4) => visible(t4) && t4.getAttribute("aria-selected") === "true" && /^(Coinify|Decompose|Transmute)$/.test(clean(t4.textContent))) : null;
@@ -7635,7 +7669,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       box.innerHTML = html;
       return [...box.querySelectorAll(selector)].map((node) => (node.tagName === "TR" ? [...node.children].map((cell) => cell.textContent.trim()).join(" | ") : node.textContent).replace(/\s+/g, " ").trim()).filter(Boolean);
     };
-    const attempt = (title, lines) => {
+    const attempt2 = (title, lines) => {
       try {
         const got = lines();
         if (got.length) sections.push({ title, lines: got });
@@ -7643,9 +7677,9 @@ i.mwia-history-bid { background: #7ee2b0; }
         sections.push({ title, lines: [`(not available: ${error?.message || error})`] });
       }
     };
-    attempt("Skilling: best now", () => getClientData() ? skillingExportLines(ui.settings) : []);
-    if (ui.zoneResults) attempt("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
-    if (ui.upgradeResult) attempt("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
+    attempt2("Skilling: best now", () => getClientData() ? skillingExportLines(ui.settings) : []);
+    if (ui.zoneResults) attempt2("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
+    if (ui.upgradeResult) attempt2("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
     return { settings: ui.settings, sections };
   }
   var CAPPED_TITLE = "You kill faster than new monsters appear (one encounter per 3 s at most), so more damage barely helps here";
@@ -8088,7 +8122,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.47.0" : "dev";
+  var VERSION3 = true ? "0.47.1" : "dev";
   function showNotice(notice) {
     ui.notice = notice;
     ui.showNotice = true;
@@ -8626,6 +8660,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   // src/main.js
   var win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   installSocketHook(win);
+  usePageWindow(win);
   startOrderLog();
   readPairing(win);
   if (document.readyState === "loading") {

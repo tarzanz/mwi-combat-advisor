@@ -8,10 +8,13 @@ import { readPairing } from "./pi-sync.js";
 import { startOrderLog } from "./order-log.js";
 import { startVersionTag } from "./version-tag.js";
 import { startExportButton } from "./export.js";
+import { usePageWindow } from "./game-nav.js";
 
 const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
 installSocketHook(win);
+// The game's React is seen from the page's side, also from a sandbox.
+usePageWindow(win);
 // Your market orders, for the Pi: listening from the start, so the first full list isn't missed.
 startOrderLog();
 // A link from the Pi (…#mwia-pi=…) links this browser to it.
