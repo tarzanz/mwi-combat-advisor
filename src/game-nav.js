@@ -59,7 +59,27 @@ export function worldReport() {
         pageRoot ? `page #root react keys ${reactKeys(pageRoot).length}` : "",
         wrapped ? `wrapped #root react keys ${reactKeys(wrapped).length}` : "",
         `MWITools ${attempt(() => !!pageWindow.MWITools, "?")}`,
+        reactScan(root),
     ].filter(Boolean).join(", ");
+}
+
+// Where React's keys are on the page, if anywhere: what #root holds, and the
+// first elements that carry a "__react" (or other "__") key.
+function reactScan(root) {
+    const own = (node) => attempt(() => Object.getOwnPropertyNames(node), []).filter((k) => k.startsWith("_"));
+    const prefix = (key) => key.replace(/\$.*$/, "$");
+    const parts = [`#root own: ${own(root).map(prefix).join(" ") || "none"}, children ${root?.children.length ?? "–"}`];
+    const found = [];
+    const other = new Set();
+    for (const node of [...document.querySelectorAll("body *")].slice(0, 5000)) {
+        const keys = own(node);
+        if (keys.some((k) => k.startsWith("__react"))) {
+            if (found.length < 2) found.push(`${describe(node)} [${[...new Set(keys.map(prefix))].join(" ")}]`);
+        } else keys.forEach((k) => other.size < 6 && other.add(prefix(k)));
+    }
+    parts.push(found.length ? `react on ${found.join("; ")}` : "no element with __react keys");
+    if (other.size) parts.push(`other keys ${[...other].join(" ")}`);
+    return parts.join(", ");
 }
 export function navDiagnostics() {
     return lastDiagnostics;

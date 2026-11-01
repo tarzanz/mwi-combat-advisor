@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.47.1
+// @version      0.47.2
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -4498,7 +4498,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.47.1" : "dev";
+  var VERSION = true ? "0.47.2" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -4982,8 +4982,25 @@ i.mwia-history-bid { background: #7ee2b0; }
       `#root ${root ? `found, react keys ${reactKeys(root).length}` : "missing"}`,
       pageRoot ? `page #root react keys ${reactKeys(pageRoot).length}` : "",
       wrapped ? `wrapped #root react keys ${reactKeys(wrapped).length}` : "",
-      `MWITools ${attempt(() => !!pageWindow.MWITools, "?")}`
+      `MWITools ${attempt(() => !!pageWindow.MWITools, "?")}`,
+      reactScan(root)
     ].filter(Boolean).join(", ");
+  }
+  function reactScan(root) {
+    const own = (node) => attempt(() => Object.getOwnPropertyNames(node), []).filter((k) => k.startsWith("_"));
+    const prefix = (key) => key.replace(/\$.*$/, "$");
+    const parts = [`#root own: ${own(root).map(prefix).join(" ") || "none"}, children ${root?.children.length ?? "\u2013"}`];
+    const found = [];
+    const other = /* @__PURE__ */ new Set();
+    for (const node of [...document.querySelectorAll("body *")].slice(0, 5e3)) {
+      const keys = own(node);
+      if (keys.some((k) => k.startsWith("__react"))) {
+        if (found.length < 2) found.push(`${describe(node)} [${[...new Set(keys.map(prefix))].join(" ")}]`);
+      } else keys.forEach((k) => other.size < 6 && other.add(prefix(k)));
+    }
+    parts.push(found.length ? `react on ${found.join("; ")}` : "no element with __react keys");
+    if (other.size) parts.push(`other keys ${[...other].join(" ")}`);
+    return parts.join(", ");
   }
   function navDiagnostics() {
     return lastDiagnostics;
@@ -8122,7 +8139,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.47.1" : "dev";
+  var VERSION3 = true ? "0.47.2" : "dev";
   function showNotice(notice) {
     ui.notice = notice;
     ui.showNotice = true;
