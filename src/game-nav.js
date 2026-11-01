@@ -337,10 +337,41 @@ export function levelingPanels() {
     return out;
 }
 
+// The game's names for a window's extra slots (catalyst, protection) aren't
+// known for sure: a method is picked by its name – one that selects or sets,
+// never one that removes – and the window's state is checked afterwards.
+const SKIP_METHOD = /^(render|constructor|setState|forceUpdate|component|getSnapshot|shouldComponent|UNSAFE_|isReact)|remove|clear|delete|reset/i;
+export function componentMethods(component) {
+    const names = new Set();
+    for (let o = component; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+        for (const name of attempt(() => Object.getOwnPropertyNames(o), [])) {
+            if (!SKIP_METHOD.test(name) && attempt(() => typeof component[name] === "function", false)) names.add(name);
+        }
+    }
+    return [...names];
+}
+const findMethod = (component, ...patterns) => componentMethods(component).find((name) => patterns.every((p) => p.test(name))) || null;
+const holds = (component, value) => attempt(() => Object.values(component.state || {}).some((v) => v === value || String(v) === String(value)), false);
+const methodList = (component) => `methods: ${componentMethods(component).slice(0, 40).join(", ") || "none"}`;
+
+// Puts an inventory item in a window's slot through the method named for it
+// (word: /catalyst/i or /protection/i). One step for the diagnostics, and
+// whether it is in.
+async function fillSlot(component, word, label, hash) {
+    if (!hash) return { ok: false, step: `${label} not in the inventory at +0 – buy it (🛒)` };
+    const method = findMethod(component, word, /^(select|set|change|handle|on)/i, /item|hash|select/i) || findMethod(component, word, /^(select|set|change)/i);
+    if (!method) return { ok: false, step: `no ${label} method (${methodList(component)})` };
+    attempt(() => component[method](hash));
+    await sleep(200);
+    const ok = holds(component, hash);
+    return { ok, step: `${label}: ${method} called${ok ? "" : ` but not in the slot (${methodList(component)})`}` };
+}
+
 // Opens Enhancing with the item (one you have at +0) and the target level set.
 // Without the item in the inventory it only opens the Enhancing page. Returns
 // "item", "page" or false; navDiagnostics() then says what each step found.
-export async function openEnhancing(itemHash, target, timeoutMs = 4000) {
+// protect: { hash, from } – the protection item to put in (one you have) and the +level to protect from.
+export async function openEnhancing(itemHash, target, protect = null, timeoutMs = 4000) {
     const steps = [];
     const done = (result) => ((lastDiagnostics = steps.join(" · ")), result);
     const called = itemHash ? callReactHandler(["handleEnhanceItem"], [itemHash]) : "no item";
@@ -362,13 +393,23 @@ export async function openEnhancing(itemHash, target, timeoutMs = 4000) {
     await sleep(150);
     component.enhancingMaxLevelChanged({ target: { value: String(target) } });
     steps.push(`target +${target} set`);
-    return done("item");
+    if (!protect) return done("item");
+    await sleep(150);
+    const slot = await fillSlot(component, /protect/i, "protection", protect.hash);
+    steps.push(slot.step);
+    const levelMethod = findMethod(component, /protect/i, /level/i, /change|set/i);
+    if (levelMethod) attempt(() => component[levelMethod]({ target: { value: String(protect.from) } }));
+    await sleep(200);
+    const levelSet = levelMethod && holds(component, protect.from);
+    steps.push(levelMethod ? `protect from +${protect.from}: ${levelMethod} called${levelSet ? "" : " but not set"}` : `no protect-level method (${methodList(component)})`);
+    return done(slot.ok && levelSet ? "item" : "partial");
 }
 
 // Opens Alchemy on the action's tab with the item (one you have) and the count
 // set. Without the item in the inventory it only opens the tab. Returns "item",
 // "page" or false; navDiagnostics() then says what each step found.
-export async function openAlchemy(itemHash, tabLabel, count, timeoutMs = 4000) {
+// catalyst: { hash } – the catalyst to put in (one you have), or null for none.
+export async function openAlchemy(itemHash, tabLabel, count, catalyst = null, timeoutMs = 4000) {
     const steps = [];
     const done = (result) => ((lastDiagnostics = steps.join(" · ")), result);
     const called = itemHash ? callReactHandler(["handleAlchemizeItem"], [itemHash]) : "no item";
@@ -397,7 +438,11 @@ export async function openAlchemy(itemHash, tabLabel, count, timeoutMs = 4000) {
     await sleep(150);
     if (count > 0 && typeof component.maxActionCountChanged === "function") component.maxActionCountChanged({ target: { value: String(count) } });
     steps.push(count > 0 ? (typeof component.maxActionCountChanged === "function" ? `count ${count} set` : "no count box") : "no count");
-    return done("item");
+    if (!catalyst) return done("item");
+    await sleep(150);
+    const slot = await fillSlot(component, /catalyst/i, "catalyst", catalyst.hash);
+    steps.push(slot.step);
+    return done(slot.ok ? "item" : "partial");
 }
 
 // Opens the marketplace on an item: through MWITools' public API when it is

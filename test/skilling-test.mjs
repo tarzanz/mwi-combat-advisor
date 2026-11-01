@@ -161,6 +161,18 @@ const now = Date.now();
 const book = (at) => ({ at, asks: [{ price: 50, quantity: 60 }, { price: 52, quantity: 40 }, { price: 80, quantity: 1000 }], bids: [] });
 const booked = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), have: (h) => (h === "/items/x" ? 30 : 0), now, ...away });
 check("a fresh material order book caps the job", booked.count === 130 && booked.limitedByBook === "/items/x" && booked.short === "book" && booked.inputs[0].nearAsks === 100 && booked.inputs[0].toBuy === 100, JSON.stringify({ c: booked.count, i: booked.inputs }));
+check("…bought up the book: 60 at 50 and 40 at 52, the last action keeping Away's 5% margin (≤ 56.5 a unit)", booked.batch.toBuy === 60 * 50 + 40 * 52 && Math.abs(booked.inputs[0].maxPrice - 56.5) < 1e-9 && Math.abs(booked.inputs[0].averagePrice - 50.8) < 1e-9 && booked.batch.aboveAsk === 80, JSON.stringify({ t: booked.batch.toBuy, i: booked.inputs[0] }));
+{
+    // More profit per action carries the job deeper into the book: 80 a unit still leaves 5% on 70.
+    const rich = suggestCount({ ...job, profitPerHour: 4000 }, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), have: (h) => (h === "/items/x" ? 30 : 0), now, ...away });
+    check("a richer action buys deeper into the book, at what it costs there", rich.count === 800 && rich.limitedByBook === null && rich.batch.toBuy === 60 * 50 + 40 * 52 + 670 * 80 && rich.batch.materials === 800 * 50 + rich.batch.aboveAsk && rich.batch.profit < 800 * 40, JSON.stringify({ c: rich.count, t: rich.batch.toBuy, i: rich.inputs[0] }));
+    // A swinging price asks for that margin too: 10% of 70 leaves 3 for the units above 50.
+    const swinging = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, price: { swing: 0.1 }, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), have: (h) => (h === "/items/x" ? 30 : 0), now, ...away });
+    check("Away: the margin is at least the price's swing", Math.abs(swinging.inputs[0].maxPrice - 53) < 1e-9 && swinging.minMargin === 0.1, JSON.stringify(swinging.inputs[0]));
+    // The shorter plans only ask that the last action still pays: up to 60.
+    const active = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), now, ...PLAN_MODES.active });
+    check("Active: bought up while the last action still pays", Math.abs(active.inputs[0].maxPrice - 60) < 1e-9 && active.minMargin === 0, JSON.stringify(active.inputs[0]));
+}
 const stale = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 13 * 3600000) }), now, ...away });
 check("an old material order book doesn't", stale.count === 800 && stale.limitedByBook === null && stale.inputs[0].bookAt === null);
 

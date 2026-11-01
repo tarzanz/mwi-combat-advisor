@@ -444,7 +444,8 @@ function levelingButtons(e) {
     let open;
     let buy;
     if (isEnhance(e)) {
-        open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e.target}" title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e.target}">▶ Enhance to +${e.target}</button>`;
+        const guard = e.protect ? ` data-protect="${esc(e.protect.itemHrid)}" data-protect-from="${e.protect.from}"` : "";
+        open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e.target}${e.protect ? `, protected from +${e.protect.from} with ${esc(itemName(e.protect.itemHrid))}` : ""}">▶ Enhance to +${e.target}</button>`;
         const attempts = Math.ceil(e.actionsPerHour * hours);
         const items = e.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN);
         // Copies of the item: one per +target, plus those used up as protection.
@@ -455,7 +456,8 @@ function levelingButtons(e) {
     } else {
         const k = ALCHEMY_KINDS[e.action.kind];
         const n = e.suggestion?.count || 0;
-        open = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}" data-label="${esc(k.name)}" data-value="${n}" title="Opens ${k.name} with ${esc(itemName(item))} (from your inventory)${n ? ` and ${n} actions` : ""}">▶ ${k.name}${n ? ` ${n.toLocaleString("en-US")}` : ""}</button>`;
+        const catalyst = e.catalyst?.itemHrid ? ` data-catalyst="${esc(e.catalyst.itemHrid)}"` : "";
+        open = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}" data-label="${esc(k.name)}" data-value="${n}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))} (from your inventory)${n ? ` and ${n} actions` : ""}${e.catalyst?.itemHrid ? `, with ${esc(itemName(e.catalyst.itemHrid))}` : ""}">▶ ${k.name}${n ? ` ${n.toLocaleString("en-US")}` : ""}</button>`;
         const items = n ? e.inputs.filter((i) => i.itemHrid !== COIN).map((i) => ({ hrid: i.itemHrid, quantity: Math.max(0, Math.ceil(i.count * n) - have(i.itemHrid)) })).filter((i) => i.quantity > 0) : [];
         buy = items.length ? { items, title: `Adds what ${n.toLocaleString("en-US")} actions use, less what you have: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
     }
@@ -611,7 +613,7 @@ function materialsText(s) {
     const parts = shown.map((i) => {
         const rating = i.liquidity || { rating: "thin", known: false };
         let text = `${i.toBuy.toLocaleString("en-US")} ${esc(itemName(i.itemHrid))} ${RATING[rating.rating]}${rating.known ? "" : " (too little history)"}`;
-        if (i.bookAt) text += ` – ${i.nearAsks.toLocaleString("en-US")} listed near the lowest ask ${ago(i.bookAt)} ago`;
+        if (i.bookAt) text += ` – ${i.nearAsks.toLocaleString("en-US")} listed at ≤ ${coins(i.maxPrice)} ${ago(i.bookAt)} ago${i.averagePrice > i.lowestAsk * 1.0005 ? `, ${coins(i.averagePrice)} each on average (lowest ${coins(i.lowestAsk)})` : ""}`;
         else if (rating.rating !== "stable") text += ` – <i>open it on the market to see how many are for sale</i>`;
         return i.itemHrid === s.ratedBy || i.itemHrid === s.limitedByBook ? `<span class="mwia-warn">${text}</span>` : text;
     });
@@ -646,9 +648,10 @@ function suggestionHtml(e) {
     else lines.push(`<span class="mwia-dim">Materials may take up to ${budget}.</span>`);
     const materials = materialsText(s);
     if (materials) lines.push(materials);
+    if (s.inputs.some((i) => i.bookAt)) lines.push(`<span class="mwia-dim">A material seen on the market is bought up from its lowest ask while the last action still makes ${s.minMargin > 0 ? `a ${dec(s.minMargin * 100, 1)}% margin (your plan's)` : "a profit"}; the batch counts what each costs there${s.batch.aboveAsk > 0.5 ? ` (+${coins(s.batch.aboveAsk)} over the lowest ask)` : ""}.</span>`);
     if (s.limitedByBook) {
         const input = s.inputs.find((i) => i.itemHrid === s.limitedByBook);
-        lines.push(`<span class="mwia-warn">Capped at the ${esc(itemName(input.itemHrid))} you can get: ${input.nearAsks.toLocaleString("en-US")} listed within ${dec(ASK_WINDOW * 100, 0)}% of the lowest ask ${ago(input.bookAt)} ago${have(input.itemHrid) ? `, plus ${have(input.itemHrid).toLocaleString("en-US")} you have` : ""}.</span>`);
+        lines.push(`<span class="mwia-warn">Capped at the ${esc(itemName(input.itemHrid))} you can get: ${input.nearAsks.toLocaleString("en-US")} listed at ≤ ${coins(input.maxPrice)} ${ago(input.bookAt)} ago${have(input.itemHrid) ? `, plus ${have(input.itemHrid).toLocaleString("en-US")} you have` : ""}.</span>`);
     }
     if (s.bookAt) {
         const age = ago(s.bookAt);
@@ -804,7 +807,7 @@ export function skillingExportLines(settings, count = 10) {
                 `batch materials ${coins(s.batch.materials)} (buy ${coins(s.batch.toBuy)}), sells ${coins(s.batch.revenue)}, profit ${coins(s.batch.profit)}`,
             ];
             if (s.swing && s.swing.share < 1) job.push(`made ${Math.round(s.swing.share * 100)}% for the price swing (±${dec(s.swing.swing * 100, 1)}%)`);
-            if (s.limitedByBook) job.push(`${itemName(s.limitedByBook)} listed near the lowest ask caps it`);
+            if (s.limitedByBook) job.push(`${itemName(s.limitedByBook)} listed while the margin holds caps it`);
             lines2.push(`   ${job.join(" · ")}`);
         } else if (e.budget) {
             lines2.push(`   coins last ${hoursText(e.budget.hours)} of ${hoursText(e.budget.plannedHours)} · budget ${coins(e.budget.budget)} (${Math.round(e.budget.share * 100)}%)`);

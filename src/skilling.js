@@ -529,7 +529,7 @@ export function swingShare(price) {
 // alongside; a material's, seen lately, caps the job at what was listed.
 // inputMarket(hrid): { liquidity, book } for a material.
 // fill: the job's share of the planned hours – what the ranking goes by.
-export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null, inputMarket = null, now = Date.now() }) {
+export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null, inputMarket = null, now = Date.now() }) {
     // A craft that loses gold still costs coins for its materials (worth it for the XP), so it is planned the same way.
     if ((entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION) || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
@@ -552,24 +552,52 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
     // Materials bought for n actions, using what is in the inventory first.
     // Coins an action costs (Alchemy) are paid from the coins, not bought.
     const toBuy = (input, n) => (input.itemHrid === COIN ? input.count * n : Math.max(0, input.count * n - have(input.itemHrid)));
-    const spend = (n) => entry.inputs.reduce((sum, input) => sum + toBuy(input, n) * (input.price || 0), 0);
+    // The margin the plan asks of the last action: Away keeps out thin margins
+    // (as the list does); the shorter plans only ask that it still pays.
+    const minMargin = hideThinMargins ? Math.max(RISKY_MARGIN, price?.swing > CALM_SWING ? price.swing : 0) : 0;
     // The materials you'd have to buy: their markets rate the job too, and an
-    // order book seen lately caps it at what was listed near the lowest ask.
+    // order book seen lately is bought up from its lowest ask while the last
+    // action still makes that margin – the price that is paid, and how far the
+    // book carries the job.
     const bought = entry.inputs.filter((input) => input.itemHrid !== COIN && input.count > 0 && input.price > 0 && toBuy(input, count) > 0);
+    const profitPerAction = entry.profitPerHour / entry.actionsPerHour;
     const inputs = bought.map((input) => {
         const market = inputMarket?.(input.itemHrid) || {};
         const fresh = market.book && now - market.book.at <= INPUT_BOOK_HOURS * 3600000 ? market.book : null;
-        const asks = fresh ? othersNearLowestAsk(fresh, { listings: [] }) : null;
+        const asks = fresh ? [...fresh.asks].filter((o) => o.price > 0 && o.quantity > 0).sort((a, b) => a.price - b.price) : null;
+        // The most a unit may cost before the last action falls under the margin (never under the lowest ask).
+        const maxPrice = asks?.length ? Math.max(asks[0].price, input.price + (profitPerAction - minMargin * entry.revenuePerAction) / input.count) : null;
+        const usable = asks ? asks.filter((o) => o.price <= maxPrice + 1e-9) : null;
+        const listed = usable ? usable.reduce((sum, o) => sum + o.quantity, 0) : null;
         return {
             itemHrid: input.itemHrid,
             perAction: input.count,
+            price: input.price,
             liquidity: market.liquidity || null,
-            nearAsks: asks?.quantity ?? null,
-            lowestAsk: asks?.lowest ?? null,
+            nearAsks: listed,
+            lowestAsk: asks?.[0]?.price ?? null,
+            maxPrice,
+            asks: usable,
             bookAt: fresh?.at ?? null,
-            maxCount: asks ? Math.floor((have(input.itemHrid) + asks.quantity) / input.count + 1e-9) : Infinity,
+            maxCount: usable ? Math.floor((have(input.itemHrid) + listed) / input.count + 1e-9) : Infinity,
         };
     });
+    const booked = new Map(inputs.filter((i) => i.asks).map((i) => [i.itemHrid, i.asks]));
+    // What buying units of a material costs: up its order book when one was seen, else at the lowest ask.
+    const cost = (input, units) => {
+        const asks = booked.get(input.itemHrid);
+        if (!asks?.length) return units * (input.price || 0);
+        let left = units;
+        let sum = 0;
+        for (const o of asks) {
+            const take = Math.min(left, o.quantity);
+            sum += take * o.price;
+            left -= take;
+            if (left <= 0) break;
+        }
+        return sum + Math.max(0, left) * asks[asks.length - 1].price;
+    };
+    const spend = (n) => entry.inputs.reduce((sum, input) => sum + cost(input, toBuy(input, n)), 0);
     let limitedByBook = null;
     for (const input of inputs) {
         if (input.maxCount < count) {
@@ -605,8 +633,11 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
     const jobHours = count / entry.actionsPerHour;
     // The batch: what its materials are worth, the part you still have to buy,
     // and its profit once it sells (teas for its hours included).
+    // Bought up the book: what the units cost above the lowest ask the action is worked out with.
+    const aboveAsk = spend(count) - entry.inputs.reduce((sum, input) => sum + toBuy(input, count) * (input.price || 0), 0);
     const batch = {
-        materials: count * entry.costPerAction,
+        materials: count * entry.costPerAction + aboveAsk,
+        aboveAsk,
         toBuy: spend(count),
         revenue: count * entry.revenuePerAction,
         teas: entry.teaPerHour * jobHours,
@@ -629,7 +660,11 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
         liquidity: rating,
         productLiquidity: product,
         ratedBy,
-        inputs: inputs.map((input) => ({ ...input, toBuy: Math.max(0, Math.ceil(input.perAction * count - have(input.itemHrid) - 1e-9)) })),
+        inputs: inputs.map(({ asks, ...input }) => {
+            const units = Math.max(0, Math.ceil(input.perAction * count - have(input.itemHrid) - 1e-9));
+            return { ...input, toBuy: units, averagePrice: units > 0 ? cost(input, units) / units : null };
+        }),
+        minMargin,
         limitedByBook,
         coinShare: share,
         budget,

@@ -1097,10 +1097,21 @@ async function openLeveling(dataset) {
     const characterId = state.character?.character?.id;
     if (owned && !characterId) steps.push("no character id");
     const hash = owned && characterId ? inventoryItemHash(characterId, item) : null;
+    // The protection (Enhancing) or catalyst (Alchemy) the row counts on, when you have one at +0.
+    const ownHash = (hrid) => (hrid && characterId && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId, hrid) : null);
+    const protect = dataset.protect ? { hash: ownHash(dataset.protect), from: Number(dataset.protectFrom) } : null;
+    const catalyst = dataset.catalyst ? { hash: ownHash(dataset.catalyst) } : null;
     clearNotice();
     ui.root.classList.add("mwia-hidden");
-    const opened = kind === "enhance" ? await openEnhancing(hash, value) : await openAlchemy(hash, label, value);
+    const opened = kind === "enhance" ? await openEnhancing(hash, value, protect) : await openAlchemy(hash, label, value, catalyst);
     if (opened === "item") return;
+    if (opened === "partial") {
+        // The window is open with the item: the rest is said when you come back to the panel.
+        const extra = kind === "enhance" ? `${dataset.protect ? `put ${itemName(dataset.protect)} in as protection from +${dataset.protectFrom}` : ""}` : `put ${itemName(dataset.catalyst)} in as the catalyst`;
+        ui.notice = { level: "info", text: `Opened with the item, but couldn't ${extra} – do that in the game.`, diag: [...steps, navDiagnostics()].filter(Boolean).join(" · ") };
+        ui.showNotice = true;
+        return;
+    }
     steps.push(navDiagnostics());
     ui.root.classList.remove("mwia-hidden");
     const what = kind === "enhance" ? `set the target to +${value}` : `pick ${label}${value ? ` and enter ${value}` : ""}`;

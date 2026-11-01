@@ -149,7 +149,11 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
       selectEnhancingItemHandler: (h) => { comp.state.primaryItemHash = h; },
       // Changing the tab empties the slot, as a fresh window would.
       selectAlchemyItemHandler: (h) => { comp.state.primaryItemHash = h; window.alchemyItem = h; },
-      maxActionCountChanged: (e) => { window.alchemyCount = e.target.value; } };
+      maxActionCountChanged: (e) => { window.alchemyCount = e.target.value; },
+      // The extra slots, under names like the game's own (the real ones are found by name).
+      selectProtectionItemHandler: (h) => { comp.state.protectionItemHash = h; window.protectionItem = h; },
+      enhancingProtectionMinLevelChanged: (e) => { comp.state.enhancingProtectionMinLevel = Number(e.target.value); window.protectFrom = e.target.value; } };
+    if (!window.noCatalystMethod) comp.selectCatalystItemHandler = (h) => { comp.state.catalystItemHash = h; window.catalystItem = h; };
     // Current builds: no keys on the elements, the component is found from the legacy root.
     if (window.legacyReact) {
       const rootFiber = gameRoot._reactRootContainer._internalRoot.current;
@@ -351,7 +355,7 @@ try {
     await select(page, "skillingSkill", "tailoring");
     const byMaterial = expectRank(character, { skill: "tailoring" }).available.find((e) => e.hrid === topTailoring.hrid).suggestion;
     const cappedDetail = await page.$eval(`.mwia-skill-row[data-hrid="${topTailoring.hrid}"] .mwia-skill-detail`, (n) => n.textContent);
-    check("a material's order book caps the job", byMaterial.limitedByBook === material && byMaterial.count < expPlan.count && byMaterial.count > 0 && byMaterial.count * topTailoring.inputs[0].count <= listed + 1e-9 + heldStock(character, items(character), material).inventory && new RegExp(`Capped at the .* you can get: ${listed} listed within 5% of the lowest ask`).test(cappedDetail) && cappedDetail.includes(`make ${byMaterial.count.toLocaleString("en-US")}`),
+    check("a material's order book caps the job", byMaterial.limitedByBook === material && byMaterial.count < expPlan.count && byMaterial.count > 0 && byMaterial.count * topTailoring.inputs[0].count <= listed + 1e-9 + heldStock(character, items(character), material).inventory && new RegExp(`Capped at the .* you can get: ${listed} listed at ≤ `).test(cappedDetail) && /bought up from its lowest ask while the last action still makes/.test(cappedDetail) && cappedDetail.includes(`make ${byMaterial.count.toLocaleString("en-US")}`),
         `${byMaterial.count} / ${cappedDetail.slice(0, 400)}`);
     check("order book survives a reload", await page.evaluate((hrid) => !!JSON.parse(localStorage.getItem("mwia-order-books") || "{}")[hrid], PRODUCT));
 
@@ -919,6 +923,48 @@ try {
         const legacy = await lvlState();
         check("legacy React root: the item goes in and the count is set", legacy.call === "1::/item_locations/inventory::/items/donut::0" && legacy.item === legacy.call && legacy.tab === "Transmute" && legacy.count === String(trans.suggestion?.count ?? 0) && !legacy.notice, JSON.stringify(legacy));
         await page.evaluate(() => { const root = document.getElementById("root"); delete root._reactRootContainer; root["__reactContainer$t"] = window.reactKey; window.legacyReact = false; document.querySelector(".lvl")?.remove(); });
+    }
+
+    // The catalyst (Alchemy) and the protection (Enhancing) the row counts on go in too, when you have them.
+    {
+        const pressLevel = async (data) => {
+            await page.evaluate(() => { for (const k of ["catalystItem", "protectionItem", "protectFrom", "alchemyCount", "enhanceTarget"]) window[k] = undefined; document.querySelector(".lvl")?.remove(); });
+            if (await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden"))) await page.click(".mwia-launcher");
+            await page.evaluate((d) => {
+                const b = document.createElement("button");
+                b.id = "slot-test";
+                b.dataset.action = "skilling-level";
+                Object.assign(b.dataset, d);
+                document.querySelector(".mwia-body").appendChild(b);
+                b.click();
+            }, data);
+            await new Promise((r) => setTimeout(r, 2500));
+        };
+        const reopenNotice = async () => {
+            if (await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden"))) await page.click(".mwia-launcher");
+            await new Promise((r) => setTimeout(r, 300));
+            return page.evaluate(() => document.querySelector(".mwia-notice")?.textContent || "");
+        };
+        const CATALYST = "/items/catalyst_of_transmutation";
+        const transmute = { kind: "alchemy", item: "/items/donut", label: "Transmute", value: "7", catalyst: CATALYST };
+        await pressLevel(transmute);
+        const noCatalyst = await reopenNotice();
+        check("catalyst you don't have: the window opens, the notice says to buy it", /couldn't put Catalyst Of Transmutation in as the catalyst/.test(noCatalyst) && /catalyst not in the inventory at \+0/.test(noCatalyst), noCatalyst);
+        for (const socket of sockets) socket.send(JSON.stringify({ type: "items_updated", endCharacterItems: [{ itemHrid: CATALYST, itemLocationHrid: "/item_locations/inventory", count: 50, enhancementLevel: 0, hash: "1::/item_locations/inventory::" + CATALYST + "::0" }] }));
+        await page.waitForFunction(() => window.lastType === "items_updated");
+        await pressLevel(transmute);
+        const withCatalyst = await page.evaluate(() => ({ catalyst: window.catalystItem, count: window.alchemyCount, hidden: document.querySelector(".mwia-panel").classList.contains("mwia-hidden") }));
+        check("catalyst you have goes in the slot with the item and count", withCatalyst.catalyst === "1::/item_locations/inventory::" + CATALYST + "::0" && withCatalyst.count === "7" && withCatalyst.hidden, JSON.stringify(withCatalyst));
+        await page.evaluate(() => { window.noCatalystMethod = true; });
+        await pressLevel(transmute);
+        const noMethod = await reopenNotice();
+        check("no catalyst method: the notice lists the window's methods", /no catalyst method \(methods: .*selectAlchemyItemHandler/.test(noMethod), noMethod);
+        await page.evaluate(() => { window.noCatalystMethod = false; document.querySelector(".lvl")?.remove(); });
+        // Enhancing: protection from +3 with a copy of the item (one in the inventory).
+        await pressLevel({ kind: "enhance", item: LONE, value: "8", protect: LONE, protectFrom: "3" });
+        const guarded = await page.evaluate(() => ({ item: window.protectionItem, from: window.protectFrom, target: window.enhanceTarget }));
+        check("protection: the item and the +level go in", guarded.item === `1::/item_locations/inventory::${LONE}::0` && guarded.from === "3" && guarded.target === "8", JSON.stringify(guarded));
+        await page.evaluate(() => { document.querySelector(".lvl")?.remove(); document.getElementById("slot-test")?.remove(); });
     }
     await page.evaluate(() => document.querySelector(".lvl")?.remove());
 

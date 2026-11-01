@@ -87,8 +87,10 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   without known sales what you hold is taken off the planned hours), smaller on a swinging price, and no more than the rating's share
   of your coins buys materials for (using materials you have first). The materials you still have to buy are rated
   too, and the thinnest market of the product and those materials sets the share. A material you opened on the
-  market in the last 12 hours caps the job at what others had listed within 5% of its lowest ask (plus what you
-  have) – worth a look for a 🔴 material before buying a lot of it. The game only trades within a price band
+  market in the last 12 hours is bought up its order book from the lowest ask while the last action still makes the
+  plan's margin (*Away*: 5% and the price's usual swing; *Medium* and *Active*: a profit), and the batch counts what
+  each unit costs there; what is listed up to that price (plus what you have) caps the job – worth a look for a 🔴
+  material before buying a lot of it. The game only trades within a price band
   (*Tradable range*) the order book doesn't include, so listings near the top of it may not be buyable. The list is ranked by what the planned hours
   give, so a job your coins or your stock keep short ranks lower, and an item you already hold a whole job of goes
   last. Such a row shows the gold and XP a day for the planned hours (what it is ranked by), with *full 8 h: …/day*
@@ -159,6 +161,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     looks for the game's React from the page's side too (the page's document, or a sandbox's wrappedJSObject).
     Current game builds keep React only on `#root._reactRootContainer`: the game's handlers and the Enhancing and
     Alchemy windows are found by walking React's tree from there.
+    ▶ also puts in the catalyst an Alchemy row counts on, and the protection item and *protect from* +level of an
+    Enhancing row, when you have them at +0 (their slots are found by the window's method names, and checked after);
+    what it couldn't put in is said when you come back to the panel.
   - Only the 40 items that do best without teas in gold, in XP and in XP per coin (and those you have) are tried with
     every tea setup, so the list stays quick.
   - **Upgrades that pay back** work here too: enhancers and alembics, the skill's clothes, charms, capes, jewellery
