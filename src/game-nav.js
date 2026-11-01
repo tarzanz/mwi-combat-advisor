@@ -247,55 +247,65 @@ export function levelingPanels() {
 
 // Opens Enhancing with the item (one you have at +0) and the target level set.
 // Without the item in the inventory it only opens the Enhancing page. Returns
-// "item", "page" or false.
+// "item", "page" or false; navDiagnostics() then says what each step found.
 export async function openEnhancing(itemHash, target, timeoutMs = 4000) {
-    lastDiagnostics = "";
+    const steps = [];
+    const done = (result) => ((lastDiagnostics = steps.join(" · ")), result);
     const called = itemHash ? callReactHandler(["handleEnhanceItem"], [itemHash]) : "no item";
+    steps.push(called);
     if (!/called/.test(called)) {
         const link = clickSkill("enhancing");
-        lastDiagnostics = `${called} · ${link ? "opened the Enhancing page" : "no Enhancing link"}`;
-        return link ? "page" : false;
+        steps.push(link ? `opened the Enhancing page (${describe(link)})` : "no Enhancing link");
+        return done(link ? "page" : false);
     }
     const panel = await waitFor(() => visiblePanel(ENHANCING_PANEL), timeoutMs);
+    steps.push(panel ? "enhancing panel" : "no enhancing panel");
     const component = panel && (await waitFor(() => componentWith(panel, "enhancingMaxLevelChanged"), timeoutMs));
     if (!component) {
-        lastDiagnostics = panel ? "enhancing panel without its component" : "no enhancing panel";
-        return panel ? "page" : false;
+        if (panel) steps.push("without its component");
+        return done(panel ? "page" : false);
     }
+    steps.push(`slot held ${component.state?.primaryItemHash ? "an item" : "nothing"}`);
     if (component.state?.primaryItemHash !== itemHash && typeof component.selectEnhancingItemHandler === "function") component.selectEnhancingItemHandler(itemHash);
     await sleep(150);
     component.enhancingMaxLevelChanged({ target: { value: String(target) } });
-    return "item";
+    steps.push(`target +${target} set`);
+    return done("item");
 }
 
 // Opens Alchemy on the action's tab with the item (one you have) and the count
 // set. Without the item in the inventory it only opens the tab. Returns "item",
-// "page" or false.
+// "page" or false; navDiagnostics() then says what each step found.
 export async function openAlchemy(itemHash, tabLabel, count, timeoutMs = 4000) {
-    lastDiagnostics = "";
+    const steps = [];
+    const done = (result) => ((lastDiagnostics = steps.join(" · ")), result);
     const called = itemHash ? callReactHandler(["handleAlchemizeItem"], [itemHash]) : "no item";
+    steps.push(called);
     if (!/called/.test(called)) {
         const link = clickSkill("alchemy");
-        if (link) await waitFor(() => clickTab(tabLabel), timeoutMs);
-        lastDiagnostics = `${called} · ${link ? "opened the Alchemy page" : "no Alchemy link"}`;
-        return link ? "page" : false;
+        const tab = link && (await waitFor(() => clickTab(tabLabel), timeoutMs));
+        steps.push(link ? `opened the Alchemy page (${describe(link)})` : "no Alchemy link");
+        if (link) steps.push(tab ? `${tabLabel} tab` : `no ${tabLabel} tab`);
+        return done(link ? "page" : false);
     }
-    await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs);
+    steps.push((await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs)) ? "alchemy panel" : "no alchemy panel yet");
     // A window that was already open is drawn again first; then the tab, until it is the selected one.
     await sleep(300);
     const selected = () => [...document.querySelectorAll(TABS)].some((tab) => visible(tab) && clean(tab.textContent) === tabLabel && tab.getAttribute("aria-selected") === "true");
-    await waitFor(() => (clickTab(tabLabel), selected()), timeoutMs);
+    steps.push((await waitFor(() => (clickTab(tabLabel), selected()), timeoutMs)) ? `${tabLabel} tab` : `no ${tabLabel} tab`);
     await sleep(150);
     const panel = await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs);
     const component = panel && (await waitFor(() => componentWith(panel, "selectAlchemyItemHandler"), timeoutMs));
     if (!component) {
-        lastDiagnostics = panel ? "alchemy panel without its component" : "no alchemy panel";
-        return panel ? "page" : false;
+        steps.push(panel ? "alchemy panel without its component" : "no alchemy panel");
+        return done(panel ? "page" : false);
     }
+    steps.push(`slot held ${component.state?.primaryItemHash ? "an item" : "nothing"}`);
     if (component.state?.primaryItemHash !== itemHash) component.selectAlchemyItemHandler(itemHash);
     await sleep(150);
     if (count > 0 && typeof component.maxActionCountChanged === "function") component.maxActionCountChanged({ target: { value: String(count) } });
-    return "item";
+    steps.push(count > 0 ? (typeof component.maxActionCountChanged === "function" ? `count ${count} set` : "no count box") : "no count");
+    return done("item");
 }
 
 // Opens the marketplace on an item: through MWITools' public API when it is

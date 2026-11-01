@@ -855,11 +855,36 @@ try {
     await clickLevel(notOwned.hrid);
     await page.waitForFunction(() => /buy it first/.test(document.querySelector(".mwia-notice")?.textContent || ""), { timeout: 8000 }).catch(() => null);
     check("▶ without the item opens the page and says to buy it first", /buy it first/.test((await lvlState()).notice || ""), JSON.stringify(await lvlState()));
+    // The notice lists what each step found, is in view, and has a button that copies it.
+    const noticeNow = () => page.evaluate(() => ({ diag: document.querySelector(".mwia-notice .mwia-notice-diag")?.textContent || "", copy: document.querySelector(".mwia-notice [data-action=\"copy-notice\"]")?.textContent || "", top: document.querySelector(".mwia-body").scrollTop }));
+    const stepsShown = await noticeNow();
+    check("▶ notice lists the steps", /not in the inventory/.test(stepsShown.diag) && /no item/.test(stepsShown.diag) && /opened the Alchemy page/.test(stepsShown.diag), stepsShown.diag);
+    check("▶ notice is in view", stepsShown.top === 0, String(stepsShown.top));
+    await page.click(".mwia-notice [data-action=\"copy-notice\"]");
+    await page.waitForFunction(() => !/📋/.test(document.querySelector(".mwia-notice [data-action=\"copy-notice\"]")?.textContent || "📋"), { timeout: 3000 }).catch(() => null);
+    const copied = await noticeNow();
+    check("📋 Copy copies the notice (or says how)", /✓ Copied|Select the text/.test(copied.copy), copied.copy);
     // The Alchemy window (Transmute tab, Donut in the slot) has its tea box too.
     if (trans) {
         await page.waitForSelector(".lvl .mwia-guide-box", { timeout: 3000 }).catch(() => null);
         const alcBox = await page.$eval(".lvl .mwia-guide-box", (n) => n.textContent).catch(() => "");
         check("Alchemy window: tea box for the tab's action and item", /🍵 Teas/.test(alcBox) && alcBox.includes("Transmute Donut"), alcBox.slice(0, 200));
+    }
+    // A ▶ that breaks on the way shows what went wrong, instead of nothing.
+    if (trans) {
+        await page.evaluate(() => {
+            window.realQuery = Document.prototype.querySelectorAll;
+            Document.prototype.querySelectorAll = function (selector) {
+                if (/alchemyComponent/.test(selector)) throw new Error("test failure");
+                return window.realQuery.call(this, selector);
+            };
+        });
+        await clickLevel(trans.hrid);
+        await page.waitForFunction(() => /test failure/.test(document.querySelector(".mwia-notice")?.textContent || ""), { timeout: 5000 }).catch(() => null);
+        await page.evaluate(() => { Document.prototype.querySelectorAll = window.realQuery; });
+        const broke = await page.evaluate(() => ({ text: document.querySelector(".mwia-notice")?.textContent || "", shown: !document.querySelector(".mwia-panel").classList.contains("mwia-hidden") }));
+        check("a ▶ that throws shows the error with the panel", /Transmute[^]*failed: test failure/.test(broke.text) && broke.shown && /📋 Copy/.test(broke.text), JSON.stringify(broke));
+        await page.evaluate(() => document.querySelector(".lvl")?.remove());
     }
     await page.evaluate(() => document.querySelector(".lvl")?.remove());
 

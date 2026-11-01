@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.46.0
+// @version      0.47.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -3073,6 +3073,7 @@
 .mwia-notice-ok { border-color: #2f6b5a; background: #17302a; }
 .mwia-notice-warn { border-color: #7a6a2a; background: #2e2a17; }
 .mwia-notice-bad { border-color: #a03a4c; background: #4a1f28; }
+.mwia-notice-copy { display: block; margin-top: 4px; }
 .mwia-notice-diag { margin-top: 6px; font: 11px/1.35 monospace; opacity: .8; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .mwia-btn { background: #4c5bd4; color: #fff; border: none; border-radius: 6px; padding: 7px 14px; font: 600 13px sans-serif; cursor: pointer; margin: 4px 0 8px; }
 .mwia-btn:disabled { opacity: .5; cursor: default; }
@@ -4497,7 +4498,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.46.0" : "dev";
+  var VERSION = true ? "0.47.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5133,48 +5134,58 @@ i.mwia-history-bid { background: #7ee2b0; }
     return out;
   }
   async function openEnhancing(itemHash, target, timeoutMs = 4e3) {
-    lastDiagnostics = "";
+    const steps = [];
+    const done2 = (result) => (lastDiagnostics = steps.join(" \xB7 "), result);
     const called = itemHash ? callReactHandler(["handleEnhanceItem"], [itemHash]) : "no item";
+    steps.push(called);
     if (!/called/.test(called)) {
       const link = clickSkill("enhancing");
-      lastDiagnostics = `${called} \xB7 ${link ? "opened the Enhancing page" : "no Enhancing link"}`;
-      return link ? "page" : false;
+      steps.push(link ? `opened the Enhancing page (${describe(link)})` : "no Enhancing link");
+      return done2(link ? "page" : false);
     }
     const panel = await waitFor(() => visiblePanel(ENHANCING_PANEL), timeoutMs);
+    steps.push(panel ? "enhancing panel" : "no enhancing panel");
     const component = panel && await waitFor(() => componentWith(panel, "enhancingMaxLevelChanged"), timeoutMs);
     if (!component) {
-      lastDiagnostics = panel ? "enhancing panel without its component" : "no enhancing panel";
-      return panel ? "page" : false;
+      if (panel) steps.push("without its component");
+      return done2(panel ? "page" : false);
     }
+    steps.push(`slot held ${component.state?.primaryItemHash ? "an item" : "nothing"}`);
     if (component.state?.primaryItemHash !== itemHash && typeof component.selectEnhancingItemHandler === "function") component.selectEnhancingItemHandler(itemHash);
     await sleep(150);
     component.enhancingMaxLevelChanged({ target: { value: String(target) } });
-    return "item";
+    steps.push(`target +${target} set`);
+    return done2("item");
   }
   async function openAlchemy(itemHash, tabLabel, count2, timeoutMs = 4e3) {
-    lastDiagnostics = "";
+    const steps = [];
+    const done2 = (result) => (lastDiagnostics = steps.join(" \xB7 "), result);
     const called = itemHash ? callReactHandler(["handleAlchemizeItem"], [itemHash]) : "no item";
+    steps.push(called);
     if (!/called/.test(called)) {
       const link = clickSkill("alchemy");
-      if (link) await waitFor(() => clickTab(tabLabel), timeoutMs);
-      lastDiagnostics = `${called} \xB7 ${link ? "opened the Alchemy page" : "no Alchemy link"}`;
-      return link ? "page" : false;
+      const tab = link && await waitFor(() => clickTab(tabLabel), timeoutMs);
+      steps.push(link ? `opened the Alchemy page (${describe(link)})` : "no Alchemy link");
+      if (link) steps.push(tab ? `${tabLabel} tab` : `no ${tabLabel} tab`);
+      return done2(link ? "page" : false);
     }
-    await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs);
+    steps.push(await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs) ? "alchemy panel" : "no alchemy panel yet");
     await sleep(300);
     const selected = () => [...document.querySelectorAll(TABS)].some((tab) => visible(tab) && clean(tab.textContent) === tabLabel && tab.getAttribute("aria-selected") === "true");
-    await waitFor(() => (clickTab(tabLabel), selected()), timeoutMs);
+    steps.push(await waitFor(() => (clickTab(tabLabel), selected()), timeoutMs) ? `${tabLabel} tab` : `no ${tabLabel} tab`);
     await sleep(150);
     const panel = await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs);
     const component = panel && await waitFor(() => componentWith(panel, "selectAlchemyItemHandler"), timeoutMs);
     if (!component) {
-      lastDiagnostics = panel ? "alchemy panel without its component" : "no alchemy panel";
-      return panel ? "page" : false;
+      steps.push(panel ? "alchemy panel without its component" : "no alchemy panel");
+      return done2(panel ? "page" : false);
     }
+    steps.push(`slot held ${component.state?.primaryItemHash ? "an item" : "nothing"}`);
     if (component.state?.primaryItemHash !== itemHash) component.selectAlchemyItemHandler(itemHash);
     await sleep(150);
     if (count2 > 0 && typeof component.maxActionCountChanged === "function") component.maxActionCountChanged({ target: { value: String(count2) } });
-    return "item";
+    steps.push(count2 > 0 ? typeof component.maxActionCountChanged === "function" ? `count ${count2} set` : "no count box" : "no count");
+    return done2("item");
   }
   function openMarketplace(win2, itemHrid, level = 0) {
     try {
@@ -7400,7 +7411,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     ui.cartItems = /* @__PURE__ */ new Map();
     let html = "";
     if (ui.error) html += `<div class="mwia-error">${esc(ui.error)}</div>`;
-    if (ui.notice && (ui.tab === "upgrades" || ui.tab === "skilling" || ui.tab === "market")) html += `<div class="mwia-notice mwia-notice-${ui.notice.level}">${esc(ui.notice.text)}</div>`;
+    if (ui.notice && (ui.tab === "upgrades" || ui.tab === "skilling" || ui.tab === "market")) html += noticeHtml(ui.notice);
     if (ui.busy) html += progressHtml();
     if (ui.tab === "overview") html += renderOverview();
     else if (ui.tab === "zones") html += renderZones();
@@ -7409,6 +7420,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     else if (ui.tab === "market") html += renderMarketTab();
     else html += renderGuide();
     body.innerHTML = html;
+    if (ui.showNotice) {
+      ui.showNotice = false;
+      body.scrollTop = 0;
+    }
     labelTableCells(body);
     updateAlertDot();
   }
@@ -8052,25 +8067,79 @@ i.mwia-history-bid { background: #7ee2b0; }
       return;
     }
     ui.root.classList.remove("mwia-hidden");
-    ui.notice = { level: "warn", text: `Could not open ${action.name} automatically. Open it yourself and enter ${count2}. (${navDiagnostics()})` };
-    render2();
+    showNotice({ level: "warn", text: `Could not open ${action.name} automatically. Open it yourself and enter ${count2}.`, diag: navDiagnostics() });
   }
   async function openLeveling(dataset) {
     const { item, kind, label: label3 } = dataset;
     const value = Number(dataset.value) || 0;
-    const owned = [...state.items.values()].some((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0);
-    const hash = owned ? inventoryItemHash(state.character?.character?.id, item) : null;
+    const steps = [`${kind} ${item} ${kind === "enhance" ? `\u2192 +${value}` : `${label3} \xD7${value}`}`];
+    const stacks = [...state.items.values()].filter((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory");
+    steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
+    const owned = stacks.some((i) => !i.enhancementLevel && i.count > 0);
+    const characterId2 = state.character?.character?.id;
+    if (owned && !characterId2) steps.push("no character id");
+    const hash = owned && characterId2 ? inventoryItemHash(characterId2, item) : null;
     ui.root.classList.add("mwia-hidden");
     const opened = kind === "enhance" ? await openEnhancing(hash, value) : await openAlchemy(hash, label3, value);
     if (opened === "item") return;
+    steps.push(navDiagnostics());
     ui.root.classList.remove("mwia-hidden");
     const what = kind === "enhance" ? `set the target to +${value}` : `pick ${label3}${value ? ` and enter ${value}` : ""}`;
-    ui.notice = opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.` } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}. (${navDiagnostics()})` };
+    const diag = steps.filter(Boolean).join(" \xB7 ");
+    showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
+  }
+  var VERSION3 = true ? "0.47.0" : "dev";
+  function showNotice(notice) {
+    ui.notice = notice;
+    ui.showNotice = true;
     render2();
+  }
+  function buttonFailed(what, error) {
+    ui.root?.classList.remove("mwia-hidden");
+    const where = String(error?.stack || "").split("\n").slice(0, 4).join(" | ");
+    showNotice({ level: "bad", text: `${what} failed: ${error?.message || error}`, diag: where });
+  }
+  function noticeHtml(notice) {
+    const diag = notice.diag ? `<div class="mwia-notice-diag">${esc(notice.diag)}</div><button class="mwia-link mwia-notice-copy" data-action="copy-notice">\u{1F4CB} Copy</button>` : "";
+    return `<div class="mwia-notice mwia-notice-${notice.level}">${esc(notice.text)}${diag}</div>`;
+  }
+  var noticeCopyText = (notice, agent = navigator.userAgent) => [notice.text, notice.diag, `MWI Advisor v${VERSION3} \xB7 ${agent}`].filter(Boolean).join("\n");
+  async function copyNotice(button) {
+    if (!ui.notice) return;
+    const text = noticeCopyText(ui.notice);
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      const box = document.createElement("textarea");
+      box.value = text;
+      box.setAttribute("readonly", "");
+      box.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+      document.body.appendChild(box);
+      box.select();
+      box.setSelectionRange(0, text.length);
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+      box.remove();
+    }
+    button.textContent = copied ? "\u2713 Copied" : "Select the text above to copy it";
   }
   function onClick6(event) {
     const target = event.target.closest("[data-action],[data-tab]");
     if (!target || !ui.root.contains(target)) return;
+    try {
+      const running = act(target);
+      running?.catch?.((error) => buttonFailed(clean2(target.textContent) || target.dataset.action, error));
+    } catch (error) {
+      buttonFailed(clean2(target.textContent) || target.dataset.action, error);
+    }
+  }
+  var clean2 = (text) => String(text || "").replace(/\s+/g, " ").trim();
+  function act(target) {
     if (target.dataset.tab) {
       if (ui.tab !== target.dataset.tab) ui.notice = null;
       ui.tab = target.dataset.tab;
@@ -8100,12 +8169,12 @@ i.mwia-history-bid { background: #7ee2b0; }
         break;
       case "skilling-make":
         ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
-        openWithCount(target.dataset.hrid, Number(target.dataset.count));
-        break;
+        return openWithCount(target.dataset.hrid, Number(target.dataset.count));
       case "skilling-level":
         ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
-        openLeveling(target.dataset);
-        break;
+        return openLeveling(target.dataset);
+      case "copy-notice":
+        return copyNotice(target);
       case "skilling-train": {
         const plan = JSON.parse(target.dataset.plan);
         ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
@@ -8309,7 +8378,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }, true);
   }
   var POST = /^post (sell|buy) listing$/i;
-  var VERSION3 = typeof GM_info !== "undefined" ? GM_info.script?.version || "" : "";
+  var VERSION4 = typeof GM_info !== "undefined" ? GM_info.script?.version || "" : "";
   function listingModals() {
     const found = /* @__PURE__ */ new Set();
     const anchors = [...document.querySelectorAll(PRICE_INPUTS), ...[...document.querySelectorAll("button")].filter((b) => POST.test(b.textContent.trim()))];
@@ -8412,7 +8481,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         else modal.appendChild(box);
       }
       if (!c2.error) notePrediction(prediction(c2));
-      const html = c2.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION3)} can't read this window: ${esc(c2.error)}. A screenshot of this helps.</div>` : boxHtml2(c2);
+      const html = c2.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION4)} can't read this window: ${esc(c2.error)}. A screenshot of this helps.</div>` : boxHtml2(c2);
       if (box.dataset.html !== html) {
         box.dataset.html = html;
         box.innerHTML = html;

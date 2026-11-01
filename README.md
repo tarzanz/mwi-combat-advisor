@@ -152,6 +152,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     action's own or Prime) that suits the focus is picked; it is used up only on a success. A transmute that gives the
     item back saves buying one. *Plan*, the market's rating and *How many* work as for crafting; **▶ Coinify N**
     (Decompose, Transmute) opens that tab with the item from your inventory and the count filled in.
+    When a ▶ button can't get there, or breaks on the way, the panel comes back scrolled to a notice that lists
+    what each step found (the item in your inventory, the game's handler, the menu link, the window, the tab) or
+    the error; **📋 Copy** copies it with the script's version and your browser, to paste into a chat.
   - Only the 40 items that do best without teas in gold, in XP and in XP per coin (and those you have) are tried with
     every tea setup, so the list stays quick.
   - **Upgrades that pay back** work here too: enhancers and alembics, the skill's clothes, charms, capes, jewellery

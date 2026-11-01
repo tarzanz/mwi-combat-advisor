@@ -315,7 +315,7 @@ function render() {
     ui.cartItems = new Map();
     let html = "";
     if (ui.error) html += `<div class="mwia-error">${esc(ui.error)}</div>`;
-    if (ui.notice && (ui.tab === "upgrades" || ui.tab === "skilling" || ui.tab === "market")) html += `<div class="mwia-notice mwia-notice-${ui.notice.level}">${esc(ui.notice.text)}</div>`;
+    if (ui.notice && (ui.tab === "upgrades" || ui.tab === "skilling" || ui.tab === "market")) html += noticeHtml(ui.notice);
     if (ui.busy) html += progressHtml();
     if (ui.tab === "overview") html += renderOverview();
     else if (ui.tab === "zones") html += renderZones();
@@ -324,6 +324,11 @@ function render() {
     else if (ui.tab === "market") html += renderMarketTab();
     else html += renderGuide();
     body.innerHTML = html;
+    // A notice from a button far down the list: bring it into view.
+    if (ui.showNotice) {
+        ui.showNotice = false;
+        body.scrollTop = 0;
+    }
     labelTableCells(body);
     updateAlertDot();
 }
@@ -1075,26 +1080,84 @@ async function openWithCount(actionHrid, count) {
         return;
     }
     ui.root.classList.remove("mwia-hidden");
-    ui.notice = { level: "warn", text: `Could not open ${action.name} automatically. Open it yourself and enter ${count}. (${navDiagnostics()})` };
-    render();
+    showNotice({ level: "warn", text: `Could not open ${action.name} automatically. Open it yourself and enter ${count}.`, diag: navDiagnostics() });
 }
 
 // Opens Enhancing or Alchemy in the game with the item (when you have it) and
 // the target or count filled in; the player clicks the game's own button.
+// When it doesn't get there, the notice lists what each step found.
 async function openLeveling(dataset) {
     const { item, kind, label } = dataset;
     const value = Number(dataset.value) || 0;
-    const owned = [...state.items.values()].some((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0);
-    const hash = owned ? inventoryItemHash(state.character?.character?.id, item) : null;
+    const steps = [`${kind} ${item} ${kind === "enhance" ? `→ +${value}` : `${label} ×${value}`}`];
+    const stacks = [...state.items.values()].filter((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory");
+    steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
+    const owned = stacks.some((i) => !i.enhancementLevel && i.count > 0);
+    const characterId = state.character?.character?.id;
+    if (owned && !characterId) steps.push("no character id");
+    const hash = owned && characterId ? inventoryItemHash(characterId, item) : null;
     ui.root.classList.add("mwia-hidden");
     const opened = kind === "enhance" ? await openEnhancing(hash, value) : await openAlchemy(hash, label, value);
     if (opened === "item") return;
+    steps.push(navDiagnostics());
     ui.root.classList.remove("mwia-hidden");
     const what = kind === "enhance" ? `set the target to +${value}` : `pick ${label}${value ? ` and enter ${value}` : ""}`;
-    ui.notice = opened === "page"
-        ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet – buy it first (🛒)."} Pick it in the game and ${what}.` }
-        : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}. (${navDiagnostics()})` };
+    const diag = steps.filter(Boolean).join(" · ");
+    showNotice(opened === "page"
+        ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet – buy it first (🛒)."} Pick it in the game and ${what}.`, diag }
+        : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
+}
+
+// ---------- notices ----------
+
+const VERSION = typeof __MWIA_VERSION__ !== "undefined" ? __MWIA_VERSION__ : "dev";
+
+// A notice in view, also when the button that set it is far down the list.
+function showNotice(notice) {
+    ui.notice = notice;
+    ui.showNotice = true;
     render();
+}
+
+// What went wrong in a button, shown instead of lost: the panel comes back with it.
+function buttonFailed(what, error) {
+    ui.root?.classList.remove("mwia-hidden");
+    const where = String(error?.stack || "").split("\n").slice(0, 4).join(" | ");
+    showNotice({ level: "bad", text: `${what} failed: ${error?.message || error}`, diag: where });
+}
+
+// The details (monospace) and a 📋 button that copies them, with the version, for a chat.
+function noticeHtml(notice) {
+    const diag = notice.diag ? `<div class="mwia-notice-diag">${esc(notice.diag)}</div><button class="mwia-link mwia-notice-copy" data-action="copy-notice">📋 Copy</button>` : "";
+    return `<div class="mwia-notice mwia-notice-${notice.level}">${esc(notice.text)}${diag}</div>`;
+}
+
+export const noticeCopyText = (notice, agent = navigator.userAgent) => [notice.text, notice.diag, `MWI Advisor v${VERSION} · ${agent}`].filter(Boolean).join("\n");
+
+async function copyNotice(button) {
+    if (!ui.notice) return;
+    const text = noticeCopyText(ui.notice);
+    let copied = false;
+    try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+    } catch {
+        // Older browsers: copy from a selected text box.
+        const box = document.createElement("textarea");
+        box.value = text;
+        box.setAttribute("readonly", "");
+        box.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+        document.body.appendChild(box);
+        box.select();
+        box.setSelectionRange(0, text.length);
+        try {
+            copied = document.execCommand("copy");
+        } catch {
+            copied = false;
+        }
+        box.remove();
+    }
+    button.textContent = copied ? "✓ Copied" : "Select the text above to copy it";
 }
 
 // ---------- events ----------
@@ -1102,6 +1165,18 @@ async function openLeveling(dataset) {
 function onClick(event) {
     const target = event.target.closest("[data-action],[data-tab]");
     if (!target || !ui.root.contains(target)) return;
+    try {
+        const running = act(target);
+        running?.catch?.((error) => buttonFailed(clean(target.textContent) || target.dataset.action, error));
+    } catch (error) {
+        buttonFailed(clean(target.textContent) || target.dataset.action, error);
+    }
+}
+
+const clean = (text) => String(text || "").replace(/\s+/g, " ").trim();
+
+// What a click on a tab or a button does; a promise when it goes on after the click.
+function act(target) {
     if (target.dataset.tab) {
         // A notice belongs to the tab it came from.
         if (ui.tab !== target.dataset.tab) ui.notice = null;
@@ -1131,12 +1206,12 @@ function onClick(event) {
             break;
         case "skilling-make":
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
-            openWithCount(target.dataset.hrid, Number(target.dataset.count));
-            break;
+            return openWithCount(target.dataset.hrid, Number(target.dataset.count));
         case "skilling-level":
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
-            openLeveling(target.dataset);
-            break;
+            return openLeveling(target.dataset);
+        case "copy-notice":
+            return copyNotice(target);
         case "skilling-train": {
             const plan = JSON.parse(target.dataset.plan);
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
