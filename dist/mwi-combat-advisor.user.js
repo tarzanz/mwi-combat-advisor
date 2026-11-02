@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.50.1
+// @version      0.51.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -44,7 +44,8 @@
       "consumable_buffs_updated",
       "equipment_buffs_updated",
       "market_listings_updated",
-      "market_item_order_books_updated"
+      "market_item_order_books_updated",
+      "loot_log_updated"
     ].join("|") + ')"'
   );
   var BUFF_MAPS = [
@@ -128,6 +129,8 @@
     // the latest init_character_data, patched by later messages
     items: /* @__PURE__ */ new Map(),
     // hash/id -> character item
+    lootLog: null,
+    // the game's Loot & XP Log, as last sent
     orderBooks: loadOrderBooks(),
     // itemHrid -> { at, asks, bids (+0), levels: { level: { asks, bids } }, seen: [levels sent], bands: { level: { min, max } } }, from viewing it on the market
     updatedAt: 0
@@ -254,6 +257,9 @@
         case "market_listings_updated":
           applyListings(data);
           break;
+        case "loot_log_updated":
+          if (Array.isArray(data.lootLog)) state.lootLog = data.lootLog;
+          break;
         case "actions_updated":
           mergeActions(data.endCharacterActions);
           break;
@@ -280,26 +286,9 @@
       }
     }
   }
-  var OTHER_KEPT = 30;
-  var OTHER_CHARS = 3e5;
-  var others = [];
-  var sent = [];
-  var typeOf = (raw) => /"type"\s*:\s*"([^"]{1,80})"/.exec(raw)?.[1] || "?";
-  var otherMessages = () => others.slice();
-  var sentTypes = () => sent.slice();
-  function keepOther(raw) {
-    const type = typeOf(raw);
-    if (/chat/i.test(type)) return;
-    others.push({ type, at: Date.now(), size: raw.length, raw: raw.slice(0, OTHER_CHARS) });
-    if (others.length > OTHER_KEPT) others.shift();
-  }
   function onMessage(event) {
     const raw = event.data;
-    if (typeof raw !== "string") return;
-    if (!INTERESTING.test(raw)) {
-      keepOther(raw);
-      return;
-    }
+    if (typeof raw !== "string" || !INTERESTING.test(raw)) return;
     try {
       handle(JSON.parse(raw));
     } catch (error) {
@@ -315,20 +304,7 @@
     const Hooked = new Proxy(NativeWebSocket, {
       construct(target, args, newTarget) {
         const socket = Reflect.construct(target, args, newTarget === Hooked ? target : newTarget);
-        if (isGameSocket(args[0])) {
-          socket.addEventListener("message", onMessage);
-          const send = socket.send;
-          socket.send = function(data) {
-            try {
-              if (typeof data === "string" && !/chat/i.test(typeOf(data))) {
-                sent.push({ type: typeOf(data), at: Date.now() });
-                if (sent.length > OTHER_KEPT) sent.shift();
-              }
-            } catch {
-            }
-            return send.apply(this, arguments);
-          };
-        }
+        if (isGameSocket(args[0])) socket.addEventListener("message", onMessage);
         return socket;
       },
       get(target, property, receiver) {
@@ -573,8 +549,8 @@
   function successOutputs(kind, detail) {
     const a = detail.alchemyDetail;
     if (kind === "coinify") return [{ itemHrid: COIN, count: 5 * (detail.sellPrice || 0) }];
-    if (kind === "decompose") return (a.decomposeItems || []).map((d2) => ({ itemHrid: d2.itemHrid, count: d2.count }));
-    return (a.transmuteDropTable || []).map((d2) => ({ itemHrid: d2.itemHrid, count: meanCount(d2) }));
+    if (kind === "decompose") return (a.decomposeItems || []).map((d) => ({ itemHrid: d.itemHrid, count: d.count }));
+    return (a.transmuteDropTable || []).map((d) => ({ itemHrid: d.itemHrid, count: meanCount(d) }));
   }
   function crateDrop(itemLevel) {
     if (itemLevel < 35) return { itemHrid: "/items/small_artisans_crate", rate: (100 + itemLevel) / 144e3 };
@@ -649,7 +625,7 @@
     for (const catalyst of catalysts) {
       const successRate = Math.min(1, Math.max(0, baseRate * (1 + catalyst.bonus + successBuff + penalty)));
       const outputs = [];
-      const add2 = (itemHrid, count2, kindOf) => {
+      const add = (itemHrid, count2, kindOf) => {
         if (count2 <= 0) return;
         const sell = itemHrid === COIN ? { price: 1, source: "coin" } : market.sell(itemHrid);
         outputs.push({ itemHrid, count: count2, kind: kindOf, price: sell.price, sell, value: count2 * sell.price });
@@ -657,10 +633,10 @@
       let selfBack = 0;
       for (const o2 of successOutputs(kind, detail)) {
         if (o2.itemHrid === action.itemHrid) selfBack += o2.count * bulk * successRate;
-        else add2(o2.itemHrid, o2.count * bulk * successRate, "product");
+        else add(o2.itemHrid, o2.count * bulk * successRate, "product");
       }
-      add2(essence.itemHrid, essence.count, "essence");
-      add2(rare.itemHrid, rare.count, "rare");
+      add(essence.itemHrid, essence.count, "essence");
+      add(rare.itemHrid, rare.count, "rare");
       const inputs = [{ itemHrid: action.itemHrid, count: bulk - selfBack, price, value: (bulk - selfBack) * (price || 0) }];
       if (coins8) inputs.push({ itemHrid: COIN, count: coins8, price: 1, value: coins8 });
       if (catalyst.itemHrid) inputs.push({ itemHrid: catalyst.itemHrid, count: successRate, price: catalyst.price, value: successRate * catalyst.price, catalyst: true });
@@ -763,9 +739,9 @@
   }
   var SOLVE = { a: new Float64Array(3 * (MAX_TARGET + 2)), b: new Float64Array(MAX_TARGET + 2), d: new Float64Array(MAX_TARGET + 2) };
   function protectedCycle(p2, blessed, target, from, xpPer, start = 0) {
-    const { a, b, d: d2 } = SOLVE;
+    const { a, b, d } = SOLVE;
     a.fill(0, 3 * target, 3 * (target + 2));
-    b[target] = b[target + 1] = d2[target] = d2[target + 1] = 0;
+    b[target] = b[target + 1] = d[target] = d[target + 1] = 0;
     for (let L = target - 1; L >= 0; L--) {
       const up1 = p2[L] * (1 - blessed);
       const up2 = p2[L] * blessed;
@@ -781,24 +757,24 @@
         a[3 * L + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L + 2) + i] + b2 * a1)) / keep;
       }
       b[L] = guarded ? fail / keep : 0;
-      d2[L] = (up1 * d2[L + 1] + up2 * (b2 * d2[L + 1] + d2[L + 2]) + (guarded ? 0 : fail)) / keep;
+      d[L] = (up1 * d[L + 1] + up2 * (b2 * d[L + 1] + d[L + 2]) + (guarded ? 0 : fail)) / keep;
     }
-    const rest = 1 - d2[0];
+    const rest = 1 - d[0];
     if (rest <= 1e-15) return null;
     const e0 = [a[0] / rest, a[1] / rest, a[2] / rest];
     let e = e0;
-    for (let L = 1; L <= start && L < target; L++) e = e.map((prev, i) => a[3 * L + i] + b[L] * prev + d2[L] * e0[i]);
+    for (let L = 1; L <= start && L < target; L++) e = e.map((prev, i) => a[3 * L + i] + b[L] * prev + d[L] * e0[i]);
     return { attempts: e[0], xp: e[1], protections: e[2] };
   }
   function protectedCycles(p2, blessed, target, from) {
     if (!protectedCycle(p2, blessed, target, from, NO_XP)) return null;
-    const { a, b, d: d2 } = SOLVE;
-    const rest = 1 - d2[0];
+    const { a, b, d } = SOLVE;
+    const rest = 1 - d[0];
     const attempts = [a[0] / rest];
     const protections = [a[2] / rest];
     for (let L = 1; L < target; L++) {
-      attempts[L] = a[3 * L] + b[L] * attempts[L - 1] + d2[L] * attempts[0];
-      protections[L] = a[3 * L + 2] + b[L] * protections[L - 1] + d2[L] * protections[0];
+      attempts[L] = a[3 * L] + b[L] * attempts[L - 1] + d[L] * attempts[0];
+      protections[L] = a[3 * L + 2] + b[L] * protections[L - 1] + d[L] * protections[0];
     }
     return { attempts, protections };
   }
@@ -840,9 +816,9 @@
     return list.sort((a, b) => a.levelRequirement.level - b.levelRequirement.level || a.sortIndex - b.sortIndex);
   }
   function missingSuccess(who, data) {
-    const sent2 = (key) => (who.sources?.[key]?.[TYPE2] || []).some((b) => b.typeHrid === SUCCESS);
+    const sent = (key) => (who.sources?.[key]?.[TYPE2] || []).some((b) => b.typeHrid === SUCCESS);
     let bonus = 0;
-    if (!sent2("equipmentActionTypeBuffsMap")) {
+    if (!sent("equipmentActionTypeBuffsMap")) {
       const multipliers = data.enhancementLevelTotalBonusMultiplierTable || [];
       for (const item of who.equipped || []) {
         const detail = data.itemDetailMap[item.itemHrid]?.equipmentDetail;
@@ -851,7 +827,7 @@
         bonus += base + extra * (multipliers[item.enhancementLevel || 0] || 0);
       }
     }
-    if (!sent2("houseActionTypeBuffsMap")) bonus += OBSERVATORY_SUCCESS * (who.houseLevels?.[OBSERVATORY] || 0);
+    if (!sent("houseActionTypeBuffsMap")) bonus += OBSERVATORY_SUCCESS * (who.houseLevels?.[OBSERVATORY] || 0);
     return bonus;
   }
   function baseItem(action, market, owned) {
@@ -894,7 +870,7 @@
       const sell = market.sell(itemHrid);
       drops.push({ itemHrid, count: count2, kind, price: sell.price, sell, value: count2 * sell.price });
     }
-    const dropsPerAttempt = drops.reduce((sum, d2) => sum + d2.value, 0);
+    const dropsPerAttempt = drops.reduce((sum, d) => sum + d.value, 0);
     const base = baseItem(action, market, owned);
     const drinksPerHour = 12 * who.concentration;
     const teaCosts = teas.map((hrid) => {
@@ -1238,7 +1214,7 @@
       const { price, salesCap } = salesLimited(sell, count2 * actionsPerHour * HOURS_PER_DAY);
       outputs.push({ itemHrid, count: count2, kind, price, sell, value: count2 * price, salesCap });
     };
-    const base = action.outputItems?.length ? action.outputItems.map((o2) => ({ itemHrid: o2.itemHrid, count: o2.count })) : (action.dropTable || []).map((d2) => ({ itemHrid: d2.itemHrid, count: meanCount2(d2) }));
+    const base = action.outputItems?.length ? action.outputItems.map((o2) => ({ itemHrid: o2.itemHrid, count: o2.count })) : (action.dropTable || []).map((d) => ({ itemHrid: d.itemHrid, count: meanCount2(d) }));
     for (const output of base) {
       const count2 = output.count * (1 + quantity);
       const processed = products?.get(output.itemHrid);
@@ -1391,8 +1367,8 @@
   function breakEvenPrice(entry) {
     const main = entry.outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0];
     if (!main) return null;
-    const others2 = entry.revenuePerAction - main.value;
-    return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others2) / main.count / (1 - MARKET_TAX);
+    const others = entry.revenuePerAction - main.value;
+    return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others) / main.count / (1 - MARKET_TAX);
   }
   var LIQUIDITY = {
     stable: { both: 0.9, spread: 0.05, swing: 0.03, selling: 0.75, activity: 0.3 },
@@ -1607,7 +1583,7 @@
   function chainBuilder(who, data, market, teaMode) {
     const sources = /* @__PURE__ */ new Map();
     for (const action of skillingActions(data)) {
-      const made = action.outputItems?.length ? action.outputItems.map((o2) => o2.itemHrid) : (action.dropTable || []).map((d2) => d2.itemHrid);
+      const made = action.outputItems?.length ? action.outputItems.map((o2) => o2.itemHrid) : (action.dropTable || []).map((d) => d.itemHrid);
       for (const hrid of made) {
         if (!sources.has(hrid)) sources.set(hrid, []);
         sources.get(hrid).push(action);
@@ -1863,14 +1839,14 @@
     const multiplier = data.enhancementLevelTotalBonusMultiplierTable?.[enhancementLevel || 0] || 0;
     const value = (stat) => (stats[stat] || 0) + (bonuses[stat] || 0) * multiplier;
     const buffs = [];
-    const add2 = (typeHrid, amount) => amount && buffs.push({ typeHrid, flatBoost: amount, ratioBoost: 0 });
-    add2("/buff_types/action_speed", value(skill + "Speed") + value("skillingSpeed"));
-    add2("/buff_types/efficiency", value(skill + "Efficiency") + value("skillingEfficiency"));
-    add2("/buff_types/wisdom", value(skill + "Experience") + value("skillingExperience"));
-    add2("/buff_types/rare_find", value(skill + "RareFind") + value("skillingRareFind"));
-    add2("/buff_types/essence_find", value(skill + "EssenceFind") + value("skillingEssenceFind"));
-    add2(`/buff_types/${skill}_success`, value(skill + "Success"));
-    if (GATHERING_SKILLS.has(skill)) add2("/buff_types/gathering", value("gatheringQuantity"));
+    const add = (typeHrid, amount) => amount && buffs.push({ typeHrid, flatBoost: amount, ratioBoost: 0 });
+    add("/buff_types/action_speed", value(skill + "Speed") + value("skillingSpeed"));
+    add("/buff_types/efficiency", value(skill + "Efficiency") + value("skillingEfficiency"));
+    add("/buff_types/wisdom", value(skill + "Experience") + value("skillingExperience"));
+    add("/buff_types/rare_find", value(skill + "RareFind") + value("skillingRareFind"));
+    add("/buff_types/essence_find", value(skill + "EssenceFind") + value("skillingEssenceFind"));
+    add(`/buff_types/${skill}_success`, value(skill + "Success"));
+    if (GATHERING_SKILLS.has(skill)) add("/buff_types/gathering", value("gatheringQuantity"));
     return { buffs, concentration: value("drinkConcentration") };
   }
   var negate = (buffs) => buffs.map((b) => ({ ...b, flatBoost: -b.flatBoost }));
@@ -2132,7 +2108,7 @@
     return out;
   }
   var dayOf = (r) => Math.floor(r.hour / 24);
-  var weekOf = (d2) => Math.floor(d2.day / 7);
+  var weekOf = (d) => Math.floor(d.day / 7);
   function encodeChanged(list, dirty, keyField, fields, keyOf2) {
     const out = [];
     list.forEach((r, i) => {
@@ -2252,9 +2228,9 @@
         else if (age < 14 * 24) before.push([v, 1]);
         if (age < 30 * 24) month.push([v, 1]);
       }
-      for (const d2 of days) {
-        const v = at(d2[key], i);
-        if (Number.isFinite(v) && nowHour - (d2.day * 24 + 12) < 30 * 24) month.push([v, at(d2.n, i) || 1]);
+      for (const d of days) {
+        const v = at(d[key], i);
+        if (Number.isFinite(v) && nowHour - (d.day * 24 + 12) < 30 * 24) month.push([v, at(d.n, i) || 1]);
       }
       const week7 = median(week);
       const previous = before.length >= MIN_HOURS ? median(before) : null;
@@ -2268,7 +2244,7 @@
       first = Math.min(first, r.hour);
       if (nowHour - r.hour < 7 * 24) hours7++;
     }
-    for (const d2 of days) if (at(d2.n, i)) first = Math.min(first, d2.day * 24);
+    for (const d of days) if (at(d.n, i)) first = Math.min(first, d.day * 24);
     const spanDays = Number.isFinite(first) ? (nowHour - first) / 24 : 0;
     return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS, liquidity: liquidity(i, hours, nowHour) };
   }
@@ -2309,18 +2285,18 @@
       counts.push(Number.isFinite(v) ? v : 0);
       if (Number.isFinite(at(r.p, i))) prices2.push([at(r.p, i), Number.isFinite(v) ? v : 1]);
     }
-    const counted = counts.length;
+    const counted2 = counts.length;
     const cap2 = SPIKE * (median(counts.filter((v) => v > 0).map((v) => [v, 1])) ?? 0);
     const sum = (list) => list.reduce((total, v) => total + v, 0);
-    const perDay2 = (list) => counted ? sum(list) / counted * 24 : null;
-    return { hours: counted, perDay: perDay2(counts.map((v) => Math.min(v, cap2))), rawPerDay: perDay2(counts), selling: counted ? counts.filter((v) => v > 0).length / counted : null, price: median(prices2), enough: counted >= MIN_HOURS };
+    const perDay2 = (list) => counted2 ? sum(list) / counted2 * 24 : null;
+    return { hours: counted2, perDay: perDay2(counts.map((v) => Math.min(v, cap2))), rawPerDay: perDay2(counts), selling: counted2 ? counts.filter((v) => v > 0).length / counted2 : null, price: median(prices2), enough: counted2 >= MIN_HOURS };
   }
   function historyCsv(items, hours, days, exportedAt = /* @__PURE__ */ new Date(), { hourlySold = false } = {}) {
     const num2 = (v) => Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "";
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
     const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
     const id = (hrid) => hrid.replace(/^\/items\//, "");
-    const sold = (d2, i) => at(d2.vn, i) ? `${num2(at(d2.v, i) || 0)},${at(d2.vn, i)},${num2(at(d2.p, i))}` : ",,";
+    const sold = (d, i) => at(d.vn, i) ? `${num2(at(d.v, i) || 0)},${at(d.vn, i)},${num2(at(d.p, i))}` : ",,";
     const lines = [
       `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on this device, and around the clock by your Pi if it is linked.`,
       "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
@@ -2348,15 +2324,15 @@
         });
       }
     }
-    for (const d2 of hourlySold ? [] : rollUpDays(hours.filter((r) => r.sold), items.length)) {
+    for (const d of hourlySold ? [] : rollUpDays(hours.filter((r) => r.sold), items.length)) {
       items.forEach((hrid, i) => {
-        if (at(d2.v, i) > 0) lines.push(`sold,${dayText(d2.day)},${id(hrid)},,,,,,,,${sold(d2, i)}`);
+        if (at(d.v, i) > 0) lines.push(`sold,${dayText(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
       });
     }
-    for (const d2 of days) {
+    for (const d of days) {
       items.forEach((hrid, i) => {
-        if (!at(d2.n, i)) return;
-        lines.push(`day,${dayText(d2.day)},${id(hrid)},${[d2.a, d2.b, d2.aLow, d2.aHigh, d2.bLow, d2.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d2.n, i)},${sold(d2, i)}`);
+        if (!at(d.n, i)) return;
+        lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)},${sold(d, i)}`);
       });
     }
     return { csv: lines.join("\n") + "\n", items: items.length, hours: hours.length, days: days.length };
@@ -2449,9 +2425,9 @@
       const map = itemMap(pi.items, store2.items, store2.index);
       const count2 = store2.items.length;
       const hours = decodeRecords(wire.hours.map(unpack), HOURLY_FIELDS).map((r) => remapRecord(r, map, count2, HOURLY_FIELDS));
-      const days = decodeRecords(wire.days.map(unpack), DAILY_FIELDS).map((d2) => remapRecord(d2, map, count2, DAILY_FIELDS));
+      const days = decodeRecords(wire.days.map(unpack), DAILY_FIELDS).map((d) => remapRecord(d, map, count2, DAILY_FIELDS));
       for (const r of hours) pi.hour = Math.max(pi.hour ?? -Infinity, r.hour);
-      for (const d2 of days) pi.day = Math.max(pi.day ?? -Infinity, d2.day);
+      for (const d of days) pi.day = Math.max(pi.day ?? -Infinity, d.day);
       await commit(hours, days, { pi });
       store2.pi = pi;
       return { hours: hours.length, days: days.length };
@@ -2464,7 +2440,7 @@
   var serially = (job) => store2.queue = store2.queue.then(job, job);
   async function commit(newHours, newDays, meta) {
     const count2 = store2.items.length;
-    const dayKeys = new Set(newDays.map((d2) => d2.day));
+    const dayKeys = new Set(newDays.map((d) => d.day));
     const hourKeys = new Set(newHours.map((r) => r.hour));
     const removed = store2.hours.filter((r) => hourKeys.has(r.hour) || dayKeys.has(dayOf(r)));
     store2.hours = [...store2.hours.filter((r) => !removed.includes(r)), ...newHours].sort((x, y) => x.hour - y.hour);
@@ -2478,24 +2454,24 @@
     const cutoffDay = newest === null ? -Infinity : Math.floor((newest - HOURLY_DAYS * 24) / 24);
     const old = store2.hours.filter((r) => dayOf(r) < cutoffDay);
     store2.hours = store2.hours.filter((r) => dayOf(r) >= cutoffDay);
-    const summed = new Set([...store2.days, ...store2.allDays || []].map((d2) => d2.day));
+    const summed = new Set([...store2.days, ...store2.allDays || []].map((d) => d.day));
     const rollable = old.filter((r) => !summed.has(dayOf(r)));
     const changedDays = [...newDays, ...rollable.length ? rollUpDays(rollable, count2) : []];
-    const changedDayKeys = new Set(changedDays.map((d2) => d2.day));
+    const changedDayKeys = new Set(changedDays.map((d) => d.day));
     const hourWrites = encodeChanged(store2.hours, dirtyHours, "hour", HOURLY_FIELDS, dayOf);
     const windowStart = store2.days.length ? store2.days[0].day : Infinity;
-    if (changedDays.some((d2) => d2.day < windowStart)) await loadAllDays();
-    const replaceDays = (list) => [...list.filter((d2) => !changedDayKeys.has(d2.day)), ...changedDays].sort((x, y) => x.day - y.day);
-    const dayList = changedDays.some((d2) => d2.day < windowStart) ? store2.allDays = replaceDays(store2.allDays) : store2.days = replaceDays(store2.days);
+    if (changedDays.some((d) => d.day < windowStart)) await loadAllDays();
+    const replaceDays = (list) => [...list.filter((d) => !changedDayKeys.has(d.day)), ...changedDays].sort((x, y) => x.day - y.day);
+    const dayList = changedDays.some((d) => d.day < windowStart) ? store2.allDays = replaceDays(store2.allDays) : store2.days = replaceDays(store2.days);
     if (dayList === store2.days && store2.allDays) store2.allDays = replaceDays(store2.allDays);
     const dayWrites = encodeChanged(dayList, changedDayKeys, "day", DAILY_FIELDS, weekOf);
-    const newestDay = newest === null ? Math.max(-Infinity, ...dayList.map((d2) => d2.day)) : Math.floor(newest / 24);
-    store2.days = (store2.allDays || dayList).filter((d2) => d2.day >= newestDay - 31);
+    const newestDay = newest === null ? Math.max(-Infinity, ...dayList.map((d) => d.day)) : Math.floor(newest / 24);
+    store2.days = (store2.allDays || dayList).filter((d) => d.day >= newestDay - 31);
     const tx = store2.db.transaction([HOURLY, DAILY, META], "readwrite");
     for (const hour of gone) tx.objectStore(HOURLY).delete(hour);
     for (const r of old) tx.objectStore(HOURLY).delete(r.hour);
     for (const w of hourWrites) tx.objectStore(HOURLY).put(w);
-    for (const d2 of dayWrites) tx.objectStore(DAILY).put(d2);
+    for (const d of dayWrites) tx.objectStore(DAILY).put(d);
     if (Number.isFinite(newestDay)) tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor((newestDay - DAILY_DAYS) / 7) * 7, true));
     tx.objectStore(META).put(store2.items, "items");
     for (const [key, value] of Object.entries(meta)) tx.objectStore(META).put(value, key);
@@ -2535,9 +2511,9 @@
     const newest = store2.hours[store2.hours.length - 1].hour;
     const days = range > 31 ? await loadAllDays() : store2.days;
     const points = [];
-    for (const d2 of days) {
-      const t4 = d2.day * 24 + 12;
-      if (newest - t4 <= range * 24) points.push({ t: t4, a: at(d2.a, i), b: at(d2.b, i) });
+    for (const d of days) {
+      const t4 = d.day * 24 + 12;
+      if (newest - t4 <= range * 24) points.push({ t: t4, a: at(d.a, i), b: at(d.b, i) });
     }
     for (const r of store2.hours) if (newest - r.hour <= range * 24) points.push({ t: r.hour, a: at(r.a, i), b: at(r.b, i) });
     return points.filter((p2) => Number.isFinite(p2.a) || Number.isFinite(p2.b)).sort((x, y) => x.t - y.t);
@@ -2547,8 +2523,8 @@
     if (i === void 0) return null;
     const days = await loadAllDays();
     const newestDay = days.length ? days[days.length - 1].day : 0;
-    const pick = (key, span) => median(days.filter((d2) => newestDay - d2.day < span).map((d2) => [at(d2[key], i), at(d2.n, i) || 1]));
-    return { a90: pick("a", 90), b90: pick("b", 90), a365: pick("a", 365), b365: pick("b", 365), days: days.filter((d2) => at(d2.n, i)).length };
+    const pick = (key, span) => median(days.filter((d) => newestDay - d.day < span).map((d) => [at(d[key], i), at(d.n, i) || 1]));
+    return { a90: pick("a", 90), b90: pick("b", 90), a365: pick("a", 365), b365: pick("b", 365), days: days.filter((d) => at(d.n, i)).length };
   }
   async function exportHistory() {
     await loadHistory();
@@ -2560,7 +2536,7 @@
   var SHORT_LIST = 25;
   var RATING = { stable: "\u{1F7E2} stable market", ok: "\u{1F7E1} ok market", thin: "\u{1F534} thin market" };
   var view = { upgradesKey: "", upgrades: null, showAll: false, open: /* @__PURE__ */ new Set() };
-  var dec = (n3, d2 = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d2, maximumFractionDigits: d2 });
+  var dec = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
   var count = (n3) => n3 >= 100 ? dec(n3, 0) : n3 >= 1 ? dec(n3, 2) : n3.toPrecision(2);
   var coins = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
@@ -2746,7 +2722,6 @@
       html += `<button class="mwia-link" data-action="skilling-all">${view.showAll ? "Show fewer" : `Show all ${available.length}${hidden}`}</button>`;
     }
     html += `</section>`;
-    html += jobsHtml();
     html += upgradesHtml(settings2);
     if (upcoming.length) {
       html += `<section><h3>Unlocks soon</h3><p class="mwia-dim">Within ${NEAR_LEVELS} levels, worked out at the level it unlocks. The time assumes you train the skill with its fastest XP action you have now.</p>
@@ -3011,8 +2986,8 @@
   function suggestionSummary(s2) {
     const rating = RATING[s2.liquidity.rating] + (s2.ratedBy ? " (materials)" : "");
     if (!s2.count) return `${rating} \xB7 ${s2.heldOff ? s2.productLiquidity.sold?.enough ? "you hold a day of sales" : "you hold enough" : s2.cappedBySales && !s2.plannedUnits ? "none sold lately" : "your coins don't stretch to one"}`;
-    const time = s2.fill < SHORT_FILL ? `<span class="mwia-warn">${hoursText(s2.hours)} of ${hoursText(s2.plannedHours)}${SHORT_WHY[s2.short] ? ` \u2013 ${SHORT_WHY[s2.short](s2)}` : ""}</span>` : hoursText(s2.hours);
-    return `${rating} \xB7 ${s2.verb || "make"} ${s2.count.toLocaleString("en-US")} (${time}) \xB7 ${coins(s2.batch.materials)} in, ${s2.batch.profit >= 0 ? "+" : "\u2212"}${coins(Math.abs(s2.batch.profit))}`;
+    const time2 = s2.fill < SHORT_FILL ? `<span class="mwia-warn">${hoursText(s2.hours)} of ${hoursText(s2.plannedHours)}${SHORT_WHY[s2.short] ? ` \u2013 ${SHORT_WHY[s2.short](s2)}` : ""}</span>` : hoursText(s2.hours);
+    return `${rating} \xB7 ${s2.verb || "make"} ${s2.count.toLocaleString("en-US")} (${time2}) \xB7 ${coins(s2.batch.materials)} in, ${s2.batch.profit >= 0 ? "+" : "\u2212"}${coins(Math.abs(s2.batch.profit))}`;
   }
   var SHORT_FILL = 0.95;
   var SHORT_WHY = {
@@ -3231,12 +3206,382 @@
     return lines;
   }
 
+  // src/game-nav.js
+  var NAV_LINK = '[class*="NavigationBar_navigationLink"]';
+  var ACTION_CARD = '[class*="SkillAction_skillAction"]';
+  var ACTION_CARD_NAME = '[class*="SkillAction_name"]';
+  var PANEL = 'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
+  var PANEL_NAME = 'div[class*="SkillActionDetail_name"]';
+  var COUNT_INPUT = 'div[class*="SkillActionDetail_maxActionCountInput"] input';
+  var BUTTONS = '[class*="SkillActionDetail_buttonsContainer"]';
+  var TABS = '[role="tab"],[class*="TabsComponent_tab"],[class*="Tab_tab"]';
+  var NAV_HANDLERS = [
+    "handleGoToActionTypeDetail",
+    "handleClickActionTypeDetail",
+    "handleGoToActionType",
+    "handleSelectActionType",
+    "handleGoToActionDetail",
+    "handleSelectAction",
+    "handleClickAction",
+    "handleGoToAction"
+  ];
+  var lastDiagnostics = "";
+  var pageWindow = window;
+  function usePageWindow(win2) {
+    pageWindow = win2 || window;
+  }
+  var attempt = (read, fallback = null) => {
+    try {
+      return read();
+    } catch {
+      return fallback;
+    }
+  };
+  var pageDocument = () => attempt(() => pageWindow.document) || document;
+  var pageView = (node) => attempt(() => node?.wrappedJSObject) || node;
+  var REACT_KEY = /^__react(Container|Fiber|InternalInstance)\$/;
+  var reactKeys = (node) => attempt(() => Object.getOwnPropertyNames(node).filter((k) => REACT_KEY.test(k)), []);
+  function worldReport() {
+    const info = attempt(() => typeof GM_info !== "undefined" ? GM_info : null);
+    const root = document.getElementById("root");
+    const doc = pageDocument();
+    const pageRoot = doc !== document ? attempt(() => doc.getElementById("root")) : null;
+    const wrapped = attempt(() => root?.wrappedJSObject);
+    return [
+      `${info?.scriptHandler || "manager ?"} ${info?.version || ""} inject ${info?.injectInto || "?"}`.replace(/\s+/g, " "),
+      `window ${pageWindow === window ? "own" : "page's"}`,
+      `document ${doc === document ? "own" : "page's"}`,
+      `#root ${root ? `found, react keys ${reactKeys(root).length}` : "missing"}`,
+      pageRoot ? `page #root react keys ${reactKeys(pageRoot).length}` : "",
+      wrapped ? `wrapped #root react keys ${reactKeys(wrapped).length}` : "",
+      `MWITools ${attempt(() => !!pageWindow.MWITools, "?")}`,
+      reactScan(root)
+    ].filter(Boolean).join(", ");
+  }
+  function reactScan(root) {
+    const own = (node) => attempt(() => Object.getOwnPropertyNames(node), []).filter((k) => k.startsWith("_"));
+    const prefix = (key) => key.replace(/\$.*$/, "$");
+    const parts = [`#root own: ${own(root).map(prefix).join(" ") || "none"}, children ${root?.children.length ?? "\u2013"}`];
+    const found = [];
+    const other = /* @__PURE__ */ new Set();
+    for (const node of [...document.querySelectorAll("body *")].slice(0, 5e3)) {
+      const keys = own(node);
+      if (keys.some((k) => k.startsWith("__react"))) {
+        if (found.length < 2) found.push(`${describe(node)} [${[...new Set(keys.map(prefix))].join(" ")}]`);
+      } else keys.forEach((k) => other.size < 6 && other.add(prefix(k)));
+    }
+    parts.push(found.length ? `react on ${found.join("; ")}` : "no element with __react keys");
+    if (other.size) parts.push(`other keys ${[...other].join(" ")}`);
+    return parts.join(", ");
+  }
+  function navDiagnostics() {
+    return lastDiagnostics;
+  }
+  var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+  var clean = (text) => String(text || "").replace(/\s+/g, " ").trim();
+  function visible(element) {
+    if (!element?.isConnected || element.hidden) return false;
+    const style = getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
+  }
+  var iconHref = (use) => use.getAttribute("href") || use.getAttribute("xlink:href") || "";
+  function iconIds(element) {
+    return [...element.querySelectorAll("use")].map((use) => iconHref(use).split("#")[1] || "");
+  }
+  function describe(element) {
+    const classes = String(element.className?.baseVal ?? element.className ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 2);
+    return [element.tagName.toLowerCase(), ...classes].join(".");
+  }
+  function navReport(skill) {
+    const links = [...document.querySelectorAll(NAV_LINK)];
+    const parts = [`nav links: ${links.length} (${links.filter(visible).length} visible)`];
+    if (links.length) parts.push("icons: " + links.map((link) => iconIds(link).join("+") || "?").join(","));
+    const icons = [...document.querySelectorAll("use")].filter((use) => iconHref(use).endsWith("#" + skill));
+    if (icons.length) {
+      const chain = [];
+      for (let node = icons[0].parentElement; node && node !== document.body && chain.length < 6; node = node.parentElement) chain.push(describe(node));
+      parts.push(`#${skill} icons: ${icons.length}, first ${iconHref(icons[0])} in ${chain.join(" < ")}`);
+    } else parts.push(`no #${skill} icon on page`);
+    return parts;
+  }
+  function screenReport(categoryName) {
+    const cards = [...document.querySelectorAll(ACTION_CARD)].filter(visible);
+    const tabs = [...document.querySelectorAll(TABS)].filter(visible).map((tab) => clean(tab.textContent));
+    return [
+      `cards: ${cards.length}` + (cards.length ? " (" + cards.slice(0, 6).map((card) => clean(card.querySelector(ACTION_CARD_NAME)?.textContent) || "?").join(", ") + ")" : ""),
+      `tabs: ${tabs.length}` + (tabs.length ? " (" + tabs.slice(0, 10).join(", ") + ")" : ""),
+      `tab "${categoryName}": ${tabs.includes(categoryName) ? "found" : "missing"}`,
+      `panel names: ${[...document.querySelectorAll(PANEL_NAME)].filter(visible).map((name) => clean(name.textContent)).join(", ") || "none"}`
+    ];
+  }
+  function findActionPanel(actionName2) {
+    for (const name of document.querySelectorAll(PANEL_NAME)) {
+      if (!visible(name) || clean(name.textContent) !== actionName2) continue;
+      const panel = name.closest(PANEL) || name.parentElement;
+      const input = panel?.querySelector(COUNT_INPUT);
+      if (input) return { panel, input, buttons: panel.querySelector(BUTTONS) };
+    }
+    return null;
+  }
+  function openActionPanels() {
+    const panels = [];
+    for (const name of document.querySelectorAll(PANEL_NAME)) {
+      if (!visible(name)) continue;
+      const panel = name.closest(PANEL) || name.parentElement;
+      if (panel) panels.push({ panel, name: clean(name.textContent), buttons: panel.querySelector(BUTTONS) });
+    }
+    return panels;
+  }
+  function setReactInput(input, value) {
+    const previous = input.value;
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
+    if (setter) setter.call(input, String(value));
+    else input.value = String(value);
+    input._valueTracker?.setValue(previous);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function clickCard(action, itemId) {
+    const card = [...document.querySelectorAll(ACTION_CARD)].filter(visible).find((candidate) => {
+      const name = clean(candidate.querySelector(ACTION_CARD_NAME)?.textContent);
+      return name === action.name || itemId && iconIds(candidate).includes(itemId);
+    });
+    card?.click();
+    return !!card;
+  }
+  function clickTab(label3) {
+    if (!label3) return false;
+    const tab = [...document.querySelectorAll(TABS)].filter(visible).find((candidate) => clean(candidate.textContent) === label3);
+    if (!tab) return false;
+    if (tab.getAttribute("aria-selected") !== "true") tab.click();
+    return true;
+  }
+  function clickSkill(skill) {
+    const link = [...document.querySelectorAll(NAV_LINK)].find((candidate) => !candidate.querySelector(NAV_LINK) && iconIds(candidate).includes(skill));
+    link?.click();
+    return link || null;
+  }
+  function callGameHandler(win2, actionHrid) {
+    return callReactHandler(NAV_HANDLERS, [actionHrid]);
+  }
+  function rootFibers() {
+    for (const doc of [.../* @__PURE__ */ new Set([document, pageDocument()])]) {
+      const fibers = [];
+      for (const found of [doc.getElementById("root"), doc.querySelector('[class*="GamePage_gamePage"]')]) {
+        const element = pageView(found);
+        for (const key of reactKeys(element)) fibers.push(element[key]?.current ?? element[key]);
+        const legacy = attempt(() => element?._reactRootContainer);
+        const current = legacy?.current ?? legacy?._internalRoot?.current;
+        if (current) fibers.push(current);
+      }
+      if (fibers.length) return fibers;
+    }
+    return [];
+  }
+  function walkFibers(found) {
+    const fibers = rootFibers();
+    const roots = fibers.length;
+    const visited = /* @__PURE__ */ new Set();
+    while (fibers.length && visited.size < 5e4) {
+      const fiber = fibers.pop();
+      if (!fiber || visited.has(fiber)) continue;
+      visited.add(fiber);
+      if (found(fiber)) return { fiber, roots, seen: visited.size };
+      if (fiber.return) fibers.push(fiber.return);
+      if (fiber.child) fibers.push(fiber.child);
+      if (fiber.sibling) fibers.push(fiber.sibling);
+    }
+    return { fiber: null, roots, seen: visited.size };
+  }
+  function callReactHandler(names2, args) {
+    let called = null;
+    const { fiber, roots, seen } = walkFibers((f) => {
+      const instance = f.stateNode;
+      for (const handler of names2) {
+        if (instance && typeof instance[handler] === "function") {
+          try {
+            instance[handler](...args);
+            called = handler;
+            return true;
+          } catch {
+          }
+        }
+      }
+      return false;
+    });
+    if (fiber) return `react: ${called} called`;
+    return `react: no handler (roots ${roots}, fibers ${seen}; ${worldReport()})`;
+  }
+  async function openAction(win2, action, data, timeoutMs = 4e3) {
+    lastDiagnostics = "";
+    if (findActionPanel(action.name)) return true;
+    const itemId = action.outputItems?.[0]?.itemHrid?.split("/").pop();
+    const skill = action.type.split("/").pop();
+    const categoryName = data.actionCategoryDetailMap?.[action.category]?.name;
+    const report = [];
+    if (!clickCard(action, itemId)) {
+      const link = clickSkill(skill);
+      report.push(...navReport(skill), link ? `clicked ${describe(link)}` : `no nav link with #${skill}`);
+      const deadline2 = Date.now() + timeoutMs;
+      let clicked = false;
+      while (!clicked && Date.now() < deadline2) {
+        await sleep(120);
+        clicked = clickCard(action, itemId) || clickTab(categoryName) && (await sleep(120), clickCard(action, itemId));
+      }
+      if (!clicked) report.push(...screenReport(categoryName), callGameHandler(win2, action.hrid));
+    } else report.push("card was on screen and clicked");
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (findActionPanel(action.name)) return true;
+      await sleep(100);
+    }
+    report.push(`no panel for "${action.name}"`);
+    lastDiagnostics = report.join(" \xB7 ");
+    return false;
+  }
+  var ENHANCING_PANEL = '[class*="SkillActionDetail_enhancingComponent"]';
+  var ALCHEMY_PANEL = '[class*="SkillActionDetail_alchemyComponent"]';
+  var inventoryItemHash = (characterId2, itemHrid, level = 0) => `${characterId2}::/item_locations/inventory::${itemHrid}::${level}`;
+  function componentWith(element, method) {
+    const nodes = element ? [element, ...element.querySelectorAll("input, button, select")].map(pageView) : [];
+    const upFrom = (start) => {
+      for (let fiber = start, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
+        if (typeof fiber.stateNode?.[method] === "function") return fiber.stateNode;
+      }
+      return null;
+    };
+    for (const node of nodes) {
+      const key = reactKeys(node).find((k) => !k.startsWith("__reactContainer"));
+      const found = key && upFrom(node[key]);
+      if (found) return found;
+    }
+    if (!nodes.length) return null;
+    const hosts = new Set(nodes);
+    return upFrom(walkFibers((f) => hosts.has(f.stateNode)).fiber);
+  }
+  async function waitFor(find, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    for (; ; ) {
+      const found = find();
+      if (found || Date.now() > deadline) return found || null;
+      await sleep(100);
+    }
+  }
+  var visiblePanel = (selector) => [...pageDocument().querySelectorAll(selector)].find(visible) || null;
+  function levelingPanels() {
+    const out = [];
+    for (const [kind, selector, method] of [["enhancing", ENHANCING_PANEL, "enhancingMaxLevelChanged"], ["alchemy", ALCHEMY_PANEL, "selectAlchemyItemHandler"]]) {
+      for (const panel of pageDocument().querySelectorAll(selector)) {
+        if (!visible(panel)) continue;
+        const held = componentWith(panel, method)?.state || {};
+        const tab = kind === "alchemy" ? [...document.querySelectorAll(TABS)].find((t4) => visible(t4) && t4.getAttribute("aria-selected") === "true" && /^(Coinify|Decompose|Transmute)$/.test(clean(t4.textContent))) : null;
+        out.push({ panel, kind, itemHash: held.primaryItemHash || null, target: held.enhancingMaxLevel ?? null, tab: tab ? clean(tab.textContent) : null, buttons: panel.querySelector(BUTTONS) });
+      }
+    }
+    return out;
+  }
+  var SKIP_METHOD = /^(render|constructor|setState|forceUpdate|component|getSnapshot|shouldComponent|UNSAFE_|isReact)|remove|clear|delete|reset/i;
+  function componentMethods(component) {
+    const names2 = /* @__PURE__ */ new Set();
+    for (let o2 = component; o2 && o2 !== Object.prototype; o2 = Object.getPrototypeOf(o2)) {
+      for (const name of attempt(() => Object.getOwnPropertyNames(o2), [])) {
+        if (!SKIP_METHOD.test(name) && attempt(() => typeof component[name] === "function", false)) names2.add(name);
+      }
+    }
+    return [...names2];
+  }
+  var findMethod = (component, ...patterns) => componentMethods(component).find((name) => patterns.every((p2) => p2.test(name))) || null;
+  var holds = (component, value) => attempt(() => Object.values(component.state || {}).some((v) => v === value || String(v) === String(value)), false);
+  var methodList = (component) => `methods: ${componentMethods(component).slice(0, 40).join(", ") || "none"}`;
+  async function fillSlot(component, word, label3, hash) {
+    if (!hash) return { ok: false, step: `${label3} not in the inventory at +0 \u2013 buy it (\u{1F6D2})` };
+    const method = findMethod(component, word, /^(select|set|change|handle|on)/i, /item|hash|select/i) || findMethod(component, word, /^(select|set|change)/i);
+    if (!method) return { ok: false, step: `no ${label3} method (${methodList(component)})` };
+    attempt(() => component[method](hash));
+    await sleep(200);
+    const ok = holds(component, hash);
+    return { ok, step: `${label3}: ${method} called${ok ? "" : ` but not in the slot (${methodList(component)})`}` };
+  }
+  async function openEnhancing(itemHash, target, protect = null, timeoutMs = 4e3) {
+    const steps = [];
+    const done2 = (result) => (lastDiagnostics = steps.join(" \xB7 "), result);
+    const called = itemHash ? callReactHandler(["handleEnhanceItem"], [itemHash]) : "no item";
+    steps.push(called);
+    if (!/called/.test(called)) {
+      const link = clickSkill("enhancing");
+      steps.push(link ? `opened the Enhancing page (${describe(link)})` : "no Enhancing link");
+      return done2(link ? "page" : false);
+    }
+    const panel = await waitFor(() => visiblePanel(ENHANCING_PANEL), timeoutMs);
+    steps.push(panel ? "enhancing panel" : "no enhancing panel");
+    const component = panel && await waitFor(() => componentWith(panel, "enhancingMaxLevelChanged"), timeoutMs);
+    if (!component) {
+      if (panel) steps.push("without its component");
+      return done2(panel ? "page" : false);
+    }
+    steps.push(`slot held ${component.state?.primaryItemHash ? "an item" : "nothing"}`);
+    if (component.state?.primaryItemHash !== itemHash && typeof component.selectEnhancingItemHandler === "function") component.selectEnhancingItemHandler(itemHash);
+    await sleep(150);
+    component.enhancingMaxLevelChanged({ target: { value: String(target) } });
+    steps.push(`target +${target} set`);
+    if (!protect) return done2("item");
+    await sleep(150);
+    const slot = await fillSlot(component, /protect/i, "protection", protect.hash);
+    steps.push(slot.step);
+    const levelMethod = findMethod(component, /protect/i, /level/i, /change|set/i);
+    if (levelMethod) attempt(() => component[levelMethod]({ target: { value: String(protect.from) } }));
+    await sleep(200);
+    const levelSet = levelMethod && holds(component, protect.from);
+    steps.push(levelMethod ? `protect from +${protect.from}: ${levelMethod} called${levelSet ? "" : " but not set"}` : `no protect-level method (${methodList(component)})`);
+    return done2(slot.ok && levelSet ? "item" : "partial");
+  }
+  async function openAlchemy(itemHash, tabLabel, count2, catalyst = null, timeoutMs = 4e3) {
+    const steps = [];
+    const done2 = (result) => (lastDiagnostics = steps.join(" \xB7 "), result);
+    const called = itemHash ? callReactHandler(["handleAlchemizeItem"], [itemHash]) : "no item";
+    steps.push(called);
+    if (!/called/.test(called)) {
+      const link = clickSkill("alchemy");
+      const tab = link && await waitFor(() => clickTab(tabLabel), timeoutMs);
+      steps.push(link ? `opened the Alchemy page (${describe(link)})` : "no Alchemy link");
+      if (link) steps.push(tab ? `${tabLabel} tab` : `no ${tabLabel} tab`);
+      return done2(link ? "page" : false);
+    }
+    steps.push(await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs) ? "alchemy panel" : "no alchemy panel yet");
+    await sleep(300);
+    const selected = () => [...document.querySelectorAll(TABS)].some((tab) => visible(tab) && clean(tab.textContent) === tabLabel && tab.getAttribute("aria-selected") === "true");
+    steps.push(await waitFor(() => (clickTab(tabLabel), selected()), timeoutMs) ? `${tabLabel} tab` : `no ${tabLabel} tab`);
+    await sleep(150);
+    const panel = await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs);
+    const component = panel && await waitFor(() => componentWith(panel, "selectAlchemyItemHandler"), timeoutMs);
+    if (!component) {
+      steps.push(panel ? "alchemy panel without its component" : "no alchemy panel");
+      return done2(panel ? "page" : false);
+    }
+    steps.push(`slot held ${component.state?.primaryItemHash ? "an item" : "nothing"}`);
+    if (component.state?.primaryItemHash !== itemHash) component.selectAlchemyItemHandler(itemHash);
+    await sleep(150);
+    if (count2 > 0 && typeof component.maxActionCountChanged === "function") component.maxActionCountChanged({ target: { value: String(count2) } });
+    steps.push(count2 > 0 ? typeof component.maxActionCountChanged === "function" ? `count ${count2} set` : "no count box" : "no count");
+    if (!catalyst) return done2("item");
+    await sleep(150);
+    const slot = await fillSlot(component, /catalyst/i, "catalyst", catalyst.hash);
+    steps.push(slot.step);
+    return done2(slot.ok ? "item" : "partial");
+  }
+  function openMarketplace(win2, itemHrid, level = 0) {
+    try {
+      const api = win2.MWITools?.shopping;
+      if (typeof api?.openMarketplace === "function" && api.openMarketplace(itemHrid, level)) return true;
+    } catch {
+    }
+    return /called/.test(callReactHandler(["handleGoToMarketplace"], [itemHrid, level]));
+  }
+
   // src/job-ledger.js
-  var MAX_DONE = 30;
+  var MAX_REPORTS = 60;
   var LOT_MS = 30 * 24 * 3600 * 1e3;
   var MAX_LOTS = 300;
   var INSTANT_MS = 2 * 60 * 1e3;
-  var MIN_LIVE_TO_SCALE = 5;
   var COIN4 = "/items/coin";
   var keyOf = (hrid, level = 0) => `${hrid}::${Number(level) || 0}`;
   function splitKey(key) {
@@ -3244,88 +3589,11 @@
     return { itemHrid: key.slice(0, i), level: Number(key.slice(i + 2)) || 0 };
   }
   function emptyLedger(now = Date.now()) {
-    return { since: now, active: null, done: [], lots: [], fills: {} };
+    return { since: now, lots: [], fills: {}, forecasts: {}, reports: {} };
   }
   function runningAction(actions) {
     const a = (actions || []).find((x) => !x.isDone);
     return a && !String(a.actionHrid || "").startsWith("/actions/combat/") ? a : null;
-  }
-  var itemOfHash2 = (hash) => String(hash || "").split("::")[2] || null;
-  var countOf = (action) => Number(action?.currentCount) || 0;
-  function startJob(action, { now, inv, forecast = null }) {
-    return {
-      id: action.id,
-      actionHrid: action.actionHrid,
-      item: itemOfHash2(action.primaryItemHash),
-      target: Number(action.enhancingMaxLevel) || null,
-      startedAt: now,
-      firstAt: null,
-      lastAt: null,
-      endAt: null,
-      startCount: countOf(action),
-      lastCount: countOf(action),
-      maxCount: action.hasMaxCount ? Number(action.maxCount) || null : null,
-      live: 0,
-      // actions seen as they happened
-      gap: 0,
-      // actions read from the inventory when the game came back
-      missed: 0,
-      // actions nobody saw: estimated
-      deltas: {},
-      // key -> change, from live actions
-      gapDeltas: {},
-      // key -> change, from the inventory after a gap
-      inv: { ...inv },
-      forecast
-    };
-  }
-  var add = (into, key, delta) => {
-    into[key] = (into[key] || 0) + delta;
-    if (Math.abs(into[key]) < 1e-9) delete into[key];
-  };
-  function noteAction(job, changes, { now, count: count2 = null }) {
-    for (const { key, delta } of changes) {
-      add(job.deltas, key, delta);
-      job.inv[key] = (job.inv[key] || 0) + delta;
-    }
-    const done2 = count2 !== null && count2 >= job.lastCount ? count2 - job.lastCount : 1;
-    job.live += Math.max(1, done2);
-    if (count2 !== null) job.lastCount = Math.max(job.lastCount, count2);
-    job.firstAt ?? (job.firstAt = now);
-    job.lastAt = now;
-  }
-  function noteOther(job, changes) {
-    for (const { key, delta } of changes) job.inv[key] = (job.inv[key] || 0) + delta;
-  }
-  function noteReturn(job, { inv, queue, now, isPrimary }) {
-    const mine = (queue || []).find((a) => a.id === job.id && !a.isDone);
-    const first = runningAction(queue);
-    const clean3 = mine ? first?.id === job.id : !first || countOf(first) === 0;
-    let actions = mine ? Math.max(0, countOf(mine) - job.lastCount) : job.maxCount !== null ? Math.max(0, job.maxCount - job.lastCount) : null;
-    if (clean3) {
-      const diff = {};
-      for (const key of /* @__PURE__ */ new Set([...Object.keys(job.inv), ...Object.keys(inv)])) {
-        const d2 = (inv[key] || 0) - (job.inv[key] || 0);
-        if (Math.abs(d2) > 1e-9) diff[key] = d2;
-      }
-      if (actions === null) actions = isPrimary ? isPrimary(diff) : 0;
-      if (actions > 0) {
-        for (const [key, d2] of Object.entries(diff)) add(job.gapDeltas, key, d2);
-        job.gap += actions;
-      }
-    } else if (actions > 0) job.missed += actions;
-    job.inv = { ...inv };
-    if (mine) {
-      job.lastCount = countOf(mine);
-      if (actions > 0) job.lastAt = now;
-      return "running";
-    }
-    return "ended";
-  }
-  function endJob(job, { now, seen }) {
-    job.endAt = seen ? job.lastAt ?? now : null;
-    job.endedAt = now;
-    return job;
   }
   function noteFills(ledger, listings, { now, live, bookOf = () => null }) {
     for (const listing of listings || []) {
@@ -3388,29 +3656,18 @@
   }
   function jobReport(ledger, job, prices2, now = Date.now()) {
     const f = job.forecast;
-    const deltas = { ...job.deltas };
-    for (const [key, d2] of Object.entries(job.gapDeltas)) add(deltas, key, d2);
-    let missedFrom = null;
-    if (job.missed > 0) {
-      if (job.live >= MIN_LIVE_TO_SCALE) {
-        for (const [key, d2] of Object.entries(job.deltas)) add(deltas, key, d2 * job.missed / job.live);
-        missedFrom = "live";
-      } else if (f) {
-        for (const o2 of f.outputs) add(deltas, keyOf(o2.itemHrid), o2.count * job.missed);
-        for (const i of f.inputs) add(deltas, keyOf(i.itemHrid), -i.count * job.missed);
-        missedFrom = "advice";
-      }
-    }
-    const actions = job.live + job.gap + job.missed;
+    const actions = job.actions;
+    const hours = job.hours;
     const made = [];
     const used = [];
-    for (const [key, d2] of Object.entries(deltas)) {
+    for (const [key, d] of Object.entries(job.deltas)) {
+      if (Math.abs(d) < 1e-9) continue;
       const { itemHrid, level } = splitKey(key);
-      if (d2 > 0) {
+      if (d > 0) {
         const unit = itemHrid === COIN4 ? 1 : prices2.value(itemHrid, level) ?? 0;
-        made.push({ itemHrid, level, qty: d2, unit, total: d2 * unit });
+        made.push({ itemHrid, level, qty: d, unit, total: d * unit });
       } else {
-        const qty2 = -d2;
+        const qty2 = -d;
         const fromLots = itemHrid === COIN4 ? { qty: 0, cost: 0, estimate: false } : takeLots(ledger, key, qty2);
         const rest = qty2 - fromLots.qty;
         const restUnit = itemHrid === COIN4 ? 1 : prices2.cost(itemHrid, level) ?? 0;
@@ -3420,21 +3677,6 @@
     }
     made.sort((a, b) => b.total - a.total);
     used.sort((a, b) => b.total - a.total);
-    const span = job.firstAt !== null && job.endAt !== null ? (job.endAt - job.firstAt) / 36e5 : null;
-    const liveRate = job.live >= 3 && job.lastAt > job.firstAt ? (job.live - 1) / ((job.lastAt - job.firstAt) / 36e5) : null;
-    const rate = liveRate ?? f?.actionsPerHour ?? null;
-    let hours;
-    let timeFrom;
-    if (span !== null && job.missed === 0 && job.gap === 0 && rate) {
-      hours = span + 1 / rate;
-      timeFrom = "seen";
-    } else if (rate) {
-      hours = actions / rate;
-      timeFrom = liveRate ? "speed" : "advice";
-    } else {
-      hours = Math.max(0, ((job.endAt ?? job.endedAt ?? now) - job.startedAt) / 36e5);
-      timeFrom = "clock";
-    }
     const teas = f ? f.teaPerHour * hours : 0;
     const revenue = made.reduce((s2, m) => s2 + m.total, 0);
     const cost = used.reduce((s2, u) => s2 + u.total, 0) + teas;
@@ -3444,14 +3686,10 @@
       name: job.name,
       actionHrid: job.actionHrid,
       item: job.item,
-      endedAt: job.endedAt ?? now,
+      endedAt: job.endedAt,
+      pricedAt: now,
       actions,
-      live: job.live,
-      gap: job.gap,
-      missed: job.missed,
-      missedFrom,
       hours,
-      timeFrom,
       made,
       used,
       teas,
@@ -3461,7 +3699,7 @@
       margin: revenue > 0 ? profit / revenue : null,
       perHour: hours > 0 ? profit / hours : null,
       actionsPerHour: hours > 0 ? actions / hours : null,
-      forecast: f ? compare(f, made, used, teas, hours, actions) : null
+      forecast: f ? { ...compare(f, made, used, teas, hours, actions), now: !!job.forecastNow } : null
     };
     return report;
   }
@@ -3512,13 +3750,15 @@
 
   // src/job-log.js
   var KEY = "mwia-jobs";
-  var INVENTORY3 = "/item_locations/inventory";
   var COIN5 = "/items/coin";
-  var j = { deps: null, ledger: null, preparing: null, listeners: /* @__PURE__ */ new Set() };
+  var HEADING = /^loot\s*&\s*xp\s*log$/i;
+  var START = /^Start Time:\s*(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)/;
+  var MAX_FORECASTS = 60;
+  var j = { deps: null, ledger: null, preparing: null, timer: null };
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) || "null");
-      if (saved && Array.isArray(saved.done) && Array.isArray(saved.lots)) return { ...emptyLedger(), ...saved };
+      if (saved && Array.isArray(saved.lots)) return { ...emptyLedger(), lots: saved.lots, fills: saved.fills || {}, forecasts: saved.forecasts || {}, reports: saved.reports || {}, since: saved.since || Date.now() };
     } catch {
     }
     return emptyLedger();
@@ -3533,123 +3773,141 @@
     j.deps = deps;
     j.ledger = load();
     onStateChange(onMessage2);
-    if (state.character) onMessage2("init_character_data", state.character, {});
+    if (state.character) onMessage2("init_character_data", state.character);
+    new MutationObserver((records) => {
+      if (records.every((r) => r.target.closest?.(".mwia-jobline"))) return;
+      schedule();
+    }).observe(document.body, { childList: true, subtree: true });
   }
-  function onJobsChanged(listener) {
-    j.listeners.add(listener);
-  }
-  var isDrink = (hrid) => getClientData()?.itemDetailMap?.[hrid]?.categoryHrid === "/item_categories/drink";
-  var characterId = () => state.character?.character?.id ?? null;
-  function inventoryNow() {
-    const inv = {};
-    for (const item of state.items.values()) {
-      if (item.itemLocationHrid !== INVENTORY3 || !item.itemHrid || isDrink(item.itemHrid)) continue;
-      const key = keyOf(item.itemHrid, item.enhancementLevel);
-      inv[key] = (inv[key] || 0) + (Number(item.count) || 0);
-    }
-    return inv;
-  }
-  var inventoryChanges = (changes) => (changes || []).filter((c2) => c2.location === INVENTORY3 && c2.itemHrid && !isDrink(c2.itemHrid)).map((c2) => ({ key: keyOf(c2.itemHrid, c2.level), delta: c2.delta }));
-  function onMessage2(type, data, extra = {}) {
+  function onMessage2(type, data) {
     try {
       const L = j.ledger;
-      if (!L) return;
       if (type === "init_character_data" || type === "market_listings_updated") {
         const listings = data.myMarketListings ?? data.marketListings ?? data.endMarketListings ?? [];
         noteFills(L, listings, { now: Date.now(), live: type === "market_listings_updated", bookOf: (hrid, level) => orderBookAt(hrid, level)?.asks || null });
+        save();
       }
-      if (type === "init_character_data") onReturn();
-      else if (type === "action_completed") onAction(data, extra.changes);
-      else if (type === "items_updated" && L.active) noteOther(L.active, inventoryChanges(extra.changes));
-      else if (type === "actions_updated") onQueue();
-      else if (type !== "market_listings_updated") return;
-      save();
+      if (type === "init_character_data" || type === "actions_updated" || type === "action_completed") keepForecast();
+      if (type === "loot_log_updated") {
+        reportLog();
+        schedule();
+      }
     } catch (error) {
       console.error("[MWI Advisor] job log", error);
     }
   }
-  function onReturn() {
-    const L = j.ledger;
-    const queue = state.character?.characterActions || [];
-    if (L.active && L.active.characterId !== characterId()) L.active = null;
-    if (L.active) {
-      const job = L.active;
-      const primary = job.forecast?.inputs.filter((i) => i.itemHrid !== COIN5 && !i.catalyst).sort((a, b) => b.count * b.price - a.count * a.price)[0];
-      const isPrimary = (diff) => primary ? Math.max(0, Math.round(-(diff[keyOf(primary.itemHrid)] || 0) / primary.count)) : 0;
-      if (noteReturn(job, { inv: inventoryNow(), queue, now: Date.now(), isPrimary }) === "ended") finish(false);
-    }
-    begin(runningAction(queue));
-  }
-  function onAction(data, changes) {
-    const L = j.ledger;
-    const action = data.endCharacterAction || null;
-    const now = Date.now();
-    const mine = inventoryChanges(changes);
-    if (L.active && action && action.id !== L.active.id) finish(true);
-    if (!L.active) {
-      const running = action && !String(action.actionHrid || "").startsWith("/actions/combat/") ? action : runningAction(state.character?.characterActions);
-      if (!running) return;
-      const inv = inventoryNow();
-      for (const { key, delta } of mine) inv[key] = (inv[key] || 0) - delta;
-      begin({ ...running, currentCount: Math.max(0, (Number(running.currentCount) || 0) - 1) }, inv);
-      if (!L.active) return;
-    }
-    noteAction(L.active, mine, { now, count: action ? Number(action.currentCount) || 0 : null });
-    if ((!L.active.name || L.active.forecast?.name) && getClientData()) L.active.name = jobName(L.active);
-    if (!L.active.forecast && !L.active.forecastTried) L.active.forecast = forecastFor(L.active);
-    if (action?.isDone) finish(true);
-  }
-  function onQueue() {
-    const L = j.ledger;
-    const running = runningAction(state.character?.characterActions);
-    if (L.active && running?.id !== L.active.id) finish(true);
-    begin(running);
-  }
-  function begin(action, inv = null) {
-    const L = j.ledger;
-    if (L.active || !action) return;
-    L.active = startJob(action, { now: Date.now(), inv: inv || inventoryNow() });
-    L.active.characterId = characterId();
-    L.active.forecast = forecastFor(L.active);
-    L.active.name = jobName(L.active);
-    if (!getClientData()) L.active.name = "";
-  }
-  function finish(seen) {
-    const L = j.ledger;
-    const job = L.active;
-    if (!job) return;
-    L.active = null;
-    endJob(job, { now: Date.now(), seen });
-    if (job.live + job.gap + job.missed === 0) return;
-    job.name || (job.name = jobName(job));
-    L.done.unshift({ job, report: null });
-    L.done.length = Math.min(L.done.length, MAX_DONE);
-    reportPending();
-  }
   var ready = () => !!getClientData() && pricesStamp() > 0;
-  function reportPending(notify2 = true) {
-    const L = j.ledger;
-    if (!L.done.some((d2) => !d2.report)) return;
-    if (!ready()) {
-      j.preparing || (j.preparing = j.deps?.prepare().then(() => {
-        reportPending();
-        save();
-      }).catch((error) => console.warn("[MWI Advisor] job log", error)).finally(() => j.preparing = null));
-      return;
-    }
-    for (const d2 of [...L.done].reverse()) {
-      if (d2.report) continue;
-      d2.report = jobReport(L, d2.job, pricesFor(d2.job));
-      delete d2.job;
-    }
-    save();
-    if (notify2) for (const listener of j.listeners) listener();
+  function whenReady(then) {
+    if (ready()) return true;
+    j.preparing || (j.preparing = j.deps?.prepare().then(() => then()).catch((error) => console.warn("[MWI Advisor] job log", error)).finally(() => j.preparing = null));
+    return false;
   }
   var settings = () => ({ ...j.deps?.settings() || {}, skillingTeas: "current" });
-  function pricesFor(job) {
+  var itemOfHash2 = (hash) => String(hash || "").split("::")[2] || null;
+  var skillOf2 = (actionHrid) => String(actionHrid || "").split("/")[2] || "";
+  var counted = (actionHrid) => !!actionHrid && !["combat", "enhancing"].includes(skillOf2(actionHrid));
+  function keepForecast() {
+    const L = j.ledger;
+    const running = runningAction(state.character?.characterActions);
+    if (!running || !counted(running.actionHrid) || L.forecasts[running.id]) return;
+    if (!whenReady(keepForecast)) return;
+    L.forecasts[running.id] = { at: Date.now(), forecast: forecastFor(running.actionHrid, itemOfHash2(running.primaryItemHash)) };
+    const ids = Object.keys(L.forecasts).sort((a, b) => L.forecasts[a].at - L.forecasts[b].at);
+    for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORECASTS))) delete L.forecasts[id];
+    save();
+  }
+  function forecastFor(actionHrid, item) {
+    try {
+      const entry = skillingAdvice(actionHrid, settings(), item ? { itemHrid: item } : null);
+      if (!entry?.valid) return null;
+      const f = compactForecast(entry);
+      if (f) {
+        f.name = adviceName(entry);
+        f.catalyst = entry.catalyst?.itemHrid || null;
+      }
+      return f;
+    } catch (error) {
+      console.warn("[MWI Advisor] job log forecast", error);
+      return null;
+    }
+  }
+  var entryKey = (e) => `${e.characterActionId}|${e.startTime}`;
+  var time = (text) => {
+    const t4 = Date.parse(text);
+    return Number.isFinite(t4) && t4 > Date.UTC(2e3, 0, 1) ? t4 : null;
+  };
+  var ended = (e) => time(e.endTime) !== null && time(e.endTime) > time(e.startTime);
+  function reportLog() {
+    const L = j.ledger;
+    const log = (state.lootLog || []).filter((e) => counted(e.actionHrid) && ended(e) && !L.reports[entryKey(e)]);
+    if (!log.length || !whenReady(() => (reportLog(), schedule()))) return;
+    const data = getClientData();
+    for (const e of log.sort((a, b) => time(a.endTime) - time(b.endTime))) {
+      const kept = L.forecasts[e.characterActionId]?.forecast || null;
+      const item = itemOfHash2(e.primaryItemHash);
+      const forecast = kept || forecastFor(e.actionHrid, item);
+      const job = {
+        id: e.characterActionId,
+        actionHrid: e.actionHrid,
+        item,
+        endedAt: time(e.endTime),
+        actions: Number(e.actionCount) || 0,
+        hours: (time(e.endTime) - time(e.startTime)) / 36e5,
+        deltas: entryDeltas(e, data, forecast),
+        forecast,
+        forecastNow: !kept && !!forecast
+      };
+      job.name = forecast?.name || jobName(e, data);
+      const report = jobReport(L, job, pricesFor(forecast));
+      report.catalyst = itemOfHash2(e.secondaryItemHash);
+      L.reports[entryKey(e)] = report;
+    }
+    const keys = Object.keys(L.reports).sort((a, b) => L.reports[a].endedAt - L.reports[b].endedAt);
+    for (const key of keys.slice(0, Math.max(0, keys.length - MAX_REPORTS))) delete L.reports[key];
+    save();
+  }
+  function entryDeltas(e, data, forecast) {
+    const deltas = {};
+    const add = (key, d) => deltas[key] = (deltas[key] || 0) + d;
+    for (const [key, n3] of Object.entries(e.drops || {})) add(key.includes("::") ? key : keyOf(key), Number(n3) || 0);
+    const count2 = Number(e.actionCount) || 0;
+    const item = itemOfHash2(e.primaryItemHash);
+    if (skillOf2(e.actionHrid) === "alchemy") {
+      const kind = e.actionHrid.split("/").pop();
+      const detail = data.itemDetailMap[item];
+      if (!detail || !ALCHEMY_KINDS[kind]) return deltas;
+      const bulk = bulkOf(detail);
+      add(keyOf(item), -bulk * count2);
+      const coins8 = coinCost(kind, detail) * count2;
+      if (coins8) add(keyOf(COIN5), -coins8);
+      const catalyst = itemOfHash2(e.secondaryItemHash);
+      if (catalyst) {
+        const per = successOutputs(kind, detail).filter((o2) => o2.count > 0);
+        const dropped = (o2) => Number(e.drops?.[keyOf(o2.itemHrid)]) || 0;
+        const successes = Math.min(
+          count2,
+          Math.round(
+            kind === "transmute" ? per.reduce((sum, o2) => sum + dropped(o2), 0) / Math.max(1e-9, per.reduce((sum, o2) => sum + o2.count * bulk, 0)) : Math.max(0, ...per.map((o2) => dropped(o2) / (o2.count * bulk)))
+          )
+        );
+        add(keyOf(catalyst), -successes);
+      }
+      return deltas;
+    }
+    const action = data.actionDetailMap[e.actionHrid];
+    const inputs = forecast?.inputs?.length ? forecast.inputs : [...action?.inputItems || [], ...action?.upgradeItemHrid ? [{ itemHrid: action.upgradeItemHrid, count: 1 }] : []];
+    for (const input of inputs) add(keyOf(input.itemHrid), -input.count * count2);
+    return deltas;
+  }
+  function jobName(e, data) {
+    const item = itemOfHash2(e.primaryItemHash);
+    if (skillOf2(e.actionHrid) === "alchemy") return `${ALCHEMY_KINDS[e.actionHrid.split("/").pop()]?.name || "Alchemy"} ${item ? itemName(item) : ""}`.trim();
+    return data.actionDetailMap[e.actionHrid]?.name || e.actionHrid.split("/").pop();
+  }
+  function pricesFor(forecast) {
     const sellAt = settings().skillingSellAt === "bid" ? "bid" : "ask";
     const market = skillingMarket(sellAt);
-    const advised = new Map((job.forecast?.inputs || []).map((i) => [i.itemHrid, i.price]));
+    const advised = new Map((forecast?.inputs || []).map((i) => [i.itemHrid, i.price]));
     return {
       value(hrid, level) {
         if (!level) return market.sell(hrid).price;
@@ -3665,26 +3923,45 @@
       }
     };
   }
-  function forecastFor(job) {
-    if (!ready() || !state.character) return null;
-    job.forecastTried = true;
-    if (job.actionHrid.startsWith("/actions/enhancing/")) return null;
-    try {
-      const entry = skillingAdvice(job.actionHrid, settings(), job.item ? { itemHrid: job.item, target: job.target } : null);
-      if (!entry?.valid) return null;
-      const f = compactForecast(entry);
-      if (f) f.name = adviceName(entry);
-      return f;
-    } catch (error) {
-      console.warn("[MWI Advisor] job log forecast", error);
-      return null;
-    }
+  function schedule() {
+    if (j.timer) return;
+    j.timer = setTimeout(() => {
+      j.timer = null;
+      decorate();
+    }, 300);
   }
-  function jobName(job) {
-    if (job.forecast?.name) return job.forecast.name;
-    const action = getClientData()?.actionDetailMap?.[job.actionHrid];
-    const verb = action?.name || job.actionHrid.split("/").pop().replace(/_/g, " ");
-    return job.item && !action?.inputItems ? `${verb} ${itemName(job.item)}` : verb;
+  var pad = (n3) => String(n3).padStart(2, "0");
+  function localStamp(ms) {
+    const d = new Date(ms);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+  function decorate() {
+    const heading = [...document.querySelectorAll("div,h1,h2,h3,span")].find((el) => el.children.length === 0 && HEADING.test(el.textContent.trim()) && visible(el));
+    if (!heading || !state.lootLog) return;
+    const byStart = new Map(state.lootLog.filter((e) => counted(e.actionHrid) && time(e.startTime) !== null).map((e) => [localStamp(time(e.startTime)), e]));
+    for (const el of document.querySelectorAll("div,span,p")) {
+      if (el.children.length !== 0) continue;
+      const match = START.exec(el.textContent.trim());
+      const e = match && byStart.get(match[1]);
+      if (!e) continue;
+      let card = el.parentElement;
+      for (let i = 0; i < 3 && card && !/Duration/.test(card.textContent); i++) card = card.parentElement;
+      if (!card) continue;
+      const report = j.ledger.reports[entryKey(e)];
+      const html = report ? lineHtml(report) : ended(e) ? `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>` : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>`;
+      let line = [...card.children].find((c2) => c2.classList.contains("mwia-jobline"));
+      if (!line) {
+        line = document.createElement("div");
+        line.className = "mwia-jobline";
+        card.appendChild(line);
+      }
+      if (line.dataset.html !== html) {
+        const open = line.querySelector("details")?.open;
+        line.dataset.html = html;
+        line.innerHTML = html;
+        if (open) line.querySelector("details").open = true;
+      }
+    }
   }
   var coins2 = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
   var signed = (n3) => (n3 >= 0 ? "+" : "\u2212") + shortCoins(Math.abs(n3));
@@ -3692,48 +3969,26 @@
   var qty = (n3) => Math.abs(n3 - Math.round(n3)) < 1e-6 ? Math.round(n3).toLocaleString("en-US") : n3.toLocaleString("en-US", { maximumFractionDigits: 1 });
   var levelText = (level) => level ? ` +${level}` : "";
   function duration(hours) {
-    if (!(hours > 0)) return "\u2013";
     const minutes = Math.round(hours * 60);
     return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
   }
-  var ago2 = (at2) => duration((Date.now() - at2) / 36e5);
-  function jobsHtml() {
-    const L = j.ledger;
-    if (!L || !L.active && !L.done.length) return "";
-    reportPending(false);
-    let html = `<section><h3>Recent jobs</h3><p class="mwia-dim">What each skilling job gave once it ended: what it made at the market then (the ${Math.round(MARKET_TAX * 100)}% tax off), what it used at what you paid (your buy orders, else the market when it began), against the advice when it began.</p>`;
-    if (L.active) {
-      const a = L.active;
-      const seen = a.live + a.gap + a.missed;
-      html += `<p class="mwia-dim">Following: <b>${esc(a.name || "")}</b>${seen ? ` \u2013 ${qty(seen)} action${seen === 1 ? "" : "s"} so far` : ""}.</p>`;
-    }
-    html += `<div class="mwia-skill-list">${L.done.map((d2) => d2.report ? jobRow(d2.report) : `<div class="mwia-job mwia-dim">${esc(d2.job?.name || "")} \u2013 waiting for prices\u2026</div>`).join("")}</div></section>`;
-    return html;
-  }
-  function jobRow(r) {
+  function lineHtml(r) {
     const f = r.forecast;
-    const vs = (actual, expected, text) => f ? ` <span class="mwia-dim">(${text(expected)} expected)</span>` : "";
-    const good = r.profit >= 0 ? "mwia-ok" : "mwia-bad";
-    const summary = `<summary><span class="mwia-skill-name">${esc(r.name)} <span class="mwia-dim">\xD7${qty(r.actions)}</span><small>${duration(r.hours)} \xB7 ended ${ago2(r.endedAt)} ago \xB7 margin ${pct2(r.margin)}${vs(r.margin, f?.margin, pct2)}</small></span>
-        <span class="mwia-skill-nums"><b class="${good}">${signed(r.profit)}</b><span class="mwia-dim">${r.perHour !== null ? `${coins2(r.perHour)}/h` : ""}</span></span></summary>`;
+    const head2 = `\u{1F9ED} <b class="${r.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(r.profit)}</b>${r.perHour !== null ? ` \xB7 ${coins2(r.perHour)}/h` : ""} \xB7 margin ${pct2(r.margin)}${f ? ` <span class="mwia-dim">(${pct2(f.margin)} expected)</span>` : ""}`;
     const lines = [];
     if (f) {
-      lines.push(`Expected for these ${qty(f.actions)} actions: <b>${signed(f.profit)}</b> at a ${pct2(f.margin)} margin, ${coins2(f.perHour)}/h. Got ${signed(r.profit)}${r.perHour !== null ? `, ${coins2(r.perHour)}/h` : ""}.`);
+      lines.push(`Expected for these ${qty(f.actions)} actions${f.now ? " (advice worked out now \u2013 the job began before the advisor saw it)" : ""}: <b>${signed(f.profit)}</b> at a ${pct2(f.margin)} margin, ${coins2(f.perHour)}/h.`);
       const names2 = { yield: "what came out", prices: "what it sells for now", usage: "what it used", bought: "what the materials cost", teas: "teas" };
       const parts = Object.entries(f.parts).filter(([, v]) => Math.abs(v) >= Math.max(1, Math.abs(r.revenue) * 2e-3)).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
       if (parts.length) lines.push(`Where the difference came from: ${parts.map(([k, v]) => `${names2[k]} <span class="${v >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(v)}</span>`).join(" \xB7 ")}.`);
-      if (r.actionsPerHour) lines.push(`Speed: ${qty(Math.round(r.actionsPerHour))} actions/h (${qty(Math.round(f.actionsPerHour))} expected).`);
-    } else lines.push(`No advice to compare with${r.actionHrid?.startsWith("/actions/enhancing/") ? " (Enhancing: the result is mostly luck with the +levels)" : ""}.`);
+      if (r.actionsPerHour) lines.push(`Speed: ${qty(Math.round(r.actionsPerHour))} actions/h (${qty(Math.round(f.actionsPerHour))} expected) \xB7 ${duration(r.hours)}.`);
+      if ((f.catalyst || null) !== (r.catalyst || null)) lines.push(`<span class="mwia-dim">The advice counted on ${f.catalyst ? esc(itemName(f.catalyst)) : "no catalyst"}; the job used ${r.catalyst ? esc(itemName(r.catalyst)) : "none"}.</span>`);
+    } else lines.push("No advice to compare with.");
     if (r.made.length) lines.push(`Made: ${r.made.map((m) => `${qty(m.qty)} ${esc(itemName(m.itemHrid))}${levelText(m.level)} \xD7 ${coins2(m.unit)} = ${coins2(m.total)}`).join(" \xB7 ")}.`);
     if (r.used.length) lines.push(`Used: ${r.used.map((u) => `${qty(u.qty)} ${esc(itemName(u.itemHrid))}${levelText(u.level)} \xD7 ${coins2(u.unit)} = ${coins2(u.total)}${u.bought > 0 ? ` <span class="mwia-dim">(${u.bought >= u.qty - 1e-6 ? "all" : qty(u.bought)} at what you paid${u.boughtEstimate ? ", bought at once: priced up the order book seen" : ""})</span>` : ""}`).join(" \xB7 ")}${r.teas >= 1 ? ` \xB7 teas \u2248 ${coins2(r.teas)}` : ""}.`);
-    const notes = [];
-    if (r.gap) notes.push(`${qty(r.gap)} of the actions ran while the page slept: read from the inventory when the game came back`);
-    if (r.missed) notes.push(`${qty(r.missed)} ran unseen with other jobs after them: ${r.missedFrom === "live" ? "estimated from the ones seen" : r.missedFrom === "advice" ? "estimated from the advice" : "not counted"}`);
-    if (r.timeFrom === "speed") notes.push("the time is the actions at the speed seen");
-    else if (r.timeFrom === "advice") notes.push("the time is the actions at the advised speed");
-    if (r.teas >= 1) notes.push("teas at the advice's rate");
-    if (notes.length) lines.push(`<span class="mwia-dim">${notes.join("; ")}.</span>`);
-    return `<details class="mwia-skill-row mwia-job">${summary}<div class="mwia-skill-detail">${lines.map((l2) => `<p>${l2}</p>`).join("")}</div></details>`;
+    const age = Math.max(0, Math.round((r.pricedAt - r.endedAt) / 6e4));
+    lines.push(`<span class="mwia-dim">Made at the market ${age > 5 ? `${duration(age / 60)} after it ended (when first seen)` : "as it ended"}, the ${Math.round(MARKET_TAX * 100)}% tax off; used at what you paid, else the advice's price${r.teas >= 1 ? "; teas at the advice's rate" : ""}${skillOf2(r.actionHrid) === "alchemy" ? "; the catalyst one per success, from what the successes dropped" : "; materials as the action takes them (Artisan's saving as expected)"}.</span>`);
+    return `<details><summary>${head2}</summary>${lines.map((l2) => `<p>${l2}</p>`).join("")}</details>`;
   }
 
   // src/stats.js
@@ -3748,26 +4003,26 @@
   function betaContinuedFraction(a, b, x) {
     const tiny = 1e-30;
     let c2 = 1;
-    let d2 = 1 - (a + b) * x / (a + 1);
-    if (Math.abs(d2) < tiny) d2 = tiny;
-    d2 = 1 / d2;
-    let h2 = d2;
+    let d = 1 - (a + b) * x / (a + 1);
+    if (Math.abs(d) < tiny) d = tiny;
+    d = 1 / d;
+    let h2 = d;
     for (let m = 1; m <= 200; m++) {
       const m2 = 2 * m;
       let aa = m * (b - m) * x / ((a + m2 - 1) * (a + m2));
-      d2 = 1 + aa * d2;
-      if (Math.abs(d2) < tiny) d2 = tiny;
+      d = 1 + aa * d;
+      if (Math.abs(d) < tiny) d = tiny;
       c2 = 1 + aa / c2;
       if (Math.abs(c2) < tiny) c2 = tiny;
-      d2 = 1 / d2;
-      h2 *= d2 * c2;
+      d = 1 / d;
+      h2 *= d * c2;
       aa = -(a + m) * (a + b + m) * x / ((a + m2) * (a + m2 + 1));
-      d2 = 1 + aa * d2;
-      if (Math.abs(d2) < tiny) d2 = tiny;
+      d = 1 + aa * d;
+      if (Math.abs(d) < tiny) d = tiny;
       c2 = 1 + aa / c2;
       if (Math.abs(c2) < tiny) c2 = tiny;
-      d2 = 1 / d2;
-      const delta = d2 * c2;
+      d = 1 / d;
+      const delta = d * c2;
       h2 *= delta;
       if (Math.abs(delta - 1) < 3e-12) break;
     }
@@ -3817,7 +4072,7 @@
     "pouch",
     "charm"
   ];
-  var INVENTORY4 = "/item_locations/inventory";
+  var INVENTORY3 = "/item_locations/inventory";
   var COMBAT = "/action_types/combat";
   function emptyTriggers(list) {
     return (list || []).map((t4) => ({
@@ -3866,7 +4121,7 @@
     const inventory = [];
     for (const item of items.values()) {
       if (!item.itemHrid) continue;
-      if (item.itemLocationHrid === INVENTORY4) {
+      if (item.itemLocationHrid === INVENTORY3) {
         inventory.push({ hrid: item.itemHrid, enhancementLevel: item.enhancementLevel || 0, count: item.count ?? 1 });
         continue;
       }
@@ -4996,10 +5251,12 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 44px; max-width: 80px; padding: 3px 2px; white-space: nowrap; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-listprice-buttons button small { font-weight: 400; font-size: 11px; color: #9aa3cf; }
 .mwia-listprice-buttons button.mwia-off { opacity: .5; cursor: help; }
-.mwia-lootdiag { margin: 6px 0; padding: 6px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.5 sans-serif; text-align: left; }
-.mwia-lootdiag-list { color: #9aa3cf; font-family: ui-monospace, monospace; font-size: 11px; }
-.mwia-lootdiag button { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
-.mwia-lootdiag-text { display: block; width: 100%; height: 120px; margin-top: 4px; font: 10px monospace; }
+.mwia-jobline { margin-top: 6px; padding: 4px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 13px/1.45 sans-serif; text-align: left; }
+.mwia-jobline summary { cursor: pointer; }
+.mwia-jobline p { margin: 4px 0; font-size: 12px; }
+.mwia-jobline .mwia-ok { color: #6fdc8c; }
+.mwia-jobline .mwia-bad { color: #ff7b7b; }
+.mwia-jobline .mwia-dim { color: #9aa3cf; }
 .mwia-listprice-limit { display: flex; flex-direction: column; align-items: center; width: 100%; margin-bottom: 4px; padding: 4px; background: #1e3a33; color: #8fe0c0; border: 1px solid #2f6b5a; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-listprice-limit small { font-weight: 400; font-size: 11px; color: #9fcfbd; }
 .mwia-listprice-limit.mwia-off { opacity: .5; cursor: help; }
@@ -5084,7 +5341,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       return null;
     }
   }
-  async function whenReady(api) {
+  async function whenReady2(api) {
     const start = Date.now();
     while (!api.ready && Date.now() - start < READY_TIMEOUT_MS) {
       await new Promise((resolve2) => setTimeout(resolve2, 100));
@@ -5095,7 +5352,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!api) {
       throw new Error("MWITools' shopping cart was not found. Check that MWITools is installed, enabled and up to date, then reload the game.");
     }
-    await whenReady(api);
+    await whenReady2(api);
     const outcome = { added: [], updated: [], present: [], failed: [] };
     for (const item of items) {
       const enhancementLevel = item.enhancementLevel || 0;
@@ -5118,7 +5375,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.50.1" : "dev";
+  var VERSION = true ? "0.51.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5193,7 +5450,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/export.js
-  var INVENTORY5 = '[class*="Inventory_items"]';
+  var INVENTORY4 = '[class*="Inventory_items"]';
   var SCAN_MS2 = 500;
   var COIN6 = "/items/coin";
   var INVENTORY_LOCATION = "/item_locations/inventory";
@@ -5216,8 +5473,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (ex.scanTimer) return;
     ex.scanTimer = setTimeout(() => {
       ex.scanTimer = null;
-      for (const grid of document.querySelectorAll(INVENTORY5)) {
-        if (grid.nextElementSibling?.classList.contains("mwia-export") || grid.parentElement?.closest(INVENTORY5)) continue;
+      for (const grid of document.querySelectorAll(INVENTORY4)) {
+        if (grid.nextElementSibling?.classList.contains("mwia-export") || grid.parentElement?.closest(INVENTORY4)) continue;
         const bar = document.createElement("div");
         bar.className = "mwia-export";
         bar.innerHTML = `<button type="button" class="mwia-export-btn" title="A text file with your character and the advice, to paste into a chat">\u{1F9ED} Export for chat</button>`;
@@ -5421,8 +5678,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var queuedOrders = () => readJson(QUEUE_KEY, []);
   function dropQueued(uids) {
-    const sent2 = new Set(uids);
-    writeJson(QUEUE_KEY, queuedOrders().filter((event) => !sent2.has(event.uid)));
+    const sent = new Set(uids);
+    writeJson(QUEUE_KEY, queuedOrders().filter((event) => !sent.has(event.uid)));
   }
   function onOrderEvents(listener) {
     o.listeners.add(listener);
@@ -5531,7 +5788,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const config = piConfig();
     if (!config || !p.status.orders) return Promise.resolve();
     p.sending || (p.sending = (async () => {
-      let sent2 = 0;
+      let sent = 0;
       let error = "";
       try {
         for (let k = 0; k < ORDER_BATCHES; k++) {
@@ -5546,388 +5803,17 @@ i.mwia-history-bid { background: #7ee2b0; }
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           dropQueued(events.map((event) => event.uid));
-          sent2 += events.length;
+          sent += events.length;
         }
       } catch (e) {
         error = e.message || String(e);
       } finally {
         p.sending = null;
       }
-      p.status = { ...p.status, orders: { at: Date.now(), sent: sent2, waiting: queuedOrders().length, error } };
+      p.status = { ...p.status, orders: { at: Date.now(), sent, waiting: queuedOrders().length, error } };
       notify(false);
     })());
     return p.sending;
-  }
-
-  // src/game-nav.js
-  var NAV_LINK = '[class*="NavigationBar_navigationLink"]';
-  var ACTION_CARD = '[class*="SkillAction_skillAction"]';
-  var ACTION_CARD_NAME = '[class*="SkillAction_name"]';
-  var PANEL = 'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
-  var PANEL_NAME = 'div[class*="SkillActionDetail_name"]';
-  var COUNT_INPUT = 'div[class*="SkillActionDetail_maxActionCountInput"] input';
-  var BUTTONS = '[class*="SkillActionDetail_buttonsContainer"]';
-  var TABS = '[role="tab"],[class*="TabsComponent_tab"],[class*="Tab_tab"]';
-  var NAV_HANDLERS = [
-    "handleGoToActionTypeDetail",
-    "handleClickActionTypeDetail",
-    "handleGoToActionType",
-    "handleSelectActionType",
-    "handleGoToActionDetail",
-    "handleSelectAction",
-    "handleClickAction",
-    "handleGoToAction"
-  ];
-  var lastDiagnostics = "";
-  var pageWindow = window;
-  function usePageWindow(win2) {
-    pageWindow = win2 || window;
-  }
-  var attempt = (read, fallback = null) => {
-    try {
-      return read();
-    } catch {
-      return fallback;
-    }
-  };
-  var pageDocument = () => attempt(() => pageWindow.document) || document;
-  var pageView = (node) => attempt(() => node?.wrappedJSObject) || node;
-  var REACT_KEY = /^__react(Container|Fiber|InternalInstance)\$/;
-  var reactKeys = (node) => attempt(() => Object.getOwnPropertyNames(node).filter((k) => REACT_KEY.test(k)), []);
-  function worldReport() {
-    const info = attempt(() => typeof GM_info !== "undefined" ? GM_info : null);
-    const root = document.getElementById("root");
-    const doc = pageDocument();
-    const pageRoot = doc !== document ? attempt(() => doc.getElementById("root")) : null;
-    const wrapped = attempt(() => root?.wrappedJSObject);
-    return [
-      `${info?.scriptHandler || "manager ?"} ${info?.version || ""} inject ${info?.injectInto || "?"}`.replace(/\s+/g, " "),
-      `window ${pageWindow === window ? "own" : "page's"}`,
-      `document ${doc === document ? "own" : "page's"}`,
-      `#root ${root ? `found, react keys ${reactKeys(root).length}` : "missing"}`,
-      pageRoot ? `page #root react keys ${reactKeys(pageRoot).length}` : "",
-      wrapped ? `wrapped #root react keys ${reactKeys(wrapped).length}` : "",
-      `MWITools ${attempt(() => !!pageWindow.MWITools, "?")}`,
-      reactScan(root)
-    ].filter(Boolean).join(", ");
-  }
-  function reactScan(root) {
-    const own = (node) => attempt(() => Object.getOwnPropertyNames(node), []).filter((k) => k.startsWith("_"));
-    const prefix = (key) => key.replace(/\$.*$/, "$");
-    const parts = [`#root own: ${own(root).map(prefix).join(" ") || "none"}, children ${root?.children.length ?? "\u2013"}`];
-    const found = [];
-    const other = /* @__PURE__ */ new Set();
-    for (const node of [...document.querySelectorAll("body *")].slice(0, 5e3)) {
-      const keys = own(node);
-      if (keys.some((k) => k.startsWith("__react"))) {
-        if (found.length < 2) found.push(`${describe(node)} [${[...new Set(keys.map(prefix))].join(" ")}]`);
-      } else keys.forEach((k) => other.size < 6 && other.add(prefix(k)));
-    }
-    parts.push(found.length ? `react on ${found.join("; ")}` : "no element with __react keys");
-    if (other.size) parts.push(`other keys ${[...other].join(" ")}`);
-    return parts.join(", ");
-  }
-  function navDiagnostics() {
-    return lastDiagnostics;
-  }
-  var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
-  var clean = (text) => String(text || "").replace(/\s+/g, " ").trim();
-  function visible(element) {
-    if (!element?.isConnected || element.hidden) return false;
-    const style = getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
-  }
-  var iconHref = (use) => use.getAttribute("href") || use.getAttribute("xlink:href") || "";
-  function iconIds(element) {
-    return [...element.querySelectorAll("use")].map((use) => iconHref(use).split("#")[1] || "");
-  }
-  function describe(element) {
-    const classes = String(element.className?.baseVal ?? element.className ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 2);
-    return [element.tagName.toLowerCase(), ...classes].join(".");
-  }
-  function navReport(skill) {
-    const links = [...document.querySelectorAll(NAV_LINK)];
-    const parts = [`nav links: ${links.length} (${links.filter(visible).length} visible)`];
-    if (links.length) parts.push("icons: " + links.map((link) => iconIds(link).join("+") || "?").join(","));
-    const icons = [...document.querySelectorAll("use")].filter((use) => iconHref(use).endsWith("#" + skill));
-    if (icons.length) {
-      const chain = [];
-      for (let node = icons[0].parentElement; node && node !== document.body && chain.length < 6; node = node.parentElement) chain.push(describe(node));
-      parts.push(`#${skill} icons: ${icons.length}, first ${iconHref(icons[0])} in ${chain.join(" < ")}`);
-    } else parts.push(`no #${skill} icon on page`);
-    return parts;
-  }
-  function screenReport(categoryName) {
-    const cards = [...document.querySelectorAll(ACTION_CARD)].filter(visible);
-    const tabs = [...document.querySelectorAll(TABS)].filter(visible).map((tab) => clean(tab.textContent));
-    return [
-      `cards: ${cards.length}` + (cards.length ? " (" + cards.slice(0, 6).map((card) => clean(card.querySelector(ACTION_CARD_NAME)?.textContent) || "?").join(", ") + ")" : ""),
-      `tabs: ${tabs.length}` + (tabs.length ? " (" + tabs.slice(0, 10).join(", ") + ")" : ""),
-      `tab "${categoryName}": ${tabs.includes(categoryName) ? "found" : "missing"}`,
-      `panel names: ${[...document.querySelectorAll(PANEL_NAME)].filter(visible).map((name) => clean(name.textContent)).join(", ") || "none"}`
-    ];
-  }
-  function findActionPanel(actionName2) {
-    for (const name of document.querySelectorAll(PANEL_NAME)) {
-      if (!visible(name) || clean(name.textContent) !== actionName2) continue;
-      const panel = name.closest(PANEL) || name.parentElement;
-      const input = panel?.querySelector(COUNT_INPUT);
-      if (input) return { panel, input, buttons: panel.querySelector(BUTTONS) };
-    }
-    return null;
-  }
-  function openActionPanels() {
-    const panels = [];
-    for (const name of document.querySelectorAll(PANEL_NAME)) {
-      if (!visible(name)) continue;
-      const panel = name.closest(PANEL) || name.parentElement;
-      if (panel) panels.push({ panel, name: clean(name.textContent), buttons: panel.querySelector(BUTTONS) });
-    }
-    return panels;
-  }
-  function setReactInput(input, value) {
-    const previous = input.value;
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
-    if (setter) setter.call(input, String(value));
-    else input.value = String(value);
-    input._valueTracker?.setValue(previous);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }
-  function clickCard(action, itemId) {
-    const card = [...document.querySelectorAll(ACTION_CARD)].filter(visible).find((candidate) => {
-      const name = clean(candidate.querySelector(ACTION_CARD_NAME)?.textContent);
-      return name === action.name || itemId && iconIds(candidate).includes(itemId);
-    });
-    card?.click();
-    return !!card;
-  }
-  function clickTab(label3) {
-    if (!label3) return false;
-    const tab = [...document.querySelectorAll(TABS)].filter(visible).find((candidate) => clean(candidate.textContent) === label3);
-    if (!tab) return false;
-    if (tab.getAttribute("aria-selected") !== "true") tab.click();
-    return true;
-  }
-  function clickSkill(skill) {
-    const link = [...document.querySelectorAll(NAV_LINK)].find((candidate) => !candidate.querySelector(NAV_LINK) && iconIds(candidate).includes(skill));
-    link?.click();
-    return link || null;
-  }
-  function callGameHandler(win2, actionHrid) {
-    return callReactHandler(NAV_HANDLERS, [actionHrid]);
-  }
-  function rootFibers() {
-    for (const doc of [.../* @__PURE__ */ new Set([document, pageDocument()])]) {
-      const fibers = [];
-      for (const found of [doc.getElementById("root"), doc.querySelector('[class*="GamePage_gamePage"]')]) {
-        const element = pageView(found);
-        for (const key of reactKeys(element)) fibers.push(element[key]?.current ?? element[key]);
-        const legacy = attempt(() => element?._reactRootContainer);
-        const current = legacy?.current ?? legacy?._internalRoot?.current;
-        if (current) fibers.push(current);
-      }
-      if (fibers.length) return fibers;
-    }
-    return [];
-  }
-  function walkFibers(found) {
-    const fibers = rootFibers();
-    const roots = fibers.length;
-    const visited = /* @__PURE__ */ new Set();
-    while (fibers.length && visited.size < 5e4) {
-      const fiber = fibers.pop();
-      if (!fiber || visited.has(fiber)) continue;
-      visited.add(fiber);
-      if (found(fiber)) return { fiber, roots, seen: visited.size };
-      if (fiber.return) fibers.push(fiber.return);
-      if (fiber.child) fibers.push(fiber.child);
-      if (fiber.sibling) fibers.push(fiber.sibling);
-    }
-    return { fiber: null, roots, seen: visited.size };
-  }
-  function callReactHandler(names2, args) {
-    let called = null;
-    const { fiber, roots, seen } = walkFibers((f) => {
-      const instance = f.stateNode;
-      for (const handler of names2) {
-        if (instance && typeof instance[handler] === "function") {
-          try {
-            instance[handler](...args);
-            called = handler;
-            return true;
-          } catch {
-          }
-        }
-      }
-      return false;
-    });
-    if (fiber) return `react: ${called} called`;
-    return `react: no handler (roots ${roots}, fibers ${seen}; ${worldReport()})`;
-  }
-  async function openAction(win2, action, data, timeoutMs = 4e3) {
-    lastDiagnostics = "";
-    if (findActionPanel(action.name)) return true;
-    const itemId = action.outputItems?.[0]?.itemHrid?.split("/").pop();
-    const skill = action.type.split("/").pop();
-    const categoryName = data.actionCategoryDetailMap?.[action.category]?.name;
-    const report = [];
-    if (!clickCard(action, itemId)) {
-      const link = clickSkill(skill);
-      report.push(...navReport(skill), link ? `clicked ${describe(link)}` : `no nav link with #${skill}`);
-      const deadline2 = Date.now() + timeoutMs;
-      let clicked = false;
-      while (!clicked && Date.now() < deadline2) {
-        await sleep(120);
-        clicked = clickCard(action, itemId) || clickTab(categoryName) && (await sleep(120), clickCard(action, itemId));
-      }
-      if (!clicked) report.push(...screenReport(categoryName), callGameHandler(win2, action.hrid));
-    } else report.push("card was on screen and clicked");
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (findActionPanel(action.name)) return true;
-      await sleep(100);
-    }
-    report.push(`no panel for "${action.name}"`);
-    lastDiagnostics = report.join(" \xB7 ");
-    return false;
-  }
-  var ENHANCING_PANEL = '[class*="SkillActionDetail_enhancingComponent"]';
-  var ALCHEMY_PANEL = '[class*="SkillActionDetail_alchemyComponent"]';
-  var inventoryItemHash = (characterId3, itemHrid, level = 0) => `${characterId3}::/item_locations/inventory::${itemHrid}::${level}`;
-  function componentWith(element, method) {
-    const nodes = element ? [element, ...element.querySelectorAll("input, button, select")].map(pageView) : [];
-    const upFrom = (start) => {
-      for (let fiber = start, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
-        if (typeof fiber.stateNode?.[method] === "function") return fiber.stateNode;
-      }
-      return null;
-    };
-    for (const node of nodes) {
-      const key = reactKeys(node).find((k) => !k.startsWith("__reactContainer"));
-      const found = key && upFrom(node[key]);
-      if (found) return found;
-    }
-    if (!nodes.length) return null;
-    const hosts = new Set(nodes);
-    return upFrom(walkFibers((f) => hosts.has(f.stateNode)).fiber);
-  }
-  async function waitFor(find, timeoutMs) {
-    const deadline = Date.now() + timeoutMs;
-    for (; ; ) {
-      const found = find();
-      if (found || Date.now() > deadline) return found || null;
-      await sleep(100);
-    }
-  }
-  var visiblePanel = (selector) => [...pageDocument().querySelectorAll(selector)].find(visible) || null;
-  function levelingPanels() {
-    const out = [];
-    for (const [kind, selector, method] of [["enhancing", ENHANCING_PANEL, "enhancingMaxLevelChanged"], ["alchemy", ALCHEMY_PANEL, "selectAlchemyItemHandler"]]) {
-      for (const panel of pageDocument().querySelectorAll(selector)) {
-        if (!visible(panel)) continue;
-        const held = componentWith(panel, method)?.state || {};
-        const tab = kind === "alchemy" ? [...document.querySelectorAll(TABS)].find((t4) => visible(t4) && t4.getAttribute("aria-selected") === "true" && /^(Coinify|Decompose|Transmute)$/.test(clean(t4.textContent))) : null;
-        out.push({ panel, kind, itemHash: held.primaryItemHash || null, target: held.enhancingMaxLevel ?? null, tab: tab ? clean(tab.textContent) : null, buttons: panel.querySelector(BUTTONS) });
-      }
-    }
-    return out;
-  }
-  var SKIP_METHOD = /^(render|constructor|setState|forceUpdate|component|getSnapshot|shouldComponent|UNSAFE_|isReact)|remove|clear|delete|reset/i;
-  function componentMethods(component) {
-    const names2 = /* @__PURE__ */ new Set();
-    for (let o2 = component; o2 && o2 !== Object.prototype; o2 = Object.getPrototypeOf(o2)) {
-      for (const name of attempt(() => Object.getOwnPropertyNames(o2), [])) {
-        if (!SKIP_METHOD.test(name) && attempt(() => typeof component[name] === "function", false)) names2.add(name);
-      }
-    }
-    return [...names2];
-  }
-  var findMethod = (component, ...patterns) => componentMethods(component).find((name) => patterns.every((p2) => p2.test(name))) || null;
-  var holds = (component, value) => attempt(() => Object.values(component.state || {}).some((v) => v === value || String(v) === String(value)), false);
-  var methodList = (component) => `methods: ${componentMethods(component).slice(0, 40).join(", ") || "none"}`;
-  async function fillSlot(component, word, label3, hash) {
-    if (!hash) return { ok: false, step: `${label3} not in the inventory at +0 \u2013 buy it (\u{1F6D2})` };
-    const method = findMethod(component, word, /^(select|set|change|handle|on)/i, /item|hash|select/i) || findMethod(component, word, /^(select|set|change)/i);
-    if (!method) return { ok: false, step: `no ${label3} method (${methodList(component)})` };
-    attempt(() => component[method](hash));
-    await sleep(200);
-    const ok = holds(component, hash);
-    return { ok, step: `${label3}: ${method} called${ok ? "" : ` but not in the slot (${methodList(component)})`}` };
-  }
-  async function openEnhancing(itemHash, target, protect = null, timeoutMs = 4e3) {
-    const steps = [];
-    const done2 = (result) => (lastDiagnostics = steps.join(" \xB7 "), result);
-    const called = itemHash ? callReactHandler(["handleEnhanceItem"], [itemHash]) : "no item";
-    steps.push(called);
-    if (!/called/.test(called)) {
-      const link = clickSkill("enhancing");
-      steps.push(link ? `opened the Enhancing page (${describe(link)})` : "no Enhancing link");
-      return done2(link ? "page" : false);
-    }
-    const panel = await waitFor(() => visiblePanel(ENHANCING_PANEL), timeoutMs);
-    steps.push(panel ? "enhancing panel" : "no enhancing panel");
-    const component = panel && await waitFor(() => componentWith(panel, "enhancingMaxLevelChanged"), timeoutMs);
-    if (!component) {
-      if (panel) steps.push("without its component");
-      return done2(panel ? "page" : false);
-    }
-    steps.push(`slot held ${component.state?.primaryItemHash ? "an item" : "nothing"}`);
-    if (component.state?.primaryItemHash !== itemHash && typeof component.selectEnhancingItemHandler === "function") component.selectEnhancingItemHandler(itemHash);
-    await sleep(150);
-    component.enhancingMaxLevelChanged({ target: { value: String(target) } });
-    steps.push(`target +${target} set`);
-    if (!protect) return done2("item");
-    await sleep(150);
-    const slot = await fillSlot(component, /protect/i, "protection", protect.hash);
-    steps.push(slot.step);
-    const levelMethod = findMethod(component, /protect/i, /level/i, /change|set/i);
-    if (levelMethod) attempt(() => component[levelMethod]({ target: { value: String(protect.from) } }));
-    await sleep(200);
-    const levelSet = levelMethod && holds(component, protect.from);
-    steps.push(levelMethod ? `protect from +${protect.from}: ${levelMethod} called${levelSet ? "" : " but not set"}` : `no protect-level method (${methodList(component)})`);
-    return done2(slot.ok && levelSet ? "item" : "partial");
-  }
-  async function openAlchemy(itemHash, tabLabel, count2, catalyst = null, timeoutMs = 4e3) {
-    const steps = [];
-    const done2 = (result) => (lastDiagnostics = steps.join(" \xB7 "), result);
-    const called = itemHash ? callReactHandler(["handleAlchemizeItem"], [itemHash]) : "no item";
-    steps.push(called);
-    if (!/called/.test(called)) {
-      const link = clickSkill("alchemy");
-      const tab = link && await waitFor(() => clickTab(tabLabel), timeoutMs);
-      steps.push(link ? `opened the Alchemy page (${describe(link)})` : "no Alchemy link");
-      if (link) steps.push(tab ? `${tabLabel} tab` : `no ${tabLabel} tab`);
-      return done2(link ? "page" : false);
-    }
-    steps.push(await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs) ? "alchemy panel" : "no alchemy panel yet");
-    await sleep(300);
-    const selected = () => [...document.querySelectorAll(TABS)].some((tab) => visible(tab) && clean(tab.textContent) === tabLabel && tab.getAttribute("aria-selected") === "true");
-    steps.push(await waitFor(() => (clickTab(tabLabel), selected()), timeoutMs) ? `${tabLabel} tab` : `no ${tabLabel} tab`);
-    await sleep(150);
-    const panel = await waitFor(() => visiblePanel(ALCHEMY_PANEL), timeoutMs);
-    const component = panel && await waitFor(() => componentWith(panel, "selectAlchemyItemHandler"), timeoutMs);
-    if (!component) {
-      steps.push(panel ? "alchemy panel without its component" : "no alchemy panel");
-      return done2(panel ? "page" : false);
-    }
-    steps.push(`slot held ${component.state?.primaryItemHash ? "an item" : "nothing"}`);
-    if (component.state?.primaryItemHash !== itemHash) component.selectAlchemyItemHandler(itemHash);
-    await sleep(150);
-    if (count2 > 0 && typeof component.maxActionCountChanged === "function") component.maxActionCountChanged({ target: { value: String(count2) } });
-    steps.push(count2 > 0 ? typeof component.maxActionCountChanged === "function" ? `count ${count2} set` : "no count box" : "no count");
-    if (!catalyst) return done2("item");
-    await sleep(150);
-    const slot = await fillSlot(component, /catalyst/i, "catalyst", catalyst.hash);
-    steps.push(slot.step);
-    return done2(slot.ok ? "item" : "partial");
-  }
-  function openMarketplace(win2, itemHrid, level = 0) {
-    try {
-      const api = win2.MWITools?.shopping;
-      if (typeof api?.openMarketplace === "function" && api.openMarketplace(itemHrid, level)) return true;
-    } catch {
-    }
-    return /called/.test(callReactHandler(["handleGoToMarketplace"], [itemHrid, level]));
   }
 
   // src/price-history-ui.js
@@ -6054,10 +5940,10 @@ i.mwia-history-bid { background: #7ee2b0; }
   function sourceHtml() {
     if (!piConfig()) return `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
     const st = piStatus();
-    const time = (t4) => new Date(t4).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const text = st.ok === null ? "Linked to your Pi; reading it\u2026" : st.ok ? `From your Pi: newest prices ${st.newest ? time(st.newest) : "none yet"}, read ${time(st.at)}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}` : `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
+    const time2 = (t4) => new Date(t4).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const text = st.ok === null ? "Linked to your Pi; reading it\u2026" : st.ok ? `From your Pi: newest prices ${st.newest ? time2(st.newest) : "none yet"}, read ${time2(st.at)}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}` : `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time2(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
     const orders = st.orders;
-    const ordersText = !orders ? "" : orders.error ? ` Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.` : orders.at ? ` Your orders: ${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"}, sent ${time(orders.at)}.` : "";
+    const ordersText = !orders ? "" : orders.error ? ` Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.` : orders.at ? ` Your orders: ${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"}, sent ${time2(orders.at)}.` : "";
     return `<div class="mwia-history-note">${esc(text + ordersText)}</div>
         <div class="mwia-history-ranges"><button data-history-pi="sync">\u21BB Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
   }
@@ -6374,7 +6260,7 @@ i.mwia-history-bid { background: #7ee2b0; }
 
   // src/tool-notice.js
   var SCAN_MS5 = 400;
-  var INVENTORY6 = "/item_locations/inventory";
+  var INVENTORY5 = "/item_locations/inventory";
   var GRID_ICONS = 8;
   var t = { deps: null, scanTimer: null, loading: null, key: "", notices: [], status: "" };
   var coins5 = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
@@ -6416,7 +6302,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       const owned = {};
       for (const item of state.items.values()) {
         if (!item.itemHrid) continue;
-        if (item.itemLocationHrid === INVENTORY6) (owned[_a = item.itemHrid] || (owned[_a] = [])).push(item.enhancementLevel || 0);
+        if (item.itemLocationHrid === INVENTORY5) (owned[_a = item.itemHrid] || (owned[_a] = [])).push(item.enhancementLevel || 0);
         else equipped[item.itemLocationHrid] = { itemHrid: item.itemHrid, enhancementLevel: item.enhancementLevel || 0 };
       }
       const who = skillingCharacter(state.character, state.items, data);
@@ -6780,7 +6666,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/plan-train.js
-  var INVENTORY7 = "/item_locations/inventory";
+  var INVENTORY6 = "/item_locations/inventory";
   var PRODUCE = /* @__PURE__ */ new Set(["chain", "single", "mixed"]);
   function itemFromIcon(element) {
     for (const use of element?.querySelectorAll("use") || []) {
@@ -6822,7 +6708,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function inventoryCounts(items) {
     const counts = /* @__PURE__ */ new Map();
     for (const item of items.values ? items.values() : items) {
-      if (item.itemLocationHrid !== INVENTORY7 || (item.enhancementLevel || 0) !== 0) continue;
+      if (item.itemLocationHrid !== INVENTORY6 || (item.enhancementLevel || 0) !== 0) continue;
       counts.set(item.itemHrid, (counts.get(item.itemHrid) || 0) + item.count);
     }
     return counts;
@@ -6873,7 +6759,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function goalDemand(goals, data, houseLevels) {
     const name = (hrid) => data.itemDetailMap[hrid]?.name || hrid.split("/").pop();
     const demand = /* @__PURE__ */ new Map();
-    const add2 = (hrid, count2) => demand.set(hrid, (demand.get(hrid) || 0) + count2);
+    const add = (hrid, count2) => demand.set(hrid, (demand.get(hrid) || 0) + count2);
     const titles = [];
     for (const goal of goals) {
       if (goal.kind === "house") {
@@ -6881,18 +6767,18 @@ i.mwia-history-bid { background: #7ee2b0; }
         const current = houseLevels[goal.hrid] || 0;
         titles.push(`${room?.name || goal.hrid.split("/").pop()} \u2192 ${goal.target}`);
         for (let level = current + 1; level <= goal.target; level++) {
-          for (const cost of room?.upgradeCostsMap?.[level] || []) add2(cost.itemHrid, cost.count);
+          for (const cost of room?.upgradeCostsMap?.[level] || []) add(cost.itemHrid, cost.count);
         }
       } else {
         titles.push(`${name(goal.hrid)} \xD7${goal.target}`);
-        add2(goal.hrid, goal.target);
+        add(goal.hrid, goal.target);
       }
     }
     return { demand, titles };
   }
   function resolve(goalItems, produced, actions, owned, name) {
     const demand = new Map(goalItems);
-    const add2 = (hrid, count2) => demand.set(hrid, (demand.get(hrid) || 0) + count2);
+    const add = (hrid, count2) => demand.set(hrid, (demand.get(hrid) || 0) + count2);
     const order = [];
     const seen = /* @__PURE__ */ new Set();
     const visit = (hrid) => {
@@ -6913,7 +6799,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         const perAction = action.outputItems[0].count || 1;
         row.action = action;
         row.count = Math.ceil(need / perAction - 1e-9);
-        for (const input of inputsOf(action)) add2(input.hrid, row.count * input.count);
+        for (const input of inputsOf(action)) add(input.hrid, row.count * input.count);
       }
       rows.set(hrid, row);
     }
@@ -7176,8 +7062,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     queueClickTimer: null
   };
   var n2 = (value) => Math.ceil(value).toLocaleString("en-US");
-  var characterId2 = () => state.character?.character?.id ?? null;
-  var storeKey = () => STORE_PREFIX + (characterId2() ?? "unknown");
+  var characterId = () => state.character?.character?.id ?? null;
+  var storeKey = () => STORE_PREFIX + (characterId() ?? "unknown");
   function save2() {
     try {
       if (t3.train) localStorage.setItem(storeKey(), JSON.stringify(t3.train));
@@ -7606,8 +7492,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   var remaining = (listing) => Math.max(0, (Number(listing.orderQuantity) || 0) - (Number(listing.filledQuantity) || 0));
   function placedAt(listing) {
     const raw = listing.createdTimestamp ?? listing.createdAt ?? listing.created;
-    const time = typeof raw === "number" ? raw < 1e12 ? raw * 1e3 : raw : Date.parse(raw ?? "");
-    return Number.isFinite(time) ? time : null;
+    const time2 = typeof raw === "number" ? raw < 1e12 ? raw * 1e3 : raw : Date.parse(raw ?? "");
+    return Number.isFinite(time2) ? time2 : null;
   }
   function trackFills(listings, store3 = {}, now = Date.now()) {
     const out = {};
@@ -7719,24 +7605,24 @@ i.mwia-history-bid { background: #7ee2b0; }
   var keepKey = (hrid, level = 0) => `${hrid}#${level}`;
   function reservedItems(character, items, data, trainActions = []) {
     const reserved = /* @__PURE__ */ new Map();
-    const add2 = (hrid, why) => hrid && !reserved.has(hrid) && reserved.set(hrid, why);
+    const add = (hrid, why) => hrid && !reserved.has(hrid) && reserved.set(hrid, why);
     for (const map of [character.actionTypeDrinkSlotsMap, character.actionTypeFoodSlotsMap]) {
-      for (const slots of Object.values(map || {})) for (const slot of slots || []) add2(slot?.itemHrid, "in your slots");
+      for (const slots of Object.values(map || {})) for (const slot of slots || []) add(slot?.itemHrid, "in your slots");
     }
     const byHash = /* @__PURE__ */ new Map();
     for (const item of items.values()) if (item.hash) byHash.set(item.hash, item.itemHrid);
     const actionInputs = (actionHrid, why) => {
       const action = data.actionDetailMap?.[actionHrid];
-      for (const input of action?.inputItems || []) add2(input.itemHrid, why);
-      add2(action?.upgradeItemHrid, why);
+      for (const input of action?.inputItems || []) add(input.itemHrid, why);
+      add(action?.upgradeItemHrid, why);
     };
     for (const queued of character.characterActions || []) {
       actionInputs(queued.actionHrid, "for your queue");
       for (const hash of [queued.primaryItemHash, queued.secondaryItemHash]) {
         const hrid = byHash.get(hash) || (typeof hash === "string" ? hash.split("::")[2] : null);
         if (!hrid) continue;
-        add2(hrid, "for your queue");
-        if (queued.actionHrid?.includes("enhanc")) for (const cost of data.itemDetailMap[hrid]?.enhancementCosts || []) add2(cost.itemHrid, "for your queue");
+        add(hrid, "for your queue");
+        if (queued.actionHrid?.includes("enhanc")) for (const cost of data.itemDetailMap[hrid]?.enhancementCosts || []) add(cost.itemHrid, "for your queue");
       }
     }
     for (const actionHrid of trainActions) actionInputs(actionHrid, "for your train");
@@ -7746,9 +7632,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   // src/market-ui.js
   var KEEP_KEY = "mwia-keep";
   var FILLS_KEY = "mwia-listing-fills";
-  var INVENTORY8 = "/item_locations/inventory";
+  var INVENTORY7 = "/item_locations/inventory";
   var view2 = { showAll: false };
-  var dec2 = (n3, d2 = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d2, maximumFractionDigits: d2 });
+  var dec2 = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var coins6 = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
   var pctAbs = (fraction) => `${dec2(Math.abs(fraction) * 100, fraction && Math.abs(fraction) < 0.1 ? 1 : 0)}%`;
   var label = (hrid, level) => esc(itemName(hrid)) + (level ? ` <span class="mwia-enh">+${level}</span>` : "");
@@ -7841,7 +7727,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function inventoryItems() {
     const counts = /* @__PURE__ */ new Map();
     for (const item of state.items.values()) {
-      if (item.itemLocationHrid !== INVENTORY8 || !item.itemHrid) continue;
+      if (item.itemLocationHrid !== INVENTORY7 || !item.itemHrid) continue;
       const level = Number(item.enhancementLevel) || 0;
       const key = keepKey(item.itemHrid, level);
       const entry = counts.get(key) || { hrid: item.itemHrid, level, count: 0 };
@@ -7993,7 +7879,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   var int = (n3) => Math.round(n3).toLocaleString("en-US");
-  var dec3 = (n3, d2 = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d2, maximumFractionDigits: d2 });
+  var dec3 = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var pct4 = (n3) => (n3 >= 0 ? "+" : "") + dec3(n3 * 100, 1) + "%";
   var HOURS_PER_DAY3 = 24;
   var perDay = (perHour) => perHour * HOURS_PER_DAY3;
@@ -8318,7 +8204,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!profile.food.slice(0, slots.food).some(Boolean)) {
       tips.push({ level: "bad", html: "You have no food for combat. Food is eaten automatically when you lose HP and keeps you from dying." });
     }
-    if (profile.drinks.slice(0, slots.drinks).some((d2) => !d2)) {
+    if (profile.drinks.slice(0, slots.drinks).some((d) => !d)) {
       tips.push({ level: "warn", html: "You have an empty drink slot. Coffee gives a 5-minute buff \u2013 <b>Upgrades</b> shows whether it pays off for you." });
     }
     const accuracy = style === "melee" ? null : style + "Accuracy";
@@ -8811,10 +8697,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const stacks = [...state.items.values()].filter((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory");
     steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
     const owned = stacks.some((i) => !i.enhancementLevel && i.count > 0);
-    const characterId3 = state.character?.character?.id;
-    if (owned && !characterId3) steps.push("no character id");
-    const hash = owned && characterId3 ? inventoryItemHash(characterId3, item) : null;
-    const ownHash = (hrid) => hrid && characterId3 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId3, hrid) : null;
+    const characterId2 = state.character?.character?.id;
+    if (owned && !characterId2) steps.push("no character id");
+    const hash = owned && characterId2 ? inventoryItemHash(characterId2, item) : null;
+    const ownHash = (hrid) => hrid && characterId2 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId2, hrid) : null;
     const protect = dataset.protect ? { hash: ownHash(dataset.protect), from: Number(dataset.protectFrom) } : null;
     const catalyst = dataset.catalyst ? { hash: ownHash(dataset.catalyst) } : null;
     clearNotice();
@@ -8833,7 +8719,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.50.1" : "dev";
+  var VERSION3 = true ? "0.51.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -9060,9 +8946,6 @@ i.mwia-history-bid { background: #7ee2b0; }
     };
     startConsumableGuide(gameDeps);
     startJobLog(gameDeps);
-    onJobsChanged(() => {
-      if (ui.tab === "skilling" && !ui.root?.classList.contains("mwia-hidden")) render2();
-    });
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     ui.root = root;
@@ -9406,120 +9289,6 @@ i.mwia-history-bid { background: #7ee2b0; }
     apply(listingModals().find((modal) => modal.contains(button)), index === "limit" ? index : Number(index));
   }
 
-  // src/loot-log-diag.js
-  var VERSION5 = typeof GM_info !== "undefined" ? GM_info.script?.version || "" : "";
-  var HEADING = /^loot\s*&\s*xp\s*log$/i;
-  var BEFORE_MS = 60 * 1e3;
-  var SAMPLE_CHARS = 1500;
-  var d = { timer: null, openedAt: null };
-  function startLootLogDiagnosis() {
-    new MutationObserver((records) => {
-      if (records.every((r) => r.target.closest?.(".mwia-lootdiag"))) return;
-      schedule();
-    }).observe(document.body, { childList: true, subtree: true });
-    setInterval(() => d.openedAt && schedule(), 1500);
-  }
-  function schedule() {
-    if (d.timer) return;
-    d.timer = setTimeout(() => {
-      d.timer = null;
-      scan7();
-    }, 300);
-  }
-  function findHeading() {
-    return [...document.querySelectorAll("div,h1,h2,h3,span")].find((el) => el.children.length === 0 && HEADING.test(el.textContent.trim()) && visible(el)) || null;
-  }
-  function scan7() {
-    const heading = findHeading();
-    let box = document.querySelector(".mwia-lootdiag");
-    if (!heading) {
-      box?.remove();
-      d.openedAt = null;
-      return;
-    }
-    d.openedAt ?? (d.openedAt = Date.now());
-    if (!box) {
-      box = document.createElement("div");
-      box.className = "mwia-lootdiag";
-      box.addEventListener("click", onClick8);
-      heading.insertAdjacentElement("afterend", box);
-    }
-    const messages = otherMessages().filter((m) => m.at >= d.openedAt - BEFORE_MS);
-    const html = boxHtml3(messages);
-    if (box.dataset.html !== html) {
-      box.dataset.html = html;
-      box.innerHTML = html;
-    }
-  }
-  function boxHtml3(messages) {
-    const time = (at2) => new Date(at2).toTimeString().slice(0, 8);
-    const list = messages.length ? messages.map((m) => `${esc(m.type)} \xB7 ${(m.size / 1024).toFixed(1)} kB \xB7 ${time(m.at)}`).join("<br>") : "none yet \u2013 tap Refresh";
-    return `<b>\u{1F9ED} MWI Advisor ${esc(VERSION5)} \u2013 diagnosis</b><br>Tap <i>Refresh</i>, then \u{1F4CB} Copy and paste it in the chat.<br><span class="mwia-lootdiag-list">${list}</span><br><button type="button" data-lootdiag="copy">\u{1F4CB} Copy</button>`;
-  }
-  function shape(value, depth = 0) {
-    if (Array.isArray(value)) return value.length ? `[${value.length} \xD7 ${shape(value[0], depth + 1)}]` : "[]";
-    if (value && typeof value === "object") {
-      if (depth >= 5) return "{\u2026}";
-      const entries = Object.entries(value);
-      const shown = entries.slice(0, 30).map(([k, v]) => `${k}: ${shape(v, depth + 1)}`);
-      if (entries.length > 30) shown.push(`\u2026 ${entries.length - 30} more keys`);
-      return `{${shown.join(", ")}}`;
-    }
-    if (typeof value === "string") return JSON.stringify(value.length > 60 ? value.slice(0, 60) + "\u2026" : value);
-    return String(value);
-  }
-  function diagnosisText(messages, sent2, openedAt, agent = navigator.userAgent) {
-    const time = (at2) => new Date(at2).toTimeString().slice(0, 8);
-    const lines = [`MWI Advisor v${VERSION5} \xB7 Loot & XP Log diagnosis \xB7 log opened ${time(openedAt)} \xB7 ${agent}`];
-    const recentSent = sent2.filter((s2) => s2.at >= openedAt - BEFORE_MS);
-    lines.push(`Sent by the game: ${recentSent.map((s2) => `${s2.type} ${time(s2.at)}`).join(", ") || "nothing"}`);
-    for (const m of messages) {
-      lines.push("", `== ${m.type} \xB7 ${m.size} chars \xB7 ${time(m.at)}`);
-      try {
-        lines.push(shape(JSON.parse(m.raw)));
-      } catch {
-        lines.push("(cut off: shape from the start only)");
-      }
-      lines.push(m.raw.slice(0, SAMPLE_CHARS));
-    }
-    return lines.join("\n");
-  }
-  async function onClick8(event) {
-    const button = event.target.closest?.("[data-lootdiag]");
-    if (!button) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const messages = otherMessages().filter((m) => m.at >= (d.openedAt ?? Date.now()) - BEFORE_MS);
-    const text = diagnosisText(messages, sentTypes(), d.openedAt ?? Date.now());
-    let copied = false;
-    try {
-      await navigator.clipboard.writeText(text);
-      copied = true;
-    } catch {
-      const area = document.createElement("textarea");
-      area.value = text;
-      area.setAttribute("readonly", "");
-      area.style.cssText = "position:fixed;top:0;left:0;opacity:0";
-      document.body.appendChild(area);
-      area.select();
-      area.setSelectionRange(0, text.length);
-      try {
-        copied = document.execCommand("copy");
-      } catch {
-        copied = false;
-      }
-      area.remove();
-    }
-    button.textContent = copied ? "\u2713 Copied" : "Couldn't copy";
-    if (!copied) {
-      const area = document.createElement("textarea");
-      area.value = text;
-      area.readOnly = true;
-      area.className = "mwia-lootdiag-text";
-      button.insertAdjacentElement("afterend", area);
-    }
-  }
-
   // src/main.js
   var win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   installSocketHook(win);
@@ -9538,7 +9307,6 @@ i.mwia-history-bid { background: #7ee2b0; }
     startListingPrices(win);
     startVersionTag();
     startExportButton(win);
-    startLootLogDiagnosis();
   }
 })();
 

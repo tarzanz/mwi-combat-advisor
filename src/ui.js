@@ -1,7 +1,7 @@
 // The in-game panel.
 
 import { preferBuyLimits } from "./buy-limits.js";
-import { onJobsChanged, startJobLog } from "./job-log.js";
+import { startJobLog } from "./job-log.js";
 import {
     ACCURACY,
     SPENDING,
@@ -1378,9 +1378,6 @@ export function mountUI(win, workerSource) {
     };
     startConsumableGuide(gameDeps);
     startJobLog(gameDeps);
-    onJobsChanged(() => {
-        if (ui.tab === "skilling" && !ui.root?.classList.contains("mwia-hidden")) render();
-    });
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     ui.root = root;

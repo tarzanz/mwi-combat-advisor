@@ -41,11 +41,11 @@ export function coinCost(kind, detail) {
     return 0;
 }
 
-const bulkOf = (detail) => Math.max(1, Math.floor(detail.alchemyDetail?.bulkMultiplier || 1));
+export const bulkOf = (detail) => Math.max(1, Math.floor(detail.alchemyDetail?.bulkMultiplier || 1));
 const meanCount = (drop) => (Number(drop.dropRate ?? 1) || 0) * ((Number(drop.minCount ?? 1) + Number(drop.maxCount ?? 1)) / 2);
 
 // What one successful action gives, before the bulk size.
-function successOutputs(kind, detail) {
+export function successOutputs(kind, detail) {
     const a = detail.alchemyDetail;
     if (kind === "coinify") return [{ itemHrid: COIN, count: 5 * (detail.sellPrice || 0) }];
     if (kind === "decompose") return (a.decomposeItems || []).map((d) => ({ itemHrid: d.itemHrid, count: d.count }));

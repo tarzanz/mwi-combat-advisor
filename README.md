@@ -271,18 +271,17 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   bigger margin on a swinging price): what is listed up to it is bought at once, the rest waits as a buy order at
   that price. It follows the job whose *🛒 Materials* you tapped last, else the highest-ranked job using the
   material (open the Skilling tab first).
-- **Recent jobs** (Skilling tab) – every skilling job the game runs (not fights) is followed, whether started with ▶
-  or in the game, and once it ends shows what it really gave: what it made at the market then (the 4% tax off),
-  what it used at what you paid – your buy orders' fills, oldest first; one that filled right after you placed it is
-  priced up the order book seen for it, as it took the cheapest listings – else at the market when it began, and teas
-  at the advice's rate. Margin, profit, coins per hour and speed are shown against the advice when the job began
-  (worked out with your current teas), with where the difference came from: what came out (luck), what it sells for
-  now, what it used and what the materials cost. Enhancing shows the result only. When the page sleeps (a phone
-  browser in the background), the actions meanwhile are read from the inventory when the game comes back – as long
-  as nothing else ran; otherwise they are estimated from the ones seen (or the advice), and the row says so. Kept in
-  this browser's storage (the last 30 jobs). For now the game's own *Loot & XP Log* also gets a diagnosis box under
-  its heading: the messages the game sent around opening it (never chat; of what the game sends, only the type), with
-  📋 Copy – the job results are to move there, built on what the log is sent.
+- **Job results in the Loot & XP Log** – the game's own log of your last jobs gets a **🧭** line under each finished
+  skilling job (not fights or Enhancing): profit, coins per hour and margin against the advice, tap for the rest. It
+  takes the log's actions, time and drops – counted by the game, also while the page slept – and adds what they
+  used: the action's materials (Artisan's saving as expected); for Alchemy the item, its coins, and the catalyst once
+  per success (worked out from what the successes dropped). What it made is priced at the market when the result is
+  first worked out (as the job ends if the log is open, else when you open it), the 4% tax off; what it used at what
+  you paid – your buy orders' fills, oldest first; one that filled right after you placed it is priced up the order
+  book seen for it – else at the advice's price; teas at the advice's rate. The advice is kept as each job begins
+  (with your current teas); a job that began before the advisor saw it is compared with the advice worked out then,
+  and says so. The difference is split into what came out (luck), what it sells for now, what it used and what the
+  materials cost. Only what the game fetches when you open the log is read. Kept in this browser (the last 60 jobs).
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the round **🧭** button (44 px on a
   touch screen, 36 px with a mouse) can be

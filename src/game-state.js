@@ -26,6 +26,7 @@ const INTERESTING = new RegExp(
             "equipment_buffs_updated",
             "market_listings_updated",
             "market_item_order_books_updated",
+            "loot_log_updated",
         ].join("|") +
         ')"'
 );
@@ -135,6 +136,7 @@ function applyListings(data) {
 export const state = {
     character: null, // the latest init_character_data, patched by later messages
     items: new Map(), // hash/id -> character item
+    lootLog: null, // the game's Loot & XP Log, as last sent
     orderBooks: loadOrderBooks(), // itemHrid -> { at, asks, bids (+0), levels: { level: { asks, bids } }, seen: [levels sent], bands: { level: { min, max } } }, from viewing it on the market
     updatedAt: 0,
 };
@@ -271,6 +273,10 @@ function handle(data) {
             case "market_listings_updated":
                 applyListings(data);
                 break;
+            case "loot_log_updated":
+                // The Loot & XP Log's last jobs, sent when the player opens it.
+                if (Array.isArray(data.lootLog)) state.lootLog = data.lootLog;
+                break;
             case "actions_updated":
                 mergeActions(data.endCharacterActions);
                 break;
@@ -298,31 +304,9 @@ function handle(data) {
     }
 }
 
-// The latest messages the advisor doesn't read, and the types the game sent,
-// for a diagnosis (see loot-log-diag.js). Chat is left out.
-const OTHER_KEPT = 30;
-const OTHER_CHARS = 300000;
-const others = [];
-const sent = [];
-const typeOf = (raw) => /"type"\s*:\s*"([^"]{1,80})"/.exec(raw)?.[1] || "?";
-
-export const otherMessages = () => others.slice();
-export const sentTypes = () => sent.slice();
-
-function keepOther(raw) {
-    const type = typeOf(raw);
-    if (/chat/i.test(type)) return;
-    others.push({ type, at: Date.now(), size: raw.length, raw: raw.slice(0, OTHER_CHARS) });
-    if (others.length > OTHER_KEPT) others.shift();
-}
-
 function onMessage(event) {
     const raw = event.data;
-    if (typeof raw !== "string") return;
-    if (!INTERESTING.test(raw)) {
-        keepOther(raw);
-        return;
-    }
+    if (typeof raw !== "string" || !INTERESTING.test(raw)) return;
     try {
         handle(JSON.parse(raw));
     } catch (error) {
@@ -341,22 +325,7 @@ export function installSocketHook(win) {
     const Hooked = new Proxy(NativeWebSocket, {
         construct(target, args, newTarget) {
             const socket = Reflect.construct(target, args, newTarget === Hooked ? target : newTarget);
-            if (isGameSocket(args[0])) {
-                socket.addEventListener("message", onMessage);
-                // Only the type of what the game sends (never its contents), for the diagnosis.
-                const send = socket.send;
-                socket.send = function (data) {
-                    try {
-                        if (typeof data === "string" && !/chat/i.test(typeOf(data))) {
-                            sent.push({ type: typeOf(data), at: Date.now() });
-                            if (sent.length > OTHER_KEPT) sent.shift();
-                        }
-                    } catch {
-                        // never in the way of the game
-                    }
-                    return send.apply(this, arguments);
-                };
-            }
+            if (isGameSocket(args[0])) socket.addEventListener("message", onMessage);
             return socket;
         },
         get(target, property, receiver) {

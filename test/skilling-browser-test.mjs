@@ -1056,68 +1056,53 @@ try {
     }
 
     {
-        // The job log: a Tailoring job of 4 runs, using materials from a buy order; once it ends, Recent jobs shows what it gave.
+        // Job results in the game's Loot & XP Log: a Tailoring job whose advice was kept as it began, using materials
+        // from a buy order; a Decompose with a catalyst used once per success; one still running.
         const job = topTailoring;
         const input = job.inputs[0];
         const output = job.outputs.find((o) => o.kind === "product") || job.outputs[0];
-        const hash = (hrid) => `1::/item_locations/inventory::${hrid}::0`;
-        const inv = (hrid, count) => ({ hash: hash(hrid), itemHrid: hrid, itemLocationHrid: "/item_locations/inventory", enhancementLevel: 0, count });
         const send = async (message) => {
             for (const socket of sockets) socket.send(JSON.stringify(message));
             await page.waitForFunction((type) => window.lastType === type, {}, message.type);
         };
-        const startIn = 100;
         await send({ type: "market_listings_updated", endMarketListings: [{ id: 4242, itemHrid: input.itemHrid, enhancementLevel: 0, isSell: false, price: 777, orderQuantity: 1000, filledQuantity: 1000 }] });
-        await send({ type: "items_updated", endCharacterItems: [inv(input.itemHrid, startIn), inv(output.itemHrid, 0)] });
-        const queued = { id: 900, actionHrid: job.hrid, hasMaxCount: true, maxCount: 4, currentCount: 0, ordinal: -1 };
-        await send({ type: "actions_updated", endCharacterActions: [queued] });
-        for (let i = 1; i <= 4; i++) {
-            await send({ type: "action_completed", endCharacterAction: { ...queued, currentCount: i, isDone: i === 4 }, endCharacterItems: [inv(input.itemHrid, startIn - i * input.count), inv(output.itemHrid, i * output.count)] });
-            await new Promise((r) => setTimeout(r, 120));
-        }
-        await page.waitForFunction(() => window.lastType === "action_completed");
-        if (await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden"))) await page.click(".mwia-launcher");
-        await page.click('[data-tab="skilling"]');
-        await select(page, "skillingSkill", "tailoring");
-        await page.waitForFunction(() => [...document.querySelectorAll(".mwia-body h3")].some((h) => h.textContent === "Recent jobs"), { timeout: 5000 }).catch(() => null);
-        const jobs = await page.evaluate(() => {
-            const section = [...document.querySelectorAll(".mwia-body section")].find((s) => s.querySelector("h3")?.textContent === "Recent jobs");
-            const row = section?.querySelector(".mwia-job");
-            if (row) row.open = true;
-            return { summary: row?.querySelector("summary")?.textContent.replace(/\s+/g, " ") || "", detail: row?.querySelector(".mwia-skill-detail")?.textContent.replace(/\s+/g, " ") || "", following: section?.textContent.includes("Following:") };
-        });
+        await send({ type: "actions_updated", endCharacterActions: [{ id: 900, actionHrid: job.hrid, hasMaxCount: true, maxCount: 4, currentCount: 0, ordinal: -1 }] });
+        await page.waitForFunction(() => !!JSON.parse(localStorage.getItem("mwia-jobs") || "{}").forecasts?.["900"], { timeout: 5000 }).catch(() => null);
+        const kept = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "{}").forecasts?.["900"]?.forecast || null);
+        check("the advice is kept as a job begins", kept?.name === job.action.name && kept.inputs.some((i) => i.itemHrid === input.itemHrid), JSON.stringify(kept)?.slice(0, 200));
+        // A decomposable item, its catalyst used on 8 of 10 tries.
+        const decomposable = Object.values(clientData.itemDetailMap).find((d) => d.isTradable && d.alchemyDetail?.decomposeItems?.length && !(d.alchemyDetail.bulkMultiplier > 1));
+        const out = decomposable.alchemyDetail.decomposeItems[0];
+        const t0 = Date.parse("2026-11-02T06:00:00Z");
+        const iso = (ms) => new Date(ms).toISOString();
+        const lootLog = [
+            { startTime: iso(t0), endTime: iso(t0 + 600000), characterActionId: 901, actionHrid: "/actions/alchemy/decompose", primaryItemHash: `1::/item_locations/inventory::${decomposable.hrid}::0`, secondaryItemHash: "1::/item_locations/inventory::/items/catalyst_of_decomposition::0", actionCount: 10, drops: { [`${out.itemHrid}::0`]: 8 * out.count, "/items/alchemy_essence::0": 1 }, xpGains: {} },
+            { startTime: iso(t0 + 600000), endTime: iso(t0 + 660000), characterActionId: 900, actionHrid: job.hrid, primaryItemHash: "", secondaryItemHash: "", actionCount: 4, drops: { [`${output.itemHrid}::0`]: 4 * output.count }, xpGains: {} },
+            { startTime: iso(t0 + 660000), endTime: "0001-01-01T00:00:00Z", characterActionId: 903, actionHrid: job.hrid, primaryItemHash: "", secondaryItemHash: "", actionCount: 2, drops: {}, xpGains: {} },
+        ];
+        await send({ type: "loot_log_updated", lootLog });
+        // The game's log page: newest first, each card with its start in local time.
+        await page.evaluate((starts) => {
+            const pad = (n) => String(n).padStart(2, "0");
+            const stamp = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+            const cards = starts.map((ms, i) => `<div class="card" data-i="${i}"><div>Some job</div><div>Start Time: ${stamp(ms)}</div><div>Duration: 1m</div><div class="drops"></div></div>`).reverse().join("");
+            document.body.insertAdjacentHTML("beforeend", `<div class="loot-page" style="position:fixed;top:0;left:0;right:0;bottom:0;overflow:auto;z-index:5;background:#000;color:#fff"><div>Loot &amp; XP Log</div><button>Refresh</button>${cards}</div>`);
+        }, lootLog.map((e) => Date.parse(e.startTime)));
+        await page.waitForFunction(() => document.querySelectorAll(".loot-page .mwia-jobline").length === 3, { timeout: 5000 }).catch(() => null);
+        const lines = await page.evaluate(() => [...document.querySelectorAll(".loot-page .card")].sort((a, b) => a.dataset.i - b.dataset.i).map((card) => {
+            const details = card.querySelector(".mwia-jobline details");
+            if (details) details.open = true;
+            return card.querySelector(".mwia-jobline")?.textContent.replace(/\s+/g, " ") || "";
+        }));
         const inputName = clientData.itemDetailMap[input.itemHrid].name;
-        const outputName = clientData.itemDetailMap[output.itemHrid].name;
-        check("Recent jobs: the ended job with its result", jobs.summary.includes(`${job.action.name} ×4`) && /margin -?[\d.]+%/.test(jobs.summary) && !jobs.following, JSON.stringify(jobs));
-        check("…against the advice, what it made and what it used at what you paid", jobs.detail.includes("Expected for these 4 actions") && jobs.detail.includes(`Made: ${4 * output.count} ${outputName}`) && new RegExp(`Used: ${4 * input.count} ${inputName} × 777 = [\\d.,k]+ \\(all at what you paid\\)`).test(jobs.detail), jobs.detail);
+        check("Loot & XP Log: a 🧭 line under each skilling job", lines.length === 3 && lines.every((l) => l.startsWith("🧭")), JSON.stringify(lines));
+        check("…against the advice kept as it began, materials at what you paid", /margin -?[\d.]+% \([\d.-]+% expected\)/.test(lines[1]) && lines[1].includes("Expected for these 4 actions:") && !lines[1].includes("worked out now") && new RegExp(`Used: ${4 * input.count} ${inputName} × 777 = [\\d.,k]+ \\(all at what you paid\\)`).test(lines[1]), lines[1]);
+        check("…Decompose: the item, its coins and a catalyst per success", lines[0].includes(`10 ${decomposable.name} ×`) && /8 Catalyst Of Decomposition ×/i.test(lines[0]) && /Coin/.test(lines[0]), lines[0]);
+        check("…a job still running says so", /running – the result comes when it ends/.test(lines[2]), lines[2]);
         const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
-        check("…kept in storage, its lot used", stored?.done?.[0]?.report?.actions === 4 && stored.lots.some((l) => l.left === 1000 - 4 * input.count), JSON.stringify(stored?.lots));
-        await page.$eval(".mwia-job", (n) => n.scrollIntoView()).catch(() => null);
-        await page.screenshot({ path: path.join(shotDir, "skilling-11-jobs.png") });
-    }
-
-    {
-        // The Loot & XP Log diagnosis: the messages around opening the log, not chat, with their shape, to copy.
-        for (const socket of sockets) {
-            socket.send(JSON.stringify({ type: "chat_message_received", message: { text: "secret" } }));
-            socket.send(JSON.stringify({ type: "loot_log_updated", lootLogs: [{ actionHrid: "/actions/tailoring/gobo_leather", count: 437, startTime: "2026-11-02T07:34:47Z", drops: { "/items/gobo_leather": 437 } }] }));
-        }
-        await new Promise((r) => setTimeout(r, 300));
-        await page.evaluate(() => {
-            navigator.clipboard.writeText = async (text) => { window.copiedText = text; };
-            document.body.insertAdjacentHTML("beforeend", '<div class="loot-page" style="position:fixed;top:0;left:0;z-index:5;background:#000"><div>Loot &amp; XP Log</div><button>Refresh</button></div>');
-        });
-        await page.waitForFunction(() => /loot_log_updated/.test(document.querySelector(".loot-page .mwia-lootdiag")?.textContent || ""), { timeout: 5000 }).catch(() => null);
-        const diagList = await page.$eval(".loot-page .mwia-lootdiag", (n) => n.textContent).catch(() => "");
-        check("Loot & XP Log: the messages around it, not chat", /loot_log_updated · [\d.]+ kB/.test(diagList) && !/chat_message/.test(diagList), diagList);
-        await page.click('.loot-page [data-lootdiag="copy"]');
-        await page.waitForFunction(() => !!window.copiedText, { timeout: 3000 }).catch(() => null);
-        const copied = await page.evaluate(() => window.copiedText || "");
-        check("…📋 Copy gives each message's shape and start", /Loot & XP Log diagnosis/.test(copied) && copied.includes("== loot_log_updated") && copied.includes('lootLogs: [1 × {actionHrid: "/actions/tailoring/gobo_leather", count: 437') && !copied.includes("secret"), copied.slice(0, 500));
-        await page.screenshot({ path: path.join(shotDir, "skilling-12-lootdiag.png") });
+        check("…results kept, the lot used", Object.keys(stored?.reports || {}).length === 2 && stored.lots.some((l) => l.left === 1000 - 4 * input.count), JSON.stringify(stored?.lots));
+        await page.screenshot({ path: path.join(shotDir, "skilling-11-lootlog.png") });
         await page.evaluate(() => document.querySelector(".loot-page").remove());
-        await new Promise((r) => setTimeout(r, 700));
-        check("…the box goes with the log", !(await page.$(".mwia-lootdiag")));
     }
 
     check("no page errors", errors.length === 0, errors.join(" | "));

@@ -1,17 +1,16 @@
-// Follows skilling jobs as they run and works out afterwards what each one
-// really gave: what it used (at what you paid, where your buy orders show it),
-// what it made (at the market when it ended, the tax off), the time it took,
-// and where that differs from the advice when it began.
-// Pure: the game messages, prices and storage come from job-log.js.
+// What a finished skilling job really gave: what it used (at what you paid,
+// where your buy orders show it), what it made (at the market, the tax off),
+// the time it took, and where that differs from the advice when it began.
+// The game's Loot & XP Log says how many actions, how long and what dropped;
+// job-log.js adds what they used. Pure: the messages, prices and storage come
+// from job-log.js.
 
-export const MAX_DONE = 30;
+export const MAX_REPORTS = 60;
 const LOT_MS = 30 * 24 * 3600 * 1000;
 const MAX_LOTS = 300;
 // A buy order filling this soon after it is first seen took listings at once,
 // cheapest first, not at its own price.
 const INSTANT_MS = 2 * 60 * 1000;
-// Missed actions are scaled from the live ones only with at least this many.
-const MIN_LIVE_TO_SCALE = 5;
 const COIN = "/items/coin";
 
 export const keyOf = (hrid, level = 0) => `${hrid}::${Number(level) || 0}`;
@@ -20,104 +19,16 @@ export function splitKey(key) {
     return { itemHrid: key.slice(0, i), level: Number(key.slice(i + 2)) || 0 };
 }
 
+// lots: what you bought, fills: your buy orders as last seen, forecasts: the
+// advice per game action id when it began, reports: per log entry.
 export function emptyLedger(now = Date.now()) {
-    return { since: now, active: null, done: [], lots: [], fills: {} };
+    return { since: now, lots: [], fills: {}, forecasts: {}, reports: {} };
 }
 
 // The action running now: the queue's first, unless it is a fight.
 export function runningAction(actions) {
     const a = (actions || []).find((x) => !x.isDone);
     return a && !String(a.actionHrid || "").startsWith("/actions/combat/") ? a : null;
-}
-
-const itemOfHash = (hash) => String(hash || "").split("::")[2] || null;
-const countOf = (action) => Number(action?.currentCount) || 0;
-
-// inv: the inventory as { key: count } when the job is first seen.
-export function startJob(action, { now, inv, forecast = null }) {
-    return {
-        id: action.id,
-        actionHrid: action.actionHrid,
-        item: itemOfHash(action.primaryItemHash),
-        target: Number(action.enhancingMaxLevel) || null,
-        startedAt: now,
-        firstAt: null,
-        lastAt: null,
-        endAt: null,
-        startCount: countOf(action),
-        lastCount: countOf(action),
-        maxCount: action.hasMaxCount ? Number(action.maxCount) || null : null,
-        live: 0, // actions seen as they happened
-        gap: 0, // actions read from the inventory when the game came back
-        missed: 0, // actions nobody saw: estimated
-        deltas: {}, // key -> change, from live actions
-        gapDeltas: {}, // key -> change, from the inventory after a gap
-        inv: { ...inv },
-        forecast,
-    };
-}
-
-const add = (into, key, delta) => {
-    into[key] = (into[key] || 0) + delta;
-    if (Math.abs(into[key]) < 1e-9) delete into[key];
-};
-
-// One action_completed: changes: [{ key, delta }] of the inventory (teas left
-// out); count: the action's currentCount after it, if the game sent it.
-export function noteAction(job, changes, { now, count = null }) {
-    for (const { key, delta } of changes) {
-        add(job.deltas, key, delta);
-        job.inv[key] = (job.inv[key] || 0) + delta;
-    }
-    const done = count !== null && count >= job.lastCount ? count - job.lastCount : 1;
-    job.live += Math.max(1, done);
-    if (count !== null) job.lastCount = Math.max(job.lastCount, count);
-    job.firstAt ??= now;
-    job.lastAt = now;
-}
-
-// Inventory changes that aren't the job (market claims, other windows): kept
-// in the job's picture of the inventory so a later gap is read right.
-export function noteOther(job, changes) {
-    for (const { key, delta } of changes) job.inv[key] = (job.inv[key] || 0) + delta;
-}
-
-// The game came back after the page slept (init_character_data). inv: the
-// inventory now; queue: the actions now. Clean when nothing but this job can
-// have changed the inventory meanwhile: it still runs first, or it ended and
-// the next one hasn't done anything yet. Returns "running" or "ended".
-export function noteReturn(job, { inv, queue, now, isPrimary }) {
-    const mine = (queue || []).find((a) => a.id === job.id && !a.isDone);
-    const first = runningAction(queue);
-    const clean = mine ? first?.id === job.id : !first || countOf(first) === 0;
-    let actions = mine ? Math.max(0, countOf(mine) - job.lastCount) : job.maxCount !== null ? Math.max(0, job.maxCount - job.lastCount) : null;
-    if (clean) {
-        const diff = {};
-        for (const key of new Set([...Object.keys(job.inv), ...Object.keys(inv)])) {
-            const d = (inv[key] || 0) - (job.inv[key] || 0);
-            if (Math.abs(d) > 1e-9) diff[key] = d;
-        }
-        // An ended job without a set count: how many, from what it used of its main material.
-        if (actions === null) actions = isPrimary ? isPrimary(diff) : 0;
-        if (actions > 0) {
-            for (const [key, d] of Object.entries(diff)) add(job.gapDeltas, key, d);
-            job.gap += actions;
-        }
-    } else if (actions > 0) job.missed += actions;
-    job.inv = { ...inv };
-    if (mine) {
-        job.lastCount = countOf(mine);
-        if (actions > 0) job.lastAt = now;
-        return "running";
-    }
-    return "ended";
-}
-
-// The job left the queue. seen: while the page watched (it ended at its last action).
-export function endJob(job, { now, seen }) {
-    job.endAt = seen ? job.lastAt ?? now : null;
-    job.endedAt = now;
-    return job;
 }
 
 // Your buy orders as the game lists them: what each filled since last seen
@@ -188,29 +99,18 @@ function takeLots(ledger, key, qty) {
     return { qty: qty - Math.max(0, left), cost, estimate };
 }
 
-// The ended job's result. prices: { value(hrid, level) -> a unit made is worth
-// (the tax off), cost(hrid, level) -> a unit used costs when you didn't buy it
-// (the market when the job began) }. Takes what it used from your lots.
+// A finished job's result. job: { id, name, actionHrid, item, endedAt,
+// actions, hours, deltas: { key: made (+) or used (−) }, forecast }. prices:
+// { value(hrid, level) -> a unit made is worth (the tax off), cost(hrid, level)
+// -> a unit used costs when you didn't buy it }. Takes what it used from your lots.
 export function jobReport(ledger, job, prices, now = Date.now()) {
     const f = job.forecast;
-    const deltas = { ...job.deltas };
-    for (const [key, d] of Object.entries(job.gapDeltas)) add(deltas, key, d);
-    // Actions nobody saw: like the live ones (enough of them), else as the advice expected.
-    let missedFrom = null;
-    if (job.missed > 0) {
-        if (job.live >= MIN_LIVE_TO_SCALE) {
-            for (const [key, d] of Object.entries(job.deltas)) add(deltas, key, (d * job.missed) / job.live);
-            missedFrom = "live";
-        } else if (f) {
-            for (const o of f.outputs) add(deltas, keyOf(o.itemHrid), o.count * job.missed);
-            for (const i of f.inputs) add(deltas, keyOf(i.itemHrid), -i.count * job.missed);
-            missedFrom = "advice";
-        }
-    }
-    const actions = job.live + job.gap + job.missed;
+    const actions = job.actions;
+    const hours = job.hours;
     const made = [];
     const used = [];
-    for (const [key, d] of Object.entries(deltas)) {
+    for (const [key, d] of Object.entries(job.deltas)) {
+        if (Math.abs(d) < 1e-9) continue;
         const { itemHrid, level } = splitKey(key);
         if (d > 0) {
             const unit = itemHrid === COIN ? 1 : prices.value(itemHrid, level) ?? 0;
@@ -226,22 +126,6 @@ export function jobReport(ledger, job, prices, now = Date.now()) {
     }
     made.sort((a, b) => b.total - a.total);
     used.sort((a, b) => b.total - a.total);
-    // The time: from the first action to the last as seen, else the actions at the speed seen (or advised).
-    const span = job.firstAt !== null && job.endAt !== null ? (job.endAt - job.firstAt) / 3600000 : null;
-    const liveRate = job.live >= 3 && job.lastAt > job.firstAt ? (job.live - 1) / ((job.lastAt - job.firstAt) / 3600000) : null;
-    const rate = liveRate ?? f?.actionsPerHour ?? null;
-    let hours;
-    let timeFrom;
-    if (span !== null && job.missed === 0 && job.gap === 0 && rate) {
-        hours = span + 1 / rate; // the first action took a cycle too
-        timeFrom = "seen";
-    } else if (rate) {
-        hours = actions / rate;
-        timeFrom = liveRate ? "speed" : "advice";
-    } else {
-        hours = Math.max(0, ((job.endAt ?? job.endedAt ?? now) - job.startedAt) / 3600000);
-        timeFrom = "clock";
-    }
     const teas = f ? f.teaPerHour * hours : 0;
     const revenue = made.reduce((s, m) => s + m.total, 0);
     const cost = used.reduce((s, u) => s + u.total, 0) + teas;
@@ -251,14 +135,10 @@ export function jobReport(ledger, job, prices, now = Date.now()) {
         name: job.name,
         actionHrid: job.actionHrid,
         item: job.item,
-        endedAt: job.endedAt ?? now,
+        endedAt: job.endedAt,
+        pricedAt: now,
         actions,
-        live: job.live,
-        gap: job.gap,
-        missed: job.missed,
-        missedFrom,
         hours,
-        timeFrom,
         made,
         used,
         teas,
@@ -268,7 +148,7 @@ export function jobReport(ledger, job, prices, now = Date.now()) {
         margin: revenue > 0 ? profit / revenue : null,
         perHour: hours > 0 ? profit / hours : null,
         actionsPerHour: hours > 0 ? actions / hours : null,
-        forecast: f ? compare(f, made, used, teas, hours, actions) : null,
+        forecast: f ? { ...compare(f, made, used, teas, hours, actions), now: !!job.forecastNow } : null,
     };
     return report;
 }
