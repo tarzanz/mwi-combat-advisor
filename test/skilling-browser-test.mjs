@@ -1055,6 +1055,47 @@ try {
         check("market: the dot goes once the order is filled", !(await page.$eval(".mwia-launcher", (n) => n.classList.contains("mwia-has-alert"))));
     }
 
+    {
+        // The job log: a Tailoring job of 4 runs, using materials from a buy order; once it ends, Recent jobs shows what it gave.
+        const job = topTailoring;
+        const input = job.inputs[0];
+        const output = job.outputs.find((o) => o.kind === "product") || job.outputs[0];
+        const hash = (hrid) => `1::/item_locations/inventory::${hrid}::0`;
+        const inv = (hrid, count) => ({ hash: hash(hrid), itemHrid: hrid, itemLocationHrid: "/item_locations/inventory", enhancementLevel: 0, count });
+        const send = async (message) => {
+            for (const socket of sockets) socket.send(JSON.stringify(message));
+            await page.waitForFunction((type) => window.lastType === type, {}, message.type);
+        };
+        const startIn = 100;
+        await send({ type: "market_listings_updated", endMarketListings: [{ id: 4242, itemHrid: input.itemHrid, enhancementLevel: 0, isSell: false, price: 777, orderQuantity: 1000, filledQuantity: 1000 }] });
+        await send({ type: "items_updated", endCharacterItems: [inv(input.itemHrid, startIn), inv(output.itemHrid, 0)] });
+        const queued = { id: 900, actionHrid: job.hrid, hasMaxCount: true, maxCount: 4, currentCount: 0, ordinal: -1 };
+        await send({ type: "actions_updated", endCharacterActions: [queued] });
+        for (let i = 1; i <= 4; i++) {
+            await send({ type: "action_completed", endCharacterAction: { ...queued, currentCount: i, isDone: i === 4 }, endCharacterItems: [inv(input.itemHrid, startIn - i * input.count), inv(output.itemHrid, i * output.count)] });
+            await new Promise((r) => setTimeout(r, 120));
+        }
+        await page.waitForFunction(() => window.lastType === "action_completed");
+        if (await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden"))) await page.click(".mwia-launcher");
+        await page.click('[data-tab="skilling"]');
+        await select(page, "skillingSkill", "tailoring");
+        await page.waitForFunction(() => [...document.querySelectorAll(".mwia-body h3")].some((h) => h.textContent === "Recent jobs"), { timeout: 5000 }).catch(() => null);
+        const jobs = await page.evaluate(() => {
+            const section = [...document.querySelectorAll(".mwia-body section")].find((s) => s.querySelector("h3")?.textContent === "Recent jobs");
+            const row = section?.querySelector(".mwia-job");
+            if (row) row.open = true;
+            return { summary: row?.querySelector("summary")?.textContent.replace(/\s+/g, " ") || "", detail: row?.querySelector(".mwia-skill-detail")?.textContent.replace(/\s+/g, " ") || "", following: section?.textContent.includes("Following:") };
+        });
+        const inputName = clientData.itemDetailMap[input.itemHrid].name;
+        const outputName = clientData.itemDetailMap[output.itemHrid].name;
+        check("Recent jobs: the ended job with its result", jobs.summary.includes(`${job.action.name} ×4`) && /margin -?[\d.]+%/.test(jobs.summary) && !jobs.following, JSON.stringify(jobs));
+        check("…against the advice, what it made and what it used at what you paid", jobs.detail.includes("Expected for these 4 actions") && jobs.detail.includes(`Made: ${4 * output.count} ${outputName}`) && new RegExp(`Used: ${4 * input.count} ${inputName} × 777 = [\\d.,k]+ \\(all at what you paid\\)`).test(jobs.detail), jobs.detail);
+        const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
+        check("…kept in storage, its lot used", stored?.done?.[0]?.report?.actions === 4 && stored.lots.some((l) => l.left === 1000 - 4 * input.count), JSON.stringify(stored?.lots));
+        await page.$eval(".mwia-job", (n) => n.scrollIntoView()).catch(() => null);
+        await page.screenshot({ path: path.join(shotDir, "skilling-11-jobs.png") });
+    }
+
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
     await browser.close();

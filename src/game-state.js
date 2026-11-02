@@ -150,6 +150,20 @@ function itemKey(item) {
     return `x:${item.itemHrid}:${item.itemLocationHrid}:${item.enhancementLevel || 0}`;
 }
 
+// What an update changes, before it is applied: [{ itemHrid, level, location, delta }].
+function itemChanges(updates) {
+    const changes = [];
+    for (const item of updates || []) {
+        if (!item) continue;
+        const prev = state.items.get(itemKey(item));
+        const before = prev?.count ?? 0;
+        const after = item.count ?? before;
+        if (after === before) continue;
+        changes.push({ itemHrid: item.itemHrid ?? prev?.itemHrid, level: Number(item.enhancementLevel ?? prev?.enhancementLevel) || 0, location: item.itemLocationHrid ?? prev?.itemLocationHrid, delta: after - before });
+    }
+    return changes;
+}
+
 function applyItems(updates) {
     for (const item of updates || []) {
         if (!item) continue;
@@ -199,6 +213,8 @@ function copyFields(data, fields) {
 }
 
 function handle(data) {
+    // For listeners: what an item update changed (the job log counts what an action used and made).
+    const extra = {};
     if (data.type === "init_character_data") {
         state.character = data;
         state.items = new Map();
@@ -210,10 +226,13 @@ function handle(data) {
     } else {
         switch (data.type) {
             case "items_updated":
+                extra.changes = itemChanges(data.endCharacterItems);
                 applyItems(data.endCharacterItems);
                 break;
             case "action_completed":
+                extra.changes = itemChanges(data.endCharacterItems);
                 applyItems(data.endCharacterItems);
+                if (data.endCharacterAction) mergeActions([data.endCharacterAction]);
                 mergeSkills(data.endCharacterSkills);
                 mergeAbilities(data.endCharacterAbilities);
                 break;
@@ -272,7 +291,7 @@ function handle(data) {
     state.updatedAt = Date.now();
     for (const listener of listeners) {
         try {
-            listener(data.type, data);
+            listener(data.type, data, extra);
         } catch (error) {
             console.error("[MWI Advisor]", error);
         }

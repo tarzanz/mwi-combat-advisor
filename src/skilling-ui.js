@@ -2,6 +2,7 @@
 // calculation behind every number one tap away.
 
 import { setBuyLimits } from "./buy-limits.js";
+import { jobsHtml } from "./job-log.js";
 import { getClientData, itemName, marketBids, marketEntry, marketListings, pricesStamp } from "./game-data.js";
 import { state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
@@ -251,6 +252,7 @@ export function renderSkilling(settings) {
         html += `<button class="mwia-link" data-action="skilling-all">${view.showAll ? "Show fewer" : `Show all ${available.length}${hidden}`}</button>`;
     }
     html += `</section>`;
+    html += jobsHtml();
     html += upgradesHtml(settings);
     if (upcoming.length) {
         html += `<section><h3>Unlocks soon</h3><p class="mwia-dim">Within ${NEAR_LEVELS} levels, worked out at the level it unlocks. The time assumes you train the skill with its fastest XP action you have now.</p>
