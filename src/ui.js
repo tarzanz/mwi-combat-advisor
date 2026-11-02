@@ -573,7 +573,7 @@ function totalLevelHtml(profile, data) {
       ${rows.map((r) => `<tr><td>${esc(SKILL_NAMES[r.hrid.split("/").pop()] || SKILLING_NAMES(r.hrid))}</td><td class="mwia-num">${r.level}</td><td class="mwia-num">${int(r.need)}</td></tr>`).join("")}
       </tbody></table>
       <p class="mwia-dim">Tick <i>Count levels, not XP</i> in Where to fight, Upgrades or Skilling to rank by levels gained.</p></details>`;
-    html += `<p><button class="mwia-btn" data-action="export">🧭 Export for chat</button> <span class="mwia-dim">A text file with your character, inventory, orders and the advice, to paste into a chat. The same button is above the game's inventory.</span></p>`;
+    html += `<p><button class="mwia-btn" data-action="export">🧭 Export for chat</button> <span class="mwia-dim">A text file with your character, inventory, orders and the advice, to paste into a chat. The same button is under the game's inventory.</span></p>`;
     return html;
 }
 

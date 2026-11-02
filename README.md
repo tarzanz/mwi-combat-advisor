@@ -272,7 +272,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   touch screen, 36 px with a mouse) can be
   dragged anywhere, and fewer simulation workers run so the phone doesn't overheat. The plan train starts compact
   (current stop and buttons only; ▸ shows the list) and ⇅ moves it between the top and bottom of the screen.
-- **Export for chat** – a **🧭 Export for chat** button above the game's inventory (and on the Overview tab) makes a
+- **Export for chat** – a **🧭 Export for chat** button under the game's inventory (and on the Overview tab) makes a
   text file with what the advice rests on: version and the prices' age, the settings, levels and XP, gear, drinks,
   food, house, abilities, coins, the inventory (most valuable first, with ask, bid and worth), your market orders,
   the action queue, the Skilling tab's top 10 rows with what each was worked out from (speed, materials, the job's
@@ -352,7 +352,7 @@ node test/price-history-browser-test.mjs /tmp             # price history: marke
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
 node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, Pi down, unlink
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
-node test/export-browser-test.mjs /tmp                    # Export for chat: above the inventory, share sheet or download
+node test/export-browser-test.mjs /tmp                    # Export for chat: under the inventory, share sheet or download
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox
 ```

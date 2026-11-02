@@ -1,14 +1,15 @@
 // Everything about the character that the advice rests on, as a text file to
 // paste into a chat: levels, gear, teas, house, coins, inventory with prices,
 // market orders, the queue, the settings and the top rows of the advice.
-// A button above the game's inventory (and one on the Overview tab) makes it.
+// A button under the game's inventory (and one on the Overview tab) makes it.
 
 import { actionName, getClientData, itemName, loadClientData, loadPrices, marketEntry, pricesAge } from "./game-data.js";
 import { state } from "./game-state.js";
 import { shortCoins } from "./format.js";
 import { scriptVersion } from "./version-tag.js";
+import { marketPricer } from "./skilling.js";
 
-// The game's inventory grid; the button goes just above it.
+// The game's inventory grid; the button goes just under it, out of the way of the items.
 const INVENTORY = '[class*="Inventory_items"]';
 const SCAN_MS = 500;
 const COIN = "/items/coin";
@@ -39,12 +40,12 @@ function scheduleScan() {
     ex.scanTimer = setTimeout(() => {
         ex.scanTimer = null;
         for (const grid of document.querySelectorAll(INVENTORY)) {
-            if (grid.previousElementSibling?.classList.contains("mwia-export") || grid.parentElement?.closest(INVENTORY)) continue;
+            if (grid.nextElementSibling?.classList.contains("mwia-export") || grid.parentElement?.closest(INVENTORY)) continue;
             const bar = document.createElement("div");
             bar.className = "mwia-export";
             bar.innerHTML = `<button type="button" class="mwia-export-btn" title="A text file with your character and the advice, to paste into a chat">🧭 Export for chat</button>`;
             bar.querySelector("button").addEventListener("click", (event) => exportClicked(event.currentTarget));
-            grid.parentElement.insertBefore(bar, grid);
+            grid.parentElement.insertBefore(bar, grid.nextSibling);
         }
     }, SCAN_MS);
 }
@@ -75,7 +76,8 @@ async function deliver(text, button) {
     // Phones: the share sheet (save to Files, copy, AirDrop, a chat app).
     if (file && navigator.canShare?.({ files: [file] })) {
         try {
-            await navigator.share({ files: [file], title: name });
+            // Only the file: a title is saved as a second text file by iOS's "Save to Files".
+            await navigator.share({ files: [file] });
             return;
         } catch (error) {
             if (error?.name === "AbortError") return;
@@ -113,7 +115,12 @@ export function exportText() {
     const context = ex.context() || {};
     if (context.settings) section("Settings", [JSON.stringify(context.settings)]);
 
-    const skills = (c.characterSkills || []).filter((s) => s.skillHrid).map((s) => `${words(s.skillHrid)} ${s.level}${s.experience !== undefined && s.experience !== null ? ` (${n(s.experience)} XP)` : ""}`);
+    // Total level first, then the highest skills.
+    const total = (s) => s.skillHrid.endsWith("/total_level");
+    const skills = (c.characterSkills || [])
+        .filter((s) => s.skillHrid)
+        .sort((a, b) => total(b) - total(a) || b.level - a.level || (b.experience || 0) - (a.experience || 0))
+        .map((s) => `${words(s.skillHrid)} ${s.level}${s.experience !== undefined && s.experience !== null ? ` (${n(s.experience)} XP)` : ""}`);
     section("Levels", [skills.join(" · ")]);
 
     const worn = items.filter((i) => i.itemHrid && i.itemLocationHrid && i.itemLocationHrid !== INVENTORY_LOCATION);
@@ -134,18 +141,23 @@ export function exportText() {
     const stacks = items.filter((i) => i.itemHrid && i.itemLocationHrid === INVENTORY_LOCATION);
     const coinCount = stacks.filter((i) => i.itemHrid === COIN).reduce((sum, i) => sum + (i.count || 0), 0);
     section("Coins", [n(coinCount)]);
+    // Without a market of its own: a cowbell is a tenth of a bag, a crate what it holds, else the shop price.
+    const pricer = data ? marketPricer((hrid) => marketEntry(hrid), data, "bid") : null;
     const priced = stacks
         .filter((i) => i.itemHrid !== COIN)
         .map((i) => {
             const m = marketEntry(i.itemHrid, i.enhancementLevel || 0);
             const ask = m?.a > 0 ? m.a : null;
             const bid = m?.b > 0 ? m.b : null;
-            return { i, ask, bid, worth: (i.count || 0) * (bid ?? ask ?? data?.itemDetailMap?.[i.itemHrid]?.sellPrice ?? 0) };
+            const other = bid === null && ask === null && !i.enhancementLevel ? pricer?.sell(i.itemHrid) : null;
+            const how = other?.source === "bag" ? "a tenth of a bag" : other?.source === "contents" ? "what it holds" : null;
+            const each = bid ?? ask ?? (how ? other.price : data?.itemDetailMap?.[i.itemHrid]?.sellPrice ?? 0);
+            return { i, ask, bid, how, worth: (i.count || 0) * each };
         })
         .sort((a, b) => b.worth - a.worth);
     section(
         `Inventory (${priced.length} stacks, most valuable first)`,
-        priced.map(({ i, ask, bid, worth }) => `${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""} ×${n(i.count || 0)} · ask ${ask === null ? "–" : coins(ask)} · bid ${bid === null ? "–" : coins(bid)} · worth ${coins(worth)}`),
+        priced.map(({ i, ask, bid, how, worth }) => `${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""} ×${n(i.count || 0)} · ask ${ask === null ? "–" : coins(ask)} · bid ${bid === null ? "–" : coins(bid)} · worth ${coins(worth)}${how ? ` (${how})` : ""}`),
     );
 
     const listings = (c.myMarketListings || []).map((l) => `${l.isSell ? "Sell" : "Buy"} ${itemName(l.itemHrid)}${l.enhancementLevel ? ` +${l.enhancementLevel}` : ""} ×${n(l.orderQuantity || 0)} @ ${coins(Number(l.price) || 0)}${l.filledQuantity ? ` (${n(l.filledQuantity)} filled)` : ""}`);

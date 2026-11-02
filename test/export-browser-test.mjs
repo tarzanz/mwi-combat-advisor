@@ -1,4 +1,4 @@
-// The export for chat: a button above the game's inventory (and on the Overview
+// The export for chat: a button under the game's inventory (and on the Overview
 // tab) that hands a text file with the character and the advice to the share
 // sheet, or downloads it where there is none.
 // Usage: node test/export-browser-test.mjs <screenshot-dir>
@@ -79,14 +79,14 @@ try {
     await page.goto(url);
     await page.waitForFunction(() => window.lastType === "init_character_data");
 
-    check("a button above the game's inventory", await wait(page, () => document.querySelector(".mwia-export")?.nextElementSibling?.matches('[class*="Inventory_items"]')));
+    check("a button under the game's inventory", await wait(page, () => document.querySelector(".mwia-export")?.previousElementSibling?.matches('[class*="Inventory_items"]')));
     await page.screenshot({ path: path.join(shotDir, "export-1-inventory.png") });
 
     // A phone: the share sheet gets the file.
     await page.evaluate(() => {
         navigator.canShare = (d) => Array.isArray(d?.files);
-        navigator.share = async ({ files }) => {
-            window.shared = { name: files[0].name, type: files[0].type, text: await files[0].text() };
+        navigator.share = async ({ files, title, text }) => {
+            window.shared = { name: files[0].name, type: files[0].type, text: await files[0].text(), extra: [title, text].filter((x) => x !== undefined) };
         };
     });
     const tap = () => page.evaluate(() => document.querySelector(".mwia-export-btn").click());
@@ -99,9 +99,10 @@ try {
     const shared = await page.evaluate(() => window.shared);
     const text = shared?.text || "";
     writeFileSync(path.join(shotDir, "export.txt"), text);
+    check("only the file is shared (a title becomes a second file on iOS)", Array.isArray(shared?.extra) && shared.extra.length === 0, JSON.stringify(shared?.extra));
     check("a .txt named after the character", /^mwi-advisor-.+\.txt$/.test(shared?.name || "") && shared.type === "text/plain", shared?.name);
     check("version, time and the prices' age", /^# MWI Advisor export\nVersion \S+ · \d{4}-\d\d-\d\d \d\d:\d\d UTC · character .+ · prices \d+ min old/.test(text), text.slice(0, 200));
-    check("levels with XP", /## Levels\n.*Tailoring 20 \([\d,]+ XP\)/.test(text), text.match(/## Levels\n.*/)?.[0]?.slice(0, 200));
+    check("levels with XP, total level first", /## Levels\n(Total Level [^·]*· )?.*Tailoring 20 \([\d,]+ XP\)/.test(text) && (!/Total Level/.test(text.match(/## Levels\n.*/)?.[0] || "") || /## Levels\nTotal Level/.test(text)), text.match(/## Levels\n.*/)?.[0]?.slice(0, 200));
     check("coins", Number(text.match(/## Coins\n([\d,]+)/)?.[1].replace(/,/g, "")) >= 1234567, text.match(/## Coins\n.*/)?.[0]);
     check("inventory with ask, bid and worth", /Linen Fabric ×268 · ask [\d.kM]+ · bid [\d.kM]+ · worth [\d.kM]+/.test(text), text.match(/## Inventory.*\n.*/)?.[0]);
     check("market orders", /## Market orders\nSell Linen Fabric ×10 @ 120 \(7 filled\)/.test(text), text.match(/## Market orders\n.*/)?.[0]);
@@ -114,7 +115,7 @@ try {
         const box = document.querySelector('[class*="Inventory_inventory"]');
         box.innerHTML = '<div class="Inventory_items__6SXv0"><div>redrawn</div></div>';
     });
-    check("back after the game redraws the inventory, once", await wait(page, () => document.querySelectorAll(".mwia-export").length === 1 && document.querySelector(".mwia-export").nextElementSibling?.textContent === "redrawn"));
+    check("back after the game redraws the inventory, once", await wait(page, () => document.querySelectorAll(".mwia-export").length === 1 && document.querySelector(".mwia-export").previousElementSibling?.textContent === "redrawn"));
 
     // No share sheet (a computer): it downloads, and is copied.
     await page.evaluate(() => {

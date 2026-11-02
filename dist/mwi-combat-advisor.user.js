@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.48.0
+// @version      0.48.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -4529,7 +4529,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.48.0" : "dev";
+  var VERSION = true ? "0.48.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -4628,12 +4628,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     ex.scanTimer = setTimeout(() => {
       ex.scanTimer = null;
       for (const grid of document.querySelectorAll(INVENTORY4)) {
-        if (grid.previousElementSibling?.classList.contains("mwia-export") || grid.parentElement?.closest(INVENTORY4)) continue;
+        if (grid.nextElementSibling?.classList.contains("mwia-export") || grid.parentElement?.closest(INVENTORY4)) continue;
         const bar = document.createElement("div");
         bar.className = "mwia-export";
         bar.innerHTML = `<button type="button" class="mwia-export-btn" title="A text file with your character and the advice, to paste into a chat">\u{1F9ED} Export for chat</button>`;
         bar.querySelector("button").addEventListener("click", (event) => exportClicked(event.currentTarget));
-        grid.parentElement.insertBefore(bar, grid);
+        grid.parentElement.insertBefore(bar, grid.nextSibling);
       }
     }, SCAN_MS2);
   }
@@ -4659,7 +4659,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const file = typeof File === "function" ? new File([text], name, { type: "text/plain" }) : null;
     if (file && navigator.canShare?.({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: name });
+        await navigator.share({ files: [file] });
         return;
       } catch (error) {
         if (error?.name === "AbortError") return;
@@ -4694,7 +4694,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     out.push(`# MWI Advisor export`, `Version ${scriptVersion()} \xB7 ${(/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace("T", " ")} UTC \xB7 character ${c2.character?.name || "?"} \xB7 prices ${age === null ? "not loaded" : `${Math.round(age / 6e4)} min old`}`);
     const context2 = ex.context() || {};
     if (context2.settings) section("Settings", [JSON.stringify(context2.settings)]);
-    const skills = (c2.characterSkills || []).filter((s) => s.skillHrid).map((s) => `${words(s.skillHrid)} ${s.level}${s.experience !== void 0 && s.experience !== null ? ` (${n(s.experience)} XP)` : ""}`);
+    const total = (s) => s.skillHrid.endsWith("/total_level");
+    const skills = (c2.characterSkills || []).filter((s) => s.skillHrid).sort((a, b) => total(b) - total(a) || b.level - a.level || (b.experience || 0) - (a.experience || 0)).map((s) => `${words(s.skillHrid)} ${s.level}${s.experience !== void 0 && s.experience !== null ? ` (${n(s.experience)} XP)` : ""}`);
     section("Levels", [skills.join(" \xB7 ")]);
     const worn = items.filter((i) => i.itemHrid && i.itemLocationHrid && i.itemLocationHrid !== INVENTORY_LOCATION);
     section("Equipment", worn.map((i) => `${words(i.itemLocationHrid)}: ${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`));
@@ -4709,15 +4710,19 @@ i.mwia-history-bid { background: #7ee2b0; }
     const stacks = items.filter((i) => i.itemHrid && i.itemLocationHrid === INVENTORY_LOCATION);
     const coinCount = stacks.filter((i) => i.itemHrid === COIN4).reduce((sum, i) => sum + (i.count || 0), 0);
     section("Coins", [n(coinCount)]);
+    const pricer = data ? marketPricer((hrid) => marketEntry(hrid), data, "bid") : null;
     const priced = stacks.filter((i) => i.itemHrid !== COIN4).map((i) => {
       const m = marketEntry(i.itemHrid, i.enhancementLevel || 0);
       const ask = m?.a > 0 ? m.a : null;
       const bid = m?.b > 0 ? m.b : null;
-      return { i, ask, bid, worth: (i.count || 0) * (bid ?? ask ?? data?.itemDetailMap?.[i.itemHrid]?.sellPrice ?? 0) };
+      const other = bid === null && ask === null && !i.enhancementLevel ? pricer?.sell(i.itemHrid) : null;
+      const how = other?.source === "bag" ? "a tenth of a bag" : other?.source === "contents" ? "what it holds" : null;
+      const each = bid ?? ask ?? (how ? other.price : data?.itemDetailMap?.[i.itemHrid]?.sellPrice ?? 0);
+      return { i, ask, bid, how, worth: (i.count || 0) * each };
     }).sort((a, b) => b.worth - a.worth);
     section(
       `Inventory (${priced.length} stacks, most valuable first)`,
-      priced.map(({ i, ask, bid, worth }) => `${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""} \xD7${n(i.count || 0)} \xB7 ask ${ask === null ? "\u2013" : coins2(ask)} \xB7 bid ${bid === null ? "\u2013" : coins2(bid)} \xB7 worth ${coins2(worth)}`)
+      priced.map(({ i, ask, bid, how, worth }) => `${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""} \xD7${n(i.count || 0)} \xB7 ask ${ask === null ? "\u2013" : coins2(ask)} \xB7 bid ${bid === null ? "\u2013" : coins2(bid)} \xB7 worth ${coins2(worth)}${how ? ` (${how})` : ""}`)
     );
     const listings = (c2.myMarketListings || []).map((l2) => `${l2.isSell ? "Sell" : "Buy"} ${itemName(l2.itemHrid)}${l2.enhancementLevel ? ` +${l2.enhancementLevel}` : ""} \xD7${n(l2.orderQuantity || 0)} @ ${coins2(Number(l2.price) || 0)}${l2.filledQuantity ? ` (${n(l2.filledQuantity)} filled)` : ""}`);
     section("Market orders", listings);
@@ -7765,7 +7770,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       ${rows.map((r) => `<tr><td>${esc(SKILL_NAMES[r.hrid.split("/").pop()] || SKILLING_NAMES(r.hrid))}</td><td class="mwia-num">${r.level}</td><td class="mwia-num">${int(r.need)}</td></tr>`).join("")}
       </tbody></table>
       <p class="mwia-dim">Tick <i>Count levels, not XP</i> in Where to fight, Upgrades or Skilling to rank by levels gained.</p></details>`;
-    html += `<p><button class="mwia-btn" data-action="export">\u{1F9ED} Export for chat</button> <span class="mwia-dim">A text file with your character, inventory, orders and the advice, to paste into a chat. The same button is above the game's inventory.</span></p>`;
+    html += `<p><button class="mwia-btn" data-action="export">\u{1F9ED} Export for chat</button> <span class="mwia-dim">A text file with your character, inventory, orders and the advice, to paste into a chat. The same button is under the game's inventory.</span></p>`;
     return html;
   }
   function exportContext() {
@@ -8239,7 +8244,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.48.0" : "dev";
+  var VERSION3 = true ? "0.48.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
