@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.51.1
+// @version      0.52.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1943,14 +1943,14 @@
         seen.add(key);
         if (current && current.itemHrid === item.hrid && current.enhancementLevel >= offer.enhancementLevel) continue;
         const next = itemSkillBuffs(item.hrid, offer.enhancementLevel, skill, data);
-        const changed = withBuffs([...negate(old.buffs), ...next.buffs], next.concentration - old.concentration, Math.max(slotsAfter, who.drinks[type]?.length || 0));
+        const changed2 = withBuffs([...negate(old.buffs), ...next.buffs], next.concentration - old.concentration, Math.max(slotsAfter, who.drinks[type]?.length || 0));
         let after;
         let from = base;
         if (slotsAfter !== who.slots[type]) {
           teaBase || (teaBase = m.dayWithTeas(who));
           from = teaBase;
-          after = m.dayWithTeas(changed);
-        } else after = m.day(changed);
+          after = m.dayWithTeas(changed2);
+        } else after = m.day(changed2);
         if (!after || !from) continue;
         const gain = worth(after) - worth(from);
         if (gain <= 1) continue;
@@ -2073,8 +2073,8 @@
     const key = !previous || keyOf2(previous) !== keyOf2(record);
     const idx = [];
     for (let i = 0; i < count2; i++) {
-      const changed = key ? fields.some((f) => hasValue(fieldAt(record[f], f, i))) : fields.some((f) => !same(fieldAt(record[f], f, i), fieldAt(previous[f], f, i)));
-      if (changed) idx.push(i);
+      const changed2 = key ? fields.some((f) => hasValue(fieldAt(record[f], f, i))) : fields.some((f) => !same(fieldAt(record[f], f, i), fieldAt(previous[f], f, i)));
+      if (changed2) idx.push(i);
     }
     const out = { count: count2, key, idx: count2 < 65536 ? Uint16Array.from(idx) : Uint32Array.from(idx) };
     for (const [k, v] of Object.entries(record)) if (!fields.includes(k)) out[k] = v;
@@ -3579,8 +3579,8 @@
 
   // src/job-ledger.js
   var MAX_REPORTS = 60;
+  var MAX_HISTORY = 1e3;
   var LOT_MS = 30 * 24 * 3600 * 1e3;
-  var MAX_LOTS = 300;
   var INSTANT_MS = 2 * 60 * 1e3;
   var COIN4 = "/items/coin";
   var keyOf = (hrid, level = 0) => `${hrid}::${Number(level) || 0}`;
@@ -3589,25 +3589,30 @@
     return { itemHrid: key.slice(0, i), level: Number(key.slice(i + 2)) || 0 };
   }
   function emptyLedger(now = Date.now()) {
-    return { since: now, lots: [], fills: {}, forecasts: {}, reports: {} };
+    return { since: now, purchases: {}, fills: {}, forecasts: {}, reports: {}, history: {}, unsent: { reports: [], purchases: [] }, piSeq: 0 };
   }
   function runningAction(actions) {
     const a = (actions || []).find((x) => !x.isDone);
     return a && !String(a.actionHrid || "").startsWith("/actions/combat/") ? a : null;
   }
+  var mark = (list, id) => {
+    if (!list.includes(id)) list.push(id);
+  };
   function noteFills(ledger, listings, { now, live, bookOf = () => null }) {
+    let changed2 = false;
     for (const listing of listings || []) {
       if (!listing || listing.isSell) continue;
       const id = String(listing.id);
       const filled = Number(listing.filledQuantity) || 0;
       const seen = ledger.fills[id];
-      const prev = seen?.filled ?? 0;
+      const bought = ledger.purchases[id];
+      const prev = Math.max(seen?.filled ?? 0, bought?.filled ?? 0);
       const firstSeen = seen?.seen ?? (live && now - ledger.since > INSTANT_MS ? now : 0);
       if (filled > prev) {
         const price = Number(listing.price) || 0;
         const level = Number(listing.enhancementLevel) || 0;
         const qty2 = filled - prev;
-        let unit = price;
+        let cost = qty2 * price;
         let estimate = false;
         if (firstSeen && now - firstSeen <= INSTANT_MS) {
           const asks = (bookOf(listing.itemHrid, level) || []).filter((o2) => o2.price > 0 && o2.price <= price).sort((a, b) => a.price - b.price);
@@ -3625,30 +3630,37 @@
             if (left <= 0) break;
           }
           if (left < qty2) {
-            unit = (sum + left * price) / qty2;
+            cost = sum + left * price;
             estimate = true;
           }
         }
-        ledger.lotSeq = (ledger.lotSeq || 0) + 1;
-        ledger.lots.push({ id: ledger.lotSeq, key: keyOf(listing.itemHrid, level), qty: qty2, left: qty2, unit, at: now, estimate });
+        ledger.purchases[id] = { key: keyOf(listing.itemHrid, level), filled, cost: (bought?.cost ?? 0) + cost, at: bought?.at ?? now, timed: bought ? !!bought.timed : !!live, estimate: !!bought?.estimate || estimate };
+        mark(ledger.unsent.purchases, id);
+        changed2 = true;
       }
       ledger.fills[id] = { filled: Math.max(filled, prev), seen: firstSeen, at: now };
     }
-    pruneLots(ledger, now);
+    prune(ledger, now);
+    return changed2;
   }
-  function pruneLots(ledger, now) {
-    ledger.lots = ledger.lots.filter((l2) => now - l2.at < LOT_MS).slice(-MAX_LOTS);
+  function prune(ledger, now) {
     for (const [id, f] of Object.entries(ledger.fills)) if (now - f.at > LOT_MS) delete ledger.fills[id];
+    for (const [id, b] of Object.entries(ledger.purchases)) if (now - b.at > LOT_MS) delete ledger.purchases[id];
   }
-  function takeLots(ledger, key, qty2, took = []) {
+  function lotsLeft(ledger, except = null) {
+    const lots = Object.values(ledger.purchases).filter((b) => b.filled > 0).map((b) => ({ key: b.key, qty: b.filled, left: b.filled, unit: b.cost / b.filled, at: b.at, timed: !!b.timed, estimate: !!b.estimate })).sort((a, b) => a.at - b.at);
+    const results = Object.entries(ledger.history).filter(([key]) => key !== except).map(([, h2]) => h2).sort((a, b) => a.endedAt - b.endedAt);
+    for (const h2 of results) for (const [key, qty2] of h2.used || []) takeLots(lots, key, qty2, h2.endedAt);
+    return lots;
+  }
+  function takeLots(lots, key, qty2, by = Infinity) {
     let left = qty2;
     let cost = 0;
     let estimate = false;
-    for (const lot of ledger.lots) {
-      if (lot.key !== key || lot.left <= 1e-9) continue;
+    for (const lot of lots) {
+      if (lot.key !== key || lot.left <= 1e-9 || lot.timed && lot.at > by) continue;
       const take = Math.min(left, lot.left);
       lot.left -= take;
-      if (lot.id) took.push([lot.id, take]);
       left -= take;
       cost += take * lot.unit;
       estimate || (estimate = lot.estimate);
@@ -3656,20 +3668,84 @@
     }
     return { qty: qty2 - Math.max(0, left), cost, estimate };
   }
-  function giveBackLots(ledger, took) {
-    for (const [id, qty2] of took || []) {
-      const lot = ledger.lots.find((l2) => l2.id === id);
-      if (lot) lot.left = Math.min(lot.qty, lot.left + qty2);
-    }
+  var jobGroup = (actionHrid, item) => String(actionHrid).startsWith("/actions/alchemy/") ? `${actionHrid}#${item}` : actionHrid;
+  function summarize2(r) {
+    return {
+      group: jobGroup(r.actionHrid, r.item),
+      name: r.name,
+      endedAt: r.endedAt,
+      hours: r.hours,
+      actions: r.actions,
+      revenue: r.revenue,
+      profit: r.profit,
+      expectedMargin: r.forecast?.margin ?? null,
+      used: r.used.filter((u) => u.itemHrid !== COIN4).map((u) => [keyOf(u.itemHrid, u.level), u.qty])
+    };
   }
-  var dryLedger = (ledger) => ({ ...ledger, lots: ledger.lots.map((l2) => ({ ...l2 })) });
+  function keepReport(ledger, key, report, { sent = false } = {}) {
+    ledger.reports[key] = report;
+    ledger.history[key] = summarize2(report);
+    if (!sent) mark(ledger.unsent.reports, key);
+    const full = Object.keys(ledger.reports).sort((a, b) => ledger.reports[a].endedAt - ledger.reports[b].endedAt);
+    for (const k of full.slice(0, Math.max(0, full.length - MAX_REPORTS))) delete ledger.reports[k];
+    const all = Object.keys(ledger.history).sort((a, b) => ledger.history[a].endedAt - ledger.history[b].endedAt);
+    for (const k of all.slice(0, Math.max(0, all.length - MAX_HISTORY))) delete ledger.history[k];
+  }
+  var newerReport = (incoming, kept) => !kept || incoming.actions > kept.actions || incoming.endedAt > kept.endedAt;
+  function mergeFromPi2(ledger, wire) {
+    let changed2 = false;
+    for (const { key, report } of wire.reports || []) {
+      if (!key || !report || !Number.isFinite(report.endedAt)) continue;
+      if (newerReport(report, ledger.history[key])) {
+        keepReport(ledger, key, report, { sent: true });
+        changed2 = true;
+      }
+    }
+    for (const { uid, purchase } of wire.purchases || []) {
+      if (!uid || !purchase || !(purchase.filled > 0)) continue;
+      const mine = ledger.purchases[uid];
+      if (!mine || purchase.filled > mine.filled) {
+        ledger.purchases[uid] = { key: purchase.key, filled: purchase.filled, cost: purchase.cost, at: purchase.at, timed: !!purchase.timed, estimate: !!purchase.estimate };
+        changed2 = true;
+      }
+    }
+    if (Number.isFinite(wire.seq)) ledger.piSeq = Math.max(ledger.piSeq || 0, wire.seq);
+    return changed2;
+  }
+  function unsentForPi(ledger) {
+    return {
+      reports: ledger.unsent.reports.filter((k) => ledger.reports[k]).map((key) => ({ key, report: ledger.reports[key] })),
+      purchases: ledger.unsent.purchases.filter((id) => ledger.purchases[id]).map((uid) => ({ uid, purchase: ledger.purchases[uid] }))
+    };
+  }
+  function markSent(ledger, { reports = [], purchases = [] }) {
+    ledger.unsent.reports = ledger.unsent.reports.filter((k) => !reports.includes(k) && ledger.reports[k]);
+    ledger.unsent.purchases = ledger.unsent.purchases.filter((id) => !purchases.includes(id) && ledger.purchases[id]);
+  }
+  function groupHistory(ledger, group, except = null) {
+    const list = Object.entries(ledger.history).filter(([key, h2]) => key !== except && h2.group === group).map(([, h2]) => h2);
+    if (!list.length) return null;
+    const sum = (f) => list.reduce((s2, h2) => s2 + (f(h2) || 0), 0);
+    const revenue = sum((h2) => h2.revenue);
+    const hours = sum((h2) => h2.hours);
+    const profit = sum((h2) => h2.profit);
+    const expected = list.filter((h2) => Number.isFinite(h2.expectedMargin));
+    return {
+      jobs: list.length,
+      days: (Math.max(...list.map((h2) => h2.endedAt)) - Math.min(...list.map((h2) => h2.endedAt))) / 864e5,
+      profit,
+      perHour: hours > 0 ? profit / hours : null,
+      margin: revenue > 0 ? profit / revenue : null,
+      expectedMargin: expected.length ? expected.reduce((s2, h2) => s2 + h2.expectedMargin, 0) / expected.length : null
+    };
+  }
   function jobReport(ledger, job, prices2, now = Date.now()) {
     const f = job.forecast;
     const actions = job.actions;
     const hours = job.hours;
     const made = [];
     const used = [];
-    const took = [];
+    const lots = lotsLeft(ledger, job.key);
     for (const [key, d] of Object.entries(job.deltas)) {
       if (Math.abs(d) < 1e-9) continue;
       const { itemHrid, level } = splitKey(key);
@@ -3678,7 +3754,7 @@
         made.push({ itemHrid, level, qty: d, unit, total: d * unit });
       } else {
         const qty2 = -d;
-        const fromLots = itemHrid === COIN4 ? { qty: 0, cost: 0, estimate: false } : takeLots(ledger, key, qty2, took);
+        const fromLots = itemHrid === COIN4 ? { qty: 0, cost: 0, estimate: false } : takeLots(lots, key, qty2, job.endedAt);
         const rest = qty2 - fromLots.qty;
         const restUnit = itemHrid === COIN4 ? 1 : prices2.cost(itemHrid, level) ?? 0;
         const total = fromLots.cost + rest * restUnit;
@@ -3693,12 +3769,12 @@
     const profit = revenue - cost;
     const report = {
       id: job.id,
+      key: job.key,
       name: job.name,
       actionHrid: job.actionHrid,
       item: job.item,
       endedAt: job.endedAt,
       pricedAt: now,
-      took,
       actions,
       hours,
       made,
@@ -3765,11 +3841,19 @@
   var HEADING = /^loot\s*&\s*xp\s*log$/i;
   var START = /^Start Time:\s*(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)/;
   var MAX_FORECASTS = 60;
-  var j = { deps: null, ledger: null, preparing: null, timer: null, soFar: /* @__PURE__ */ new Map() };
+  var j = { deps: null, ledger: null, preparing: null, timer: null, soFar: /* @__PURE__ */ new Map(), sync: null, changed: /* @__PURE__ */ new Set() };
+  var PI_WAIT_MS = 4e3;
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) || "null");
-      if (saved && Array.isArray(saved.lots)) return { ...emptyLedger(), lots: saved.lots, fills: saved.fills || {}, forecasts: saved.forecasts || {}, reports: saved.reports || {}, since: saved.since || Date.now() };
+      if (saved && saved.purchases) return { ...emptyLedger(), ...saved, unsent: { reports: [], purchases: [], ...saved.unsent } };
+      if (saved && Array.isArray(saved.lots)) {
+        const L = { ...emptyLedger(), fills: saved.fills || {}, forecasts: saved.forecasts || {}, since: saved.since || Date.now() };
+        for (const lot of saved.lots) L.purchases[`v051-${lot.id ?? lot.at}`] = { key: lot.key, filled: lot.qty, cost: lot.qty * lot.unit, at: lot.at, estimate: !!lot.estimate };
+        for (const [key, report] of Object.entries(saved.reports || {})) if (report?.used && Number.isFinite(report.endedAt)) keepReport(L, key, { ...report, key });
+        L.unsent.purchases = Object.keys(L.purchases);
+        return L;
+      }
     } catch {
     }
     return emptyLedger();
@@ -3795,14 +3879,17 @@
       const L = j.ledger;
       if (type === "init_character_data" || type === "market_listings_updated") {
         const listings = data.myMarketListings ?? data.marketListings ?? data.endMarketListings ?? [];
-        noteFills(L, listings, { now: Date.now(), live: type === "market_listings_updated", bookOf: (hrid, level) => orderBookAt(hrid, level)?.asks || null });
+        if (noteFills(L, listings, { now: Date.now(), live: type === "market_listings_updated", bookOf: (hrid, level) => orderBookAt(hrid, level)?.asks || null })) changed();
         save();
       }
       if (type === "init_character_data" || type === "actions_updated" || type === "action_completed") keepForecast();
       if (type === "actions_updated") schedule();
       if (type === "loot_log_updated") {
-        reportLog();
-        schedule();
+        const synced = j.sync ? Promise.race([j.sync().catch(() => null), new Promise((r) => setTimeout(r, PI_WAIT_MS))]) : Promise.resolve();
+        synced.then(() => {
+          reportLog();
+          schedule();
+        });
       }
     } catch (error) {
       console.error("[MWI Advisor] job log", error);
@@ -3854,11 +3941,32 @@
     if (!queue) return !ended(e);
     return queue.some((a) => a.id === e.characterActionId && a.actionHrid === e.actionHrid && !a.isDone);
   }
-  var stale = (report, e) => report.actions !== (Number(e.actionCount) || 0) || report.endedAt !== time(e.endTime);
+  var stale = (kept, e) => kept.actions !== (Number(e.actionCount) || 0) || kept.endedAt !== time(e.endTime);
+  var changed = () => {
+    for (const listener of j.changed) listener();
+  };
+  function useJobSync(sync) {
+    j.sync = sync;
+  }
+  function onJobsChanged(listener) {
+    j.changed.add(listener);
+  }
+  var jobsPiSeq = () => j.ledger?.piSeq || 0;
+  var jobsForPi = () => j.ledger ? unsentForPi(j.ledger) : { reports: [], purchases: [] };
+  function jobsSentToPi(sent) {
+    if (!j.ledger) return;
+    markSent(j.ledger, sent);
+    save();
+  }
+  function jobsFromPi(wire) {
+    if (!j.ledger) return;
+    if (mergeFromPi2(j.ledger, wire)) schedule();
+    save();
+  }
   function reportLog() {
     const L = j.ledger;
     const log = (state.lootLog || []).filter((e) => counted(e.actionHrid) && time(e.startTime) !== null);
-    const todo = log.filter((e) => running(e) ? ended(e) : ended(e) && (!L.reports[entryKey(e)] || stale(L.reports[entryKey(e)], e)));
+    const todo = log.filter((e) => running(e) ? ended(e) : ended(e) && (!L.history[entryKey(e)] || stale(L.history[entryKey(e)], e)));
     if (!todo.length || !whenReady(() => (reportLog(), schedule()))) return;
     const data = getClientData();
     for (const e of todo.sort((a, b) => time(a.endTime) - time(b.endTime))) {
@@ -3878,20 +3986,17 @@
       };
       job.name = forecast?.name || jobName(e, data);
       const key = entryKey(e);
+      job.key = key;
+      const report = jobReport(L, job, pricesFor(forecast));
+      report.catalyst = itemOfHash2(e.secondaryItemHash);
       if (running(e)) {
-        const report2 = jobReport(dryLedger(L), job, pricesFor(forecast));
-        report2.catalyst = itemOfHash2(e.secondaryItemHash);
-        j.soFar.set(key, report2);
+        j.soFar.set(key, report);
         continue;
       }
       j.soFar.delete(key);
-      if (L.reports[key]) giveBackLots(L, L.reports[key].took);
-      const report = jobReport(L, job, pricesFor(forecast));
-      report.catalyst = itemOfHash2(e.secondaryItemHash);
-      L.reports[key] = report;
+      keepReport(L, key, report);
+      changed();
     }
-    const keys = Object.keys(L.reports).sort((a, b) => L.reports[a].endedAt - L.reports[b].endedAt);
-    for (const key of keys.slice(0, Math.max(0, keys.length - MAX_REPORTS))) delete L.reports[key];
     save();
   }
   function entryDeltas(e, data, forecast) {
@@ -3977,8 +4082,9 @@
       if (!card) continue;
       const key = entryKey(e);
       const report = j.ledger.reports[key];
+      const kept = j.ledger.history[key];
       const soFar = j.soFar.get(key);
-      const html = running(e) ? soFar && soFar.actions === (Number(e.actionCount) || 0) ? lineHtml(soFar, "running") : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>` : report && !stale(report, e) ? lineHtml(report) : soFar ? lineHtml(soFar, "ended") : `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>`;
+      const html = running(e) ? soFar && soFar.actions === (Number(e.actionCount) || 0) ? lineHtml(soFar, "running") : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>` : report && kept && !stale(kept, e) ? lineHtml(report) : soFar ? lineHtml(soFar, "ended") : `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>`;
       let line = [...card.children].find((c2) => c2.classList.contains("mwia-jobline"));
       if (!line) {
         line = document.createElement("div");
@@ -4016,7 +4122,9 @@
     } else lines.push("No advice to compare with.");
     if (r.made.length) lines.push(`Made: ${r.made.map((m) => `${qty(m.qty)} ${esc(itemName(m.itemHrid))}${levelText(m.level)} \xD7 ${coins2(m.unit)} = ${coins2(m.total)}`).join(" \xB7 ")}.`);
     if (r.used.length) lines.push(`Used: ${r.used.map((u) => `${qty(u.qty)} ${esc(itemName(u.itemHrid))}${levelText(u.level)} \xD7 ${coins2(u.unit)} = ${coins2(u.total)}${u.bought > 0 ? ` <span class="mwia-dim">(${u.bought >= u.qty - 1e-6 ? "all" : qty(u.bought)} at what you paid${u.boughtEstimate ? ", bought at once: priced up the order book seen" : ""})</span>` : ""}`).join(" \xB7 ")}${r.teas >= 1 ? ` \xB7 teas \u2248 ${coins2(r.teas)}` : ""}.`);
-    if (state2 === "running") lines.push(`<span class="mwia-dim">Still running: what the log said when it was last fetched (tap Refresh for now); your bought lots aren't used up until it ends.</span>`);
+    const earlier = groupHistory(j.ledger, jobGroup(r.actionHrid, r.item), r.key);
+    if (earlier) lines.push(`Earlier jobs like this: ${earlier.jobs}${earlier.days >= 1 ? ` over ${Math.round(earlier.days)} day${Math.round(earlier.days) === 1 ? "" : "s"}` : ""} \u2013 margin ${pct2(earlier.margin)}${earlier.expectedMargin !== null ? ` (${pct2(earlier.expectedMargin)} expected)` : ""}${earlier.perHour !== null ? `, ${coins2(earlier.perHour)}/h` : ""}, <span class="${earlier.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(earlier.profit)}</span> in all.`);
+    if (state2 === "running") lines.push(`<span class="mwia-dim">Still running: what the log said when it was last fetched (tap Refresh for now); your purchases aren't used up until it ends.</span>`);
     if (state2 === "ended") lines.push(`<span class="mwia-dim">It has ended since the log was fetched: tap Refresh for the whole job.</span>`);
     const age = Math.max(0, Math.round((r.pricedAt - r.endedAt) / 6e4));
     lines.push(`<span class="mwia-dim">Made at the market ${age > 5 ? `${duration(age / 60)} after it ended (when first seen)` : "as it ended"}, the ${Math.round(MARKET_TAX * 100)}% tax off; used at what you paid, else the advice's price${r.teas >= 1 ? "; teas at the advice's rate" : ""}${skillOf2(r.actionHrid) === "alchemy" ? "; the catalyst one per success, from what the successes dropped" : "; materials as the action takes them (Artisan's saving as expected)"}.</span>`);
@@ -4413,11 +4521,11 @@
     let next = 0;
     return items.map((item) => item.seeds.map((seed) => ({ ...enrich(results[next++], zone.tier, item.profile), seed })));
   }
-  var summarize2 = (runs, tier, profile) => enrich(average(runs), tier, profile);
+  var summarize3 = (runs, tier, profile) => enrich(average(runs), tier, profile);
   async function simulateVariants(pool, variants, zone, settings2, onProgress) {
     const seeds = Array.from({ length: settings2.seeds }, (_, i) => i);
     const runs = await simulateRuns(pool, variants.map((v) => ({ profile: v.profile, seeds })), zone, settings2.hours, onProgress);
-    return variants.map((variant, i) => ({ ...variant, result: summarize2(runs[i], zone.tier, variant.profile), runs: runs[i] }));
+    return variants.map((variant, i) => ({ ...variant, result: summarize3(runs[i], zone.tier, variant.profile), runs: runs[i] }));
   }
   async function analyzeZones(pool, profile, settings2, onProgress) {
     const variants = [];
@@ -4776,7 +4884,7 @@
     const seeds = (n3) => Array.from({ length: n3 }, (_, i) => i);
     const items = [{ profile, seeds: seeds(settings2.seeds * BASE_SEED_FACTOR) }, ...candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds) }))];
     const runs = await simulateRuns(pool, items, zone, settings2.hours, onProgress);
-    const simulated = [{ profile }, ...candidates].map((v, i) => ({ ...v, result: summarize2(runs[i], zone.tier, v.profile), runs: runs[i] }));
+    const simulated = [{ profile }, ...candidates].map((v, i) => ({ ...v, result: summarize3(runs[i], zone.tier, v.profile), runs: runs[i] }));
     const slots = slotCounts(profile, getClientData());
     const emptyAbilitySlots = [];
     for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
@@ -4811,7 +4919,7 @@
     const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
     targets.forEach((c2, i) => {
       c2.runs = [...c2.runs, ...runs[i]];
-      c2.result = summarize2(c2.runs, raw.zone.tier, c2.profile);
+      c2.result = summarize3(c2.runs, raw.zone.tier, c2.profile);
     });
     return targets.length;
   }
@@ -5407,7 +5515,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.51.1" : "dev";
+  var VERSION = true ? "0.52.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5744,8 +5852,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   var ORDERS_AFTER_MS = 60 * 1e3;
   var ORDER_BATCH = 100;
   var ORDER_BATCHES = 10;
-  var NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null };
-  var p = { running: null, sending: null, ordersTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: /* @__PURE__ */ new Set() };
+  var JOB_BATCH = 25;
+  var NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null };
+  var p = { running: null, sending: null, jobSync: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: /* @__PURE__ */ new Set() };
   function readPairing(win2) {
     const match = /(?:^#|&)mwia-pi=([A-Za-z0-9_-]+)/.exec(win2.location.hash);
     if (!match) return;
@@ -5779,6 +5888,11 @@ i.mwia-history-bid { background: #7ee2b0; }
       clearTimeout(p.ordersTimer);
       if (p.status.orders) p.ordersTimer = setTimeout(sendOrders, ORDERS_AFTER_MS);
     });
+    onJobsChanged(() => {
+      clearTimeout(p.jobsTimer);
+      if (p.status.jobs) p.jobsTimer = setTimeout(syncJobs, ORDERS_AFTER_MS);
+    });
+    useJobSync(() => piConfig() && p.status.jobs ? syncJobs() : Promise.resolve());
     setTimeout(syncNow, FIRST_SYNC_MS);
     setInterval(syncNow, SYNC_EVERY_MS);
     document.addEventListener("visibilitychange", () => {
@@ -5805,8 +5919,10 @@ i.mwia-history-bid { background: #7ee2b0; }
         const result = await mergeFromPi(wire, unpackRecord);
         added = result.hours > 0 || result.days > 0;
         const takesOrders = !!wire.status?.orders;
-        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null };
+        const takesJobs = !!wire.status?.jobs;
+        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null };
         if (takesOrders) await sendOrders();
+        if (takesJobs) await syncJobs();
       } catch (error) {
         p.status = { ...p.status, ok: false, error: error.message || String(error) };
       } finally {
@@ -5846,6 +5962,41 @@ i.mwia-history-bid { background: #7ee2b0; }
       notify(false);
     })());
     return p.sending;
+  }
+  function syncJobs() {
+    const config = piConfig();
+    if (!config || !p.status.jobs) return Promise.resolve();
+    p.jobSync || (p.jobSync = (async () => {
+      let error = "";
+      const headers = { Authorization: `Bearer ${config.key}` };
+      try {
+        const response = await fetch(`${config.url}/jobs?after=${jobsPiSeq()}`, { headers, cache: "no-store", signal: AbortSignal.timeout?.(3e4) });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        jobsFromPi(await response.json());
+        for (let k = 0; k < ORDER_BATCHES; k++) {
+          const all = jobsForPi();
+          const reports = all.reports.slice(0, JOB_BATCH);
+          const purchases = all.purchases.slice(0, Math.max(0, JOB_BATCH * 4 - reports.length));
+          if (!reports.length && !purchases.length) break;
+          const sent = await fetch(`${config.url}/jobs`, {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ device: deviceName(), reports, purchases }),
+            cache: "no-store",
+            signal: AbortSignal.timeout?.(3e4)
+          });
+          if (!sent.ok) throw new Error(`HTTP ${sent.status}`);
+          jobsSentToPi({ reports: reports.map((r) => r.key), purchases: purchases.map((x) => x.uid) });
+        }
+      } catch (e) {
+        error = e.message || String(e);
+      } finally {
+        p.jobSync = null;
+      }
+      p.status = { ...p.status, jobs: { at: Date.now(), error } };
+      notify(false);
+    })());
+    return p.jobSync;
   }
 
   // src/price-history-ui.js
@@ -5976,7 +6127,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const text = st.ok === null ? "Linked to your Pi; reading it\u2026" : st.ok ? `From your Pi: newest prices ${st.newest ? time2(st.newest) : "none yet"}, read ${time2(st.at)}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}` : `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time2(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
     const orders = st.orders;
     const ordersText = !orders ? "" : orders.error ? ` Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.` : orders.at ? ` Your orders: ${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"}, sent ${time2(orders.at)}.` : "";
-    return `<div class="mwia-history-note">${esc(text + ordersText)}</div>
+    const jobs = st.jobs;
+    const jobsText = !jobs ? "" : jobs.error ? ` Job results couldn't be synced (${jobs.error}).` : jobs.at ? ` Job results synced ${time2(jobs.at)}.` : "";
+    return `<div class="mwia-history-note">${esc(text + ordersText + jobsText)}</div>
         <div class="mwia-history-ranges"><button data-history-pi="sync">\u21BB Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
   }
   function onClick(event) {
@@ -6170,8 +6323,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var head = (title, note) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note}</span></div>`;
   function itemLine(kind, hrid, extra = "") {
-    const mark2 = { keep: "\u2713", add: "\u2795 Put in", remove: "\u2796 Take out" }[kind];
-    return `<li class="mwia-guide-${kind}">${mark2} ${esc(itemName(hrid))}${extra ? ` <span>${extra}</span>` : ""}</li>`;
+    const mark3 = { keep: "\u2713", add: "\u2795 Put in", remove: "\u2796 Take out" }[kind];
+    return `<li class="mwia-guide-${kind}">${mark3} ${esc(itemName(hrid))}${extra ? ` <span>${extra}</span>` : ""}</li>`;
   }
   function cartButton(items, label3) {
     if (!items.length) return "";
@@ -6520,7 +6673,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         const hrid = inSlots[i];
         const wrong = hrid ? !right.has(hrid) : empty-- > 0;
         if (wrong) {
-          mark(slot, "wrong", hrid ? `Not for ${advice.name}: ${advice.teas.length ? "use " + advice.teas.map(itemName).join(", ") : "no tea pays"}` : `Empty: put in ${missing.map(itemName).join(" or ")}`);
+          mark2(slot, "wrong", hrid ? `Not for ${advice.name}: ${advice.teas.length ? "use " + advice.teas.map(itemName).join(", ") : "no tea pays"}` : `Empty: put in ${missing.map(itemName).join(" or ")}`);
           marked.add(slot);
         }
       });
@@ -6531,7 +6684,7 @@ i.mwia-history-bid { background: #7ee2b0; }
           const hrid = iconItem(item);
           const good = hrid ? right.has(hrid) && !inSlots.includes(hrid) : /^remove$/i.test(item.textContent.trim()) && anyWrong && !missing.length;
           if (good) {
-            mark(item, "right", hrid ? `Right for ${advice.name}` : "Take the wrong tea out");
+            mark2(item, "right", hrid ? `Right for ${advice.name}` : "Take the wrong tea out");
             marked.add(item);
           }
         }
@@ -6553,7 +6706,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       box.innerHTML = note;
     }
   }
-  function mark(el, kind, title) {
+  function mark2(el, kind, title) {
     if (el.dataset.mwiaTea !== kind) el.dataset.mwiaTea = kind;
     if (el.title !== title) el.title = title;
   }
@@ -8751,7 +8904,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.51.1" : "dev";
+  var VERSION3 = true ? "0.52.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

@@ -1075,7 +1075,8 @@ try {
         // A decomposable item, its catalyst used on 8 of 10 tries.
         const decomposable = Object.values(clientData.itemDetailMap).find((d) => d.isTradable && d.alchemyDetail?.decomposeItems?.length && !(d.alchemyDetail.bulkMultiplier > 1));
         const out = decomposable.alchemyDetail.decomposeItems[0];
-        const t0 = Date.parse("2026-11-02T06:00:00Z");
+        // Jobs that end after the buy order above was seen filling (it can't be what an earlier job used).
+        const t0 = Math.floor(Date.now() / 1000) * 1000;
         const iso = (ms) => new Date(ms).toISOString();
         const lootLog = [
             { startTime: iso(t0), endTime: iso(t0 + 600000), characterActionId: 911, actionHrid: "/actions/alchemy/decompose", primaryItemHash: `1::/item_locations/inventory::${decomposable.hrid}::0`, secondaryItemHash: "1::/item_locations/inventory::/items/catalyst_of_decomposition::0", actionCount: 10, drops: { [`${out.itemHrid}::0`]: 8 * out.count, "/items/alchemy_essence::0": 1 }, xpGains: {} },
@@ -1102,8 +1103,10 @@ try {
         check("…against the advice kept as it began, materials at what you paid", /margin -?[\d.]+% \([\d.-]+% expected\)/.test(lines[1]) && lines[1].includes("Expected for these 4 actions:") && !lines[1].includes("worked out now") && new RegExp(`Used: ${4 * input.count} ${inputName} × 777 = [\\d.,k]+ \\(all at what you paid\\)`).test(lines[1]), lines[1]);
         check("…Decompose: the item, its coins and a catalyst per success", lines[0].includes(`10 ${decomposable.name} ×`) && /8 Catalyst Of Decomposition ×/i.test(lines[0]) && /Coin/.test(lines[0]), lines[0]);
         check("…a job still running: its result so far", /^🧭 so far: [+−]/.test(lines[2]) && lines[2].includes("Still running") && lines[2].includes(`Used: ${2 * input.count} ${inputName}`), lines[2]);
+        // What the kept results used of the material (they use up your purchases).
+        const usedOf = (stored, hrid) => Object.values(stored?.history || {}).reduce((sum, h) => sum + (h.used || []).filter(([key]) => key === `${hrid}::0`).reduce((s2, [, q]) => s2 + q, 0), 0);
         let stored = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
-        check("…results kept for the ended jobs only, the lot used by them", Object.keys(stored?.reports || {}).length === 2 && stored.lots.some((l) => l.left === 1000 - 4 * input.count), JSON.stringify(stored?.lots));
+        check("…results kept for the ended jobs only, the lot used by them", Object.keys(stored?.reports || {}).length === 2 && stored.purchases["4242"]?.filled === 1000 && usedOf(stored, input.itemHrid) === 4 * input.count, JSON.stringify(stored?.history));
         await page.screenshot({ path: path.join(shotDir, "skilling-11-lootlog.png") });
         const line = (i) => page.evaluate((i) => document.querySelector(`.loot-page .card[data-i="${i}"] .mwia-jobline`)?.textContent.replace(/\s+/g, " ") || "", i);
         // It ends: until the log is fetched again, the line says so.
@@ -1116,13 +1119,14 @@ try {
         await page.waitForFunction(() => /Expected for these 5 actions/.test(document.querySelector('.loot-page .card[data-i="2"] .mwia-jobline')?.textContent || ""), { timeout: 4000 }).catch(() => null);
         const whole = await line(2);
         stored = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
-        check("…fetched again: the whole job, lots used once", whole.includes("Expected for these 5 actions") && !/so far|ended – tap/.test(whole) && Object.keys(stored.reports).length === 3 && stored.lots.some((l) => l.left === 1000 - 9 * input.count), `${whole.slice(0, 200)} ${JSON.stringify(stored.lots)}`);
+        check("…fetched again: the whole job, lots used once", whole.includes("Expected for these 5 actions") && !/so far|ended – tap/.test(whole) && Object.keys(stored.reports).length === 3 && usedOf(stored, input.itemHrid) === 9 * input.count, `${whole.slice(0, 200)} ${JSON.stringify(stored.history)}`);
         // An entry that changed after its result (worked out from an older look): again, its lots given back first.
         lootLog[2] = { ...lootLog[2], endTime: iso(t0 + 750000), actionCount: 6, drops: { [`${output.itemHrid}::0`]: 6 * output.count } };
         await send({ type: "loot_log_updated", lootLog });
         await page.waitForFunction(() => /Expected for these 6 actions/.test(document.querySelector('.loot-page .card[data-i="2"] .mwia-jobline')?.textContent || ""), { timeout: 4000 }).catch(() => null);
         stored = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
-        check("…a result that no longer matches its entry is worked out again", (await line(2)).includes("Expected for these 6 actions") && stored.lots.some((l) => l.left === 1000 - 10 * input.count), JSON.stringify(stored.lots));
+        check("…with how earlier jobs like it went", /Earlier jobs like this: 1 – margin -?[\d.]+% \([\d.]+% expected\), −?[\d.,kMB]+\/h, [+−][\d.,kMB]+ in all\./.test(await line(2)), await line(2));
+        check("…a result that no longer matches its entry is worked out again", (await line(2)).includes("Expected for these 6 actions") && usedOf(stored, input.itemHrid) === 10 * input.count, JSON.stringify(stored.history));
         await page.evaluate(() => document.querySelector(".loot-page").remove());
     }
 

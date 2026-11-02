@@ -165,7 +165,10 @@ function sourceHtml() {
     // Your orders, when the Pi takes them: how the last send went.
     const orders = st.orders;
     const ordersText = !orders ? "" : orders.error ? ` Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.` : orders.at ? ` Your orders: ${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"}, sent ${time(orders.at)}.` : "";
-    return `<div class="mwia-history-note">${esc(text + ordersText)}</div>
+    // Job results and purchases, when the Pi takes them.
+    const jobs = st.jobs;
+    const jobsText = !jobs ? "" : jobs.error ? ` Job results couldn't be synced (${jobs.error}).` : jobs.at ? ` Job results synced ${time(jobs.at)}.` : "";
+    return `<div class="mwia-history-note">${esc(text + ordersText + jobsText)}</div>
         <div class="mwia-history-ranges"><button data-history-pi="sync">↻ Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
 }
 

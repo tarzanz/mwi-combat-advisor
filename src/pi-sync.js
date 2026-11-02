@@ -6,11 +6,14 @@
 // prints (…milkywayidle.com/#mwia-pi=…); address and key stay in this
 // browser's storage for the game's site, across script updates. When the Pi
 // takes them (MWIA_ORDERS=1), the events of your own market orders go to it
-// too (order-log.js): after each sync, and a minute after a change.
+// too (order-log.js): after each sync, and a minute after a change. So do your
+// job results and purchases (job-log.js), read back by every device: after each
+// sync, a minute after a change, and when the Loot & XP Log opens.
 
 import { loadHistory, mergeFromPi, piReceived } from "./price-history.js";
 import { unpackRecord } from "./history-wire.js";
 import { deviceName, dropQueued, onOrderEvents, queuedOrders } from "./order-log.js";
+import { jobsForPi, jobsFromPi, jobsPiSeq, jobsSentToPi, onJobsChanged, useJobSync } from "./job-log.js";
 
 const CONFIG_KEY = "mwia-pi";
 const SYNC_EVERY_MS = 15 * 60 * 1000;
@@ -19,11 +22,14 @@ const ORDERS_AFTER_MS = 60 * 1000;
 // Order events per request, and requests per send.
 const ORDER_BATCH = 100;
 const ORDER_BATCHES = 10;
+// Job results and purchases per request.
+const JOB_BATCH = 25;
 
 // status: ok (null before the first try), at: the last good sync, error, newest: the Pi's newest file, piError: its own last fetch error,
 // orders: null (the Pi doesn't take them) or { at: the last send, sent: in it, waiting, error }.
-const NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null };
-const p = { running: null, sending: null, ordersTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: new Set() };
+// jobs: null (the Pi doesn't take them) or { at: the last sync, error }.
+const NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null };
+const p = { running: null, sending: null, jobSync: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: new Set() };
 
 // A link from the server: saves its address and key, then takes them out of the address bar.
 export function readPairing(win) {
@@ -65,6 +71,12 @@ export function startPiSync() {
         clearTimeout(p.ordersTimer);
         if (p.status.orders) p.ordersTimer = setTimeout(sendOrders, ORDERS_AFTER_MS);
     });
+    onJobsChanged(() => {
+        clearTimeout(p.jobsTimer);
+        if (p.status.jobs) p.jobsTimer = setTimeout(syncJobs, ORDERS_AFTER_MS);
+    });
+    // The Loot & XP Log reads the Pi first, when it takes jobs.
+    useJobSync(() => (piConfig() && p.status.jobs ? syncJobs() : Promise.resolve()));
     setTimeout(syncNow, FIRST_SYNC_MS);
     setInterval(syncNow, SYNC_EVERY_MS);
     // Phones pause timers in the background: catch up on return.
@@ -94,8 +106,10 @@ export function syncNow() {
             const result = await mergeFromPi(wire, unpackRecord);
             added = result.hours > 0 || result.days > 0;
             const takesOrders = !!wire.status?.orders;
-            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null };
+            const takesJobs = !!wire.status?.jobs;
+            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null };
             if (takesOrders) await sendOrders();
+            if (takesJobs) await syncJobs();
         } catch (error) {
             p.status = { ...p.status, ok: false, error: error.message || String(error) };
         } finally {
@@ -137,4 +151,42 @@ export function sendOrders() {
         notify(false);
     })();
     return p.sending;
+}
+
+// Job results and purchases: reads what is new on the Pi (other devices'),
+// then sends what it lacks, a batch at a time.
+export function syncJobs() {
+    const config = piConfig();
+    if (!config || !p.status.jobs) return Promise.resolve();
+    p.jobSync ||= (async () => {
+        let error = "";
+        const headers = { Authorization: `Bearer ${config.key}` };
+        try {
+            const response = await fetch(`${config.url}/jobs?after=${jobsPiSeq()}`, { headers, cache: "no-store", signal: AbortSignal.timeout?.(30000) });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            jobsFromPi(await response.json());
+            for (let k = 0; k < ORDER_BATCHES; k++) {
+                const all = jobsForPi();
+                const reports = all.reports.slice(0, JOB_BATCH);
+                const purchases = all.purchases.slice(0, Math.max(0, JOB_BATCH * 4 - reports.length));
+                if (!reports.length && !purchases.length) break;
+                const sent = await fetch(`${config.url}/jobs`, {
+                    method: "POST",
+                    headers: { ...headers, "Content-Type": "application/json" },
+                    body: JSON.stringify({ device: deviceName(), reports, purchases }),
+                    cache: "no-store",
+                    signal: AbortSignal.timeout?.(30000),
+                });
+                if (!sent.ok) throw new Error(`HTTP ${sent.status}`);
+                jobsSentToPi({ reports: reports.map((r) => r.key), purchases: purchases.map((x) => x.uid) });
+            }
+        } catch (e) {
+            error = e.message || String(e);
+        } finally {
+            p.jobSync = null;
+        }
+        p.status = { ...p.status, jobs: { at: Date.now(), error } };
+        notify(false);
+    })();
+    return p.jobSync;
 }

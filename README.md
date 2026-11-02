@@ -284,7 +284,15 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   materials cost. A job still in your queue shows its result *so far* (the log gives a running job an end too: its
   latest action), worked out again each time the log is fetched and using none of your bought lots; once it has
   ended it says *ended – tap Refresh* until the log is fetched again, and then gets its result. A kept result that no
-  longer matches its entry is worked out again, its lots given back first. Only what the game fetches when you open the log is read. Kept in this browser (the last 60 jobs).
+  longer matches its entry is worked out again. Only what the game fetches when you open the log is read. Expanded, a
+  line also tells how earlier jobs of the same sort went (the action, and for Alchemy the item): how many, the margin
+  over all of them against the expected one, coins per hour and the profit in all. What a result used comes off your
+  purchases oldest first – a purchase seen filling after a job ended is never what it used – worked out again from
+  every kept result, so each device comes to the same. Kept in this browser (60 results in full, 1,000 in short);
+  with a Pi that takes orders, the results and purchases are shared between your devices through it: read when the
+  log opens (it waits up to 4 s for the Pi) and with every read of the Pi, sent a minute after a change – a
+  purchase made on the computer counts for a job seen on the phone, and a result worked out on one device is used as
+  it is on the others.
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the round **🧭** button (44 px on a
   touch screen, 36 px with a mouse) can be

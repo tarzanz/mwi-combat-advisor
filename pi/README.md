@@ -5,7 +5,8 @@ file every 10 minutes around the clock, keeps every new one, and sends linked
 browsers the hours they lack. Browsers still save prices themselves; the Pi's
 hours replace theirs, theirs fill in where the Pi has none (while it was down).
 Switched on, it also keeps what your devices see of your own market orders, to
-judge the listing prices by later (see *Your orders*).
+judge the listing prices by later (see *Your orders*), and shares your job results
+and purchases between your devices (see *Job results*).
 
 - **Data** in `pi/data/`: `raw/<date>/<timestamp>.json.gz` – every market file
   as it came (about 0.6 MB a day, 220 MB a year; the backup, from which
@@ -16,7 +17,8 @@ judge the listing prices by later (see *Your orders*).
   answers only the game's sites (CORS). `GET /status` says only whether it runs
   and how new its prices are. Nothing is written from outside – except, when you
   switch it on, `POST /orders` (the same key, the same sites; only order events,
-  at most 500 a request, kept apart from the prices).
+  at most 500 a request, kept apart from the prices) and `POST /jobs` (job results
+  and purchases, at most 300 a request); `GET /jobs` then reads them back.
 - **Secrets** stay on the Pi: the key in `pi/.env` (not in git). Each browser gets
   it once from a link and keeps it in its own storage for the game's site.
 
@@ -85,3 +87,25 @@ every device is closed shows up filled at the next look. Between two looks the
 market file (`raw/`, or the CSV above) tells when the lowest ask passed its price.
 To judge the <1h/<8h/<24h prices, compare an order's `prediction` with the time
 from its first event to the one where `filled` reached 70% of `quantity`.
+
+## Job results
+
+Switched on with the orders (`MWIA_ORDERS=1`). Under each job in the game's *Loot &
+XP Log* the userscript works out what the job really gave; those results, and what
+your buy orders cost, go to the Pi and back to every linked device, so a purchase
+made on one device counts for a job seen on another and each device shows the same.
+Each line in `data/jobs/<month>.jsonl` is one record, as the device sent it plus
+`device` and `received`:
+
+- `kind: "report"`, `key` (the log entry: the game's action id and start), `report`:
+  the result – `name`, `actionHrid`, `item`, `endedAt`, `hours`, `actions`, `made` and
+  `used` (item, quantity, unit price, total; `bought`: how many at what you paid),
+  `revenue`, `cost`, `teas`, `profit`, `margin`, `perHour`, and `forecast`: the advice
+  for the same actions and where the result differed (`parts`).
+- `kind: "purchase"`, `uid` (the buy order's id), `purchase`: `key` (item and +level),
+  `filled`, `cost` (what all filled cost), `at` (first seen filling), `timed` (seen as it
+  filled, not only after), `estimate` (bought at once: priced up the order book seen).
+
+For a log entry the result that saw more of the job wins (more actions, a later end);
+for a buy order the one that saw more of it filled. `GET /jobs?after=<seq>` sends the
+ones kept since (each kept record gets the next `seq`).

@@ -2,7 +2,7 @@
 // your buy orders as cost (oldest first), and where the result differs from
 // the advice.
 // Usage: node test/job-ledger-test.mjs
-import { dryLedger, emptyLedger, giveBackLots, jobReport, keyOf, noteFills, runningAction } from "../src/job-ledger.js";
+import { emptyLedger, groupHistory, jobGroup, jobReport, keepReport, keyOf, lotsLeft, markSent, mergeFromPi, noteFills, runningAction, unsentForPi } from "../src/job-ledger.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
@@ -43,37 +43,72 @@ check("the running action: the queue's first, not a fight", runningAction([{ id:
     check("a report keeps when it was priced", r.pricedAt === 100000 && r.endedAt === 90000);
 }
 
-// Your buy orders as cost: 6 bought at once up the book, 4 at the order's price later.
+// Your buy orders as cost: 6 bought at once up the book, 4 at the order's price later – one purchase.
 {
     const L = emptyLedger(0);
     const book = () => [{ price: 100000, quantity: 2 }, { price: 104000, quantity: 3 }, { price: 108000, quantity: 10 }];
-    const order = (filled) => [{ id: 99, itemHrid: SHOOTER, enhancementLevel: 0, isSell: false, price: 110000, orderQuantity: 10, filledQuantity: filled }];
+    const order = (filled, id = 99) => [{ id, itemHrid: SHOOTER, enhancementLevel: 0, isSell: false, price: 110000, orderQuantity: 10, filledQuantity: filled }];
     noteFills(L, order(0), { now: 600000, live: true, bookOf: book });
-    noteFills(L, order(6), { now: 630000, live: true, bookOf: book });
+    const atOnce = 2 * 100000 + 3 * 104000 + 108000;
+    check("bought at once: priced up the order book", noteFills(L, order(6), { now: 630000, live: true, bookOf: book }) && near(L.purchases["99"].cost, atOnce) && L.purchases["99"].estimate, JSON.stringify(L.purchases));
     noteFills(L, order(10), { now: 4000000, live: true, bookOf: book });
-    const instant = L.lots[0];
-    check("bought at once: priced up the order book", instant.qty === 6 && near(instant.unit, (2 * 100000 + 3 * 104000 + 108000) / 6) && instant.estimate, JSON.stringify(instant));
-    check("filled later: at the order's price", L.lots[1].qty === 4 && L.lots[1].unit === 110000 && !L.lots[1].estimate);
-    const job = { id: 8, name: "x", actionHrid: "/actions/alchemy/decompose", endedAt: 5000000, actions: 8, hours: 0.02, deltas: { [S]: -8, [E]: 4000 }, forecast: null };
+    check("filled later: at the order's price, the same purchase", L.purchases["99"].filled === 10 && near(L.purchases["99"].cost, atOnce + 4 * 110000) && L.purchases["99"].at === 630000);
+    check("…to be sent to the Pi", JSON.stringify(unsentForPi(L).purchases.map((x) => x.uid)) === '["99"]');
+    const job = { id: 8, key: "8|a", name: "Decompose Gobo Shooter", actionHrid: "/actions/alchemy/decompose", item: SHOOTER, endedAt: 5000000, actions: 8, hours: 0.02, deltas: { [S]: -8, [E]: 4000 }, forecast: null };
     const r = jobReport(L, job, prices);
     const shooter = r.used.find((u) => u.itemHrid === SHOOTER);
-    check("used: your oldest lots first", shooter.bought === 8 && near(shooter.total, 2 * 100000 + 3 * 104000 + 108000 + 2 * 110000) && L.lots[1].left === 2 && shooter.boughtEstimate, JSON.stringify({ shooter, lots: L.lots }));
-    const more = jobReport(L, { ...job, deltas: { [S]: -5 } }, prices);
-    const rest = more.used[0];
-    check("past your lots: the rest at the market", rest.bought === 2 && near(rest.total, 2 * 110000 + 3 * 110000) && !more.forecast, JSON.stringify(rest));
-    // A running job's result so far uses a copy of the lots; a result worked out again gives back what it took.
-    const before = L.lots.map((l) => l.left).join();
-    jobReport(dryLedger(L), { ...job, deltas: { [S]: -2 } }, prices);
-    check("a result so far uses no lots", L.lots.map((l) => l.left).join() === before);
-    giveBackLots(L, more.took);
-    giveBackLots(L, r.took);
-    check("given back: every lot whole again", L.lots.every((l) => l.left === l.qty) && r.took.length === 2 && more.took.length === 1, JSON.stringify({ lots: L.lots, took: [r.took, more.took] }));
-    // An order already filled when the log starts isn't priced up the book.
+    check("used: at what you paid a unit, on average over the order", shooter.bought === 8 && near(shooter.total, (8 * (atOnce + 4 * 110000)) / 10) && shooter.boughtEstimate, JSON.stringify(shooter));
+    check("working a result out uses nothing up", lotsLeft(L)[0].left === 10);
+    keepReport(L, job.key, r);
+    check("a kept result uses up what it used", lotsLeft(L)[0].left === 2 && L.history[job.key].used[0][1] === 8);
+    const second = jobReport(L, { ...job, key: "9|b", endedAt: 6000000, deltas: { [S]: -5 } }, prices);
+    check("past your purchases: the rest at the market", second.used[0].bought === 2 && near(second.used[0].total, (2 * (atOnce + 4 * 110000)) / 10 + 3 * 110000), JSON.stringify(second.used[0]));
+    check("worked out again: its own use left out", jobReport(L, job, prices).used.find((u) => u.itemHrid === SHOOTER).bought === 8);
+    // A purchase seen filling after a job ended isn't what it used; one first seen as the game loaded may be.
+    noteFills(L, order(0, 100), { now: 6900000, live: true });
+    noteFills(L, order(5, 100), { now: 7000000, live: true });
+    check("seen filling after the job ended: not used by it", jobReport(L, { ...job, key: "10|c", endedAt: 6500000, deltas: { [S]: -5 } }, prices).used[0].bought === 2);
+    noteFills(L, order(5, 101), { now: 7000000, live: false });
+    check("first seen as the game loaded: it may have filled before", jobReport(L, { ...job, key: "10|c", endedAt: 6500000, deltas: { [S]: -5 } }, prices).used[0].bought === 5);
+    // An order already filled when the log starts isn't priced up the book; sell orders aren't purchases.
     const fresh = emptyLedger(0);
     noteFills(fresh, order(5), { now: 1000, live: false, bookOf: book });
-    check("an old order's fills: at its price", fresh.lots[0].unit === 110000 && !fresh.lots[0].estimate);
+    check("an old order's fills: at its price", fresh.purchases["99"].cost === 5 * 110000 && !fresh.purchases["99"].estimate);
     noteFills(fresh, [{ id: 5, itemHrid: SHOOTER, isSell: true, price: 1, filledQuantity: 3 }], { now: 2000, live: true });
-    check("sell orders aren't lots", fresh.lots.length === 1);
+    check("sell orders aren't purchases", Object.keys(fresh.purchases).length === 1);
+
+    // Two devices through the Pi: the same purchases and results, the same use of them.
+    const phone = emptyLedger(0);
+    const pc = emptyLedger(0);
+    noteFills(pc, order(10), { now: 600000, live: false });
+    const fromPc = unsentForPi(pc);
+    mergeFromPi(phone, { seq: 3, purchases: fromPc.purchases, reports: [] });
+    check("a purchase made on another device counts here", phone.purchases["99"]?.filled === 10 && phone.piSeq === 3);
+    // The phone sees fewer filled of it later: the Pi's (more filled) stays.
+    noteFills(phone, order(6), { now: 700000, live: true });
+    check("…and isn't counted twice when this device sees the order too", phone.purchases["99"].filled === 10 && phone.purchases["99"].cost === 10 * 110000);
+    const onPhone = jobReport(phone, job, prices);
+    keepReport(phone, job.key, onPhone);
+    mergeFromPi(pc, { seq: 4, reports: unsentForPi(phone).reports, purchases: [] });
+    check("a result from another device is kept and uses up the same", pc.history[job.key] && lotsLeft(pc)[0].left === lotsLeft(phone)[0].left && lotsLeft(pc)[0].left === 2);
+    markSent(phone, { reports: [job.key], purchases: ["99"] });
+    check("sent: nothing left for the Pi", unsentForPi(phone).reports.length === 0 && unsentForPi(phone).purchases.length === 0);
+    // The Pi's result for an entry only replaces a kept one that saw less of the job.
+    mergeFromPi(pc, { reports: [{ key: job.key, report: { ...onPhone, actions: 5 } }] });
+    check("an older look at a job doesn't replace a newer one", pc.history[job.key].actions === 8);
+    mergeFromPi(pc, { reports: [{ key: job.key, report: { ...onPhone, actions: 12, endedAt: 5100000 } }] });
+    check("a newer one does", pc.history[job.key].actions === 12);
+
+    // The history of a sort of job.
+    const H = emptyLedger(0);
+    const result = (key, endedAt, profit, revenue, hours, margin) => ({ key, name: "x", actionHrid: "/actions/alchemy/decompose", item: SHOOTER, endedAt, hours, actions: 1, revenue, profit, used: [], forecast: { margin } });
+    keepReport(H, "a", result("a", 0, 100, 1000, 1, 0.12));
+    keepReport(H, "b", result("b", 2 * 86400000, 300, 2000, 1, 0.1));
+    keepReport(H, "c", { ...result("c", 86400000, 999, 999, 1, 0), item: ESSENCE });
+    const g = groupHistory(H, jobGroup("/actions/alchemy/decompose", SHOOTER), "b");
+    check("history: the same action and item only, without the job itself", g.jobs === 1 && g.profit === 100);
+    const all = groupHistory(H, jobGroup("/actions/alchemy/decompose", SHOOTER));
+    check("history: margin over all revenue, per hour over all hours, the expected margin on average", all.jobs === 2 && near(all.margin, 400 / 3000) && near(all.perHour, 200) && near(all.expectedMargin, 0.11) && near(all.days, 2));
 }
 
 console.log(failures ? `${failures} check(s) failed` : "All checks passed");

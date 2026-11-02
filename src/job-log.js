@@ -11,7 +11,7 @@ import { ALCHEMY_KINDS, bulkOf, coinCost, successOutputs } from "./alchemy.js";
 import { adviceName, skillingAdvice, skillingMarket } from "./skilling-ui.js";
 import { visible } from "./game-nav.js";
 import { esc, shortCoins } from "./format.js";
-import { MAX_REPORTS, compactForecast, dryLedger, emptyLedger, giveBackLots, jobReport, keyOf, noteFills, runningAction } from "./job-ledger.js";
+import { compactForecast, emptyLedger, groupHistory, jobGroup, jobReport, keepReport, keyOf, markSent, mergeFromPi, noteFills, runningAction, unsentForPi } from "./job-ledger.js";
 
 const KEY = "mwia-jobs";
 const COIN = "/items/coin";
@@ -19,13 +19,23 @@ const HEADING = /^loot\s*&\s*xp\s*log$/i;
 const START = /^Start Time:\s*(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)/;
 const MAX_FORECASTS = 60;
 
-const j = { deps: null, ledger: null, preparing: null, timer: null, soFar: new Map() };
+// sync: the Pi's job sync (pi-sync.js) when linked; changed: called when something is new for the Pi.
+const j = { deps: null, ledger: null, preparing: null, timer: null, soFar: new Map(), sync: null, changed: new Set() };
+// How long the log waits for the Pi before working results out without it.
+const PI_WAIT_MS = 4000;
 
 function load() {
     try {
         const saved = JSON.parse(localStorage.getItem(KEY) || "null");
-        // v0.50's log (done/active) is left behind: only the lots carry over.
-        if (saved && Array.isArray(saved.lots)) return { ...emptyLedger(), lots: saved.lots, fills: saved.fills || {}, forecasts: saved.forecasts || {}, reports: saved.reports || {}, since: saved.since || Date.now() };
+        if (saved && saved.purchases) return { ...emptyLedger(), ...saved, unsent: { reports: [], purchases: [], ...saved.unsent } };
+        // v0.51: lots and results without a history – carried over as purchases and kept results.
+        if (saved && Array.isArray(saved.lots)) {
+            const L = { ...emptyLedger(), fills: saved.fills || {}, forecasts: saved.forecasts || {}, since: saved.since || Date.now() };
+            for (const lot of saved.lots) L.purchases[`v051-${lot.id ?? lot.at}`] = { key: lot.key, filled: lot.qty, cost: lot.qty * lot.unit, at: lot.at, estimate: !!lot.estimate };
+            for (const [key, report] of Object.entries(saved.reports || {})) if (report?.used && Number.isFinite(report.endedAt)) keepReport(L, key, { ...report, key });
+            L.unsent.purchases = Object.keys(L.purchases);
+            return L;
+        }
     } catch {
         // storage blocked or broken: start over
     }
@@ -57,15 +67,19 @@ function onMessage(type, data) {
         const L = j.ledger;
         if (type === "init_character_data" || type === "market_listings_updated") {
             const listings = data.myMarketListings ?? data.marketListings ?? data.endMarketListings ?? [];
-            noteFills(L, listings, { now: Date.now(), live: type === "market_listings_updated", bookOf: (hrid, level) => orderBookAt(hrid, level)?.asks || null });
+            if (noteFills(L, listings, { now: Date.now(), live: type === "market_listings_updated", bookOf: (hrid, level) => orderBookAt(hrid, level)?.asks || null })) changed();
             save();
         }
         if (type === "init_character_data" || type === "actions_updated" || type === "action_completed") keepForecast();
         // A job that ended changes its line from "so far" to "ended".
         if (type === "actions_updated") schedule();
         if (type === "loot_log_updated") {
-            reportLog();
-            schedule();
+            // First what other devices worked out (through the Pi), if it answers soon.
+            const synced = j.sync ? Promise.race([j.sync().catch(() => null), new Promise((r) => setTimeout(r, PI_WAIT_MS))]) : Promise.resolve();
+            synced.then(() => {
+                reportLog();
+                schedule();
+            });
         }
     } catch (error) {
         console.error("[MWI Advisor] job log", error);
@@ -135,7 +149,35 @@ function running(e) {
 }
 
 // A kept result that no longer matches its entry (worked out from an older look at it).
-const stale = (report, e) => report.actions !== (Number(e.actionCount) || 0) || report.endedAt !== time(e.endTime);
+const stale = (kept, e) => kept.actions !== (Number(e.actionCount) || 0) || kept.endedAt !== time(e.endTime);
+
+const changed = () => {
+    for (const listener of j.changed) listener();
+};
+
+// --- For the Pi (pi-sync.js) ---
+
+// sync() -> a promise: reads the Pi and sends it what is new; called before the log's results are worked out.
+export function useJobSync(sync) {
+    j.sync = sync;
+}
+// Called when there is something new for the Pi.
+export function onJobsChanged(listener) {
+    j.changed.add(listener);
+}
+export const jobsPiSeq = () => j.ledger?.piSeq || 0;
+export const jobsForPi = () => (j.ledger ? unsentForPi(j.ledger) : { reports: [], purchases: [] });
+export function jobsSentToPi(sent) {
+    if (!j.ledger) return;
+    markSent(j.ledger, sent);
+    save();
+}
+// What the Pi has: other devices' results and purchases.
+export function jobsFromPi(wire) {
+    if (!j.ledger) return;
+    if (mergeFromPi(j.ledger, wire)) schedule();
+    save();
+}
 
 // Works out the results of the log's finished jobs, oldest first (they take
 // the oldest of your bought lots), again for one whose entry changed since;
@@ -143,7 +185,7 @@ const stale = (report, e) => report.actions !== (Number(e.actionCount) || 0) || 
 function reportLog() {
     const L = j.ledger;
     const log = (state.lootLog || []).filter((e) => counted(e.actionHrid) && time(e.startTime) !== null);
-    const todo = log.filter((e) => (running(e) ? ended(e) : ended(e) && (!L.reports[entryKey(e)] || stale(L.reports[entryKey(e)], e))));
+    const todo = log.filter((e) => (running(e) ? ended(e) : ended(e) && (!L.history[entryKey(e)] || stale(L.history[entryKey(e)], e))));
     if (!todo.length || !whenReady(() => (reportLog(), schedule()))) return;
     const data = getClientData();
     for (const e of todo.sort((a, b) => time(a.endTime) - time(b.endTime))) {
@@ -163,20 +205,18 @@ function reportLog() {
         };
         job.name = forecast?.name || jobName(e, data);
         const key = entryKey(e);
+        job.key = key;
+        const report = jobReport(L, job, pricesFor(forecast));
+        report.catalyst = itemOfHash(e.secondaryItemHash);
+        // Running: a result so far, kept in memory; it uses up none of your purchases.
         if (running(e)) {
-            const report = jobReport(dryLedger(L), job, pricesFor(forecast));
-            report.catalyst = itemOfHash(e.secondaryItemHash);
             j.soFar.set(key, report);
             continue;
         }
         j.soFar.delete(key);
-        if (L.reports[key]) giveBackLots(L, L.reports[key].took);
-        const report = jobReport(L, job, pricesFor(forecast));
-        report.catalyst = itemOfHash(e.secondaryItemHash);
-        L.reports[key] = report;
+        keepReport(L, key, report);
+        changed();
     }
-    const keys = Object.keys(L.reports).sort((a, b) => L.reports[a].endedAt - L.reports[b].endedAt);
-    for (const key of keys.slice(0, Math.max(0, keys.length - MAX_REPORTS))) delete L.reports[key];
     save();
 }
 
@@ -279,12 +319,13 @@ function decorate() {
         if (!card) continue;
         const key = entryKey(e);
         const report = j.ledger.reports[key];
+        const kept = j.ledger.history[key];
         const soFar = j.soFar.get(key);
         const html = running(e)
             ? soFar && soFar.actions === (Number(e.actionCount) || 0)
                 ? lineHtml(soFar, "running")
                 : `<div class="mwia-dim">🧭 running – the result comes when it ends</div>`
-            : report && !stale(report, e)
+            : report && kept && !stale(kept, e)
             ? lineHtml(report)
             : soFar
             ? lineHtml(soFar, "ended")
@@ -329,7 +370,9 @@ export function lineHtml(r, state = null) {
     } else lines.push("No advice to compare with.");
     if (r.made.length) lines.push(`Made: ${r.made.map((m) => `${qty(m.qty)} ${esc(itemName(m.itemHrid))}${levelText(m.level)} × ${coins(m.unit)} = ${coins(m.total)}`).join(" · ")}.`);
     if (r.used.length) lines.push(`Used: ${r.used.map((u) => `${qty(u.qty)} ${esc(itemName(u.itemHrid))}${levelText(u.level)} × ${coins(u.unit)} = ${coins(u.total)}${u.bought > 0 ? ` <span class="mwia-dim">(${u.bought >= u.qty - 1e-6 ? "all" : qty(u.bought)} at what you paid${u.boughtEstimate ? ", bought at once: priced up the order book seen" : ""})</span>` : ""}`).join(" · ")}${r.teas >= 1 ? ` · teas ≈ ${coins(r.teas)}` : ""}.`);
-    if (state === "running") lines.push(`<span class="mwia-dim">Still running: what the log said when it was last fetched (tap Refresh for now); your bought lots aren't used up until it ends.</span>`);
+    const earlier = groupHistory(j.ledger, jobGroup(r.actionHrid, r.item), r.key);
+    if (earlier) lines.push(`Earlier jobs like this: ${earlier.jobs}${earlier.days >= 1 ? ` over ${Math.round(earlier.days)} day${Math.round(earlier.days) === 1 ? "" : "s"}` : ""} – margin ${pct(earlier.margin)}${earlier.expectedMargin !== null ? ` (${pct(earlier.expectedMargin)} expected)` : ""}${earlier.perHour !== null ? `, ${coins(earlier.perHour)}/h` : ""}, <span class="${earlier.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(earlier.profit)}</span> in all.`);
+    if (state === "running") lines.push(`<span class="mwia-dim">Still running: what the log said when it was last fetched (tap Refresh for now); your purchases aren't used up until it ends.</span>`);
     if (state === "ended") lines.push(`<span class="mwia-dim">It has ended since the log was fetched: tap Refresh for the whole job.</span>`);
     const age = Math.max(0, Math.round((r.pricedAt - r.endedAt) / 60000));
     lines.push(`<span class="mwia-dim">Made at the market ${age > 5 ? `${duration(age / 60)} after it ended (when first seen)` : "as it ended"}, the ${Math.round(MARKET_TAX * 100)}% tax off; used at what you paid, else the advice's price${r.teas >= 1 ? "; teas at the advice's rate" : ""}${skillOf(r.actionHrid) === "alchemy" ? "; the catalyst one per success, from what the successes dropped" : "; materials as the action takes them (Artisan's saving as expected)"}.</span>`);

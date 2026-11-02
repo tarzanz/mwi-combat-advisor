@@ -12,6 +12,7 @@ import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { openStore } from "../pi/history-store.mjs";
 import { openOrderStore } from "../pi/order-store.mjs";
+import { openJobStore } from "../pi/job-store.mjs";
 import { DAILY_FIELDS, HOURLY_FIELDS, decodeRecords } from "../src/price-history.js";
 import { unpackRecord } from "../src/history-wire.js";
 
@@ -118,6 +119,26 @@ try {
     check("CORS: the game's site may post JSON", /POST/.test(postPreflight.headers.get("access-control-allow-methods")) && /Content-Type/i.test(postPreflight.headers.get("access-control-allow-headers")));
     const withOrders = await fetch(base + "/history?epoch=" + all.epoch, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
     check("the history says orders are taken", withOrders.status.orders?.events === 2, JSON.stringify(withOrders.status));
+
+    // Job results and purchases, shared between devices.
+    const postJobs = (body, key = KEY) => fetch(base + "/jobs", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Origin: "https://www.milkywayidle.com" }, body: JSON.stringify(body) });
+    const getJobs = (after = 0, key = KEY) => fetch(`${base}/jobs?after=${after}`, { headers: { Authorization: `Bearer ${key}` } });
+    const report = (actions, endedAt = 1000) => ({ key: "7|t", report: { key: "7|t", actions, endedAt, used: [["/items/x::0", actions]], profit: 1 } });
+    const purchase = (filled) => ({ uid: "99", purchase: { key: "/items/x::0", filled, cost: filled * 10, at: 500 } });
+    check("jobs: no key, nothing written or read", (await postJobs({ device: "phone", reports: [report(5)] }, "nope")).status === 401 && (await getJobs(0, "nope")).status === 401);
+    const sentJobs = await postJobs({ device: "phone", reports: [report(5), { key: "bad" }], purchases: [purchase(6)] }).then((r) => r.json());
+    check("jobs: sane ones kept, the rest refused", sentJobs.accepted === 2 && sentJobs.rejected === 1 && sentJobs.seq === 2, JSON.stringify(sentJobs));
+    const fromPc = await postJobs({ device: "pc", reports: [report(3)], purchases: [purchase(4), purchase(10)] }).then((r) => r.json());
+    check("jobs: what saw less of a job or an order is not kept", fromPc.kept === 2 && fromPc.accepted === 1, JSON.stringify(fromPc));
+    const everything = await getJobs(0).then((r) => r.json());
+    check("jobs: a device gets the latest of each", everything.seq === 3 && everything.reports.length === 1 && everything.reports[0].report.actions === 5 && everything.purchases.length === 1 && everything.purchases[0].purchase.filled === 10, JSON.stringify(everything));
+    const news = await getJobs(2).then((r) => r.json());
+    check("jobs: only what is new since it asked", news.reports.length === 0 && news.purchases.length === 1, JSON.stringify(news));
+    check("jobs: too many at once refused", (await postJobs({ device: "phone", reports: Array.from({ length: 301 }, () => report(1)) })).status === 400);
+    const reread = openJobStore(dataDir).since(0);
+    check("jobs: read again after a restart, the same", reread.seq === 3 && reread.purchases[0].purchase.filled === 10 && reread.reports[0].report.actions === 5, JSON.stringify(reread));
+    const withJobs = await fetch(base + "/history?epoch=" + all.epoch, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
+    check("the history says jobs are taken", withJobs.status.jobs?.reports === 1 && withJobs.status.jobs.purchases === 1, JSON.stringify(withJobs.status));
 } finally {
     server.kill();
     market.close();
@@ -133,7 +154,8 @@ try {
         answer = await fetch(`http://127.0.0.1:${PORT2}/orders`, { method: "POST", headers: { Authorization: `Bearer ${KEY}` }, body: "{}" }).catch(() => null);
     }
     const history = await fetch(`http://127.0.0.1:${PORT2}/history`, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
-    check("orders off (the default): posting refused, and the history says so", answer?.status === 405 && history.status.orders === null, String(answer?.status));
+    const jobsAnswer = await fetch(`http://127.0.0.1:${PORT2}/jobs`, { headers: { Authorization: `Bearer ${KEY}` } });
+    check("orders off (the default): posting refused, and the history says so", answer?.status === 405 && history.status.orders === null && history.status.jobs === null && jobsAnswer.status === 404, String(answer?.status));
 } finally {
     plain.kill();
 }

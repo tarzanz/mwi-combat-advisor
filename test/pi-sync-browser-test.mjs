@@ -207,6 +207,24 @@ try {
     const ordersTold = await page.$eval(".mwia-history", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
     check("the box says your orders are on the Pi", /Your orders: all on the Pi, sent \d\d?:\d\d/.test(ordersTold) && (await page.evaluate(() => localStorage.getItem("mwia-order-queue"))) === "[]", ordersTold.slice(-200));
 
+    // Job results and purchases: another device's on the Pi come here; this device's buy order goes there.
+    const fromPc = { device: "pc", purchases: [{ uid: "555", purchase: { key: "/items/linen::0", filled: 20, cost: 2000, at: 1000, timed: false } }], reports: [{ key: "1|x", report: { key: "1|x", name: "Linen Boots", actionHrid: "/actions/tailoring/linen_boots", endedAt: Date.now() - 60000, hours: 1, actions: 10, revenue: 1000, profit: 100, used: [], made: [] } }] };
+    const posted = await fetch(`${piUrl}/jobs`, { method: "POST", headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" }, body: JSON.stringify(fromPc) }).then((r) => r.json());
+    sendAll({ type: "market_listings_updated", endMarketListings: [{ id: 3, itemHrid: "/items/linen", enhancementLevel: 0, isSell: false, price: 90, orderQuantity: 5, filledQuantity: 5, status: "/market_order_status/filled" }] });
+    await page.waitForFunction(() => !!JSON.parse(localStorage.getItem("mwia-jobs") || "{}").purchases?.["3"], { timeout: 4000 }).catch(() => null);
+    await page.$eval('.mwia-history [data-history-pi="sync"]', (b) => b.click());
+    const piJobs = () => fetch(`${piUrl}/jobs?after=0`, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
+    let onPi = await piJobs();
+    for (let k = 0; k < 40 && !onPi.purchases.some((x) => x.uid === "3"); k++) {
+        await new Promise((r) => setTimeout(r, 200));
+        onPi = await piJobs();
+    }
+    const here = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
+    check("jobs: this device's purchase is on the Pi", posted.accepted === 2 && onPi.purchases.some((x) => x.uid === "3" && x.purchase.filled === 5 && x.purchase.cost === 450 && x.purchase.timed), JSON.stringify(onPi.purchases));
+    check("jobs: the other device's purchase and result are here, nothing left to send", here?.purchases?.["555"]?.filled === 20 && here.history?.["1|x"]?.actions === 10 && here.piSeq >= 2 && here.unsent.purchases.length === 0, JSON.stringify(here && { p: Object.keys(here.purchases), h: Object.keys(here.history), seq: here.piSeq, unsent: here.unsent }));
+    await page.waitForFunction(() => /Job results synced \d/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
+    check("the box says the job results are synced", /Job results synced \d\d?:\d\d/.test(await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "")));
+
     // The next hour: only it is sent.
     await stopPi();
     fileHour = H + 1;
