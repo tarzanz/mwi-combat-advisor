@@ -1,5 +1,6 @@
 // The in-game panel.
 
+import { preferBuyLimits } from "./buy-limits.js";
 import {
     ACCURACY,
     SPENDING,
@@ -1239,6 +1240,7 @@ function act(target) {
             break;
         }
         case "skilling-cart":
+            if (target.dataset.job) preferBuyLimits(target.dataset.job);
             sendItemsToCart(JSON.parse(target.dataset.teas || "[]"));
             break;
         case "skilling-market":

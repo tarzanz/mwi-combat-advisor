@@ -173,6 +173,28 @@ check("…bought up the book: 60 at 50 and 40 at 52, the last action keeping Awa
     const active = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), now, ...PLAN_MODES.active });
     check("Active: bought up while the last action still pays", Math.abs(active.inputs[0].maxPrice - 60) < 1e-9 && active.minMargin === 0, JSON.stringify(active.inputs[0]));
 }
+{
+    // The Buy Listing window's limit: the price the last action still makes 5% at – in Active too.
+    const away5 = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), now, ...away });
+    const active5 = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), now, ...PLAN_MODES.active });
+    const swing5 = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, price: { swing: 0.1 }, now, ...away });
+    check("limit price: 5% of the last action, in Away and Active", Math.abs(away5.inputs[0].limitPrice - 56.5) < 1e-9 && Math.abs(active5.inputs[0].limitPrice - 56.5) < 1e-9 && active5.limitMargin === 0.05, JSON.stringify([away5.inputs[0].limitPrice, active5.inputs[0].limitPrice]));
+    check("limit price: Away's bigger margin on a swinging price, without an order book too", Math.abs(swing5.inputs[0].limitPrice - 53) < 1e-9 && swing5.limitMargin === 0.1, JSON.stringify(swing5.inputs[0]));
+}
+{
+    // The ranking counts what the materials cost up the book, not only at the lowest ask.
+    const who = skillingCharacter(character, items, data);
+    const base = { ...PLAN_MODES.away, stock: () => none, book: () => null, coins: 1e9, have: () => 0, liquidity: () => stable };
+    const steep = (hrid) => {
+        const ask = marketData[hrid]?.[0]?.a || 1;
+        return { liquidity: stable, book: { at: Date.now(), asks: [{ price: ask, quantity: 1 }, { price: ask * 1.03, quantity: 1e7 }], bids: [] } };
+    };
+    const flat = rankSkilling(who, data, market, { skill: "tailoring", goldWeight: 1, plan: { ...base, inputMarket: () => ({ liquidity: stable, book: null }) } }).available;
+    const upBook = rankSkilling(who, data, market, { skill: "tailoring", goldWeight: 1, plan: { ...base, inputMarket: steep } }).available;
+    const pick = upBook.find((e) => e.valid && e.suggestion?.count > 0 && e.suggestion.batch.aboveAsk > 0);
+    const before = pick && flat.find((e) => e.hrid === pick.hrid);
+    check("materials bought up the book lower the job's ranking", pick && before && pick.score < before.score - 1e-9, JSON.stringify(pick && { h: pick.hrid, a: pick.suggestion.batch.aboveAsk, s: pick.score, b: before?.score }));
+}
 const stale = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 13 * 3600000) }), now, ...away });
 check("an old material order book doesn't", stale.count === 800 && stale.limitedByBook === null && stale.inputs[0].bookAt === null);
 

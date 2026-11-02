@@ -627,13 +627,13 @@ try {
     for (const socket of sockets) socket.send(JSON.stringify(fabricBook));
     await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
     // opts: level (the Enhancement Level box), min/max (the price buttons' ends), rangeText (shown in the window or not).
-    const openListing = (side, best, price, opts = {}) => page.evaluate((side, best, price, { level = 0, min: low = 984, max: high = 1205, rangeText = true }) => {
+    const openListing = (side, best, price, opts = {}) => page.evaluate((side, best, price, { level = 0, min: low = 984, max: high = 1205, rangeText = true, item = "cotton_fabric" }) => {
         document.querySelector(".listing-modal")?.remove();
         // The game's −/+ move between valid prices: steps of 4 here.
         // Like the game's: a modal container with a close icon first, an Enhancement Level box, coin icons.
         document.body.insertAdjacentHTML("beforeend", `<div class="listing-modal Modal_modalContainer__3B80m"><div class="Modal_modal__x"><div class="MarketplacePanel_header__yahJo">${side} Listing</div>
             <button class="close"><svg><use href="/sprites/misc.svg#close_menu"></use></svg></button>
-            <div class="icon"><svg><use href="/sprites/items.svg#cotton_fabric"></use></svg><span>1</span></div>
+            <div class="icon"><svg><use href="/sprites/items.svg#${item}"></use></svg><span>1</span></div>
             <div>Enhancement Level</div><div><input class="enh" type="text" value="${level}"></div>${rangeText ? "<div>Tradable range: 984 – 1 205</div>" : ""}
             <div>Price (Best ${side} Offer: <span class="MarketplacePanel_bestPrice__x">${best} <svg><use href="/sprites/items.svg#coin"></use></svg></span>)</div>
             <div class="MarketplacePanel_inputContainer__x"><div class="MarketplacePanel_priceInputs__x"><button>Min</button><button>-</button><div class="field">${price}</div><button>+</button><button>Max</button></div></div>
@@ -693,6 +693,29 @@ try {
     const buyBox = await listingBox();
     check("buy listing: one step over the bid wall", JSON.stringify(buyBox.buttons) === JSON.stringify(["Match 1,040", "Wall > 1,000", "<1h —", "<8h —", "<24h —"]) && buyBox.price === "1004" && /^500 bid higher/.test(buyBox.info), JSON.stringify(buyBox));
     await page.evaluate(() => document.querySelector(".listing-modal").remove());
+    {
+        // Buying a material of a job in the Skilling list: 🧭 Profit, the most it may cost with the job's last action keeping 5%.
+        await select(page, "skillingSkill", "tailoring");
+        const jobs = expectRank(character, { skill: "tailoring" }).available.filter((e) => e.valid && e.suggestion?.inputs.some((i) => i.itemHrid === material));
+        const input = jobs[0].suggestion.inputs.find((i) => i.itemHrid === material);
+        const limit = Math.floor(input.limitPrice);
+        const start = Math.round(materialAsk);
+        await openListing("Buy", String(start), String(start), { item: material.split("/").pop(), min: 1, max: 1e7, rangeText: false });
+        await page.waitForSelector(".listing-modal .mwia-listprice-limit", { timeout: 4000 }).catch(() => null);
+        const profit = await page.$eval(".listing-modal .mwia-listprice-limit", (b) => ({ text: b.textContent, title: b.title })).catch(() => ({ text: "", title: "" }));
+        const shortLimit = limit >= 1e4 ? null : limit.toLocaleString("en-US");
+        check("🧭 Profit: the material's limit for the top job using it", profit.text.includes(`keeps 5% on ${jobs[0].action.name}`) && (!shortLimit || profit.text.includes(`≤ ${shortLimit}`)) && /listed at or under it now are bought at once|Nobody lists it that cheap now/.test(profit.title), `${limit} ${JSON.stringify(profit)}`);
+        await page.click(".listing-modal .mwia-listprice-limit");
+        await page.waitForFunction((limit) => { const p = Number(document.querySelector(".listing-modal .MarketplacePanel_priceInputs__x .field").textContent.replace(/\s/g, "")); return p <= limit && p > limit - 4; }, { timeout: 6000 }, limit).catch(() => null);
+        const set = Number((await listingBox()).price);
+        check("🧭 Profit: the highest valid price at or under the limit", set <= limit && set > limit - 4, `${set} vs ${limit}`);
+        await page.screenshot({ path: path.join(shotDir, "skilling-10b-profit-limit.png") });
+        // A sell window has no such button.
+        await openListing("Sell", String(start), String(start), { item: material.split("/").pop(), min: 1, max: 1e7, rangeText: false });
+        await page.waitForSelector(".listing-modal .mwia-listprice button", { timeout: 4000 }).catch(() => null);
+        check("no 🧭 Profit when selling", !(await page.$(".listing-modal .mwia-listprice-limit")));
+        await page.evaluate(() => document.querySelector(".listing-modal").remove());
+    }
     // A listing window laid out differently: found by its Post button, and says what it couldn't read.
     await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", '<div class="odd-modal"><div>Sell Listing</div><div><input value="1 000"></div><button>Post Sell Listing</button></div>'));
     await page.waitForSelector(".odd-modal .mwia-listprice", { timeout: 4000 }).catch(() => null);
@@ -830,8 +853,10 @@ try {
     await select(page, "skillingSkill", "alchemy");
     const alchemy = await rows(page);
     const expAlc = leveling("alchemy").available;
-    check("Alchemy lists item actions", alchemy.length > 0 && expAlc.slice(0, 3).every((e, i) => alchemy[i]?.name === e.action.name && alchemy[i].gold === `${coinText(e.goldPerDay)}/day`),
-        JSON.stringify(alchemy.slice(0, 2)) + " vs " + expAlc.slice(0, 2).map((e) => `${e.action.name} ${coinText(e.goldPerDay)}`).join(", "));
+    // Like the other skills, a row shows what the planned hours give (the job is short of coins here), with the full rate under it.
+    const alcDay = (e) => (e.suggestion?.count ? e.plannedGoldPerDay : e.goldPerDay);
+    check("Alchemy lists item actions, with what the planned hours give", alchemy.length > 0 && expAlc.slice(0, 3).every((e, i) => alchemy[i]?.name === e.action.name && alchemy[i].gold === `${coinText(alcDay(e))}/day`) && expAlc.some((e) => e.suggestion?.count && e.fill < 1),
+        JSON.stringify(alchemy.slice(0, 2)) + " vs " + expAlc.slice(0, 2).map((e) => `${e.action.name} ${coinText(alcDay(e))}`).join(", "));
     check("Alchemy rows show the success rate", /% success/.test(alchemy[0]?.sub || ""), alchemy[0]?.sub);
     const above = expAlc.find((e) => e.requiredLevel > e.effectiveLevel);
     check("an item above your level has lower odds", !above || above.successRate < above.baseRate * (1 + above.catalyst.bonus + above.successBuff) - 1e-9, above ? `${above.action.name} ${above.successRate}` : "none");

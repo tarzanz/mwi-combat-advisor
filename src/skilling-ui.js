@@ -1,6 +1,7 @@
 // The Skilling tab: gathering and crafting ranked by gold per day, with the
 // calculation behind every number one tap away.
 
+import { setBuyLimits } from "./buy-limits.js";
 import { getClientData, itemName, marketBids, marketEntry, marketListings, pricesStamp } from "./game-data.js";
 import { state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
@@ -225,6 +226,11 @@ export function toggleShowAll() {
 
 export function renderSkilling(settings) {
     const { available, upcoming } = ranking(settings);
+    setBuyLimits(
+        available
+            .filter((e) => e.valid && e.suggestion?.inputs?.length)
+            .map((e) => ({ hrid: e.hrid, name: e.action.name, inputs: e.suggestion.inputs.map((i) => ({ itemHrid: i.itemHrid, limitPrice: i.limitPrice, margin: e.suggestion.limitMargin })) })),
+    );
     let html = skillingSettingsHtml(settings);
     const leveling = LEVELING_SKILLS.includes(settings.skillingSkill);
     if (settings.skillingSkill === "enhancing") html += `<p class="mwia-dim">Enhance an item towards a target +level again and again: a failure drops it back to +0 – or, protected from a +level on, one level, using up the cheapest protection (a copy, a Mirror of Protection or the item's own) – reaching the target you sell it and buy a new one. One row per item, at the target that suits your <i>Focus</i>; gold per day is what it costs (−) after selling. Items you have at +0 are used first, valued at what they'd sell for. Tap a row for the odds and every target.</p>`;
@@ -303,12 +309,14 @@ function rowHtml(entry, best, upcoming = false, first = false) {
     const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas
         ? `<span class="mwia-skill-hint">🍵 ${teaGain(entry.best.result, entry.current)} with other teas</span>`
         : "";
-    // A job shorter than the planned hours: the row shows (and ranks by) what it gives in them.
-    const fill = !leveling && !upcoming && entry.suggestion?.count && entry.fill < 1 ? entry.fill : 1;
-    const shownDay = day * fill;
-    const cut = fill < 1 && coins(shownDay) !== coins(day);
+    // A job shorter than the planned hours, or with materials bought up the order
+    // book: the row shows (and ranks by) what it gives in them.
+    const planned = (!leveling || isAlchemy(entry)) && !upcoming && entry.suggestion?.count && Number.isFinite(entry.plannedGoldPerDay);
+    const fill = planned && entry.fill < 1 ? entry.fill : 1;
+    const shownDay = planned ? entry.plannedGoldPerDay : day;
+    const cut = planned && coins(shownDay) !== coins(day);
     const gold = entry.valid ? `<span class="${shownDay < 0 && !leveling ? "mwia-bad" : shownDay > 0 && (best || leveling) ? "mwia-ok" : ""}">${coins(shownDay)}/day</span>` : `<span class="mwia-dim">–</span>`;
-    const full = cut ? `<span class="mwia-skill-full${fill < SHORT_FILL ? " mwia-warn" : ""}">full ${hoursText(entry.suggestion.plannedHours)}: ${coins(day)}/day</span>` : "";
+    const full = cut ? `<span class="mwia-skill-full${fill < SHORT_FILL ? " mwia-warn" : ""}" title="The rate while it runs, with the materials at their lowest ask">${fill < 1 ? `full ${hoursText(entry.suggestion.plannedHours)}` : "at the lowest ask"}: ${coins(day)}/day</span>` : "";
     const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1
         ? `<span class="mwia-skill-hint">⛓ ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>`
         : "";
@@ -461,7 +469,7 @@ function levelingButtons(e) {
         const items = n ? e.inputs.filter((i) => i.itemHrid !== COIN).map((i) => ({ hrid: i.itemHrid, quantity: Math.max(0, Math.ceil(i.count * n) - have(i.itemHrid)) })).filter((i) => i.quantity > 0) : [];
         buy = items.length ? { items, title: `Adds what ${n.toLocaleString("en-US")} actions use, less what you have: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
     }
-    const cart = buy ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-teas="${esc(JSON.stringify(buy.items))}" title="${esc(buy.title)}">🛒 Materials</button>` : "";
+    const cart = buy ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-job="${esc(e.hrid)}" data-teas="${esc(JSON.stringify(buy.items))}" title="${esc(buy.title)}">🛒 Materials</button>` : "";
     const plan = e.teaPlan;
     const teas = plan?.items.length ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart">🍵 Buy teas</button>` : "";
     const market = `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(item)}" title="Opens ${esc(itemName(item))} on the market">🏪 Market</button>`;

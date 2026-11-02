@@ -89,12 +89,12 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   too, and the thinnest market of the product and those materials sets the share. A material you opened on the
   market in the last 12 hours is bought up its order book from the lowest ask while the last action still makes the
   plan's margin (*Away*: 5% and the price's usual swing; *Medium* and *Active*: a profit), and the batch counts what
-  each unit costs there; what is listed up to that price (plus what you have) caps the job – worth a look for a 🔴
+  each unit costs there – the ranking too, so a job that has to buy far up the book ranks lower; what is listed up to that price (plus what you have) caps the job – worth a look for a 🔴
   material before buying a lot of it. The game only trades within a price band
   (*Tradable range*) the order book doesn't include, so listings near the top of it may not be buyable. The list is ranked by what the planned hours
   give, so a job your coins or your stock keep short ranks lower, and an item you already hold a whole job of goes
-  last. Such a row shows the gold and XP a day for the planned hours (what it is ranked by), with *full 8 h: …/day*
-  under it; a job under 95% of the planned hours has its time in yellow with what cut it (*5.8 h of 8 h – coins*,
+  last. Such a row (Alchemy's too) shows the gold and XP a day for the planned hours (what it is ranked by), with *full 8 h: …/day*
+  (or *at the lowest ask: …/day*) under it; a job under 95% of the planned hours has its time in yellow with what cut it (*5.8 h of 8 h – coins*,
   *– 268 in stock*, *– a day of sales*, *– price swings*, *– few Cocoon listed*). The row and *📦 How many* show the rating, what the batch's materials cost (and how much of it you still have
   to buy) and its profit once it sells, and each material to buy with its rating; the product's order book, if you
   saw it on the market, is shown there too, but doesn't set the count. *▶ Make N* opens the action in the game with the count filled in; you click the game's button. **🍵 Buy teas** puts the best teas for the job in the MWITools
@@ -266,7 +266,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   make the steps, so the price is always one the game takes. A line says how many others offer a better price than
   the one in the box and how it compares with the usual price (after 12 hours of prices). +N items use that
   level's order book, history and tradable range (the range the game sends with the order book when the window
-  doesn't show it); open the item at that level on the market first.
+  doesn't show it); open the item at that level on the market first. Buying a material of a job in the Skilling
+  list, **🧭 Profit ≤ …** above them sets the most it may cost with the job's last action still making 5% (Away's
+  bigger margin on a swinging price): what is listed up to it is bought at once, the rest waits as a buy order at
+  that price. It follows the job whose *🛒 Materials* you tapped last, else the highest-ranked job using the
+  material (open the Skilling tab first).
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the round **🧭** button (44 px on a
   touch screen, 36 px with a mouse) can be

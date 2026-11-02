@@ -12,6 +12,7 @@ import { isTouch, showTip } from "./touch.js";
 import { PREDICTION_MS, notePrediction } from "./order-log.js";
 import { historyVersion, priceSummary, recentHours, versusUsual } from "./price-history.js";
 import { CONFIDENCE, FILLED, listingPrices, standing } from "./listing-price.js";
+import { buyLimit } from "./buy-limits.js";
 
 // The listing window: the game's modal around the marketplace's price inputs.
 const MODAL = '[class*="Modal_modalContainer"],[class*="MarketplacePanel_modalContent"]';
@@ -141,7 +142,21 @@ function context(modal) {
     if (l.cache.key !== key) {
         l.cache = { key, prices: listingPrices({ side: m.side, book, own, best: m.best, range, summary: priceSummary(m.hrid, m.level), hours: recentHours(m.hrid, m.level), quantity: m.quantity }) };
     }
-    return { ...m, book, range, ...l.cache.prices };
+    return { ...m, book, range, ...l.cache.prices, limit: m.side === "buy" && m.level === 0 ? profitLimit(m.hrid, range, book) : null };
+}
+
+// Buying a skilling job's material: the most it may cost with the job's last
+// action still making its margin (see buy-limits.js), within the tradable range.
+// listed: others' asks at or under it now – bought at once; the rest waits as a buy order.
+function profitLimit(hrid, range, book) {
+    const limit = buyLimit(hrid);
+    if (!limit) return null;
+    let price = Math.floor(limit.price);
+    let capped = null;
+    if (range && price > range.max) [price, capped] = [range.max, "max"];
+    const under = !!range && price < range.min;
+    const listed = book ? book.asks.filter((o) => o.price <= price).reduce((sum, o) => sum + o.quantity, 0) : null;
+    return { ...limit, price: under ? null : price, exact: limit.price, capped, under, listed };
 }
 
 function scan() {
@@ -194,7 +209,23 @@ function boxHtml(c) {
         const shown = s.price === null ? "—" : s.kind === "wall" || s.under ? `${sell ? "<" : ">"} ${shortCoins(s.price)}` : shortCoins(s.price);
         return `<button type="button" data-listprice="${i}"${s.price === null ? ' class="mwia-off"' : ""} title="${esc(titleFor(s, c))}"><b>${label(s)}</b><small>${shown}</small></button>`;
     });
-    return `${buttons.length ? `<div class="mwia-listprice-buttons">${buttons.join("")}</div>` : ""}<div class="mwia-listprice-info">${infoHtml(c)}</div>`;
+    return `${limitHtml(c)}${buttons.length ? `<div class="mwia-listprice-buttons">${buttons.join("")}</div>` : ""}<div class="mwia-listprice-info">${infoHtml(c)}</div>`;
+}
+
+function limitHtml(c) {
+    const t = c.limit;
+    if (!t) return "";
+    const margin = `${Math.round(t.margin * 100)}%`;
+    const shown = t.price === null ? "—" : `≤ ${shortCoins(t.price)}`;
+    return `<button type="button" class="mwia-listprice-limit${t.price === null ? " mwia-off" : ""}" data-listprice="limit" title="${esc(limitTitle(t, c))}"><b>🧭 Profit ${shown}</b><small>keeps ${margin} on ${esc(t.job)}</small></button>`;
+}
+
+function limitTitle(t, c) {
+    const margin = `${Math.round(t.margin * 100)}%`;
+    if (t.price === null) return `${t.job} needs ${itemName(c.hrid)} at ${num(t.exact)} or less to keep a ${margin} margin – under the tradable range (from ${num(c.range.min)}). Nothing can be bought at a profit now.`;
+    const cap = t.capped ? ` The tradable range stops at ${num(t.price)}, under the ${num(t.exact)} the margin allows.` : "";
+    const now = t.listed === null ? `Open ${itemName(c.hrid)} on the market to see how many are listed under it.` : t.listed > 0 ? `${num(t.listed)} listed at or under it now are bought at once, the cheapest first; the rest waits as a buy order at this price.` : `Nobody lists it that cheap now: the order waits for sellers.`;
+    return `The most ${itemName(c.hrid)} may cost with the last action of ${t.job} still making ${margin} (the other materials at their lowest ask).${cap} ${now} Worked out with the Skilling tab's prices ${Math.max(0, Math.round((Date.now() - t.at) / 60000))} min ago.`;
 }
 
 function titleFor(s, c) {
@@ -313,7 +344,7 @@ async function stepTo(c, b, target, up = false) {
 // otherwise the game's −/+ step by step (or typed in, where the box takes typing).
 async function apply(modal, index) {
     const c = context(modal);
-    const s = c?.suggestions?.[index];
+    const s = index === "limit" ? c?.limit && { kind: "profit", price: c.limit.price, capped: c.limit.capped, step: 0 } : c?.suggestions?.[index];
     if (!s || s.price === null || l.applying) return;
     l.clicked = { key: `${c.side}|${c.hrid}|${c.level}`, kind: s.kind === "horizon" ? `<${s.horizon}h` : s.kind, at: Date.now() };
     l.applying = true;
@@ -344,5 +375,6 @@ function onClick(event) {
     event.stopPropagation();
     // No hover on a phone: a tap shows what the button rests on (and, without a price, why).
     if (isTouch() || button.classList.contains("mwia-off")) showTip(button, button.title);
-    apply(listingModals().find((modal) => modal.contains(button)), Number(button.dataset.listprice));
+    const index = button.dataset.listprice;
+    apply(listingModals().find((modal) => modal.contains(button)), index === "limit" ? index : Number(index));
 }

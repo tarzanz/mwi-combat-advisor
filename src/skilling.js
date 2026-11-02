@@ -555,6 +555,8 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
     // The margin the plan asks of the last action: Away keeps out thin margins
     // (as the list does); the shorter plans only ask that it still pays.
     const minMargin = hideThinMargins ? Math.max(RISKY_MARGIN, price?.swing > CALM_SWING ? price.swing : 0) : 0;
+    // The Buy Listing window's limit asks at least RISKY_MARGIN of the last action, whatever the plan.
+    const limitMargin = Math.max(RISKY_MARGIN, minMargin);
     // The materials you'd have to buy: their markets rate the job too, and an
     // order book seen lately is bought up from its lowest ask while the last
     // action still makes that margin – the price that is paid, and how far the
@@ -567,6 +569,8 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
         const asks = fresh ? [...fresh.asks].filter((o) => o.price > 0 && o.quantity > 0).sort((a, b) => a.price - b.price) : null;
         // The most a unit may cost before the last action falls under the margin (never under the lowest ask).
         const maxPrice = asks?.length ? Math.max(asks[0].price, input.price + (profitPerAction - minMargin * entry.revenuePerAction) / input.count) : null;
+        // The most a unit may cost with the action still making limitMargin (the other materials at their lowest ask).
+        const limitPrice = input.price + (profitPerAction - limitMargin * entry.revenuePerAction) / input.count;
         const usable = asks ? asks.filter((o) => o.price <= maxPrice + 1e-9) : null;
         const listed = usable ? usable.reduce((sum, o) => sum + o.quantity, 0) : null;
         return {
@@ -577,6 +581,7 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
             nearAsks: listed,
             lowestAsk: asks?.[0]?.price ?? null,
             maxPrice,
+            limitPrice,
             asks: usable,
             bookAt: fresh?.at ?? null,
             maxCount: usable ? Math.floor((have(input.itemHrid) + listed) / input.count + 1e-9) : Infinity,
@@ -665,6 +670,7 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
             return { ...input, toBuy: units, averagePrice: units > 0 ? cost(input, units) / units : null };
         }),
         minMargin,
+        limitMargin,
         limitedByBook,
         coinShare: share,
         budget,
@@ -925,8 +931,10 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         // Enhancing: what your coins carry.
         const budget = plan ? enhanceBudget(shown, plan) : null;
         // Ranked by what the planned hours give: a job your coins or your stock
-        // keep short earns for only part of them.
+        // keep short earns for only part of them, and materials bought up the
+        // order book cost what they cost there, not the lowest ask.
         const fill = suggestion ? suggestion.fill : budget ? budget.fill : 1;
+        const upTheBook = suggestion?.batch.aboveAsk > 0 ? (suggestion.batch.aboveAsk * 24) / suggestion.plannedHours : 0;
         const chained = chain(shown);
         const entry = {
             ...shown,
@@ -938,9 +946,11 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
             chain: chained,
             // The share of the planned hours the job runs: what the ranking goes by.
             fill,
+            // Gold a day over the planned hours: what the ranking goes by.
+            plannedGoldPerDay: shown.goldPerDay * fill - upTheBook,
             // A train that makes the materials too, when that pays at least as well as buying them.
             chainSuggestion: plan && chained && chained.profitPerHour >= shown.profitPerHour ? suggestChainCount(shown, chained, { ...plan, stock: plan.stock(shown.action), price, liquidity }) : null,
-            score: score({ skill: shown.skill, valid: shown.valid, goldPerDay: shown.goldPerDay * fill, xpPerDay: shown.xpPerDay * fill }),
+            score: score({ skill: shown.skill, valid: shown.valid, goldPerDay: shown.goldPerDay * fill - upTheBook, xpPerDay: shown.xpPerDay * fill }),
             levelsPerDay: countLevels ? levelProgress(who, data, true)(shown) : null,
             thinMargin: !!plan?.hideThinMargins && thinMargin(shown, price?.swing ?? null),
             teaSlots: who.slots[action.type],
