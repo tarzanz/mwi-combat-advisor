@@ -634,8 +634,7 @@ try {
         document.body.insertAdjacentHTML("beforeend", `<div class="listing-modal Modal_modalContainer__3B80m"><div class="Modal_modal__x"><div class="MarketplacePanel_header__yahJo">${side} Listing</div>
             <button class="close"><svg><use href="/sprites/misc.svg#close_menu"></use></svg></button>
             <div class="icon"><svg><use href="/sprites/items.svg#${item}"></use></svg><span>1</span></div>
-            <div>Enhancement Level</div><div><input class="enh" type="text" value="${level}"></div>${rangeText ? "<div>Tradable range: 984 – 1 205</div>" : ""}
-            <div>Price (Best ${side} Offer: <span class="MarketplacePanel_bestPrice__x">${best} <svg><use href="/sprites/items.svg#coin"></use></svg></span>)</div>
+            <div>Enhancement Level</div><div><input class="enh" type="text" value="${level}"></div>${rangeText ? "<div>Tradable range: 984 – 1 205</div>" : ""}<div>Price (Best ${side} Offer: <span class="MarketplacePanel_bestPrice__x">${best} <svg><use href="/sprites/items.svg#coin"></use></svg></span>)</div>
             <div class="MarketplacePanel_inputContainer__x"><div class="MarketplacePanel_priceInputs__x"><button>Min</button><button>-</button><div class="field">${price}</div><button>+</button><button>Max</button></div></div>
             <button>Post ${side} Listing</button></div></div>`);
         const box = document.querySelector(".listing-modal");

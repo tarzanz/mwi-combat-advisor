@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.49.0
+// @version      0.49.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -4562,7 +4562,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.49.0" : "dev";
+  var VERSION = true ? "0.49.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -8277,7 +8277,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.49.0" : "dev";
+  var VERSION3 = true ? "0.49.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -8610,7 +8610,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const hrid = [...modal.querySelectorAll("svg use")].map((use) => "/items/" + (use.getAttribute("href") || use.getAttribute("xlink:href") || "").split("#").pop()).find((candidate) => items[candidate] && candidate !== "/items/coin");
     if (!hrid) return { error: `no item icon found (icons: ${[...modal.querySelectorAll("svg use")].map((use) => (use.getAttribute("href") || use.getAttribute("xlink:href") || "?").split("/").pop()).join(", ") || "none"})` };
     const text = modal.textContent || "";
-    const range = /Tradable range:\s*(\d[\d\s,.]*(?:[kmb](?![a-z]))?)\s*[–-]\s*(\d[\d\s,.]*(?:[kmb](?![a-z]))?)/i.exec(text);
+    const SUFFIX = "(?:[kKmMbB](?![a-z]))?";
+    const range = new RegExp(`[Tt]radable [Rr]ange:\\s*(\\d[\\d\\s,.]*${SUFFIX})\\s*[\u2013-]\\s*(\\d[\\d\\s,.]*${SUFFIX})`).exec(text);
+    const min = range ? parseCoins(range[1]) : null;
+    const max = range ? parseCoins(range[2]) : null;
     const level = inputAfter(modal, /^enhancement level$/i);
     const quantity = inputAfter(modal, /^quantity\b/i);
     return {
@@ -8621,7 +8624,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       inputs,
       input,
       best: numberIn(modal.querySelector(BEST)?.textContent || ""),
-      range: range ? { min: parseCoins(range[1]), max: parseCoins(range[2]), rounded: /[kmb]/i.test(range[1] + range[2]) } : null
+      // A range that reads upside down was misread: left out (the order book's is used).
+      range: min !== null && max !== null && min <= max ? { min, max, rounded: /[kmb]/i.test(range[1] + range[2]) } : null
     };
   }
   function inputAfter(modal, pattern) {

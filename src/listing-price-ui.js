@@ -99,8 +99,13 @@ function readModal(modal) {
         .find((candidate) => items[candidate] && candidate !== "/items/coin");
     if (!hrid) return { error: `no item icon found (icons: ${[...modal.querySelectorAll("svg use")].map((use) => (use.getAttribute("href") || use.getAttribute("xlink:href") || "?").split("/").pop()).join(", ") || "none"})` };
     const text = modal.textContent || "";
-    // "98800 – 121K": the game shortens large prices; the suffix is a k, m or b on its own (not the M of "Max").
-    const range = /Tradable range:\s*(\d[\d\s,.]*(?:[kmb](?![a-z]))?)\s*[–-]\s*(\d[\d\s,.]*(?:[kmb](?![a-z]))?)/i.exec(text);
+    // "98800 – 121K": the game shortens large prices. The text runs on into the
+    // next label ("121KPrice (Best…"), so a suffix is a k, m or b not followed by
+    // a lowercase letter (not the M of "Max"). Case matters here: no i flag.
+    const SUFFIX = "(?:[kKmMbB](?![a-z]))?";
+    const range = new RegExp(`[Tt]radable [Rr]ange:\\s*(\\d[\\d\\s,.]*${SUFFIX})\\s*[–-]\\s*(\\d[\\d\\s,.]*${SUFFIX})`).exec(text);
+    const min = range ? parseCoins(range[1]) : null;
+    const max = range ? parseCoins(range[2]) : null;
     // Equipment has an Enhancement Level box: the first input after that label.
     const level = inputAfter(modal, /^enhancement level$/i);
     // How many: the box after "Quantity (You Have: …)".
@@ -113,7 +118,8 @@ function readModal(modal) {
         inputs,
         input,
         best: numberIn(modal.querySelector(BEST)?.textContent || ""),
-        range: range ? { min: parseCoins(range[1]), max: parseCoins(range[2]), rounded: /[kmb]/i.test(range[1] + range[2]) } : null,
+        // A range that reads upside down was misread: left out (the order book's is used).
+        range: min !== null && max !== null && min <= max ? { min, max, rounded: /[kmb]/i.test(range[1] + range[2]) } : null,
     };
 }
 
