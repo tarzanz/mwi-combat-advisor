@@ -262,7 +262,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   their average price; at the bid for buy listings) to cover 70% of it. A price better than everyone's now is first in
   line at once, if it lies within the week's usual prices; "<" means one step under the best offer (">" over). A
   quantity too big for the time, or too little history (12 stretches of each length, at least half their hours with
-  prices), shows "—" and says why when tapped. Match and Wall are kept within the tradable range. The game's own −/+
+  prices), shows "—" and says why when tapped. Match and Wall are kept within the tradable range (read with the game's shortening, "98800 – 121K"; the order book's exact range wins over a shortened one). The game's own −/+
   make the steps, so the price is always one the game takes. A line says how many others offer a better price than
   the one in the box and how it compares with the usual price (after 12 hours of prices). +N items use that
   level's order book, history and tradable range (the range the game sends with the order book when the window

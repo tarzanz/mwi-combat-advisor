@@ -98,7 +98,8 @@ function readModal(modal) {
         .find((candidate) => items[candidate] && candidate !== "/items/coin");
     if (!hrid) return { error: `no item icon found (icons: ${[...modal.querySelectorAll("svg use")].map((use) => (use.getAttribute("href") || use.getAttribute("xlink:href") || "?").split("/").pop()).join(", ") || "none"})` };
     const text = modal.textContent || "";
-    const range = /Tradable range:\s*(\d[\d\s,.]*)\s*[–-]\s*(\d[\d\s,.]*)/i.exec(text);
+    // "98800 – 121K": the game shortens large prices; the suffix is a k, m or b on its own (not the M of "Max").
+    const range = /Tradable range:\s*(\d[\d\s,.]*(?:[kmb](?![a-z]))?)\s*[–-]\s*(\d[\d\s,.]*(?:[kmb](?![a-z]))?)/i.exec(text);
     // Equipment has an Enhancement Level box: the first input after that label.
     const level = inputAfter(modal, /^enhancement level$/i);
     // How many: the box after "Quantity (You Have: …)".
@@ -111,7 +112,7 @@ function readModal(modal) {
         inputs,
         input,
         best: numberIn(modal.querySelector(BEST)?.textContent || ""),
-        range: range ? { min: parseCoins(range[1]), max: parseCoins(range[2]) } : null,
+        range: range ? { min: parseCoins(range[1]), max: parseCoins(range[2]), rounded: /[kmb]/i.test(range[1] + range[2]) } : null,
     };
 }
 
@@ -131,8 +132,9 @@ function context(modal) {
     const m = readModal(modal);
     if (!m || m.error) return m;
     const book = orderBookAt(m.hrid, m.level);
-    // The range the window shows, else the one the game sent with the order book.
-    const range = m.range || book?.range || null;
+    // The range the window shows, else the one the game sent with the order book
+    // (which wins over a shortened "121K", as it holds the exact limits).
+    const range = (m.range?.rounded && book?.range) || m.range || book?.range || null;
     const own = ownListings(m.hrid, m.side, m.level);
     // The horizons go through a week of hours: worked out again only when something they rest on changes.
     const key = JSON.stringify([m.side, m.hrid, m.level, m.quantity, m.best, range, book?.at, own, historyVersion()]);

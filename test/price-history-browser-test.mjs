@@ -223,9 +223,9 @@ try {
     for (const socket of sockets) socket.send(JSON.stringify(fabricBook));
     await page.waitForFunction(() => window.lastType === "market_item_order_books_updated");
     await page.evaluate(() => {
-        // Like the game's window (steps of 10 here), at phone width.
+        // Like the game's window (steps of 10 here, the range shortened as the game does), at phone width.
         document.body.insertAdjacentHTML("beforeend", `<div class="listing-modal Modal_modalContainer__3B80m" style="position:fixed;top:40px;left:50px;z-index:99;width:280px;background:#111;padding:8px"><div class="MarketplacePanel_header__yahJo">Sell Listing</div>
-            <div><svg><use href="/sprites/items.svg#linen_fabric"></use></svg></div><div>Tradable range: 900 – 1 200</div>
+            <div><svg><use href="/sprites/items.svg#linen_fabric"></use></svg></div><div>Tradable range: 900 – 1.2K</div>
             <div>Price (Best Sell Offer: <span class="MarketplacePanel_bestPrice__x">1 040</span>)</div>
             <div class="MarketplacePanel_priceInputs__x"><button>Min</button><button>-</button><div class="field">1 040</div><button>+</button><button>Max</button></div>
             <div>Quantity (You Have: 20)</div><div><button>1</button><input class="qty" value="20"><button>Max</button></div>
