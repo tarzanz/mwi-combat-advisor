@@ -281,7 +281,10 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   book seen for it – else at the advice's price; teas at the advice's rate. The advice is kept as each job begins
   (with your current teas); a job that began before the advisor saw it is compared with the advice worked out then,
   and says so. The difference is split into what came out (luck), what it sells for now, what it used and what the
-  materials cost. Only what the game fetches when you open the log is read. Kept in this browser (the last 60 jobs).
+  materials cost. A job still in your queue shows its result *so far* (the log gives a running job an end too: its
+  latest action), worked out again each time the log is fetched and using none of your bought lots; once it has
+  ended it says *ended – tap Refresh* until the log is fetched again, and then gets its result. A kept result that no
+  longer matches its entry is worked out again, its lots given back first. Only what the game fetches when you open the log is read. Kept in this browser (the last 60 jobs).
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the round **🧭** button (44 px on a
   touch screen, 36 px with a mouse) can be

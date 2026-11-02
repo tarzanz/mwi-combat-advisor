@@ -1068,6 +1068,8 @@ try {
         await send({ type: "market_listings_updated", endMarketListings: [{ id: 4242, itemHrid: input.itemHrid, enhancementLevel: 0, isSell: false, price: 777, orderQuantity: 1000, filledQuantity: 1000 }] });
         await send({ type: "actions_updated", endCharacterActions: [{ id: 900, actionHrid: job.hrid, hasMaxCount: true, maxCount: 4, currentCount: 0, ordinal: -1 }] });
         await page.waitForFunction(() => !!JSON.parse(localStorage.getItem("mwia-jobs") || "{}").forecasts?.["900"], { timeout: 5000 }).catch(() => null);
+        // It ends; the next one (903) runs.
+        await send({ type: "actions_updated", endCharacterActions: [{ id: 900, actionHrid: job.hrid, isDone: true }, { id: 903, actionHrid: job.hrid, hasMaxCount: true, maxCount: 5, currentCount: 2, ordinal: -1 }] });
         const kept = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "{}").forecasts?.["900"]?.forecast || null);
         check("the advice is kept as a job begins", kept?.name === job.action.name && kept.inputs.some((i) => i.itemHrid === input.itemHrid), JSON.stringify(kept)?.slice(0, 200));
         // A decomposable item, its catalyst used on 8 of 10 tries.
@@ -1076,9 +1078,10 @@ try {
         const t0 = Date.parse("2026-11-02T06:00:00Z");
         const iso = (ms) => new Date(ms).toISOString();
         const lootLog = [
-            { startTime: iso(t0), endTime: iso(t0 + 600000), characterActionId: 901, actionHrid: "/actions/alchemy/decompose", primaryItemHash: `1::/item_locations/inventory::${decomposable.hrid}::0`, secondaryItemHash: "1::/item_locations/inventory::/items/catalyst_of_decomposition::0", actionCount: 10, drops: { [`${out.itemHrid}::0`]: 8 * out.count, "/items/alchemy_essence::0": 1 }, xpGains: {} },
+            { startTime: iso(t0), endTime: iso(t0 + 600000), characterActionId: 911, actionHrid: "/actions/alchemy/decompose", primaryItemHash: `1::/item_locations/inventory::${decomposable.hrid}::0`, secondaryItemHash: "1::/item_locations/inventory::/items/catalyst_of_decomposition::0", actionCount: 10, drops: { [`${out.itemHrid}::0`]: 8 * out.count, "/items/alchemy_essence::0": 1 }, xpGains: {} },
             { startTime: iso(t0 + 600000), endTime: iso(t0 + 660000), characterActionId: 900, actionHrid: job.hrid, primaryItemHash: "", secondaryItemHash: "", actionCount: 4, drops: { [`${output.itemHrid}::0`]: 4 * output.count }, xpGains: {} },
-            { startTime: iso(t0 + 660000), endTime: "0001-01-01T00:00:00Z", characterActionId: 903, actionHrid: job.hrid, primaryItemHash: "", secondaryItemHash: "", actionCount: 2, drops: {}, xpGains: {} },
+            // Running: the game gives it an end too (its latest action).
+            { startTime: iso(t0 + 660000), endTime: iso(t0 + 690000), characterActionId: 903, actionHrid: job.hrid, primaryItemHash: "", secondaryItemHash: "", actionCount: 2, drops: { [`${output.itemHrid}::0`]: 2 * output.count }, xpGains: {} },
         ];
         await send({ type: "loot_log_updated", lootLog });
         // The game's log page: newest first, each card with its start in local time.
@@ -1098,10 +1101,28 @@ try {
         check("Loot & XP Log: a 🧭 line under each skilling job", lines.length === 3 && lines.every((l) => l.startsWith("🧭")), JSON.stringify(lines));
         check("…against the advice kept as it began, materials at what you paid", /margin -?[\d.]+% \([\d.-]+% expected\)/.test(lines[1]) && lines[1].includes("Expected for these 4 actions:") && !lines[1].includes("worked out now") && new RegExp(`Used: ${4 * input.count} ${inputName} × 777 = [\\d.,k]+ \\(all at what you paid\\)`).test(lines[1]), lines[1]);
         check("…Decompose: the item, its coins and a catalyst per success", lines[0].includes(`10 ${decomposable.name} ×`) && /8 Catalyst Of Decomposition ×/i.test(lines[0]) && /Coin/.test(lines[0]), lines[0]);
-        check("…a job still running says so", /running – the result comes when it ends/.test(lines[2]), lines[2]);
-        const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
-        check("…results kept, the lot used", Object.keys(stored?.reports || {}).length === 2 && stored.lots.some((l) => l.left === 1000 - 4 * input.count), JSON.stringify(stored?.lots));
+        check("…a job still running: its result so far", /^🧭 so far: [+−]/.test(lines[2]) && lines[2].includes("Still running") && lines[2].includes(`Used: ${2 * input.count} ${inputName}`), lines[2]);
+        let stored = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
+        check("…results kept for the ended jobs only, the lot used by them", Object.keys(stored?.reports || {}).length === 2 && stored.lots.some((l) => l.left === 1000 - 4 * input.count), JSON.stringify(stored?.lots));
         await page.screenshot({ path: path.join(shotDir, "skilling-11-lootlog.png") });
+        const line = (i) => page.evaluate((i) => document.querySelector(`.loot-page .card[data-i="${i}"] .mwia-jobline`)?.textContent.replace(/\s+/g, " ") || "", i);
+        // It ends: until the log is fetched again, the line says so.
+        await send({ type: "actions_updated", endCharacterActions: [{ id: 903, actionHrid: job.hrid, isDone: true }] });
+        await page.waitForFunction(() => /ended – tap Refresh/.test(document.querySelector('.loot-page .card[data-i="2"] .mwia-jobline')?.textContent || ""), { timeout: 4000 }).catch(() => null);
+        check("…once it ends: 'ended – tap Refresh'", /^🧭 ended – tap Refresh:/.test(await line(2)), await line(2));
+        // Fetched again: the whole job, its lots used now.
+        lootLog[2] = { ...lootLog[2], endTime: iso(t0 + 720000), actionCount: 5, drops: { [`${output.itemHrid}::0`]: 5 * output.count } };
+        await send({ type: "loot_log_updated", lootLog });
+        await page.waitForFunction(() => /Expected for these 5 actions/.test(document.querySelector('.loot-page .card[data-i="2"] .mwia-jobline')?.textContent || ""), { timeout: 4000 }).catch(() => null);
+        const whole = await line(2);
+        stored = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
+        check("…fetched again: the whole job, lots used once", whole.includes("Expected for these 5 actions") && !/so far|ended – tap/.test(whole) && Object.keys(stored.reports).length === 3 && stored.lots.some((l) => l.left === 1000 - 9 * input.count), `${whole.slice(0, 200)} ${JSON.stringify(stored.lots)}`);
+        // An entry that changed after its result (worked out from an older look): again, its lots given back first.
+        lootLog[2] = { ...lootLog[2], endTime: iso(t0 + 750000), actionCount: 6, drops: { [`${output.itemHrid}::0`]: 6 * output.count } };
+        await send({ type: "loot_log_updated", lootLog });
+        await page.waitForFunction(() => /Expected for these 6 actions/.test(document.querySelector('.loot-page .card[data-i="2"] .mwia-jobline')?.textContent || ""), { timeout: 4000 }).catch(() => null);
+        stored = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
+        check("…a result that no longer matches its entry is worked out again", (await line(2)).includes("Expected for these 6 actions") && stored.lots.some((l) => l.left === 1000 - 10 * input.count), JSON.stringify(stored.lots));
         await page.evaluate(() => document.querySelector(".loot-page").remove());
     }
 

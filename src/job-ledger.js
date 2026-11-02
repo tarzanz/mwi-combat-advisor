@@ -70,7 +70,8 @@ export function noteFills(ledger, listings, { now, live, bookOf = () => null }) 
                     estimate = true;
                 }
             }
-            ledger.lots.push({ key: keyOf(listing.itemHrid, level), qty, left: qty, unit, at: now, estimate });
+            ledger.lotSeq = (ledger.lotSeq || 0) + 1;
+            ledger.lots.push({ id: ledger.lotSeq, key: keyOf(listing.itemHrid, level), qty, left: qty, unit, at: now, estimate });
         }
         ledger.fills[id] = { filled: Math.max(filled, prev), seen: firstSeen, at: now };
     }
@@ -78,19 +79,22 @@ export function noteFills(ledger, listings, { now, live, bookOf = () => null }) 
 }
 
 function pruneLots(ledger, now) {
-    ledger.lots = ledger.lots.filter((l) => l.left > 1e-9 && now - l.at < LOT_MS).slice(-MAX_LOTS);
+    // Used-up lots stay while young: a result worked out again gives back what it took.
+    ledger.lots = ledger.lots.filter((l) => now - l.at < LOT_MS).slice(-MAX_LOTS);
     for (const [id, f] of Object.entries(ledger.fills)) if (now - f.at > LOT_MS) delete ledger.fills[id];
 }
 
-// Takes qty of key from your lots, oldest first: { qty, cost, estimate } of what they covered.
-function takeLots(ledger, key, qty) {
+// Takes qty of key from your lots, oldest first: { qty, cost, estimate } of
+// what they covered; took gets [lot id, qty] of each.
+function takeLots(ledger, key, qty, took = []) {
     let left = qty;
     let cost = 0;
     let estimate = false;
     for (const lot of ledger.lots) {
-        if (lot.key !== key || lot.left <= 0) continue;
+        if (lot.key !== key || lot.left <= 1e-9) continue;
         const take = Math.min(left, lot.left);
         lot.left -= take;
+        if (lot.id) took.push([lot.id, take]);
         left -= take;
         cost += take * lot.unit;
         estimate ||= lot.estimate;
@@ -98,6 +102,17 @@ function takeLots(ledger, key, qty) {
     }
     return { qty: qty - Math.max(0, left), cost, estimate };
 }
+
+// Gives back to your lots what a result took (to work it out again).
+export function giveBackLots(ledger, took) {
+    for (const [id, qty] of took || []) {
+        const lot = ledger.lots.find((l) => l.id === id);
+        if (lot) lot.left = Math.min(lot.qty, lot.left + qty);
+    }
+}
+
+// A copy of the ledger's lots to work a result out on without using them up.
+export const dryLedger = (ledger) => ({ ...ledger, lots: ledger.lots.map((l) => ({ ...l })) });
 
 // A finished job's result. job: { id, name, actionHrid, item, endedAt,
 // actions, hours, deltas: { key: made (+) or used (−) }, forecast }. prices:
@@ -109,6 +124,7 @@ export function jobReport(ledger, job, prices, now = Date.now()) {
     const hours = job.hours;
     const made = [];
     const used = [];
+    const took = [];
     for (const [key, d] of Object.entries(job.deltas)) {
         if (Math.abs(d) < 1e-9) continue;
         const { itemHrid, level } = splitKey(key);
@@ -117,7 +133,7 @@ export function jobReport(ledger, job, prices, now = Date.now()) {
             made.push({ itemHrid, level, qty: d, unit, total: d * unit });
         } else {
             const qty = -d;
-            const fromLots = itemHrid === COIN ? { qty: 0, cost: 0, estimate: false } : takeLots(ledger, key, qty);
+            const fromLots = itemHrid === COIN ? { qty: 0, cost: 0, estimate: false } : takeLots(ledger, key, qty, took);
             const rest = qty - fromLots.qty;
             const restUnit = itemHrid === COIN ? 1 : prices.cost(itemHrid, level) ?? 0;
             const total = fromLots.cost + rest * restUnit;
@@ -137,6 +153,7 @@ export function jobReport(ledger, job, prices, now = Date.now()) {
         item: job.item,
         endedAt: job.endedAt,
         pricedAt: now,
+        took,
         actions,
         hours,
         made,

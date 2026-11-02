@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.51.0
+// @version      0.51.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -3629,24 +3629,26 @@
             estimate = true;
           }
         }
-        ledger.lots.push({ key: keyOf(listing.itemHrid, level), qty: qty2, left: qty2, unit, at: now, estimate });
+        ledger.lotSeq = (ledger.lotSeq || 0) + 1;
+        ledger.lots.push({ id: ledger.lotSeq, key: keyOf(listing.itemHrid, level), qty: qty2, left: qty2, unit, at: now, estimate });
       }
       ledger.fills[id] = { filled: Math.max(filled, prev), seen: firstSeen, at: now };
     }
     pruneLots(ledger, now);
   }
   function pruneLots(ledger, now) {
-    ledger.lots = ledger.lots.filter((l2) => l2.left > 1e-9 && now - l2.at < LOT_MS).slice(-MAX_LOTS);
+    ledger.lots = ledger.lots.filter((l2) => now - l2.at < LOT_MS).slice(-MAX_LOTS);
     for (const [id, f] of Object.entries(ledger.fills)) if (now - f.at > LOT_MS) delete ledger.fills[id];
   }
-  function takeLots(ledger, key, qty2) {
+  function takeLots(ledger, key, qty2, took = []) {
     let left = qty2;
     let cost = 0;
     let estimate = false;
     for (const lot of ledger.lots) {
-      if (lot.key !== key || lot.left <= 0) continue;
+      if (lot.key !== key || lot.left <= 1e-9) continue;
       const take = Math.min(left, lot.left);
       lot.left -= take;
+      if (lot.id) took.push([lot.id, take]);
       left -= take;
       cost += take * lot.unit;
       estimate || (estimate = lot.estimate);
@@ -3654,12 +3656,20 @@
     }
     return { qty: qty2 - Math.max(0, left), cost, estimate };
   }
+  function giveBackLots(ledger, took) {
+    for (const [id, qty2] of took || []) {
+      const lot = ledger.lots.find((l2) => l2.id === id);
+      if (lot) lot.left = Math.min(lot.qty, lot.left + qty2);
+    }
+  }
+  var dryLedger = (ledger) => ({ ...ledger, lots: ledger.lots.map((l2) => ({ ...l2 })) });
   function jobReport(ledger, job, prices2, now = Date.now()) {
     const f = job.forecast;
     const actions = job.actions;
     const hours = job.hours;
     const made = [];
     const used = [];
+    const took = [];
     for (const [key, d] of Object.entries(job.deltas)) {
       if (Math.abs(d) < 1e-9) continue;
       const { itemHrid, level } = splitKey(key);
@@ -3668,7 +3678,7 @@
         made.push({ itemHrid, level, qty: d, unit, total: d * unit });
       } else {
         const qty2 = -d;
-        const fromLots = itemHrid === COIN4 ? { qty: 0, cost: 0, estimate: false } : takeLots(ledger, key, qty2);
+        const fromLots = itemHrid === COIN4 ? { qty: 0, cost: 0, estimate: false } : takeLots(ledger, key, qty2, took);
         const rest = qty2 - fromLots.qty;
         const restUnit = itemHrid === COIN4 ? 1 : prices2.cost(itemHrid, level) ?? 0;
         const total = fromLots.cost + rest * restUnit;
@@ -3688,6 +3698,7 @@
       item: job.item,
       endedAt: job.endedAt,
       pricedAt: now,
+      took,
       actions,
       hours,
       made,
@@ -3754,7 +3765,7 @@
   var HEADING = /^loot\s*&\s*xp\s*log$/i;
   var START = /^Start Time:\s*(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)/;
   var MAX_FORECASTS = 60;
-  var j = { deps: null, ledger: null, preparing: null, timer: null };
+  var j = { deps: null, ledger: null, preparing: null, timer: null, soFar: /* @__PURE__ */ new Map() };
   function load() {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) || "null");
@@ -3788,6 +3799,7 @@
         save();
       }
       if (type === "init_character_data" || type === "actions_updated" || type === "action_completed") keepForecast();
+      if (type === "actions_updated") schedule();
       if (type === "loot_log_updated") {
         reportLog();
         schedule();
@@ -3808,10 +3820,10 @@
   var counted = (actionHrid) => !!actionHrid && !["combat", "enhancing"].includes(skillOf2(actionHrid));
   function keepForecast() {
     const L = j.ledger;
-    const running = runningAction(state.character?.characterActions);
-    if (!running || !counted(running.actionHrid) || L.forecasts[running.id]) return;
+    const running2 = runningAction(state.character?.characterActions);
+    if (!running2 || !counted(running2.actionHrid) || L.forecasts[running2.id]) return;
     if (!whenReady(keepForecast)) return;
-    L.forecasts[running.id] = { at: Date.now(), forecast: forecastFor(running.actionHrid, itemOfHash2(running.primaryItemHash)) };
+    L.forecasts[running2.id] = { at: Date.now(), forecast: forecastFor(running2.actionHrid, itemOfHash2(running2.primaryItemHash)) };
     const ids = Object.keys(L.forecasts).sort((a, b) => L.forecasts[a].at - L.forecasts[b].at);
     for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORECASTS))) delete L.forecasts[id];
     save();
@@ -3837,12 +3849,19 @@
     return Number.isFinite(t4) && t4 > Date.UTC(2e3, 0, 1) ? t4 : null;
   };
   var ended = (e) => time(e.endTime) !== null && time(e.endTime) > time(e.startTime);
+  function running(e) {
+    const queue = state.character?.characterActions;
+    if (!queue) return !ended(e);
+    return queue.some((a) => a.id === e.characterActionId && a.actionHrid === e.actionHrid && !a.isDone);
+  }
+  var stale = (report, e) => report.actions !== (Number(e.actionCount) || 0) || report.endedAt !== time(e.endTime);
   function reportLog() {
     const L = j.ledger;
-    const log = (state.lootLog || []).filter((e) => counted(e.actionHrid) && ended(e) && !L.reports[entryKey(e)]);
-    if (!log.length || !whenReady(() => (reportLog(), schedule()))) return;
+    const log = (state.lootLog || []).filter((e) => counted(e.actionHrid) && time(e.startTime) !== null);
+    const todo = log.filter((e) => running(e) ? ended(e) : ended(e) && (!L.reports[entryKey(e)] || stale(L.reports[entryKey(e)], e)));
+    if (!todo.length || !whenReady(() => (reportLog(), schedule()))) return;
     const data = getClientData();
-    for (const e of log.sort((a, b) => time(a.endTime) - time(b.endTime))) {
+    for (const e of todo.sort((a, b) => time(a.endTime) - time(b.endTime))) {
       const kept = L.forecasts[e.characterActionId]?.forecast || null;
       const item = itemOfHash2(e.primaryItemHash);
       const forecast = kept || forecastFor(e.actionHrid, item);
@@ -3858,9 +3877,18 @@
         forecastNow: !kept && !!forecast
       };
       job.name = forecast?.name || jobName(e, data);
+      const key = entryKey(e);
+      if (running(e)) {
+        const report2 = jobReport(dryLedger(L), job, pricesFor(forecast));
+        report2.catalyst = itemOfHash2(e.secondaryItemHash);
+        j.soFar.set(key, report2);
+        continue;
+      }
+      j.soFar.delete(key);
+      if (L.reports[key]) giveBackLots(L, L.reports[key].took);
       const report = jobReport(L, job, pricesFor(forecast));
       report.catalyst = itemOfHash2(e.secondaryItemHash);
-      L.reports[entryKey(e)] = report;
+      L.reports[key] = report;
     }
     const keys = Object.keys(L.reports).sort((a, b) => L.reports[a].endedAt - L.reports[b].endedAt);
     for (const key of keys.slice(0, Math.max(0, keys.length - MAX_REPORTS))) delete L.reports[key];
@@ -3947,8 +3975,10 @@
       let card = el.parentElement;
       for (let i = 0; i < 3 && card && !/Duration/.test(card.textContent); i++) card = card.parentElement;
       if (!card) continue;
-      const report = j.ledger.reports[entryKey(e)];
-      const html = report ? lineHtml(report) : ended(e) ? `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>` : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>`;
+      const key = entryKey(e);
+      const report = j.ledger.reports[key];
+      const soFar = j.soFar.get(key);
+      const html = running(e) ? soFar && soFar.actions === (Number(e.actionCount) || 0) ? lineHtml(soFar, "running") : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>` : report && !stale(report, e) ? lineHtml(report) : soFar ? lineHtml(soFar, "ended") : `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>`;
       let line = [...card.children].find((c2) => c2.classList.contains("mwia-jobline"));
       if (!line) {
         line = document.createElement("div");
@@ -3972,9 +4002,9 @@
     const minutes = Math.round(hours * 60);
     return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
   }
-  function lineHtml(r) {
+  function lineHtml(r, state2 = null) {
     const f = r.forecast;
-    const head2 = `\u{1F9ED} <b class="${r.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(r.profit)}</b>${r.perHour !== null ? ` \xB7 ${coins2(r.perHour)}/h` : ""} \xB7 margin ${pct2(r.margin)}${f ? ` <span class="mwia-dim">(${pct2(f.margin)} expected)</span>` : ""}`;
+    const head2 = `\u{1F9ED} ${state2 ? `<span class="mwia-dim">${state2 === "running" ? "so far" : "ended \u2013 tap Refresh"}:</span> ` : ""}<b class="${r.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(r.profit)}</b>${r.perHour !== null ? ` \xB7 ${coins2(r.perHour)}/h` : ""} \xB7 margin ${pct2(r.margin)}${f ? ` <span class="mwia-dim">(${pct2(f.margin)} expected)</span>` : ""}`;
     const lines = [];
     if (f) {
       lines.push(`Expected for these ${qty(f.actions)} actions${f.now ? " (advice worked out now \u2013 the job began before the advisor saw it)" : ""}: <b>${signed(f.profit)}</b> at a ${pct2(f.margin)} margin, ${coins2(f.perHour)}/h.`);
@@ -3986,6 +4016,8 @@
     } else lines.push("No advice to compare with.");
     if (r.made.length) lines.push(`Made: ${r.made.map((m) => `${qty(m.qty)} ${esc(itemName(m.itemHrid))}${levelText(m.level)} \xD7 ${coins2(m.unit)} = ${coins2(m.total)}`).join(" \xB7 ")}.`);
     if (r.used.length) lines.push(`Used: ${r.used.map((u) => `${qty(u.qty)} ${esc(itemName(u.itemHrid))}${levelText(u.level)} \xD7 ${coins2(u.unit)} = ${coins2(u.total)}${u.bought > 0 ? ` <span class="mwia-dim">(${u.bought >= u.qty - 1e-6 ? "all" : qty(u.bought)} at what you paid${u.boughtEstimate ? ", bought at once: priced up the order book seen" : ""})</span>` : ""}`).join(" \xB7 ")}${r.teas >= 1 ? ` \xB7 teas \u2248 ${coins2(r.teas)}` : ""}.`);
+    if (state2 === "running") lines.push(`<span class="mwia-dim">Still running: what the log said when it was last fetched (tap Refresh for now); your bought lots aren't used up until it ends.</span>`);
+    if (state2 === "ended") lines.push(`<span class="mwia-dim">It has ended since the log was fetched: tap Refresh for the whole job.</span>`);
     const age = Math.max(0, Math.round((r.pricedAt - r.endedAt) / 6e4));
     lines.push(`<span class="mwia-dim">Made at the market ${age > 5 ? `${duration(age / 60)} after it ended (when first seen)` : "as it ended"}, the ${Math.round(MARKET_TAX * 100)}% tax off; used at what you paid, else the advice's price${r.teas >= 1 ? "; teas at the advice's rate" : ""}${skillOf2(r.actionHrid) === "alchemy" ? "; the catalyst one per success, from what the successes dropped" : "; materials as the action takes them (Artisan's saving as expected)"}.</span>`);
     return `<details><summary>${head2}</summary>${lines.map((l2) => `<p>${l2}</p>`).join("")}</details>`;
@@ -5375,7 +5407,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.51.0" : "dev";
+  var VERSION = true ? "0.51.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -8719,7 +8751,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.51.0" : "dev";
+  var VERSION3 = true ? "0.51.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -8767,8 +8799,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     const target = event.target.closest("[data-action],[data-tab]");
     if (!target || !ui.root.contains(target)) return;
     try {
-      const running = act(target);
-      running?.catch?.((error) => buttonFailed(clean2(target.textContent) || target.dataset.action, error));
+      const running2 = act(target);
+      running2?.catch?.((error) => buttonFailed(clean2(target.textContent) || target.dataset.action, error));
     } catch (error) {
       buttonFailed(clean2(target.textContent) || target.dataset.action, error);
     }

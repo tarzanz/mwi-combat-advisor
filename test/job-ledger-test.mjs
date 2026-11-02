@@ -2,7 +2,7 @@
 // your buy orders as cost (oldest first), and where the result differs from
 // the advice.
 // Usage: node test/job-ledger-test.mjs
-import { emptyLedger, jobReport, keyOf, noteFills, runningAction } from "../src/job-ledger.js";
+import { dryLedger, emptyLedger, giveBackLots, jobReport, keyOf, noteFills, runningAction } from "../src/job-ledger.js";
 
 let failures = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
@@ -61,6 +61,13 @@ check("the running action: the queue's first, not a fight", runningAction([{ id:
     const more = jobReport(L, { ...job, deltas: { [S]: -5 } }, prices);
     const rest = more.used[0];
     check("past your lots: the rest at the market", rest.bought === 2 && near(rest.total, 2 * 110000 + 3 * 110000) && !more.forecast, JSON.stringify(rest));
+    // A running job's result so far uses a copy of the lots; a result worked out again gives back what it took.
+    const before = L.lots.map((l) => l.left).join();
+    jobReport(dryLedger(L), { ...job, deltas: { [S]: -2 } }, prices);
+    check("a result so far uses no lots", L.lots.map((l) => l.left).join() === before);
+    giveBackLots(L, more.took);
+    giveBackLots(L, r.took);
+    check("given back: every lot whole again", L.lots.every((l) => l.left === l.qty) && r.took.length === 2 && more.took.length === 1, JSON.stringify({ lots: L.lots, took: [r.took, more.took] }));
     // An order already filled when the log starts isn't priced up the book.
     const fresh = emptyLedger(0);
     noteFills(fresh, order(5), { now: 1000, live: false, bookOf: book });
