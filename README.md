@@ -280,7 +280,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   now, what it used and what the materials cost. Enhancing shows the result only. When the page sleeps (a phone
   browser in the background), the actions meanwhile are read from the inventory when the game comes back – as long
   as nothing else ran; otherwise they are estimated from the ones seen (or the advice), and the row says so. Kept in
-  this browser's storage (the last 30 jobs).
+  this browser's storage (the last 30 jobs). For now the game's own *Loot & XP Log* also gets a diagnosis box under
+  its heading: the messages the game sent around opening it (never chat; of what the game sends, only the type), with
+  📋 Copy – the job results are to move there, built on what the log is sent.
 - **Phones** – on a narrow screen the panel fills the screen and wide tables turn into one card per row. On touch
   screens a tap shows the hints that a mouse would show on hover (dotted underline), the round **🧭** button (44 px on a
   touch screen, 36 px with a mouse) can be

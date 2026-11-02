@@ -1096,6 +1096,30 @@ try {
         await page.screenshot({ path: path.join(shotDir, "skilling-11-jobs.png") });
     }
 
+    {
+        // The Loot & XP Log diagnosis: the messages around opening the log, not chat, with their shape, to copy.
+        for (const socket of sockets) {
+            socket.send(JSON.stringify({ type: "chat_message_received", message: { text: "secret" } }));
+            socket.send(JSON.stringify({ type: "loot_log_updated", lootLogs: [{ actionHrid: "/actions/tailoring/gobo_leather", count: 437, startTime: "2026-11-02T07:34:47Z", drops: { "/items/gobo_leather": 437 } }] }));
+        }
+        await new Promise((r) => setTimeout(r, 300));
+        await page.evaluate(() => {
+            navigator.clipboard.writeText = async (text) => { window.copiedText = text; };
+            document.body.insertAdjacentHTML("beforeend", '<div class="loot-page" style="position:fixed;top:0;left:0;z-index:5;background:#000"><div>Loot &amp; XP Log</div><button>Refresh</button></div>');
+        });
+        await page.waitForFunction(() => /loot_log_updated/.test(document.querySelector(".loot-page .mwia-lootdiag")?.textContent || ""), { timeout: 5000 }).catch(() => null);
+        const diagList = await page.$eval(".loot-page .mwia-lootdiag", (n) => n.textContent).catch(() => "");
+        check("Loot & XP Log: the messages around it, not chat", /loot_log_updated · [\d.]+ kB/.test(diagList) && !/chat_message/.test(diagList), diagList);
+        await page.click('.loot-page [data-lootdiag="copy"]');
+        await page.waitForFunction(() => !!window.copiedText, { timeout: 3000 }).catch(() => null);
+        const copied = await page.evaluate(() => window.copiedText || "");
+        check("…📋 Copy gives each message's shape and start", /Loot & XP Log diagnosis/.test(copied) && copied.includes("== loot_log_updated") && copied.includes('lootLogs: [1 × {actionHrid: "/actions/tailoring/gobo_leather", count: 437') && !copied.includes("secret"), copied.slice(0, 500));
+        await page.screenshot({ path: path.join(shotDir, "skilling-12-lootdiag.png") });
+        await page.evaluate(() => document.querySelector(".loot-page").remove());
+        await new Promise((r) => setTimeout(r, 700));
+        check("…the box goes with the log", !(await page.$(".mwia-lootdiag")));
+    }
+
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
     await browser.close();

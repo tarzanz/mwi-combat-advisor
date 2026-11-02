@@ -9,6 +9,7 @@ import { startOrderLog } from "./order-log.js";
 import { startVersionTag } from "./version-tag.js";
 import { startExportButton } from "./export.js";
 import { usePageWindow } from "./game-nav.js";
+import { startLootLogDiagnosis } from "./loot-log-diag.js";
 
 const win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
 
@@ -33,4 +34,5 @@ function mount() {
     startListingPrices(win);
     startVersionTag();
     startExportButton(win);
+    startLootLogDiagnosis();
 }

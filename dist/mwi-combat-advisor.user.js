@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.50.0
+// @version      0.50.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -280,9 +280,26 @@
       }
     }
   }
+  var OTHER_KEPT = 30;
+  var OTHER_CHARS = 3e5;
+  var others = [];
+  var sent = [];
+  var typeOf = (raw) => /"type"\s*:\s*"([^"]{1,80})"/.exec(raw)?.[1] || "?";
+  var otherMessages = () => others.slice();
+  var sentTypes = () => sent.slice();
+  function keepOther(raw) {
+    const type = typeOf(raw);
+    if (/chat/i.test(type)) return;
+    others.push({ type, at: Date.now(), size: raw.length, raw: raw.slice(0, OTHER_CHARS) });
+    if (others.length > OTHER_KEPT) others.shift();
+  }
   function onMessage(event) {
     const raw = event.data;
-    if (typeof raw !== "string" || !INTERESTING.test(raw)) return;
+    if (typeof raw !== "string") return;
+    if (!INTERESTING.test(raw)) {
+      keepOther(raw);
+      return;
+    }
     try {
       handle(JSON.parse(raw));
     } catch (error) {
@@ -298,7 +315,20 @@
     const Hooked = new Proxy(NativeWebSocket, {
       construct(target, args, newTarget) {
         const socket = Reflect.construct(target, args, newTarget === Hooked ? target : newTarget);
-        if (isGameSocket(args[0])) socket.addEventListener("message", onMessage);
+        if (isGameSocket(args[0])) {
+          socket.addEventListener("message", onMessage);
+          const send = socket.send;
+          socket.send = function(data) {
+            try {
+              if (typeof data === "string" && !/chat/i.test(typeOf(data))) {
+                sent.push({ type: typeOf(data), at: Date.now() });
+                if (sent.length > OTHER_KEPT) sent.shift();
+              }
+            } catch {
+            }
+            return send.apply(this, arguments);
+          };
+        }
         return socket;
       },
       get(target, property, receiver) {
@@ -543,8 +573,8 @@
   function successOutputs(kind, detail) {
     const a = detail.alchemyDetail;
     if (kind === "coinify") return [{ itemHrid: COIN, count: 5 * (detail.sellPrice || 0) }];
-    if (kind === "decompose") return (a.decomposeItems || []).map((d) => ({ itemHrid: d.itemHrid, count: d.count }));
-    return (a.transmuteDropTable || []).map((d) => ({ itemHrid: d.itemHrid, count: meanCount(d) }));
+    if (kind === "decompose") return (a.decomposeItems || []).map((d2) => ({ itemHrid: d2.itemHrid, count: d2.count }));
+    return (a.transmuteDropTable || []).map((d2) => ({ itemHrid: d2.itemHrid, count: meanCount(d2) }));
   }
   function crateDrop(itemLevel) {
     if (itemLevel < 35) return { itemHrid: "/items/small_artisans_crate", rate: (100 + itemLevel) / 144e3 };
@@ -733,9 +763,9 @@
   }
   var SOLVE = { a: new Float64Array(3 * (MAX_TARGET + 2)), b: new Float64Array(MAX_TARGET + 2), d: new Float64Array(MAX_TARGET + 2) };
   function protectedCycle(p2, blessed, target, from, xpPer, start = 0) {
-    const { a, b, d } = SOLVE;
+    const { a, b, d: d2 } = SOLVE;
     a.fill(0, 3 * target, 3 * (target + 2));
-    b[target] = b[target + 1] = d[target] = d[target + 1] = 0;
+    b[target] = b[target + 1] = d2[target] = d2[target + 1] = 0;
     for (let L = target - 1; L >= 0; L--) {
       const up1 = p2[L] * (1 - blessed);
       const up2 = p2[L] * blessed;
@@ -751,24 +781,24 @@
         a[3 * L + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L + 2) + i] + b2 * a1)) / keep;
       }
       b[L] = guarded ? fail / keep : 0;
-      d[L] = (up1 * d[L + 1] + up2 * (b2 * d[L + 1] + d[L + 2]) + (guarded ? 0 : fail)) / keep;
+      d2[L] = (up1 * d2[L + 1] + up2 * (b2 * d2[L + 1] + d2[L + 2]) + (guarded ? 0 : fail)) / keep;
     }
-    const rest = 1 - d[0];
+    const rest = 1 - d2[0];
     if (rest <= 1e-15) return null;
     const e0 = [a[0] / rest, a[1] / rest, a[2] / rest];
     let e = e0;
-    for (let L = 1; L <= start && L < target; L++) e = e.map((prev, i) => a[3 * L + i] + b[L] * prev + d[L] * e0[i]);
+    for (let L = 1; L <= start && L < target; L++) e = e.map((prev, i) => a[3 * L + i] + b[L] * prev + d2[L] * e0[i]);
     return { attempts: e[0], xp: e[1], protections: e[2] };
   }
   function protectedCycles(p2, blessed, target, from) {
     if (!protectedCycle(p2, blessed, target, from, NO_XP)) return null;
-    const { a, b, d } = SOLVE;
-    const rest = 1 - d[0];
+    const { a, b, d: d2 } = SOLVE;
+    const rest = 1 - d2[0];
     const attempts = [a[0] / rest];
     const protections = [a[2] / rest];
     for (let L = 1; L < target; L++) {
-      attempts[L] = a[3 * L] + b[L] * attempts[L - 1] + d[L] * attempts[0];
-      protections[L] = a[3 * L + 2] + b[L] * protections[L - 1] + d[L] * protections[0];
+      attempts[L] = a[3 * L] + b[L] * attempts[L - 1] + d2[L] * attempts[0];
+      protections[L] = a[3 * L + 2] + b[L] * protections[L - 1] + d2[L] * protections[0];
     }
     return { attempts, protections };
   }
@@ -810,9 +840,9 @@
     return list.sort((a, b) => a.levelRequirement.level - b.levelRequirement.level || a.sortIndex - b.sortIndex);
   }
   function missingSuccess(who, data) {
-    const sent = (key) => (who.sources?.[key]?.[TYPE2] || []).some((b) => b.typeHrid === SUCCESS);
+    const sent2 = (key) => (who.sources?.[key]?.[TYPE2] || []).some((b) => b.typeHrid === SUCCESS);
     let bonus = 0;
-    if (!sent("equipmentActionTypeBuffsMap")) {
+    if (!sent2("equipmentActionTypeBuffsMap")) {
       const multipliers = data.enhancementLevelTotalBonusMultiplierTable || [];
       for (const item of who.equipped || []) {
         const detail = data.itemDetailMap[item.itemHrid]?.equipmentDetail;
@@ -821,7 +851,7 @@
         bonus += base + extra * (multipliers[item.enhancementLevel || 0] || 0);
       }
     }
-    if (!sent("houseActionTypeBuffsMap")) bonus += OBSERVATORY_SUCCESS * (who.houseLevels?.[OBSERVATORY] || 0);
+    if (!sent2("houseActionTypeBuffsMap")) bonus += OBSERVATORY_SUCCESS * (who.houseLevels?.[OBSERVATORY] || 0);
     return bonus;
   }
   function baseItem(action, market, owned) {
@@ -864,7 +894,7 @@
       const sell = market.sell(itemHrid);
       drops.push({ itemHrid, count: count2, kind, price: sell.price, sell, value: count2 * sell.price });
     }
-    const dropsPerAttempt = drops.reduce((sum, d) => sum + d.value, 0);
+    const dropsPerAttempt = drops.reduce((sum, d2) => sum + d2.value, 0);
     const base = baseItem(action, market, owned);
     const drinksPerHour = 12 * who.concentration;
     const teaCosts = teas.map((hrid) => {
@@ -1208,7 +1238,7 @@
       const { price, salesCap } = salesLimited(sell, count2 * actionsPerHour * HOURS_PER_DAY);
       outputs.push({ itemHrid, count: count2, kind, price, sell, value: count2 * price, salesCap });
     };
-    const base = action.outputItems?.length ? action.outputItems.map((o2) => ({ itemHrid: o2.itemHrid, count: o2.count })) : (action.dropTable || []).map((d) => ({ itemHrid: d.itemHrid, count: meanCount2(d) }));
+    const base = action.outputItems?.length ? action.outputItems.map((o2) => ({ itemHrid: o2.itemHrid, count: o2.count })) : (action.dropTable || []).map((d2) => ({ itemHrid: d2.itemHrid, count: meanCount2(d2) }));
     for (const output of base) {
       const count2 = output.count * (1 + quantity);
       const processed = products?.get(output.itemHrid);
@@ -1361,8 +1391,8 @@
   function breakEvenPrice(entry) {
     const main = entry.outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0];
     if (!main) return null;
-    const others = entry.revenuePerAction - main.value;
-    return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others) / main.count / (1 - MARKET_TAX);
+    const others2 = entry.revenuePerAction - main.value;
+    return (entry.costPerAction + entry.teaPerHour / entry.actionsPerHour - others2) / main.count / (1 - MARKET_TAX);
   }
   var LIQUIDITY = {
     stable: { both: 0.9, spread: 0.05, swing: 0.03, selling: 0.75, activity: 0.3 },
@@ -1577,7 +1607,7 @@
   function chainBuilder(who, data, market, teaMode) {
     const sources = /* @__PURE__ */ new Map();
     for (const action of skillingActions(data)) {
-      const made = action.outputItems?.length ? action.outputItems.map((o2) => o2.itemHrid) : (action.dropTable || []).map((d) => d.itemHrid);
+      const made = action.outputItems?.length ? action.outputItems.map((o2) => o2.itemHrid) : (action.dropTable || []).map((d2) => d2.itemHrid);
       for (const hrid of made) {
         if (!sources.has(hrid)) sources.set(hrid, []);
         sources.get(hrid).push(action);
@@ -2102,7 +2132,7 @@
     return out;
   }
   var dayOf = (r) => Math.floor(r.hour / 24);
-  var weekOf = (d) => Math.floor(d.day / 7);
+  var weekOf = (d2) => Math.floor(d2.day / 7);
   function encodeChanged(list, dirty, keyField, fields, keyOf2) {
     const out = [];
     list.forEach((r, i) => {
@@ -2222,9 +2252,9 @@
         else if (age < 14 * 24) before.push([v, 1]);
         if (age < 30 * 24) month.push([v, 1]);
       }
-      for (const d of days) {
-        const v = at(d[key], i);
-        if (Number.isFinite(v) && nowHour - (d.day * 24 + 12) < 30 * 24) month.push([v, at(d.n, i) || 1]);
+      for (const d2 of days) {
+        const v = at(d2[key], i);
+        if (Number.isFinite(v) && nowHour - (d2.day * 24 + 12) < 30 * 24) month.push([v, at(d2.n, i) || 1]);
       }
       const week7 = median(week);
       const previous = before.length >= MIN_HOURS ? median(before) : null;
@@ -2238,7 +2268,7 @@
       first = Math.min(first, r.hour);
       if (nowHour - r.hour < 7 * 24) hours7++;
     }
-    for (const d of days) if (at(d.n, i)) first = Math.min(first, d.day * 24);
+    for (const d2 of days) if (at(d2.n, i)) first = Math.min(first, d2.day * 24);
     const spanDays = Number.isFinite(first) ? (nowHour - first) / 24 : 0;
     return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS, liquidity: liquidity(i, hours, nowHour) };
   }
@@ -2290,7 +2320,7 @@
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
     const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
     const id = (hrid) => hrid.replace(/^\/items\//, "");
-    const sold = (d, i) => at(d.vn, i) ? `${num2(at(d.v, i) || 0)},${at(d.vn, i)},${num2(at(d.p, i))}` : ",,";
+    const sold = (d2, i) => at(d2.vn, i) ? `${num2(at(d2.v, i) || 0)},${at(d2.vn, i)},${num2(at(d2.p, i))}` : ",,";
     const lines = [
       `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on this device, and around the clock by your Pi if it is linked.`,
       "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
@@ -2318,15 +2348,15 @@
         });
       }
     }
-    for (const d of hourlySold ? [] : rollUpDays(hours.filter((r) => r.sold), items.length)) {
+    for (const d2 of hourlySold ? [] : rollUpDays(hours.filter((r) => r.sold), items.length)) {
       items.forEach((hrid, i) => {
-        if (at(d.v, i) > 0) lines.push(`sold,${dayText(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
+        if (at(d2.v, i) > 0) lines.push(`sold,${dayText(d2.day)},${id(hrid)},,,,,,,,${sold(d2, i)}`);
       });
     }
-    for (const d of days) {
+    for (const d2 of days) {
       items.forEach((hrid, i) => {
-        if (!at(d.n, i)) return;
-        lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)},${sold(d, i)}`);
+        if (!at(d2.n, i)) return;
+        lines.push(`day,${dayText(d2.day)},${id(hrid)},${[d2.a, d2.b, d2.aLow, d2.aHigh, d2.bLow, d2.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d2.n, i)},${sold(d2, i)}`);
       });
     }
     return { csv: lines.join("\n") + "\n", items: items.length, hours: hours.length, days: days.length };
@@ -2419,9 +2449,9 @@
       const map = itemMap(pi.items, store2.items, store2.index);
       const count2 = store2.items.length;
       const hours = decodeRecords(wire.hours.map(unpack), HOURLY_FIELDS).map((r) => remapRecord(r, map, count2, HOURLY_FIELDS));
-      const days = decodeRecords(wire.days.map(unpack), DAILY_FIELDS).map((d) => remapRecord(d, map, count2, DAILY_FIELDS));
+      const days = decodeRecords(wire.days.map(unpack), DAILY_FIELDS).map((d2) => remapRecord(d2, map, count2, DAILY_FIELDS));
       for (const r of hours) pi.hour = Math.max(pi.hour ?? -Infinity, r.hour);
-      for (const d of days) pi.day = Math.max(pi.day ?? -Infinity, d.day);
+      for (const d2 of days) pi.day = Math.max(pi.day ?? -Infinity, d2.day);
       await commit(hours, days, { pi });
       store2.pi = pi;
       return { hours: hours.length, days: days.length };
@@ -2434,7 +2464,7 @@
   var serially = (job) => store2.queue = store2.queue.then(job, job);
   async function commit(newHours, newDays, meta) {
     const count2 = store2.items.length;
-    const dayKeys = new Set(newDays.map((d) => d.day));
+    const dayKeys = new Set(newDays.map((d2) => d2.day));
     const hourKeys = new Set(newHours.map((r) => r.hour));
     const removed = store2.hours.filter((r) => hourKeys.has(r.hour) || dayKeys.has(dayOf(r)));
     store2.hours = [...store2.hours.filter((r) => !removed.includes(r)), ...newHours].sort((x, y) => x.hour - y.hour);
@@ -2448,24 +2478,24 @@
     const cutoffDay = newest === null ? -Infinity : Math.floor((newest - HOURLY_DAYS * 24) / 24);
     const old = store2.hours.filter((r) => dayOf(r) < cutoffDay);
     store2.hours = store2.hours.filter((r) => dayOf(r) >= cutoffDay);
-    const summed = new Set([...store2.days, ...store2.allDays || []].map((d) => d.day));
+    const summed = new Set([...store2.days, ...store2.allDays || []].map((d2) => d2.day));
     const rollable = old.filter((r) => !summed.has(dayOf(r)));
     const changedDays = [...newDays, ...rollable.length ? rollUpDays(rollable, count2) : []];
-    const changedDayKeys = new Set(changedDays.map((d) => d.day));
+    const changedDayKeys = new Set(changedDays.map((d2) => d2.day));
     const hourWrites = encodeChanged(store2.hours, dirtyHours, "hour", HOURLY_FIELDS, dayOf);
     const windowStart = store2.days.length ? store2.days[0].day : Infinity;
-    if (changedDays.some((d) => d.day < windowStart)) await loadAllDays();
-    const replaceDays = (list) => [...list.filter((d) => !changedDayKeys.has(d.day)), ...changedDays].sort((x, y) => x.day - y.day);
-    const dayList = changedDays.some((d) => d.day < windowStart) ? store2.allDays = replaceDays(store2.allDays) : store2.days = replaceDays(store2.days);
+    if (changedDays.some((d2) => d2.day < windowStart)) await loadAllDays();
+    const replaceDays = (list) => [...list.filter((d2) => !changedDayKeys.has(d2.day)), ...changedDays].sort((x, y) => x.day - y.day);
+    const dayList = changedDays.some((d2) => d2.day < windowStart) ? store2.allDays = replaceDays(store2.allDays) : store2.days = replaceDays(store2.days);
     if (dayList === store2.days && store2.allDays) store2.allDays = replaceDays(store2.allDays);
     const dayWrites = encodeChanged(dayList, changedDayKeys, "day", DAILY_FIELDS, weekOf);
-    const newestDay = newest === null ? Math.max(-Infinity, ...dayList.map((d) => d.day)) : Math.floor(newest / 24);
-    store2.days = (store2.allDays || dayList).filter((d) => d.day >= newestDay - 31);
+    const newestDay = newest === null ? Math.max(-Infinity, ...dayList.map((d2) => d2.day)) : Math.floor(newest / 24);
+    store2.days = (store2.allDays || dayList).filter((d2) => d2.day >= newestDay - 31);
     const tx = store2.db.transaction([HOURLY, DAILY, META], "readwrite");
     for (const hour of gone) tx.objectStore(HOURLY).delete(hour);
     for (const r of old) tx.objectStore(HOURLY).delete(r.hour);
     for (const w of hourWrites) tx.objectStore(HOURLY).put(w);
-    for (const d of dayWrites) tx.objectStore(DAILY).put(d);
+    for (const d2 of dayWrites) tx.objectStore(DAILY).put(d2);
     if (Number.isFinite(newestDay)) tx.objectStore(DAILY).delete(IDBKeyRange.upperBound(Math.floor((newestDay - DAILY_DAYS) / 7) * 7, true));
     tx.objectStore(META).put(store2.items, "items");
     for (const [key, value] of Object.entries(meta)) tx.objectStore(META).put(value, key);
@@ -2505,9 +2535,9 @@
     const newest = store2.hours[store2.hours.length - 1].hour;
     const days = range > 31 ? await loadAllDays() : store2.days;
     const points = [];
-    for (const d of days) {
-      const t4 = d.day * 24 + 12;
-      if (newest - t4 <= range * 24) points.push({ t: t4, a: at(d.a, i), b: at(d.b, i) });
+    for (const d2 of days) {
+      const t4 = d2.day * 24 + 12;
+      if (newest - t4 <= range * 24) points.push({ t: t4, a: at(d2.a, i), b: at(d2.b, i) });
     }
     for (const r of store2.hours) if (newest - r.hour <= range * 24) points.push({ t: r.hour, a: at(r.a, i), b: at(r.b, i) });
     return points.filter((p2) => Number.isFinite(p2.a) || Number.isFinite(p2.b)).sort((x, y) => x.t - y.t);
@@ -2517,8 +2547,8 @@
     if (i === void 0) return null;
     const days = await loadAllDays();
     const newestDay = days.length ? days[days.length - 1].day : 0;
-    const pick = (key, span) => median(days.filter((d) => newestDay - d.day < span).map((d) => [at(d[key], i), at(d.n, i) || 1]));
-    return { a90: pick("a", 90), b90: pick("b", 90), a365: pick("a", 365), b365: pick("b", 365), days: days.filter((d) => at(d.n, i)).length };
+    const pick = (key, span) => median(days.filter((d2) => newestDay - d2.day < span).map((d2) => [at(d2[key], i), at(d2.n, i) || 1]));
+    return { a90: pick("a", 90), b90: pick("b", 90), a365: pick("a", 365), b365: pick("b", 365), days: days.filter((d2) => at(d2.n, i)).length };
   }
   async function exportHistory() {
     await loadHistory();
@@ -2530,7 +2560,7 @@
   var SHORT_LIST = 25;
   var RATING = { stable: "\u{1F7E2} stable market", ok: "\u{1F7E1} ok market", thin: "\u{1F534} thin market" };
   var view = { upgradesKey: "", upgrades: null, showAll: false, open: /* @__PURE__ */ new Set() };
-  var dec = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  var dec = (n3, d2 = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d2, maximumFractionDigits: d2 });
   var pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
   var count = (n3) => n3 >= 100 ? dec(n3, 0) : n3 >= 1 ? dec(n3, 2) : n3.toPrecision(2);
   var coins = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
@@ -3275,12 +3305,12 @@
     if (clean3) {
       const diff = {};
       for (const key of /* @__PURE__ */ new Set([...Object.keys(job.inv), ...Object.keys(inv)])) {
-        const d = (inv[key] || 0) - (job.inv[key] || 0);
-        if (Math.abs(d) > 1e-9) diff[key] = d;
+        const d2 = (inv[key] || 0) - (job.inv[key] || 0);
+        if (Math.abs(d2) > 1e-9) diff[key] = d2;
       }
       if (actions === null) actions = isPrimary ? isPrimary(diff) : 0;
       if (actions > 0) {
-        for (const [key, d] of Object.entries(diff)) add(job.gapDeltas, key, d);
+        for (const [key, d2] of Object.entries(diff)) add(job.gapDeltas, key, d2);
         job.gap += actions;
       }
     } else if (actions > 0) job.missed += actions;
@@ -3359,11 +3389,11 @@
   function jobReport(ledger, job, prices2, now = Date.now()) {
     const f = job.forecast;
     const deltas = { ...job.deltas };
-    for (const [key, d] of Object.entries(job.gapDeltas)) add(deltas, key, d);
+    for (const [key, d2] of Object.entries(job.gapDeltas)) add(deltas, key, d2);
     let missedFrom = null;
     if (job.missed > 0) {
       if (job.live >= MIN_LIVE_TO_SCALE) {
-        for (const [key, d] of Object.entries(job.deltas)) add(deltas, key, d * job.missed / job.live);
+        for (const [key, d2] of Object.entries(job.deltas)) add(deltas, key, d2 * job.missed / job.live);
         missedFrom = "live";
       } else if (f) {
         for (const o2 of f.outputs) add(deltas, keyOf(o2.itemHrid), o2.count * job.missed);
@@ -3374,13 +3404,13 @@
     const actions = job.live + job.gap + job.missed;
     const made = [];
     const used = [];
-    for (const [key, d] of Object.entries(deltas)) {
+    for (const [key, d2] of Object.entries(deltas)) {
       const { itemHrid, level } = splitKey(key);
-      if (d > 0) {
+      if (d2 > 0) {
         const unit = itemHrid === COIN4 ? 1 : prices2.value(itemHrid, level) ?? 0;
-        made.push({ itemHrid, level, qty: d, unit, total: d * unit });
+        made.push({ itemHrid, level, qty: d2, unit, total: d2 * unit });
       } else {
-        const qty2 = -d;
+        const qty2 = -d2;
         const fromLots = itemHrid === COIN4 ? { qty: 0, cost: 0, estimate: false } : takeLots(ledger, key, qty2);
         const rest = qty2 - fromLots.qty;
         const restUnit = itemHrid === COIN4 ? 1 : prices2.cost(itemHrid, level) ?? 0;
@@ -3599,7 +3629,7 @@
   var ready = () => !!getClientData() && pricesStamp() > 0;
   function reportPending(notify2 = true) {
     const L = j.ledger;
-    if (!L.done.some((d) => !d.report)) return;
+    if (!L.done.some((d2) => !d2.report)) return;
     if (!ready()) {
       j.preparing || (j.preparing = j.deps?.prepare().then(() => {
         reportPending();
@@ -3607,10 +3637,10 @@
       }).catch((error) => console.warn("[MWI Advisor] job log", error)).finally(() => j.preparing = null));
       return;
     }
-    for (const d of [...L.done].reverse()) {
-      if (d.report) continue;
-      d.report = jobReport(L, d.job, pricesFor(d.job));
-      delete d.job;
+    for (const d2 of [...L.done].reverse()) {
+      if (d2.report) continue;
+      d2.report = jobReport(L, d2.job, pricesFor(d2.job));
+      delete d2.job;
     }
     save();
     if (notify2) for (const listener of j.listeners) listener();
@@ -3677,7 +3707,7 @@
       const seen = a.live + a.gap + a.missed;
       html += `<p class="mwia-dim">Following: <b>${esc(a.name || "")}</b>${seen ? ` \u2013 ${qty(seen)} action${seen === 1 ? "" : "s"} so far` : ""}.</p>`;
     }
-    html += `<div class="mwia-skill-list">${L.done.map((d) => d.report ? jobRow(d.report) : `<div class="mwia-job mwia-dim">${esc(d.job?.name || "")} \u2013 waiting for prices\u2026</div>`).join("")}</div></section>`;
+    html += `<div class="mwia-skill-list">${L.done.map((d2) => d2.report ? jobRow(d2.report) : `<div class="mwia-job mwia-dim">${esc(d2.job?.name || "")} \u2013 waiting for prices\u2026</div>`).join("")}</div></section>`;
     return html;
   }
   function jobRow(r) {
@@ -3718,26 +3748,26 @@
   function betaContinuedFraction(a, b, x) {
     const tiny = 1e-30;
     let c2 = 1;
-    let d = 1 - (a + b) * x / (a + 1);
-    if (Math.abs(d) < tiny) d = tiny;
-    d = 1 / d;
-    let h2 = d;
+    let d2 = 1 - (a + b) * x / (a + 1);
+    if (Math.abs(d2) < tiny) d2 = tiny;
+    d2 = 1 / d2;
+    let h2 = d2;
     for (let m = 1; m <= 200; m++) {
       const m2 = 2 * m;
       let aa = m * (b - m) * x / ((a + m2 - 1) * (a + m2));
-      d = 1 + aa * d;
-      if (Math.abs(d) < tiny) d = tiny;
+      d2 = 1 + aa * d2;
+      if (Math.abs(d2) < tiny) d2 = tiny;
       c2 = 1 + aa / c2;
       if (Math.abs(c2) < tiny) c2 = tiny;
-      d = 1 / d;
-      h2 *= d * c2;
+      d2 = 1 / d2;
+      h2 *= d2 * c2;
       aa = -(a + m) * (a + b + m) * x / ((a + m2) * (a + m2 + 1));
-      d = 1 + aa * d;
-      if (Math.abs(d) < tiny) d = tiny;
+      d2 = 1 + aa * d2;
+      if (Math.abs(d2) < tiny) d2 = tiny;
       c2 = 1 + aa / c2;
       if (Math.abs(c2) < tiny) c2 = tiny;
-      d = 1 / d;
-      const delta = d * c2;
+      d2 = 1 / d2;
+      const delta = d2 * c2;
       h2 *= delta;
       if (Math.abs(delta - 1) < 3e-12) break;
     }
@@ -4966,6 +4996,10 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 44px; max-width: 80px; padding: 3px 2px; white-space: nowrap; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-listprice-buttons button small { font-weight: 400; font-size: 11px; color: #9aa3cf; }
 .mwia-listprice-buttons button.mwia-off { opacity: .5; cursor: help; }
+.mwia-lootdiag { margin: 6px 0; padding: 6px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.5 sans-serif; text-align: left; }
+.mwia-lootdiag-list { color: #9aa3cf; font-family: ui-monospace, monospace; font-size: 11px; }
+.mwia-lootdiag button { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
+.mwia-lootdiag-text { display: block; width: 100%; height: 120px; margin-top: 4px; font: 10px monospace; }
 .mwia-listprice-limit { display: flex; flex-direction: column; align-items: center; width: 100%; margin-bottom: 4px; padding: 4px; background: #1e3a33; color: #8fe0c0; border: 1px solid #2f6b5a; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-listprice-limit small { font-weight: 400; font-size: 11px; color: #9fcfbd; }
 .mwia-listprice-limit.mwia-off { opacity: .5; cursor: help; }
@@ -5084,7 +5118,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.50.0" : "dev";
+  var VERSION = true ? "0.50.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5387,8 +5421,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var queuedOrders = () => readJson(QUEUE_KEY, []);
   function dropQueued(uids) {
-    const sent = new Set(uids);
-    writeJson(QUEUE_KEY, queuedOrders().filter((event) => !sent.has(event.uid)));
+    const sent2 = new Set(uids);
+    writeJson(QUEUE_KEY, queuedOrders().filter((event) => !sent2.has(event.uid)));
   }
   function onOrderEvents(listener) {
     o.listeners.add(listener);
@@ -5497,7 +5531,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const config = piConfig();
     if (!config || !p.status.orders) return Promise.resolve();
     p.sending || (p.sending = (async () => {
-      let sent = 0;
+      let sent2 = 0;
       let error = "";
       try {
         for (let k = 0; k < ORDER_BATCHES; k++) {
@@ -5512,14 +5546,14 @@ i.mwia-history-bid { background: #7ee2b0; }
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           dropQueued(events.map((event) => event.uid));
-          sent += events.length;
+          sent2 += events.length;
         }
       } catch (e) {
         error = e.message || String(e);
       } finally {
         p.sending = null;
       }
-      p.status = { ...p.status, orders: { at: Date.now(), sent, waiting: queuedOrders().length, error } };
+      p.status = { ...p.status, orders: { at: Date.now(), sent: sent2, waiting: queuedOrders().length, error } };
       notify(false);
     })());
     return p.sending;
@@ -7714,7 +7748,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var FILLS_KEY = "mwia-listing-fills";
   var INVENTORY8 = "/item_locations/inventory";
   var view2 = { showAll: false };
-  var dec2 = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  var dec2 = (n3, d2 = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d2, maximumFractionDigits: d2 });
   var coins6 = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
   var pctAbs = (fraction) => `${dec2(Math.abs(fraction) * 100, fraction && Math.abs(fraction) < 0.1 ? 1 : 0)}%`;
   var label = (hrid, level) => esc(itemName(hrid)) + (level ? ` <span class="mwia-enh">+${level}</span>` : "");
@@ -7959,7 +7993,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   var int = (n3) => Math.round(n3).toLocaleString("en-US");
-  var dec3 = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  var dec3 = (n3, d2 = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d2, maximumFractionDigits: d2 });
   var pct4 = (n3) => (n3 >= 0 ? "+" : "") + dec3(n3 * 100, 1) + "%";
   var HOURS_PER_DAY3 = 24;
   var perDay = (perHour) => perHour * HOURS_PER_DAY3;
@@ -8284,7 +8318,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!profile.food.slice(0, slots.food).some(Boolean)) {
       tips.push({ level: "bad", html: "You have no food for combat. Food is eaten automatically when you lose HP and keeps you from dying." });
     }
-    if (profile.drinks.slice(0, slots.drinks).some((d) => !d)) {
+    if (profile.drinks.slice(0, slots.drinks).some((d2) => !d2)) {
       tips.push({ level: "warn", html: "You have an empty drink slot. Coffee gives a 5-minute buff \u2013 <b>Upgrades</b> shows whether it pays off for you." });
     }
     const accuracy = style === "melee" ? null : style + "Accuracy";
@@ -8799,7 +8833,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.50.0" : "dev";
+  var VERSION3 = true ? "0.50.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -9372,6 +9406,120 @@ i.mwia-history-bid { background: #7ee2b0; }
     apply(listingModals().find((modal) => modal.contains(button)), index === "limit" ? index : Number(index));
   }
 
+  // src/loot-log-diag.js
+  var VERSION5 = typeof GM_info !== "undefined" ? GM_info.script?.version || "" : "";
+  var HEADING = /^loot\s*&\s*xp\s*log$/i;
+  var BEFORE_MS = 60 * 1e3;
+  var SAMPLE_CHARS = 1500;
+  var d = { timer: null, openedAt: null };
+  function startLootLogDiagnosis() {
+    new MutationObserver((records) => {
+      if (records.every((r) => r.target.closest?.(".mwia-lootdiag"))) return;
+      schedule();
+    }).observe(document.body, { childList: true, subtree: true });
+    setInterval(() => d.openedAt && schedule(), 1500);
+  }
+  function schedule() {
+    if (d.timer) return;
+    d.timer = setTimeout(() => {
+      d.timer = null;
+      scan7();
+    }, 300);
+  }
+  function findHeading() {
+    return [...document.querySelectorAll("div,h1,h2,h3,span")].find((el) => el.children.length === 0 && HEADING.test(el.textContent.trim()) && visible(el)) || null;
+  }
+  function scan7() {
+    const heading = findHeading();
+    let box = document.querySelector(".mwia-lootdiag");
+    if (!heading) {
+      box?.remove();
+      d.openedAt = null;
+      return;
+    }
+    d.openedAt ?? (d.openedAt = Date.now());
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "mwia-lootdiag";
+      box.addEventListener("click", onClick8);
+      heading.insertAdjacentElement("afterend", box);
+    }
+    const messages = otherMessages().filter((m) => m.at >= d.openedAt - BEFORE_MS);
+    const html = boxHtml3(messages);
+    if (box.dataset.html !== html) {
+      box.dataset.html = html;
+      box.innerHTML = html;
+    }
+  }
+  function boxHtml3(messages) {
+    const time = (at2) => new Date(at2).toTimeString().slice(0, 8);
+    const list = messages.length ? messages.map((m) => `${esc(m.type)} \xB7 ${(m.size / 1024).toFixed(1)} kB \xB7 ${time(m.at)}`).join("<br>") : "none yet \u2013 tap Refresh";
+    return `<b>\u{1F9ED} MWI Advisor ${esc(VERSION5)} \u2013 diagnosis</b><br>Tap <i>Refresh</i>, then \u{1F4CB} Copy and paste it in the chat.<br><span class="mwia-lootdiag-list">${list}</span><br><button type="button" data-lootdiag="copy">\u{1F4CB} Copy</button>`;
+  }
+  function shape(value, depth = 0) {
+    if (Array.isArray(value)) return value.length ? `[${value.length} \xD7 ${shape(value[0], depth + 1)}]` : "[]";
+    if (value && typeof value === "object") {
+      if (depth >= 5) return "{\u2026}";
+      const entries = Object.entries(value);
+      const shown = entries.slice(0, 30).map(([k, v]) => `${k}: ${shape(v, depth + 1)}`);
+      if (entries.length > 30) shown.push(`\u2026 ${entries.length - 30} more keys`);
+      return `{${shown.join(", ")}}`;
+    }
+    if (typeof value === "string") return JSON.stringify(value.length > 60 ? value.slice(0, 60) + "\u2026" : value);
+    return String(value);
+  }
+  function diagnosisText(messages, sent2, openedAt, agent = navigator.userAgent) {
+    const time = (at2) => new Date(at2).toTimeString().slice(0, 8);
+    const lines = [`MWI Advisor v${VERSION5} \xB7 Loot & XP Log diagnosis \xB7 log opened ${time(openedAt)} \xB7 ${agent}`];
+    const recentSent = sent2.filter((s2) => s2.at >= openedAt - BEFORE_MS);
+    lines.push(`Sent by the game: ${recentSent.map((s2) => `${s2.type} ${time(s2.at)}`).join(", ") || "nothing"}`);
+    for (const m of messages) {
+      lines.push("", `== ${m.type} \xB7 ${m.size} chars \xB7 ${time(m.at)}`);
+      try {
+        lines.push(shape(JSON.parse(m.raw)));
+      } catch {
+        lines.push("(cut off: shape from the start only)");
+      }
+      lines.push(m.raw.slice(0, SAMPLE_CHARS));
+    }
+    return lines.join("\n");
+  }
+  async function onClick8(event) {
+    const button = event.target.closest?.("[data-lootdiag]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const messages = otherMessages().filter((m) => m.at >= (d.openedAt ?? Date.now()) - BEFORE_MS);
+    const text = diagnosisText(messages, sentTypes(), d.openedAt ?? Date.now());
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+      document.body.appendChild(area);
+      area.select();
+      area.setSelectionRange(0, text.length);
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+      area.remove();
+    }
+    button.textContent = copied ? "\u2713 Copied" : "Couldn't copy";
+    if (!copied) {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.readOnly = true;
+      area.className = "mwia-lootdiag-text";
+      button.insertAdjacentElement("afterend", area);
+    }
+  }
+
   // src/main.js
   var win = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
   installSocketHook(win);
@@ -9390,6 +9538,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     startListingPrices(win);
     startVersionTag();
     startExportButton(win);
+    startLootLogDiagnosis();
   }
 })();
 

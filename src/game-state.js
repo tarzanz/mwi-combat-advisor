@@ -298,9 +298,31 @@ function handle(data) {
     }
 }
 
+// The latest messages the advisor doesn't read, and the types the game sent,
+// for a diagnosis (see loot-log-diag.js). Chat is left out.
+const OTHER_KEPT = 30;
+const OTHER_CHARS = 300000;
+const others = [];
+const sent = [];
+const typeOf = (raw) => /"type"\s*:\s*"([^"]{1,80})"/.exec(raw)?.[1] || "?";
+
+export const otherMessages = () => others.slice();
+export const sentTypes = () => sent.slice();
+
+function keepOther(raw) {
+    const type = typeOf(raw);
+    if (/chat/i.test(type)) return;
+    others.push({ type, at: Date.now(), size: raw.length, raw: raw.slice(0, OTHER_CHARS) });
+    if (others.length > OTHER_KEPT) others.shift();
+}
+
 function onMessage(event) {
     const raw = event.data;
-    if (typeof raw !== "string" || !INTERESTING.test(raw)) return;
+    if (typeof raw !== "string") return;
+    if (!INTERESTING.test(raw)) {
+        keepOther(raw);
+        return;
+    }
     try {
         handle(JSON.parse(raw));
     } catch (error) {
@@ -319,7 +341,22 @@ export function installSocketHook(win) {
     const Hooked = new Proxy(NativeWebSocket, {
         construct(target, args, newTarget) {
             const socket = Reflect.construct(target, args, newTarget === Hooked ? target : newTarget);
-            if (isGameSocket(args[0])) socket.addEventListener("message", onMessage);
+            if (isGameSocket(args[0])) {
+                socket.addEventListener("message", onMessage);
+                // Only the type of what the game sends (never its contents), for the diagnosis.
+                const send = socket.send;
+                socket.send = function (data) {
+                    try {
+                        if (typeof data === "string" && !/chat/i.test(typeOf(data))) {
+                            sent.push({ type: typeOf(data), at: Date.now() });
+                            if (sent.length > OTHER_KEPT) sent.shift();
+                        }
+                    } catch {
+                        // never in the way of the game
+                    }
+                    return send.apply(this, arguments);
+                };
+            }
             return socket;
         },
         get(target, property, receiver) {

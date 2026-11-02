@@ -194,6 +194,10 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-listprice-buttons button { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 44px; max-width: 80px; padding: 3px 2px; white-space: nowrap; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-listprice-buttons button small { font-weight: 400; font-size: 11px; color: #9aa3cf; }
 .mwia-listprice-buttons button.mwia-off { opacity: .5; cursor: help; }
+.mwia-lootdiag { margin: 6px 0; padding: 6px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.5 sans-serif; text-align: left; }
+.mwia-lootdiag-list { color: #9aa3cf; font-family: ui-monospace, monospace; font-size: 11px; }
+.mwia-lootdiag button { margin-top: 4px; background: #2a3150; color: #dde2ff; border: 1px solid #3c4677; border-radius: 4px; padding: 3px 10px; font: 12px sans-serif; cursor: pointer; }
+.mwia-lootdiag-text { display: block; width: 100%; height: 120px; margin-top: 4px; font: 10px monospace; }
 .mwia-listprice-limit { display: flex; flex-direction: column; align-items: center; width: 100%; margin-bottom: 4px; padding: 4px; background: #1e3a33; color: #8fe0c0; border: 1px solid #2f6b5a; border-radius: 4px; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-listprice-limit small { font-weight: 400; font-size: 11px; color: #9fcfbd; }
 .mwia-listprice-limit.mwia-off { opacity: .5; cursor: help; }
