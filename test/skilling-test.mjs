@@ -157,6 +157,25 @@ const byInput = suggestCount(job, { stock: none, coins: 10000, liquidity: stable
 check("a thin material market sets the coins", byInput.count === 20 && byInput.ratedBy === "/items/x" && byInput.liquidity.rating === "thin" && byInput.productLiquidity.rating === "stable", JSON.stringify({ c: byInput.count, r: byInput.ratedBy }));
 const owned = suggestCount(job, { stock: none, coins: 10000, liquidity: stable, inputMarket: thinInput, have: (h) => (h === "/items/x" ? 1000 : 0), ...away });
 check("a material you hold enough of doesn't rate the job", owned.ratedBy === null && owned.count === 800, JSON.stringify({ c: owned.count, r: owned.ratedBy }));
+// What you hold counts at what it would sell for (here 40 a unit), not the ask (50).
+{
+    const heldJob = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, have: (h) => (h === "/items/x" ? 300 : 0), heldPrice: () => 40, ...away });
+    check("held materials count at their sell value", heldJob.count === 800 && heldJob.batch.heldSaving === 300 * 10 && heldJob.batch.heldValue === 300 * 40 && heldJob.batch.materials === 800 * 50 - 3000 && heldJob.batch.toBuy === 500 * 50, JSON.stringify(heldJob.batch));
+    const atAsk = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, have: (h) => (h === "/items/x" ? 300 : 0), ...away });
+    check("…without a held price, at the ask as before", atAsk.batch.heldSaving === 0 && atAsk.batch.materials === 800 * 50);
+}
+{
+    // In the ranking: a craft you hold the materials for earns more over the planned hours.
+    const who = skillingCharacter(character, items, data);
+    const base = { ...PLAN_MODES.away, stock: () => none, book: () => null, coins: 1e9, liquidity: () => stable };
+    const pick = (have) => rankSkilling(who, data, market, { skill: "tailoring", plan: { ...base, have } }).available.find((e) => e.hrid === "/actions/tailoring/rough_leather");
+    const without = pick(() => 0);
+    const input = without.inputs[0];
+    const withStock = pick((h) => (h === input.itemHrid ? 1e6 : 0));
+    const perUnit = input.price - (marketData[input.itemHrid][0].b * 0.96);
+    const expected = without.plannedGoldPerDay + (withStock.suggestion.count * input.count * perUnit * 24) / withStock.suggestion.plannedHours;
+    check("ranking: held materials at the bid after tax raise the planned gold", Math.abs(withStock.plannedGoldPerDay - expected) < 1e-6 && withStock.plannedGoldPerDay > without.plannedGoldPerDay, `${without.plannedGoldPerDay} → ${withStock.plannedGoldPerDay} (expected ${expected})`);
+}
 const now = Date.now();
 const book = (at) => ({ at, asks: [{ price: 50, quantity: 60 }, { price: 52, quantity: 40 }, { price: 80, quantity: 1000 }], bids: [] });
 const booked = suggestCount(job, { stock: none, coins: 1e9, liquidity: stable, inputMarket: () => ({ liquidity: stable, book: book(now - 3600000) }), have: (h) => (h === "/items/x" ? 30 : 0), now, ...away });

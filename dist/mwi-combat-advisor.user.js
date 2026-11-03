@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.52.1
+// @version      0.52.2
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1411,7 +1411,7 @@
     const low = price.diff !== null && price.diff < -PRICE_BAND;
     return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
   }
-  function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins8 = Infinity, have: have4 = () => 0, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now = Date.now() }) {
+  function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins8 = Infinity, have: have4 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now = Date.now() }) {
     if (entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o2) => o2.price >= breakEven).reduce((sum, o2) => sum + o2.quantity, 0) : null;
@@ -1504,9 +1504,12 @@
     }
     const jobHours = count2 / entry.actionsPerHour;
     const aboveAsk = spend(count2) - entry.inputs.reduce((sum, input) => sum + toBuy2(input, count2) * (input.price || 0), 0);
+    const fromStock = heldUse(entry, count2, have4, heldPrice);
     const batch = {
-      materials: count2 * entry.costPerAction + aboveAsk,
+      materials: count2 * entry.costPerAction + aboveAsk - fromStock.saving,
       aboveAsk,
+      heldSaving: fromStock.saving,
+      heldValue: fromStock.value,
       toBuy: spend(count2),
       revenue: count2 * entry.revenuePerAction,
       teas: entry.teaPerHour * jobHours
@@ -1545,6 +1548,27 @@
       swing,
       limitedByCoins
     };
+  }
+  function heldValue(market, data, hrid) {
+    if (hrid === COIN2) return 1;
+    const bid = market.sell(hrid).bid;
+    const value = bid > 0 ? bid * (1 - MARKET_TAX) : data.itemDetailMap[hrid]?.sellPrice || 0;
+    const ask = market.buy(hrid);
+    return ask === null ? value : Math.min(ask, value);
+  }
+  function heldUse(entry, n3, have4, heldPrice) {
+    let value = 0;
+    let saving = 0;
+    if (!heldPrice) return { value, saving };
+    for (const input of entry.inputs) {
+      if (input.itemHrid === COIN2 || !(input.count > 0)) continue;
+      const used = Math.min(have4(input.itemHrid), input.count * n3);
+      if (!(used > 0)) continue;
+      const worth = heldPrice(input.itemHrid);
+      value += used * worth;
+      saving += used * Math.max(0, (input.price || 0) - worth);
+    }
+    return { value, saving };
   }
   function enhanceBudget(entry, { hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins8 = Infinity, inputMarket = null }) {
     if (!entry.valid || entry.action.function !== ENHANCE_FUNCTION) return null;
@@ -1743,6 +1767,7 @@
     const scoreFor = (r) => levelingList ? timeMoneyScore(goldWeight, r, xpOf) : focusScore(goldWeight, r, xpOf);
     const score2 = scoreFor(refs);
     const chain = chainBuilder(who, data, market, teaMode);
+    const heldPrice = (hrid) => heldValue(market, data, hrid);
     const available = doable.map(({ action, evaluate }) => {
       const teaScore = scoreFor(skillRefs[action.type]);
       const current = evaluate(who.drinks[action.type] || [], teaScore);
@@ -1751,10 +1776,10 @@
       const price = plan?.price?.(shown.action) ?? null;
       const liquidity2 = plan?.liquidity?.(shown.action) ?? null;
       const stock = action.function === ALCHEMY_FUNCTION ? NO_STOCK : plan?.stock(shown.action);
-      const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity: liquidity2 }) : null;
+      const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity: liquidity2, heldPrice }) : null;
       const budget = plan ? enhanceBudget(shown, plan) : null;
       const fill = suggestion ? suggestion.fill : budget ? budget.fill : 1;
-      const upTheBook = suggestion?.batch.aboveAsk > 0 ? suggestion.batch.aboveAsk * 24 / suggestion.plannedHours : 0;
+      const upTheBook = ((suggestion?.batch.aboveAsk || 0) - (suggestion?.batch.heldSaving || 0)) * 24 / (suggestion?.plannedHours || 1);
       const chained = chain(shown);
       const entry = {
         ...shown,
@@ -3070,7 +3095,8 @@
     lines.push(`\u2192 <b>${s2.verb || "make"} ${s2.count.toLocaleString("en-US")}</b> (${hoursText(s2.hours)}).`);
     const b = s2.batch;
     const owned = b.materials - b.toBuy;
-    lines.push(`<b>This batch:</b> materials ${coins(b.materials)}${owned > 1 ? ` (you buy ${coins(b.toBuy)}; ${coins(owned)} worth is already in your inventory)` : ""}${b.teas > 1 ? `, teas ${coins(b.teas)}` : ""}.
+    const heldText = b.heldSaving > 0.5 ? `; ${coins(owned)} worth is already in your inventory, counted at what it would sell for at the bid after tax \u2013 ${coins(b.heldSaving)} less than buying it` : `; ${coins(owned)} worth is already in your inventory`;
+    lines.push(`<b>This batch:</b> materials ${coins(b.materials)}${owned > 1 ? ` (you buy ${coins(b.toBuy)}${heldText})` : ""}${b.teas > 1 ? `, teas ${coins(b.teas)}` : ""}.
         It sells for ${coins(b.revenue)} after tax \u2192 <b class="${b.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${b.profit >= 0 ? "+" : "\u2212"}${coins(Math.abs(b.profit))}</b>.
         <span class="mwia-dim">The coins come back as the items sell, so a slow seller ties them up for a while.</span>`);
     return lines.join("<br>");
@@ -5522,7 +5548,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.52.1" : "dev";
+  var VERSION = true ? "0.52.2" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -8911,7 +8937,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.52.1" : "dev";
+  var VERSION3 = true ? "0.52.2" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

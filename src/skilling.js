@@ -529,7 +529,10 @@ export function swingShare(price) {
 // alongside; a material's, seen lately, caps the job at what was listed.
 // inputMarket(hrid): { liquidity, book } for a material.
 // fill: the job's share of the planned hours – what the ranking goes by.
-export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins = Infinity, have = () => 0, sellAt = "ask", price = null, liquidity = null, inputMarket = null, now = Date.now() }) {
+// heldPrice(hrid): what one unit you already have is worth (what it would sell
+// for, see heldValue); the batch counts the materials you use from the
+// inventory at that, not at the ask. Without it they count at the ask.
+export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins = Infinity, have = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity = null, inputMarket = null, now = Date.now() }) {
     // A craft that loses gold still costs coins for its materials (worth it for the XP), so it is planned the same way.
     if ((entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION) || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
@@ -640,9 +643,13 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
     // and its profit once it sells (teas for its hours included).
     // Bought up the book: what the units cost above the lowest ask the action is worked out with.
     const aboveAsk = spend(count) - entry.inputs.reduce((sum, input) => sum + toBuy(input, count) * (input.price || 0), 0);
+    // What you use from the inventory costs what it would have sold for, not the ask.
+    const fromStock = heldUse(entry, count, have, heldPrice);
     const batch = {
-        materials: count * entry.costPerAction + aboveAsk,
+        materials: count * entry.costPerAction + aboveAsk - fromStock.saving,
         aboveAsk,
+        heldSaving: fromStock.saving,
+        heldValue: fromStock.value,
         toBuy: spend(count),
         revenue: count * entry.revenuePerAction,
         teas: entry.teaPerHour * jobHours,
@@ -681,6 +688,33 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
         swing,
         limitedByCoins,
     };
+}
+
+// What one unit you already have is worth: what it sells for now at the best
+// bid after tax (the shop's price without a bid), never more than buying one.
+export function heldValue(market, data, hrid) {
+    if (hrid === COIN) return 1;
+    const bid = market.sell(hrid).bid;
+    const value = bid > 0 ? bid * (1 - MARKET_TAX) : data.itemDetailMap[hrid]?.sellPrice || 0;
+    const ask = market.buy(hrid);
+    return ask === null ? value : Math.min(ask, value);
+}
+
+// The materials n actions take from the inventory: their worth there (at
+// heldPrice) and how much less that is than buying them at the ask.
+function heldUse(entry, n, have, heldPrice) {
+    let value = 0;
+    let saving = 0;
+    if (!heldPrice) return { value, saving };
+    for (const input of entry.inputs) {
+        if (input.itemHrid === COIN || !(input.count > 0)) continue;
+        const used = Math.min(have(input.itemHrid), input.count * n);
+        if (!(used > 0)) continue;
+        const worth = heldPrice(input.itemHrid);
+        value += used * worth;
+        saving += used * Math.max(0, (input.price || 0) - worth);
+    }
+    return { value, saving };
 }
 
 // Enhancing within your coins: the item (unless you have it) and the planned
@@ -918,6 +952,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     const scoreFor = (r) => (levelingList ? timeMoneyScore(goldWeight, r, xpOf) : focusScore(goldWeight, r, xpOf));
     const score = scoreFor(refs);
     const chain = chainBuilder(who, data, market, teaMode);
+    const heldPrice = (hrid) => heldValue(market, data, hrid);
     const available = doable.map(({ action, evaluate }) => {
         const teaScore = scoreFor(skillRefs[action.type]);
         const current = evaluate(who.drinks[action.type] || [], teaScore);
@@ -927,14 +962,15 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         const liquidity = plan?.liquidity?.(shown.action) ?? null;
         // Alchemy's products (coins, essences) aren't stock you are already selling.
         const stock = action.function === ALCHEMY_FUNCTION ? NO_STOCK : plan?.stock(shown.action);
-        const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity }) : null;
+        const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity, heldPrice }) : null;
         // Enhancing: what your coins carry.
         const budget = plan ? enhanceBudget(shown, plan) : null;
         // Ranked by what the planned hours give: a job your coins or your stock
         // keep short earns for only part of them, and materials bought up the
         // order book cost what they cost there, not the lowest ask.
         const fill = suggestion ? suggestion.fill : budget ? budget.fill : 1;
-        const upTheBook = suggestion?.batch.aboveAsk > 0 ? (suggestion.batch.aboveAsk * 24) / suggestion.plannedHours : 0;
+        // What you use from the inventory costs what it would sell for, not the ask.
+        const upTheBook = ((suggestion?.batch.aboveAsk || 0) - (suggestion?.batch.heldSaving || 0)) * 24 / (suggestion?.plannedHours || 1);
         const chained = chain(shown);
         const entry = {
             ...shown,

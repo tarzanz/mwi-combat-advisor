@@ -670,7 +670,8 @@ function suggestionHtml(e) {
     lines.push(`→ <b>${s.verb || "make"} ${s.count.toLocaleString("en-US")}</b> (${hoursText(s.hours)}).`);
     const b = s.batch;
     const owned = b.materials - b.toBuy;
-    lines.push(`<b>This batch:</b> materials ${coins(b.materials)}${owned > 1 ? ` (you buy ${coins(b.toBuy)}; ${coins(owned)} worth is already in your inventory)` : ""}${b.teas > 1 ? `, teas ${coins(b.teas)}` : ""}.
+    const heldText = b.heldSaving > 0.5 ? `; ${coins(owned)} worth is already in your inventory, counted at what it would sell for at the bid after tax – ${coins(b.heldSaving)} less than buying it` : `; ${coins(owned)} worth is already in your inventory`;
+    lines.push(`<b>This batch:</b> materials ${coins(b.materials)}${owned > 1 ? ` (you buy ${coins(b.toBuy)}${heldText})` : ""}${b.teas > 1 ? `, teas ${coins(b.teas)}` : ""}.
         It sells for ${coins(b.revenue)} after tax → <b class="${b.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${b.profit >= 0 ? "+" : "−"}${coins(Math.abs(b.profit))}</b>.
         <span class="mwia-dim">The coins come back as the items sell, so a slow seller ties them up for a while.</span>`);
     return lines.join("<br>");

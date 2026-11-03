@@ -85,7 +85,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   you already have in the inventory or on your own sell orders counted in – so what you hold only shortens the job
   when the market can't take it all (an item you already hold a day's sales of shows *you hold a day of sales*;
   without known sales what you hold is taken off the planned hours), smaller on a swinging price, and no more than the rating's share
-  of your coins buys materials for (using materials you have first). The materials you still have to buy are rated
+  of your coins buys materials for (using materials you have first – those count at what they would sell for, the best
+  bid after the 4% tax, not at the ask: using them costs you that sale). The materials you still have to buy are rated
   too, and the thinnest market of the product and those materials sets the share. A material you opened on the
   market in the last 12 hours is bought up its order book from the lowest ask while the last action still makes the
   plan's margin (*Away*: 5% and the price's usual swing; *Medium* and *Active*: a profit), and the batch counts what
