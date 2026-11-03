@@ -61,6 +61,8 @@ marketData["/items/tailoring_tea"] = { 0: { a: 2, b: 1 } };
 marketData["/items/artisan_tea"] = { 0: { a: 2, b: 1 } };
 // Enhancing Essence nearly worthless: Enhancing sells its +levels here (decomposing them is checked on its own).
 marketData["/items/enhancing_essence"] = { 0: { a: 2, b: 1 } };
+// Tailoring Essence too: the tailoring products sell (decomposing them into essence is checked in Node).
+marketData["/items/tailoring_essence"] = { 0: { a: 2, b: 1 } };
 // Cotton Boots sell for 2% more than their materials cost: a thin margin.
 const bootsCost = clientData.actionDetailMap["/actions/tailoring/cotton_boots"].inputItems.reduce((sum, i) => sum + i.count * marketData[i.itemHrid][0].a, 0);
 marketData["/items/cotton_boots"] = { 0: { a: Math.round((bootsCost * 1.02) / 0.96), b: Math.round(bootsCost) } };
@@ -486,6 +488,13 @@ try {
         `${linenFabric.chain?.profitPerHour} vs ${handGold}`);
     await page.$eval('.mwia-skill-row[data-hrid="/actions/tailoring/linen_fabric"]', (row) => { row.open = true; });
     const chainText = await page.$eval('.mwia-skill-row[data-hrid="/actions/tailoring/linen_fabric"] .mwia-skill-detail', (n) => [...n.querySelectorAll(".mwia-skill-sec")].find((d) => /Yourself/.test(d.textContent))?.textContent || "");
+    // A craft whose items are worth more decomposed (Alchemy) than sold says so, with its own section.
+    const recycledRow = expectRank(character, { skill: "tailoring" }).available.find((e) => e.decomposeCraft);
+    const recycledHtml = recycledRow && (await page.$eval(`.mwia-skill-row[data-hrid="${recycledRow.hrid}"]`, (row) => { row.open = true; return { hint: [...row.querySelectorAll(".mwia-skill-hint")].map((n) => n.textContent).join(" | "), detail: row.querySelector(".mwia-skill-detail").textContent }; }).catch(() => null));
+    if (recycledHtml) {
+        check("a craft decomposed instead of sold says 🧪 and what comes back", recycledHtml.hint.includes("🧪 decompose them:") && recycledHtml.detail.includes("🧪 Decompose") && recycledHtml.detail.includes("decomposed, not sold") && recycledHtml.detail.includes(`against ${coinText(recycledRow.decomposeCraft.singleGoldPerDay)}/day selling them`), recycledHtml.hint + " " + recycledHtml.detail.slice(recycledHtml.detail.indexOf("🧪 Decompose"), recycledHtml.detail.indexOf("🧪 Decompose") + 300));
+        await page.$eval(`.mwia-skill-row[data-hrid="${recycledRow.hrid}"]`, (row) => { row.open = false; });
+    } else console.log(`NOTE no decomposed craft shown${recycledRow ? ` (${recycledRow.hrid} not in view)` : ""}`);
     check("chain shown in the row", chainText.includes(`${coinText(linenFabric.chain.profitPerHour)}/h`) && /Of each hour: \d+% Linen Fabric · \d+% Flax/.test(chainText), chainText.slice(0, 160));
 
     // 🚂 Train: the chain pays more here, so a train makes Linen Fabric from Flax you gather.

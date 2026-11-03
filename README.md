@@ -119,7 +119,15 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   🛒 buttons add them to the MWITools cart. If the item stats
   don't add up to the action speed the game reports for your gear, it says so. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
   also reads its order book (shown under *📦 How many*); closing the market brings the panel back on the same row. Open rows and headings stay
-  open while you switch around. *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
+  open while you switch around.
+  **🧪 Craft, then decompose:** a craft whose item gives more decomposed (Alchemy, with the teas in your Alchemy
+  slots) than it sells for – the guide's Snake Fang Dirk, crafted for its Cheesesmithing XP and decomposed for its
+  fangs and cheese – is ranked that way when it suits the focus: the materials that come back are used again (fewer
+  to buy, valued at their ask), the rest is sold, the decompose's coins and catalyst are paid, and gold and XP are
+  per hour of both skills (the XP is the craft's; Alchemy's is named). The row says *🧪 decompose them: … back*, and
+  *🧪 Decompose* shows what one is worth decomposed against selling it. Nothing of the item is sold, so its stock and
+  buyers don't limit the job. ▶ makes the items; decompose them and craft again with what comes back.
+  *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
 - **Levelling Enhancing and Alchemy** – two more choices in the Skilling tab's *Skill* list (not part of *All
   skills*). These skills mostly cost gold, so the **Focus** slider weighs time against money there: *Gold only* ranks
@@ -169,8 +177,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     sold, and the gold against selling it all. ▶ starts the row's own action; *How many* plans it for the chain's hours.
     **Enhanced items:** equipment you have, or can buy, at +1 and up is decomposed as a row of its own (*Decompose
     Cheese Sword +5*): the same materials, plus round(2 × (0.5 + 0.1 × 1.05^item level) × 2^+level) Enhancing Essence
-    on a success (the game client's formula). One for sale is bought at its ask at that +level; one only you have
-    counts at what it would sell for, and a job decomposes no more than you have. With fewer than 10 in a job the row
+    on a success (the game client's formula). One for sale is bought at its ask at that +level – until you have opened it on the
+    market (🏪 opens that +level), only one is counted as listed, so a lone cheap listing doesn't top the list; one
+    only you have counts at what it would sell for, and a job decomposes no more than you have. With fewer than 10 in a job the row
     is marked ⚠ – each is one roll, and a failure loses the item.
     When a ▶ button can't get there, or breaks on the way, the panel comes back scrolled to a notice that lists
     what each step found (the item in your inventory, the game's handler, the menu link, the window, the tab) or

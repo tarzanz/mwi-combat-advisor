@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fixtureCharacter } from "./fixture-character.js";
 import { rankUpgrades } from "../src/skilling-upgrades.js";
-import { PLAN_MODES, SKILLING_SKILLS, evaluateAction, liquidityRating, marketPricer, rankSkilling, skillingCharacter, suggestChainCount, suggestCount, thinMargin } from "../src/skilling.js";
+import { PLAN_MODES, REUSED_MARKET, SKILLING_SKILLS, daily, decomposeCraft, evaluateAction, liquidityRating, marketPricer, rankSkilling, skillingCharacter, suggestChainCount, suggestCount, thinMargin } from "../src/skilling.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const dataDir = path.join(root, "engine/data");
@@ -13,6 +13,7 @@ const data = {};
 for (const f of readdirSync(dataDir)) data[f.replace(".json", "")] = JSON.parse(readFileSync(path.join(dataDir, f), "utf8"));
 
 let failures = 0;
+const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps * Math.max(1, Math.abs(b));
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
 
 const character = fixtureCharacter();
@@ -238,6 +239,32 @@ const upsBids = rankUpgrades(skillingCharacter(character, items, data), data, ma
 const b5 = upsBids.upgrades.find((u) => u.itemHrid === "/items/azure_needle" && u.enhancementLevel === 5);
 check("no bid at its +level: the nearest lower level's bid", b5 && Math.abs(b5.resale - 2500 * 0.96) < 1e-9 && b5.resaleLevel === 4 && Math.abs(b5.cost - (9000 - 2500 * 0.96)) < 1e-9, JSON.stringify(b5 && { r: b5.resale, l: b5.resaleLevel }));
 check("a +level's step over the next lower one", n5?.step && n5.step.from === 3 && n5.step.price === 6000 && Math.abs(n5.step.gainPerDay - (n5.gainPerDay - n3.gainPerDay)) < 1e-6 && !n0.step, JSON.stringify(n5?.step));
+
+// The guide's trick: craft Snake Fang Dirks for the XP and decompose them, using the fangs and cheese again.
+{
+    const who = { ...skillingCharacter(character, items, data), levels: { ...skillingCharacter(character, items, data).levels, "/skills/cheesesmithing": 20, "/skills/alchemy": 20 } };
+    const dirk = data.actionDetailMap["/actions/cheesesmithing/snake_fang_dirk"];
+    // Fangs dear, the dirk cheap to sell: decomposing it back pays.
+    const prices = { ...marketData, "/items/snake_fang": { 0: { a: 2000, b: 1900 } }, "/items/verdant_cheese": { 0: { a: 60, b: 55 } }, "/items/snake_fang_dirk": { 0: { a: 900, b: 800 } } };
+    const m = marketPricer((hrid) => prices[hrid]?.[0], data, "bid");
+    const plain = daily(evaluateAction(dirk, who, data, m, []));
+    const loop = decomposeCraft(plain, who, data, m);
+    const fang = (r) => r.inputs.find((i) => i.itemHrid === "/items/snake_fang");
+    const back = loop?.decomposeCraft;
+    const rate = back?.decompose.successRate;
+    check("craft and decompose: the fangs come back at the decompose odds and are bought less", loop && near(fang(loop).count, fang(plain).count - Math.min(fang(plain).count, 5 * rate)) && back.reused.some((x) => x.itemHrid === "/items/snake_fang"), JSON.stringify(loop && { f: fang(loop).count, rate }));
+    check("…the decompose coins are paid, the dirk isn't sold", loop.inputs.some((i) => i.itemHrid === "/items/coin" && near(i.count, 5 * (10 + 15))) && loop.outputs.find((o) => o.itemHrid === "/items/snake_fang_dirk").decomposed);
+    const share = (1 / plain.actionsPerHour) / (1 / plain.actionsPerHour + 1 / back.decompose.actionsPerHour);
+    check("…the hours split between crafting and decomposing", near(back.share, share) && near(loop.actionsPerHour, plain.actionsPerHour * share) && near(loop.xpPerHour, plain.xpPerHour * share));
+    check("…and it earns more than selling the dirks", loop.goldPerDay > plain.goldPerDay, `${loop.goldPerDay} vs ${plain.goldPerDay}`);
+    // A dirk that sells well: no loop.
+    const dear = marketPricer((hrid) => (hrid === "/items/snake_fang_dirk" ? { a: 1e6, b: 1e6 } : prices[hrid]?.[0]), data, "bid");
+    check("craft and decompose: not when the item sells for more", decomposeCraft(daily(evaluateAction(dirk, who, data, dear, [])), who, data, dear) === null);
+    // In the list, with a plan: no stock or buyers of the dirk count.
+    const plan = { ...PLAN_MODES.away, stock: () => ({ inventory: 99, listed: 0, listings: [] }), book: () => null, coins: 1e9, have: () => 0, liquidity: () => ({ rating: "thin", known: true }) };
+    const row = rankSkilling(who, data, m, { skill: "cheesesmithing", goldWeight: 1, plan }).available.find((e) => e.hrid === dirk.hrid);
+    check("ranking: the loop is the row, planned without the dirk's market", row?.decomposeCraft && row.suggestion.productLiquidity === REUSED_MARKET && row.suggestion.held === 0 && row.chain === null, JSON.stringify(row && { d: !!row.decomposeCraft, l: row.suggestion?.productLiquidity }));
+}
 
 check("thin margin under 5%", thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.03 }) && !thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.2 }));
 check("thin margin under the price's swing", thinMargin({ costPerAction: 1, profitPerHour: 1, margin: 0.08 }, 0.12) && !thinMargin({ costPerAction: 0, profitPerHour: 1, margin: 1 }, 0.5));

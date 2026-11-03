@@ -602,6 +602,19 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
             maxCount: usable ? Math.floor((haveOf(input) + listed) / input.count + 1e-9) : Infinity,
         };
     });
+    // An enhanced item for sale whose order book hasn't been seen: only the
+    // lowest ask is known – count one listed (plus what you have) until it is.
+    let limitedByListing = null;
+    for (const input of inputs) {
+        if (!(input.enhancementLevel > 0) || input.asks) continue;
+        const most = Math.floor((haveOf({ itemHrid: input.itemHrid, enhancementLevel: input.enhancementLevel }) + 1) / input.perAction + 1e-9);
+        input.oneListed = true;
+        if (most < count) {
+            count = most;
+            limitedByListing = input.itemHrid;
+            short = "onelisted";
+        }
+    }
     const booked = new Map(inputs.filter((i) => i.asks).map((i) => [i.itemHrid, i.asks]));
     // What buying units of a material costs: up its order book when one was seen, else at the lowest ask.
     const cost = (input, units) => {
@@ -691,6 +704,7 @@ export function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.awa
         minMargin,
         limitMargin,
         limitedByBook,
+        limitedByListing,
         coinShare: share,
         budget,
         count,
@@ -902,6 +916,79 @@ export function decomposeFinisher(who, data, market) {
     };
 }
 
+// What is decomposed and used again needs no buyer.
+export const REUSED_MARKET = { rating: "stable", known: true, reused: true };
+
+// Crafting, then decomposing what you make (Alchemy, with the teas in your
+// Alchemy slots) instead of selling it: decomposing gives back part of the
+// materials (Snake Fang Dirk: its 5 Snake Fang and 30 Verdant Cheese at ~60%),
+// and those are used again – fewer to buy – while the XP is the craft's. The
+// hours split between crafting (share) and decomposing; gold and XP are per
+// hour of both. Only when decomposing gives more for the item than selling it.
+// The row with that, or null.
+export function decomposeCraft(entry, who, data, market) {
+    if (entry.action.function !== "/action_functions/production" || !entry.valid || entry.decomposeCraft) return null;
+    const hrid = entry.action.outputItems?.[0]?.itemHrid;
+    const detail = data.itemDetailMap[hrid];
+    const out = entry.outputs.find((o) => o.itemHrid === hrid && o.kind === "product");
+    if (!out || !(out.count > 0) || !detail?.alchemyDetail?.decomposeItems?.length || who.levels?.["/skills/alchemy"] === undefined) return null;
+    const r = evaluateAlchemy(decomposeAction(detail, 0), who, data, market, who.drinks?.["/action_types/alchemy"] || [], { itemPrice: 0 });
+    if (!r.valid || !(r.actionsPerHour > 0)) return null;
+    // Decompose actions per craft action (one takes bulk items).
+    const per = out.count / r.bulk;
+    const inputs = entry.inputs.map((i) => ({ ...i }));
+    const reused = [];
+    const sold = [];
+    for (const o of r.outputs) {
+        let n = o.count * per;
+        const input = inputs.find((i) => i.itemHrid === o.itemHrid && i.count > 0);
+        if (input) {
+            const take = Math.min(n, input.count);
+            input.count -= take;
+            input.value = input.count * (input.price || 0);
+            reused.push({ itemHrid: o.itemHrid, count: take, price: input.price || 0 });
+            n -= take;
+        }
+        if (n > 1e-12) sold.push({ ...o, count: n, value: n * o.price, kind: o.kind === "product" ? "recovered" : o.kind });
+    }
+    const coins = r.coinCost * per;
+    const catalyst = r.inputs.find((i) => i.catalyst);
+    if (coins > 0) inputs.push({ itemHrid: COIN, count: coins, price: 1, value: coins });
+    if (catalyst) inputs.push({ ...catalyst, count: catalyst.count * per, value: catalyst.value * per });
+    const craftHours = 1 / entry.actionsPerHour;
+    const alchemyHours = per / r.actionsPerHour;
+    const share = craftHours / (craftHours + alchemyHours);
+    // Per item: the materials it gives back (at what buying them costs) and what is sold, less its coins, catalyst and Alchemy teas.
+    const back = reused.reduce((sum, x) => sum + x.count * x.price, 0) + sold.reduce((sum, x) => sum + x.value, 0) - coins - (catalyst ? catalyst.value * per : 0) - r.teaPerHour * alchemyHours;
+    const valuePerItem = back / out.count;
+    if (!(valuePerItem > out.price)) return null;
+    const outputs = [...entry.outputs.map((o) => (o === out ? { ...o, price: 0, value: 0, decomposed: true } : o)), ...sold];
+    const revenuePerAction = outputs.reduce((sum, o) => sum + o.value, 0);
+    const costPerAction = inputs.reduce((sum, i) => sum + i.value, 0);
+    const actionsPerHour = entry.actionsPerHour * share;
+    const teaPerHour = entry.teaPerHour * share + r.teaPerHour * (1 - share);
+    const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
+    const xpPerHour = actionsPerHour * entry.xpPerAction;
+    return {
+        ...entry,
+        single: entry,
+        outputs,
+        inputs,
+        actionsPerHour,
+        ownActionsPerHour: entry.actionsPerHour,
+        teaPerHour,
+        revenuePerAction,
+        costPerAction,
+        profitPerHour,
+        goldPerDay: profitPerHour * HOURS_PER_DAY,
+        margin: revenuePerAction > 0 ? profitPerHour / (actionsPerHour * revenuePerAction) : null,
+        xpPerHour,
+        xpPerDay: xpPerHour * HOURS_PER_DAY,
+        salesCap: null,
+        decomposeCraft: { share, per, reused, sold, valuePerItem, sellPrice: out.price, decompose: r, singleGoldPerDay: entry.goldPerDay, alchemyXpPerHour: actionsPerHour * per * r.xpPerAction },
+    };
+}
+
 const leveling = (action) => action.function === ENHANCE_FUNCTION || action.function === ALCHEMY_FUNCTION;
 const sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
 
@@ -1001,11 +1088,16 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
             const chained = alchemyChain(shown, who, data, market, chainCaches);
             if (chained && teaScore(chained) > teaScore(shown) + 1e-12) shown = chained;
         }
-        const price = plan?.price?.(shown.action) ?? null;
-        const liquidity = plan?.liquidity?.(shown.action) ?? null;
+        // Crafting: decomposing what you make to use its materials again – when that suits the focus better.
+        const recycled = decomposeCraft(shown, who, data, market);
+        if (recycled && teaScore(recycled) > teaScore(shown) + 1e-12) shown = recycled;
+        // What is decomposed isn't sold: no stock, buyers or order book of it count.
+        const recycling = !!shown.decomposeCraft;
+        const price = recycling ? null : plan?.price?.(shown.action) ?? null;
+        const liquidity = recycling ? REUSED_MARKET : plan?.liquidity?.(shown.action) ?? null;
         // Alchemy's products (coins, essences) aren't stock you are already selling.
-        const stock = action.function === ALCHEMY_FUNCTION ? NO_STOCK : plan?.stock(shown.action);
-        const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: plan.book(shown.action), price, liquidity, heldPrice }) : null;
+        const stock = action.function === ALCHEMY_FUNCTION || recycling ? NO_STOCK : plan?.stock(shown.action);
+        const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: recycling ? null : plan.book(shown.action), price, liquidity, heldPrice }) : null;
         // Enhancing: what your coins carry.
         const budget = plan ? enhanceBudget(shown, plan) : null;
         // Ranked by what the planned hours give: a job your coins or your stock
@@ -1014,7 +1106,7 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
         const fill = suggestion ? suggestion.fill : budget ? budget.fill : 1;
         // What you use from the inventory costs what it would sell for, not the ask.
         const upTheBook = ((suggestion?.batch.aboveAsk || 0) - (suggestion?.batch.heldSaving || 0)) * 24 / (suggestion?.plannedHours || 1);
-        const chained = chain(shown);
+        const chained = recycling ? null : chain(shown);
         const entry = {
             ...shown,
             teaMode,

@@ -3,7 +3,7 @@
 
 import { setBuyLimits } from "./buy-limits.js";
 import { getClientData, itemName, marketBids, marketEntry, marketListings, pricesStamp } from "./game-data.js";
-import { state } from "./game-state.js";
+import { orderBookAt, state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
 import { ASK_WINDOW, CALM_SWING, LEVELING_SKILLS, LIQUIDITY, MARKET_TAX, NEAR_LEVELS, PLAN_MODES, SKILLING_SKILLS, WIDE_SPREAD, heldStock, liquidityRating, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
 import { ENHANCE_FUNCTION, MIN_PROTECT } from "./enhancing.js";
@@ -105,7 +105,7 @@ function computeRanking(settings, fixed = null) {
             sellAt: settings.skillingSellAt,
             price: (action) => priceNow(action.outputItems?.[0]?.itemHrid, settings.skillingSellAt),
             liquidity: (action) => (action.outputItems?.[0]?.itemHrid === COIN ? COIN_MARKET : liquidityRating(action.outputItems?.[0]?.itemHrid ? priceSummary(action.outputItems[0].itemHrid) : null)),
-            inputMarket: (hrid, level = 0) => ({ liquidity: liquidityRating(priceSummary(hrid, level)), book: level ? null : state.orderBooks.get(hrid) || null }),
+            inputMarket: (hrid, level = 0) => ({ liquidity: liquidityRating(priceSummary(hrid, level)), book: level ? orderBookAt(hrid, level) : state.orderBooks.get(hrid) || null }),
         };
         const leveling = { ...levelingOptions(settings, data), fixed };
         const result = rankSkilling(who, data, market, { skill: settings.skillingSkill, teaMode: settings.skillingTeas, plan, goldWeight: goldShare(settings) / 100, countLevels: !!settings.countLevels, leveling });
@@ -347,6 +347,8 @@ function rowHtml(entry, best, upcoming = false, first = false) {
     const full = cut ? `<span class="mwia-skill-full${fill < SHORT_FILL ? " mwia-warn" : ""}" title="The rate while it runs, with the materials at their lowest ask">${fill < 1 ? `full ${hoursText(entry.suggestion.plannedHours)}` : "at the lowest ask"}: ${coins(day)}/day</span>` : "";
     const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1
         ? `<span class="mwia-skill-hint">⛓ ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>`
+        : !upcoming && entry.decomposeCraft
+        ? `<span class="mwia-skill-hint">🧪 decompose them: ${esc(names(entry.decomposeCraft.reused.map((x) => x.itemHrid).filter((h) => h !== COIN)) || "materials")} back</span>`
         : !upcoming && entry.alchemyChain
         ? `<span class="mwia-skill-hint">⛓ then ${esc(entry.alchemyChain.further.slice(0, 2).map((f) => f.name).join(", "))}${entry.alchemyChain.further.length > 2 ? ` +${entry.alchemyChain.further.length - 2} more` : ""}</span>`
         : "";
@@ -374,15 +376,17 @@ function detailHtml(e, upcoming) {
     const speed = e.speed ? ` → ${dec(e.cycleSeconds, 2)} s with ${pct(e.speed)} speed${e.cycleSeconds <= 3 + 1e-9 ? " (3 s is the floor)" : ""}` : "";
     const buffEfficiency = e.efficiency - e.levelEfficiency;
     const ac = e.alchemyChain;
-    const own = ac ? e.ownActionsPerHour : e.actionsPerHour;
+    const dc = e.decomposeCraft;
+    const own = ac || dc ? e.ownActionsPerHour : e.actionsPerHour;
     sections.push(section("⏱ Speed", `${dec(e.actionsPerHour, 0)} actions/h`, [
-        `${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} ${isAlchemy(e) ? "for the item" : "needed"}${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) → <b>${dec(own, 0)} actions/h</b>.${ac ? ` With the further steps (⛓) ${dec(ac.share * 100, 0)}% of each hour is this action: <b>${dec(e.actionsPerHour, 0)} of it an hour of the chain</b>.` : ""}`,
+        `${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} ${isAlchemy(e) ? "for the item" : "needed"}${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) → <b>${dec(own, 0)} actions/h</b>.${ac ? ` With the further steps (⛓) ${dec(ac.share * 100, 0)}% of each hour is this action: <b>${dec(e.actionsPerHour, 0)} of it an hour of the chain</b>.` : ""}${dc ? ` Decomposing what it makes (🧪) takes the rest: ${dec(dc.share * 100, 0)}% of each hour is crafting, <b>${dec(e.actionsPerHour, 0)} an hour of both</b>.` : ""}`,
     ]));
 
     const gold = [];
     const outputs = e.outputs.filter((o) => o.value > 0 || o.kind === "product").map((o) => {
         const capped = o.sell.capped === "usual" ? `usual ask; ${coins(o.sell.ask)} now` : o.sell.capped === "spread" ? `${dec(WIDE_SPREAD, 1)}× bid; ask ${coins(o.sell.ask)}` : o.sell.source;
         const how = o.sell.source === "ask" || o.sell.source === "bid" ? ` <span class="mwia-dim">(${capped} −${dec(MARKET_TAX * 100, 0)}%)</span>` : o.sell.source === "vendor" || o.sell.source === "contents" ? ` <span class="mwia-dim">(${o.sell.source})</span>` : "";
+        if (o.decomposed) return `${count(o.count)} × ${esc(itemName(o.itemHrid))} <span class="mwia-dim">(🧪 decomposed, not sold)</span>`;
         if (o.chainValue !== undefined) return `${count(o.count)} × ${esc(itemName(o.itemHrid))} @ <b>${coins(o.chainValue)}</b> <span class="mwia-dim">(⛓ processed further; sells for ${coins(o.price)})</span>`;
         return `${count(o.count)} × ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}${how}`;
     });
@@ -402,6 +406,7 @@ function detailHtml(e, upcoming) {
     sections.push(section("💰 Gold", `${coins(e.profitPerHour)}/h${e.margin !== null ? ` · margin ${dec(e.margin * 100, 1)}%` : ""}`, gold));
     if (e.chain) sections.push(section("⛓ Yourself", `${coins(e.chain.profitPerHour)}/h making the materials`, [chainHtml(e)]));
     if (ac) sections.push(section("⛓ Further", `+${coins(e.goldPerDay - ac.singleGoldPerDay)}/day over selling it all`, [alchemyChainHtml(e)]));
+    if (dc) sections.push(section("🧪 Decompose", `+${coins(e.goldPerDay - dc.singleGoldPerDay)}/day over selling ${esc(itemName(e.action.outputItems[0].itemHrid))}`, [decomposeCraftHtml(e)]));
 
     sections.push(section("✨ XP", `${coins(e.xpPerHour)}/h`, [`${dec(e.xpPerAction, 1)} per action × ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`]));
     if (!upcoming && e.suggestion) sections.push(section("📦 How many", suggestionSummary(e.suggestion), [suggestionHtml(e)]));
@@ -464,6 +469,19 @@ function enhanceSections(e, section) {
     sections.push(section("🎚 Targets", `+${e.target} suits your Focus`, [`Stopping at a lower +level sells the item sooner (more of it comes back, each attempt gives less XP); a high target almost never gets there, so it is all materials. 🧪: decomposing the +level (Alchemy, with the teas in your Alchemy slots) suits your Focus better than selling it, counting the Alchemy time. With ${item}:`, rows.join("<br>")]));
     sections.push(section("🍵 Teas", teaSummary(e), [teaHtml(e)]));
     return sections;
+}
+
+// Crafting, then decomposing what it makes: the materials it gives back and uses again.
+function decomposeCraftHtml(e) {
+    const dc = e.decomposeCraft;
+    const item = esc(itemName(e.action.outputItems[0].itemHrid));
+    const back = dc.reused.map((x) => `${count(x.count)} ${esc(itemName(x.itemHrid))} <span class="mwia-dim">(@ ${coins(x.price)}, not bought)</span>`);
+    const sold = dc.sold.filter((x) => x.value > 0.5 || x.kind === "recovered").map((x) => `${count(x.count)} ${esc(itemName(x.itemHrid))} @ ${coins(x.price)}`);
+    const r = dc.decompose;
+    return `Each ${item} is decomposed (Alchemy, ${dec(r.successRate * 100, 1)}% success with the teas in your Alchemy slots${r.catalyst?.itemHrid ? ` and ${esc(itemName(r.catalyst.itemHrid))}` : ""}, ${coins(r.coinCost)} coins) instead of sold for ${coins(dc.sellPrice)}: worth <b>${coins(dc.valuePerItem)}</b> each.
+        Per craft it gives back ${back.join(" · ")}${sold.length ? `, and ${sold.join(" · ")} to sell` : ""}.
+        <br>Of each hour ${dec(dc.share * 100, 0)}% is crafting and ${dec((1 - dc.share) * 100, 0)}% decomposing: <b>${coins(e.goldPerDay)}/day</b> against ${coins(dc.singleGoldPerDay)}/day selling them, and the XP is the craft's (${coins(e.xpPerDay)}/day; Alchemy gets ${coins(dc.alchemyXpPerHour * 24)} XP/day too).
+        <span class="mwia-dim">Each decompose is one roll – a failure loses the item – so it evens out over many. ▶ makes the items; then decompose them and craft again with what comes back.</span>`;
 }
 
 // Alchemy: what the outputs are processed into further, and what is sold.
@@ -645,6 +663,7 @@ function suggestionSummary(s) {
 export const SHORT_FILL = 0.95;
 const SHORT_WHY = {
     owned: () => "the ones you have",
+    onelisted: (s) => `one ${esc(itemName(s.limitedByListing))} +${s.inputs.find((i) => i.itemHrid === s.limitedByListing)?.enhancementLevel} known listed`,
     held: (s) => `${s.held.toLocaleString("en-US")} in stock`,
     sales: () => "a day of sales",
     swing: () => "price swings",
@@ -661,6 +680,7 @@ function salesCapText(cap, name, mean) {
 function liquidityText(l) {
     const share = (x) => `${Math.round(x * 100)}%`;
     if (l.coin) return "It gives coins: no buyer needed. The materials' markets set how much of your coins it may take.";
+    if (l.reused) return "What it makes is decomposed and its materials used again: no buyer needed. The materials' markets set how much of your coins it may take.";
     if (!l.known) return `${RATING.thin}: under ${MIN_HOURS} hours of prices for it yet${l.hours ? ` (${l.hours})` : ""}, so it is treated as thin.`;
     const parts = [
         `a buyer and a seller in ${share(l.both)} of the hours`,
@@ -732,6 +752,10 @@ function suggestionHtml(e) {
     const materials = materialsText(s);
     if (materials) lines.push(materials);
     if (s.inputs.some((i) => i.bookAt)) lines.push(`<span class="mwia-dim">A material seen on the market is bought up from its lowest ask while the last action still makes ${s.minMargin > 0 ? `a ${dec(s.minMargin * 100, 1)}% margin (your plan's)` : "a profit"}; the batch counts what each costs there${s.batch.aboveAsk > 0.5 ? ` (+${coins(s.batch.aboveAsk)} over the lowest ask)` : ""}.</span>`);
+    if (s.limitedByListing) {
+        const input = s.inputs.find((i) => i.itemHrid === s.limitedByListing);
+        lines.push(`<span class="mwia-warn">Only the lowest ask of ${esc(itemName(input.itemHrid))} +${input.enhancementLevel} is known, so one listed is counted – open it on the market (🏪) to see how many are for sale.</span>`);
+    }
     if (s.limitedByBook) {
         const input = s.inputs.find((i) => i.itemHrid === s.limitedByBook);
         lines.push(`<span class="mwia-warn">Capped at the ${esc(itemName(input.itemHrid))} you can get: ${input.nearAsks.toLocaleString("en-US")} listed at ≤ ${coins(input.maxPrice)} ${ago(input.bookAt)} ago${have(input.itemHrid) ? `, plus ${have(input.itemHrid).toLocaleString("en-US")} you have` : ""}.</span>`);

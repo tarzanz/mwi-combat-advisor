@@ -371,6 +371,13 @@ for (const skill of ["enhancing", "alchemy"]) {
     const rows = rankSkilling(who, data, market, { skill: "alchemy", plan, leveling }).available;
     const mine = rows.find((e) => e.hrid === "/actions/alchemy/decompose#/items/cheese_sword#+7");
     check("ranking: your own +7 is listed (kept on the shortlist) and capped at the 3 you have", mine && mine.suggestion.count === 3 && mine.suggestion.short === "owned", JSON.stringify(mine?.suggestion && { c: mine.suggestion.count, s: mine.suggestion.short }));
+    // A +5 for sale whose order book wasn't seen: one listed is counted, and the row ranks by that one.
+    // Always listed, as a job in the game's queue is.
+    const fixed = { hrid: "/actions/alchemy/decompose#/items/cheese_sword#+5", target: null };
+    const listed = rankSkilling(who, data, market, { skill: "alchemy", plan, leveling: { ...leveling, fixed } }).available.find((e) => e.hrid === fixed.hrid);
+    check("ranking: a +level for sale without its order book counts one listed", !!listed && (listed.suggestion.count === 1 && listed.suggestion.short === "onelisted" && listed.suggestion.limitedByListing === sword && listed.fill < 0.01), JSON.stringify(listed?.suggestion && { c: listed.suggestion.count, s: listed.suggestion.short, f: listed.fill }));
+    const seen = rankSkilling(who, data, market, { skill: "alchemy", plan: { ...plan, inputMarket: (h, level) => ({ liquidity: { rating: "stable", known: true }, book: level === 5 ? { at: Date.now(), asks: [{ price: 3000, quantity: 4 }], bids: [] } : null }) }, leveling: { ...leveling, fixed } }).available.find((e) => e.hrid === "/actions/alchemy/decompose#/items/cheese_sword#+5");
+    check("…with it, what is listed", !!seen && (seen.suggestion.count === 4 && seen.suggestion.short === "book"), JSON.stringify(seen?.suggestion && { c: seen.suggestion.count, s: seen.suggestion.short }));
     // Enhancing in the list decomposes a +target when Alchemy makes more of it (here: Enhancing Essence worth a fortune).
     const rich = marketPricer((hrid) => (hrid === "/items/enhancing_essence" ? { a: 1e5, b: 1e5 } : marketData[hrid]?.[0]), data, "bid");
     const enh = rankSkilling({ ...who, levels: { ...who.levels, "/skills/alchemy": 50 } }, data, rich, { skill: "enhancing", goldWeight: 1, leveling: { resale } }).available.find((e) => e.valid);
