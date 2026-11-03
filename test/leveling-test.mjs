@@ -6,6 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { alchemyActions, alchemyHrid, coinCost, decomposeAction, decomposeEssence, evaluateAlchemy, levelPenalty } from "../src/alchemy.js";
 import { BASE_RATES, MAX_TARGET, MIN_PROTECT, cheapestProtection, enhanceCycles, enhancingActions, evaluateEnhance, levelBonus, protectedCycle, selfEnhanceCosts } from "../src/enhancing.js";
+import { alchemyChain } from "../src/alchemy-chain.js";
 import { PLAN_MODES, coinsPerXp, decomposeFinisher, enhanceBudget, marketPricer, rankSkilling } from "../src/skilling.js";
 import { itemSkillBuffs, rankUpgrades } from "../src/skilling-upgrades.js";
 
@@ -112,6 +113,36 @@ check("a catalyst is used only on a success", !withCatalyst || near(withCatalyst
     // Through the ranking: a finisher with the character's Alchemy (decompose the +target, item free).
     const real = decomposeAction(sword, 5);
     check("decompose row of any +level", real.enhancementLevel === 5 && real.hrid.endsWith("#+5"));
+}
+
+// Chains: Pearl → … → Sunstone, which transmutes into Star Fragments. Every item sells at 6× its shop price
+// (coinifying gives 5×, so it doesn't pay), Star Fragments at a fortune, Moonstone above what transmuting makes.
+{
+    const chainPrices = {};
+    for (const it of Object.values(data.itemDetailMap)) chainPrices[it.hrid] = { a: 6 * (it.sellPrice || 1), b: 6 * (it.sellPrice || 1) };
+    chainPrices["/items/star_fragment"] = { a: 60000, b: 60000 };
+    chainPrices["/items/moonstone"] = { a: 5e6, b: 5e6 };
+    const cm = marketPricer((hrid) => chainPrices[hrid], data, "bid");
+    const pro = { levels: { "/skills/alchemy": 90 }, buffs: { [ALCHEMY]: [] }, drinks: {}, slots: { [ALCHEMY]: 1 }, concentration: 1 };
+    const pearl = evaluateAlchemy(alchemyActions(data, cm).find((a) => a.hrid === "/actions/alchemy/transmute#/items/pearl"), pro, data, cm, []);
+    const chain = alchemyChain(pearl, pro, data, cm);
+    const sun = chain?.alchemyChain.further.find((f) => f.itemHrid === "/items/sunstone");
+    check("chain: Sunstone is transmuted further (its Star Fragments are worth more than it sells for)", chain && sun?.kind === "transmute" && chain.profitPerHour > pearl.profitPerHour, JSON.stringify(chain?.alchemyChain.further.map((f) => f.name)));
+    check("chain: the hours of every step count – fewer own actions an hour", chain && chain.actionsPerHour < pearl.actionsPerHour && near(chain.alchemyChain.share, chain.actionsPerHour / pearl.actionsPerHour) && chain.single === pearl);
+    const own = 1 / pearl.actionsPerHour;
+    const furtherHours = chain.alchemyChain.further.reduce((sum, f) => sum + f.hours, 0);
+    check("chain: its hours are the row's plus every further action's", near(1 / chain.actionsPerHour, own + furtherHours, 1e-9), `${1 / chain.actionsPerHour} vs ${own + furtherHours}`);
+    // By hand: gold an hour = (each output at what the chain makes of it − the row's cost) over the chain's hours, less the teas.
+    const made = chain.outputs.reduce((sum, o) => sum + o.count * (o.chainValue ?? o.price), 0);
+    check("chain: gold an hour over the whole chain", near(chain.profitPerHour, (made - pearl.costPerAction) * chain.actionsPerHour - pearl.teaPerHour, 1e-6 * Math.abs(chain.profitPerHour)) && near(chain.revenuePerAction, made, 1e-6 * made));
+    const sunOut = chain.outputs.find((o) => o.itemHrid === "/items/sunstone");
+    check("chain: a Sunstone counts at what transmuting it makes", sunOut.chainValue > cm.sell("/items/sunstone").price);
+    check("chain: Moonstone (sells well) is sold", !chain.alchemyChain.further.some((f) => f.itemHrid === "/items/moonstone") && chain.alchemyChain.sold.some((x) => x.itemHrid === "/items/moonstone"));
+    // Star Fragments at their shop-like price: nothing pays more processed further than sold.
+    const flat = marketPricer((hrid) => (hrid === "/items/star_fragment" ? { a: 6 * data.itemDetailMap[hrid].sellPrice, b: 6 * data.itemDetailMap[hrid].sellPrice } : chainPrices[hrid]), data, "bid");
+    const pearl2 = evaluateAlchemy(alchemyActions(data, flat).find((a) => a.hrid === "/actions/alchemy/transmute#/items/pearl"), pro, data, flat, []);
+    const none = alchemyChain(pearl2, pro, data, flat);
+    check("chain: none when selling everything pays at least as well", none === null || none.profitPerHour > pearl2.profitPerHour, JSON.stringify(none?.alchemyChain.further.map((f) => f.name)));
 }
 
 // ---------- Enhancing ----------

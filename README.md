@@ -159,6 +159,14 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     action's own or Prime) that suits the focus is picked; it is used up only on a success. A transmute that gives the
     item back saves buying one. *Plan*, the market's rating and *How many* work as for crafting; **▶ Coinify N**
     (Decompose, Transmute) opens that tab with the item from your inventory and the count filled in.
+    **⛓ Chains:** what an action gives may be worth more processed further than sold (Pearl → … → Sunstone → Star
+    Fragments or a Philosopher's Stone; catalysts transmuted up to a Prime Catalyst). For every item its outputs lead
+    to (up to six steps on), the row tries selling it and coinifying, decomposing or transmuting it again with its
+    teas, and keeps a further step only when it gives more than selling, counting its hours at the chain's own gold an
+    hour (solved until the choices settle; an hour is never counted below 0, so a chain that loses gold doesn't spend
+    time just to lose less). When the chain suits the focus better, the row is ranked by it: gold and XP per hour of
+    the whole chain, *⛓ then Transmute Sunstone, …* under its name, and *⛓ Further* lists each step an hour, what is
+    sold, and the gold against selling it all. ▶ starts the row's own action; *How many* plans it for the chain's hours.
     **Enhanced items:** equipment you have, or can buy, at +1 and up is decomposed as a row of its own (*Decompose
     Cheese Sword +5*): the same materials, plus round(2 × (0.5 + 0.1 × 1.05^item level) × 2^+level) Enhancing Essence
     on a success (the game client's formula). One for sale is bought at its ask at that +level; one only you have

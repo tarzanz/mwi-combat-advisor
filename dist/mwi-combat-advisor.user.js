@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.53.0
+// @version      0.54.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1052,6 +1052,200 @@
     return teaSetups(data, TYPE2, who.slots?.[TYPE2] ?? 1, candidates);
   }
 
+  // src/alchemy-chain.js
+  var COIN2 = "/items/coin";
+  var MAX_DEPTH = 6;
+  var MAX_ITEMS = 150;
+  var SWEEPS = 60;
+  var ROUNDS = 8;
+  function stepsFor(itemHrid, who, data, market, teas, cache) {
+    if (cache.has(itemHrid)) return cache.get(itemHrid);
+    const steps = [];
+    const detail = data.itemDetailMap[itemHrid];
+    const a = detail?.alchemyDetail;
+    if (a) {
+      const kinds = [];
+      if (a.isCoinifiable && detail.sellPrice > 0) kinds.push("coinify");
+      if (a.decomposeItems?.length) kinds.push("decompose");
+      if (a.transmuteDropTable?.length && a.transmuteSuccessRate > 0) kinds.push("transmute");
+      for (const kind of kinds) {
+        const action = { hrid: alchemyHrid(kind, itemHrid), kind, itemHrid, enhancementLevel: 0, levelRequirement: { level: detail.itemLevel || 1 } };
+        const r = evaluateAlchemy(action, who, data, market, teas, { itemPrice: 0 });
+        const net = r.inputs[0]?.count || 0;
+        if (!r.successRate || !(net > 1e-9) || !(r.actionsPerHour > 0)) continue;
+        const paid = r.inputs.slice(1).reduce((sum, i) => sum + i.value, 0);
+        steps.push({
+          kind,
+          itemHrid,
+          net,
+          outputs: r.outputs.map((o2) => ({ itemHrid: o2.itemHrid, count: o2.count })),
+          paid,
+          hours: 1 / r.actionsPerHour,
+          xp: r.xpPerAction,
+          catalyst: r.catalyst?.itemHrid || null,
+          successRate: r.successRate
+        });
+      }
+    }
+    cache.set(itemHrid, steps);
+    return steps;
+  }
+  function reachable(entry, steps) {
+    const seen = /* @__PURE__ */ new Set();
+    let frontier = entry.outputs.map((o2) => o2.itemHrid).filter((h2) => h2 !== COIN2);
+    for (let depth = 0; depth < MAX_DEPTH && frontier.length && seen.size < MAX_ITEMS; depth++) {
+      const next = [];
+      for (const hrid of frontier) {
+        if (seen.has(hrid) || seen.size >= MAX_ITEMS) continue;
+        seen.add(hrid);
+        for (const step of steps(hrid)) for (const o2 of step.outputs) if (o2.itemHrid !== COIN2 && !seen.has(o2.itemHrid)) next.push(o2.itemHrid);
+      }
+      frontier = next;
+    }
+    return [...seen];
+  }
+  function choose(items, sell, steps, charge, teaPerHour) {
+    const worth = new Map(items.map((h2) => [h2, sell(h2)]));
+    const value = (h2) => h2 === COIN2 ? 1 : worth.has(h2) ? worth.get(h2) : sell(h2);
+    const choice = /* @__PURE__ */ new Map();
+    for (let sweep = 0; sweep < SWEEPS; sweep++) {
+      let moved = 0;
+      for (const h2 of items) {
+        let best = sell(h2);
+        let pick = null;
+        for (const step of steps(h2)) {
+          const v = (step.outputs.reduce((sum, o2) => sum + o2.count * value(o2.itemHrid), 0) - step.paid - (teaPerHour + charge) * step.hours) / step.net;
+          if (v > best + 1e-9) {
+            best = v;
+            pick = step;
+          }
+        }
+        moved = Math.max(moved, Math.abs(best - worth.get(h2)) / Math.max(1, Math.abs(best)));
+        worth.set(h2, best);
+        choice.set(h2, pick);
+      }
+      if (moved < 1e-9) break;
+    }
+    for (const v of worth.values()) if (!Number.isFinite(v) || v > 1e15) return null;
+    return choice;
+  }
+  function follow(items, sell, choice) {
+    const gold = /* @__PURE__ */ new Map();
+    const hours = /* @__PURE__ */ new Map();
+    const xp = /* @__PURE__ */ new Map();
+    const val = (map, h2, sold) => h2 === COIN2 ? map === gold ? 1 : 0 : map.has(h2) ? map.get(h2) : sold(h2);
+    for (const h2 of items) {
+      gold.set(h2, sell(h2));
+      hours.set(h2, 0);
+      xp.set(h2, 0);
+    }
+    const none = () => 0;
+    for (let sweep = 0; sweep < SWEEPS; sweep++) {
+      let moved = 0;
+      for (const h2 of items) {
+        const step = choice.get(h2);
+        if (!step) continue;
+        const g2 = (step.outputs.reduce((sum, o2) => sum + o2.count * val(gold, o2.itemHrid, sell), 0) - step.paid) / step.net;
+        const t4 = (step.hours + step.outputs.reduce((sum, o2) => sum + o2.count * val(hours, o2.itemHrid, none), 0)) / step.net;
+        const x = (step.xp + step.outputs.reduce((sum, o2) => sum + o2.count * val(xp, o2.itemHrid, none), 0)) / step.net;
+        moved = Math.max(moved, Math.abs(g2 - gold.get(h2)) / Math.max(1, Math.abs(g2)), Math.abs(t4 - hours.get(h2)) / Math.max(1e-9, t4));
+        gold.set(h2, g2);
+        hours.set(h2, t4);
+        xp.set(h2, x);
+      }
+      if (moved < 1e-9) break;
+    }
+    return { gold: (h2) => val(gold, h2, sell), hours: (h2) => val(hours, h2, none), xp: (h2) => val(xp, h2, none) };
+  }
+  function flows(entry, items, choice) {
+    const amount = /* @__PURE__ */ new Map();
+    for (const o2 of entry.outputs) if (o2.itemHrid !== COIN2) amount.set(o2.itemHrid, (amount.get(o2.itemHrid) || 0) + o2.count);
+    const actions = /* @__PURE__ */ new Map();
+    const sold = /* @__PURE__ */ new Map();
+    for (let sweep = 0; sweep < SWEEPS * 4; sweep++) {
+      let pushed = false;
+      for (const h2 of [...amount.keys()]) {
+        const n3 = amount.get(h2);
+        if (n3 < 1e-12) continue;
+        amount.set(h2, 0);
+        const step = choice.get(h2);
+        if (!step) {
+          sold.set(h2, (sold.get(h2) || 0) + n3);
+          continue;
+        }
+        pushed = true;
+        const times = n3 / step.net;
+        actions.set(h2, { step, count: (actions.get(h2)?.count || 0) + times });
+        for (const o2 of step.outputs) if (o2.itemHrid !== COIN2) amount.set(o2.itemHrid, (amount.get(o2.itemHrid) || 0) + o2.count * times);
+      }
+      if (!pushed) break;
+    }
+    return { actions: [...actions.values()], sold: [...sold].map(([itemHrid, count2]) => ({ itemHrid, count: count2 })) };
+  }
+  function alchemyChain(entry, who, data, market, caches = /* @__PURE__ */ new Map()) {
+    if (!entry?.valid || !(entry.actionsPerHour > 0)) return null;
+    const teaKey = entry.teas.join(",");
+    if (!caches.has(teaKey)) caches.set(teaKey, /* @__PURE__ */ new Map());
+    const cache = caches.get(teaKey);
+    const steps = (h2) => stepsFor(h2, who, data, market, entry.teas, cache);
+    const sellCache = /* @__PURE__ */ new Map();
+    const sell = (h2) => {
+      if (h2 === COIN2) return 1;
+      if (!sellCache.has(h2)) sellCache.set(h2, entry.outputs.find((o2) => o2.itemHrid === h2)?.price ?? market.sell(h2).price ?? 0);
+      return sellCache.get(h2);
+    };
+    const items = reachable(entry, steps);
+    if (!items.some((h2) => steps(h2).length)) return null;
+    const ownHours = 1 / entry.actionsPerHour;
+    const ownCost = entry.costPerAction;
+    let rate = Math.max(0, entry.profitPerHour);
+    let result = null;
+    let last = null;
+    for (let round = 0; round < ROUNDS; round++) {
+      const choice2 = choose(items, sell, steps, Math.max(0, rate), entry.teaPerHour);
+      if (!choice2) return null;
+      const key = items.map((h2) => choice2.get(h2)?.kind || "").join("|");
+      if (key === last) break;
+      last = key;
+      const f2 = follow(items, sell, choice2);
+      const revenue2 = entry.outputs.reduce((sum, o2) => sum + o2.count * f2.gold(o2.itemHrid), 0);
+      const hours2 = ownHours + entry.outputs.reduce((sum, o2) => sum + o2.count * f2.hours(o2.itemHrid), 0);
+      const xp2 = entry.xpPerAction + entry.outputs.reduce((sum, o2) => sum + o2.count * f2.xp(o2.itemHrid), 0);
+      const profitPerHour2 = (revenue2 - ownCost) / hours2 - entry.teaPerHour;
+      result = { choice: choice2, revenue: revenue2, hours: hours2, xp: xp2, profitPerHour: profitPerHour2, f: f2 };
+      rate = profitPerHour2;
+    }
+    if (!result || ![...result.choice.values()].some(Boolean) || !(result.profitPerHour > entry.profitPerHour + 1e-9)) return null;
+    const { revenue, hours, xp, profitPerHour, choice, f } = result;
+    const flow = flows(entry, items, choice);
+    const actionsPerHour = 1 / hours;
+    const further = flow.actions.map(({ step, count: count2 }) => ({ itemHrid: step.itemHrid, kind: step.kind, name: `${ALCHEMY_KINDS[step.kind].name} ${data.itemDetailMap[step.itemHrid]?.name || step.itemHrid}`, count: count2, hours: count2 * step.hours, catalyst: step.catalyst, successRate: step.successRate })).sort((a, b) => b.hours - a.hours);
+    const outputs = entry.outputs.map((o2) => choice.get(o2.itemHrid) ? { ...o2, chainValue: f.gold(o2.itemHrid), chainHours: f.hours(o2.itemHrid) } : o2);
+    const goldPerDay = profitPerHour * 24;
+    const xpPerHour = xp * actionsPerHour;
+    return {
+      ...entry,
+      single: entry,
+      outputs,
+      actionsPerHour,
+      ownActionsPerHour: entry.actionsPerHour,
+      revenuePerAction: revenue,
+      profitPerHour,
+      goldPerDay,
+      margin: revenue > 0 ? (revenue - ownCost - entry.teaPerHour * hours) / revenue : null,
+      xpPerAction: xp,
+      xpPerHour,
+      xpPerDay: xpPerHour * 24,
+      coinsPerXp: xpPerHour > 0 ? -profitPerHour / xpPerHour : null,
+      alchemyChain: {
+        share: ownHours / hours,
+        further,
+        sold: flow.sold.filter((s2) => s2.count > 1e-9).sort((a, b) => b.count * sell(b.itemHrid) - a.count * sell(a.itemHrid)),
+        singleGoldPerDay: entry.goldPerDay
+      }
+    };
+  }
+
   // src/skilling.js
   var SKILLING_SKILLS = ["milking", "foraging", "woodcutting", "cheesesmithing", "crafting", "tailoring", "cooking", "brewing"];
   var LEVELING_SKILLS = ["alchemy", "enhancing"];
@@ -1073,7 +1267,7 @@
   var HOURS_PER_DAY = 24;
   var WIDE_SPREAD = 1.5;
   var INVENTORY = "/item_locations/inventory";
-  var COIN2 = "/items/coin";
+  var COIN3 = "/items/coin";
   var POUCH = "/item_locations/pouch";
   var TOTAL_LEVEL = "/skills/total_level";
   var BUFF = {
@@ -1467,7 +1661,7 @@
       if (count2 < before) short = "swing";
     }
     const haveOf = (input) => have4(input.itemHrid, input.enhancementLevel || 0);
-    const toBuy2 = (input, n3) => input.itemHrid === COIN2 ? input.count * n3 : Math.max(0, input.count * n3 - haveOf(input));
+    const toBuy2 = (input, n3) => input.itemHrid === COIN3 ? input.count * n3 : Math.max(0, input.count * n3 - haveOf(input));
     const minMargin = hideThinMargins ? Math.max(RISKY_MARGIN, price?.swing > CALM_SWING ? price.swing : 0) : 0;
     const limitMargin = Math.max(RISKY_MARGIN, minMargin);
     for (const input of entry.inputs) {
@@ -1478,7 +1672,7 @@
         short = "owned";
       }
     }
-    const bought = entry.inputs.filter((input) => input.itemHrid !== COIN2 && input.forSale !== false && input.count > 0 && input.price > 0 && toBuy2(input, count2) > 0);
+    const bought = entry.inputs.filter((input) => input.itemHrid !== COIN3 && input.forSale !== false && input.count > 0 && input.price > 0 && toBuy2(input, count2) > 0);
     const profitPerAction = entry.profitPerHour / entry.actionsPerHour;
     const inputs = bought.map((input) => {
       const market = inputMarket?.(input.itemHrid, input.enhancementLevel || 0) || {};
@@ -1597,7 +1791,7 @@
     };
   }
   function heldValue(market, data, hrid) {
-    if (hrid === COIN2) return 1;
+    if (hrid === COIN3) return 1;
     const bid = market.sell(hrid).bid;
     const value = bid > 0 ? bid * (1 - MARKET_TAX) : data.itemDetailMap[hrid]?.sellPrice || 0;
     const ask = market.buy(hrid);
@@ -1608,7 +1802,7 @@
     let saving = 0;
     if (!heldPrice) return { value, saving };
     for (const input of entry.inputs) {
-      if (input.itemHrid === COIN2 || !(input.count > 0)) continue;
+      if (input.itemHrid === COIN3 || !(input.count > 0)) continue;
       const level = input.enhancementLevel || 0;
       const used = Math.min(have4(input.itemHrid, level), input.count * n3);
       if (!(used > 0)) continue;
@@ -1833,12 +2027,17 @@
     const scoreFor = (r) => levelingList ? timeMoneyScore(goldWeight, r, xpOf) : focusScore(goldWeight, r, xpOf);
     const score2 = scoreFor(refs);
     const chain = chainBuilder(who, data, market, teaMode);
+    const chainCaches = /* @__PURE__ */ new Map();
     const heldPrice = (hrid, level = 0) => level > 0 ? levelingOptions2.plusHeld?.(hrid, level) || 0 : heldValue(market, data, hrid);
     const available = doable.map(({ action, evaluate }) => {
       const teaScore = scoreFor(skillRefs[action.type]);
       const current = evaluate(who.drinks[action.type] || [], teaScore);
       const best = bestTeas(action, who, data, market, evaluate, teaScore);
-      const shown = teaMode === "best" ? best.result : current;
+      let shown = teaMode === "best" ? best.result : current;
+      if (action.function === ALCHEMY_FUNCTION) {
+        const chained2 = alchemyChain(shown, who, data, market, chainCaches);
+        if (chained2 && teaScore(chained2) > teaScore(shown) + 1e-12) shown = chained2;
+      }
       const price = plan?.price?.(shown.action) ?? null;
       const liquidity2 = plan?.liquidity?.(shown.action) ?? null;
       const stock = action.function === ALCHEMY_FUNCTION ? NO_STOCK : plan?.stock(shown.action);
@@ -2697,7 +2896,7 @@
         have,
         sellAt: settings2.skillingSellAt,
         price: (action) => priceNow(action.outputItems?.[0]?.itemHrid, settings2.skillingSellAt),
-        liquidity: (action) => action.outputItems?.[0]?.itemHrid === COIN3 ? COIN_MARKET : liquidityRating(action.outputItems?.[0]?.itemHrid ? priceSummary(action.outputItems[0].itemHrid) : null),
+        liquidity: (action) => action.outputItems?.[0]?.itemHrid === COIN4 ? COIN_MARKET : liquidityRating(action.outputItems?.[0]?.itemHrid ? priceSummary(action.outputItems[0].itemHrid) : null),
         inputMarket: (hrid, level = 0) => ({ liquidity: liquidityRating(priceSummary(hrid, level)), book: level ? null : state.orderBooks.get(hrid) || null })
       };
       const leveling2 = { ...levelingOptions(settings2, data), fixed };
@@ -2727,7 +2926,7 @@
     };
     return marketPricer((hrid) => marketEntry(hrid), getClientData(), sellAt, usualAsk, soldOf);
   }
-  var COIN3 = "/items/coin";
+  var COIN4 = "/items/coin";
   var COIN_MARKET = { rating: "stable", known: true, coin: true };
   var isEnhance = (entry) => entry.action.function === ENHANCE_FUNCTION;
   var isAlchemy = (entry) => entry.action.function === ALCHEMY_FUNCTION;
@@ -2890,7 +3089,7 @@
     const cut = planned && coins(shownDay) !== coins(day);
     const gold = entry.valid ? `<span class="${shownDay < 0 && !leveling2 ? "mwia-bad" : shownDay > 0 && (best || leveling2) ? "mwia-ok" : ""}">${coins(shownDay)}/day</span>` : `<span class="mwia-dim">\u2013</span>`;
     const full = cut ? `<span class="mwia-skill-full${fill < SHORT_FILL ? " mwia-warn" : ""}" title="The rate while it runs, with the materials at their lowest ask">${fill < 1 ? `full ${hoursText(entry.suggestion.plannedHours)}` : "at the lowest ask"}: ${coins(day)}/day</span>` : "";
-    const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1 ? `<span class="mwia-skill-hint">\u26D3 ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>` : "";
+    const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1 ? `<span class="mwia-skill-hint">\u26D3 ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>` : !upcoming && entry.alchemyChain ? `<span class="mwia-skill-hint">\u26D3 then ${esc(entry.alchemyChain.further.slice(0, 2).map((f) => f.name).join(", "))}${entry.alchemyChain.further.length > 2 ? ` +${entry.alchemyChain.further.length - 2} more` : ""}</span>` : "";
     const faded = !entry.valid || !leveling2 && day <= 0 || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
     return `<details class="mwia-skill-row${(best || leveling2 && first) && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">\u2192 +${entry.target}${entry.finish ? " \u{1F9EA} decompose" : ""}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
@@ -2909,13 +3108,16 @@
     if (isAlchemy(e)) sections.push(section("\u{1F3AF} Odds", `${pct(e.successRate).replace("+", "")} success`, [alchemyOddsHtml(e)]));
     const speed = e.speed ? ` \u2192 ${dec(e.cycleSeconds, 2)} s with ${pct(e.speed)} speed${e.cycleSeconds <= 3 + 1e-9 ? " (3 s is the floor)" : ""}` : "";
     const buffEfficiency = e.efficiency - e.levelEfficiency;
+    const ac = e.alchemyChain;
+    const own = ac ? e.ownActionsPerHour : e.actionsPerHour;
     sections.push(section("\u23F1 Speed", `${dec(e.actionsPerHour, 0)} actions/h`, [
-      `${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} ${isAlchemy(e) ? "for the item" : "needed"}${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) \u2192 <b>${dec(e.actionsPerHour, 0)} actions/h</b>.`
+      `${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} ${isAlchemy(e) ? "for the item" : "needed"}${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) \u2192 <b>${dec(own, 0)} actions/h</b>.${ac ? ` With the further steps (\u26D3) ${dec(ac.share * 100, 0)}% of each hour is this action: <b>${dec(e.actionsPerHour, 0)} of it an hour of the chain</b>.` : ""}`
     ]));
     const gold = [];
     const outputs = e.outputs.filter((o2) => o2.value > 0 || o2.kind === "product").map((o2) => {
       const capped2 = o2.sell.capped === "usual" ? `usual ask; ${coins(o2.sell.ask)} now` : o2.sell.capped === "spread" ? `${dec(WIDE_SPREAD, 1)}\xD7 bid; ask ${coins(o2.sell.ask)}` : o2.sell.source;
       const how = o2.sell.source === "ask" || o2.sell.source === "bid" ? ` <span class="mwia-dim">(${capped2} \u2212${dec(MARKET_TAX * 100, 0)}%)</span>` : o2.sell.source === "vendor" || o2.sell.source === "contents" ? ` <span class="mwia-dim">(${o2.sell.source})</span>` : "";
+      if (o2.chainValue !== void 0) return `${count(o2.count)} \xD7 ${esc(itemName(o2.itemHrid))} @ <b>${coins(o2.chainValue)}</b> <span class="mwia-dim">(\u26D3 processed further; sells for ${coins(o2.price)})</span>`;
       return `${count(o2.count)} \xD7 ${esc(itemName(o2.itemHrid))} @ ${coins(o2.price)}${how}`;
     });
     const boosts = [e.quantity && `quantity ${pct(e.quantity)}`, e.processing && `processing ${pct(e.processing)}`].filter(Boolean).join(", ");
@@ -2933,6 +3135,7 @@
     if (capped) gold.push(salesCapText(e.salesCap, esc(itemName(capped.itemHrid)), capped.price));
     sections.push(section("\u{1F4B0} Gold", `${coins(e.profitPerHour)}/h${e.margin !== null ? ` \xB7 margin ${dec(e.margin * 100, 1)}%` : ""}`, gold));
     if (e.chain) sections.push(section("\u26D3 Yourself", `${coins(e.chain.profitPerHour)}/h making the materials`, [chainHtml(e)]));
+    if (ac) sections.push(section("\u26D3 Further", `+${coins(e.goldPerDay - ac.singleGoldPerDay)}/day over selling it all`, [alchemyChainHtml(e)]));
     sections.push(section("\u2728 XP", `${coins(e.xpPerHour)}/h`, [`${dec(e.xpPerAction, 1)} per action \xD7 ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`]));
     if (!upcoming && e.suggestion) sections.push(section("\u{1F4E6} How many", suggestionSummary(e.suggestion), [suggestionHtml(e)]));
     if (!upcoming) sections.push(section("\u{1F375} Teas", teaSummary(e), [teaHtml(e)]));
@@ -2986,10 +3189,20 @@
     sections.push(section("\u{1F375} Teas", teaSummary(e), [teaHtml(e)]));
     return sections;
   }
+  function alchemyChainHtml(e) {
+    const ac = e.alchemyChain;
+    const perHour = (f) => f.count * e.actionsPerHour;
+    const steps = ac.further.map((f) => `${esc(f.name)}: ${count(perHour(f))} an hour <span class="mwia-dim">(${dec(f.hours * e.actionsPerHour * 100, 0)}% of the time, ${dec(f.successRate * 100, 0)}% success${f.catalyst ? `, ${esc(itemName(f.catalyst))}` : ""})</span>`);
+    const sold = ac.sold.map((x) => `${count(x.count * e.actionsPerHour)} ${esc(itemName(x.itemHrid))}`);
+    return `What this action gives is worth more processed further than sold. Of each hour ${dec(ac.share * 100, 0)}% is ${esc(e.action.name)}; then:<br>${steps.join("<br>")}
+        ${sold.length ? `<br>Sold, an hour: ${sold.join(" \xB7 ")}.` : ""}
+        <br>Gold an hour of the whole chain: <b>${coins(e.profitPerHour)}/h = ${coins(e.goldPerDay)}/day</b>, against ${coins(ac.singleGoldPerDay)}/day selling all it gives.
+        <span class="mwia-dim">Each further step is chosen when it gives more than selling, counting its hours at the chain's own gold an hour; all with this row's teas. \u25B6 starts this action only \u2013 queue the further steps as their outputs come in.</span>`;
+  }
   function decomposeText(fin) {
     const r = fin.entry;
     const outs = r.outputs.filter((o2) => o2.value > 0).map((o2) => `${count(o2.count)} \xD7 ${esc(itemName(o2.itemHrid))} @ ${coins(o2.price)}`).join(" + ");
-    const costs = r.inputs.filter((i) => i.itemHrid === COIN3 || i.catalyst).map((i) => i.itemHrid === COIN3 ? `${coins(i.value)} coins` : `${count(i.count)} \xD7 ${esc(itemName(i.itemHrid))}`).join(" \u2212 ");
+    const costs = r.inputs.filter((i) => i.itemHrid === COIN4 || i.catalyst).map((i) => i.itemHrid === COIN4 ? `${coins(i.value)} coins` : `${count(i.count)} \xD7 ${esc(itemName(i.itemHrid))}`).join(" \u2212 ");
     const teas = r.teaPerHour > 0 ? ` \u2212 ${coins(r.teaPerHour / r.actionsPerHour)} of Alchemy teas` : "";
     return `${dec(r.successRate * 100, 1)}% success, ${outs}${costs ? ` \u2212 ${costs}` : ""}${teas}`;
   }
@@ -3019,7 +3232,7 @@
       const guard = e.protect ? ` data-protect="${esc(e.protect.itemHrid)}" data-protect-from="${e.protect.from}"` : "";
       open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e.target}${e.protect ? `, protected from +${e.protect.from} with ${esc(itemName(e.protect.itemHrid))}` : ""}">\u25B6 Enhance to +${e.target}</button>`;
       const attempts = Math.ceil(e.actionsPerHour * hours);
-      const items = e.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN3);
+      const items = e.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN4);
       const guards = e.protect?.itemHrid === item ? attempts * e.protect.protections / e.attempts : 0;
       const copies = Math.max(e.base.owned ? 0 : 1, Math.ceil(attempts / e.attempts + guards) - have(item));
       if (copies > 0) items.unshift({ hrid: item, quantity: copies });
@@ -3030,7 +3243,7 @@
       const plus = e.action.enhancementLevel || 0;
       const catalyst = e.catalyst?.itemHrid ? ` data-catalyst="${esc(e.catalyst.itemHrid)}"` : "";
       open = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}"${plus ? ` data-level="${plus}"` : ""} data-label="${esc(k.name)}" data-value="${n3}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))}${plus ? ` +${plus}` : ""} (from your inventory)${n3 ? ` and ${n3} actions` : ""}${e.catalyst?.itemHrid ? `, with ${esc(itemName(e.catalyst.itemHrid))}` : ""}">\u25B6 ${k.name}${n3 ? ` ${n3.toLocaleString("en-US")}` : ""}</button>`;
-      const items = n3 ? e.inputs.filter((i) => i.itemHrid !== COIN3 && i.forSale !== false).map((i) => ({ hrid: i.itemHrid, ...i.enhancementLevel ? { enhancementLevel: i.enhancementLevel } : {}, quantity: Math.max(0, Math.ceil(i.count * n3) - have(i.itemHrid, i.enhancementLevel || 0)) })).filter((i) => i.quantity > 0) : [];
+      const items = n3 ? e.inputs.filter((i) => i.itemHrid !== COIN4 && i.forSale !== false).map((i) => ({ hrid: i.itemHrid, ...i.enhancementLevel ? { enhancementLevel: i.enhancementLevel } : {}, quantity: Math.max(0, Math.ceil(i.count * n3) - have(i.itemHrid, i.enhancementLevel || 0)) })).filter((i) => i.quantity > 0) : [];
       buy = items.length ? { items, title: `Adds what ${n3.toLocaleString("en-US")} actions use, less what you have: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`).join(", ")}` } : null;
     }
     const cart = buy ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-job="${esc(e.hrid)}" data-teas="${esc(JSON.stringify(buy.items))}" title="${esc(buy.title)}">\u{1F6D2} Materials</button>` : "";
@@ -3717,7 +3930,7 @@
   var MAX_HISTORY = 1e3;
   var LOT_MS = 30 * 24 * 3600 * 1e3;
   var INSTANT_MS = 2 * 60 * 1e3;
-  var COIN4 = "/items/coin";
+  var COIN5 = "/items/coin";
   var keyOf = (hrid, level = 0) => `${hrid}::${Number(level) || 0}`;
   function splitKey(key) {
     const i = key.lastIndexOf("::");
@@ -3814,7 +4027,7 @@
       revenue: r.revenue,
       profit: r.profit,
       expectedMargin: r.forecast?.margin ?? null,
-      used: r.used.filter((u) => u.itemHrid !== COIN4).map((u) => [keyOf(u.itemHrid, u.level), u.qty])
+      used: r.used.filter((u) => u.itemHrid !== COIN5).map((u) => [keyOf(u.itemHrid, u.level), u.qty])
     };
   }
   function keepReport(ledger, key, report, { sent = false } = {}) {
@@ -3885,13 +4098,13 @@
       if (Math.abs(d) < 1e-9) continue;
       const { itemHrid, level } = splitKey(key);
       if (d > 0) {
-        const unit = itemHrid === COIN4 ? 1 : prices2.value(itemHrid, level) ?? 0;
+        const unit = itemHrid === COIN5 ? 1 : prices2.value(itemHrid, level) ?? 0;
         made.push({ itemHrid, level, qty: d, unit, total: d * unit });
       } else {
         const qty2 = -d;
-        const fromLots = itemHrid === COIN4 ? { qty: 0, cost: 0, estimate: false } : takeLots(lots, key, qty2, job.endedAt);
+        const fromLots = itemHrid === COIN5 ? { qty: 0, cost: 0, estimate: false } : takeLots(lots, key, qty2, job.endedAt);
         const rest = qty2 - fromLots.qty;
-        const restUnit = itemHrid === COIN4 ? 1 : prices2.cost(itemHrid, level) ?? 0;
+        const restUnit = itemHrid === COIN5 ? 1 : prices2.cost(itemHrid, level) ?? 0;
         const total = fromLots.cost + rest * restUnit;
         used.push({ itemHrid, level, qty: qty2, unit: total / qty2, total, bought: fromLots.qty, boughtEstimate: fromLots.estimate });
       }
@@ -3927,7 +4140,7 @@
     return report;
   }
   function compare(f, made, used, teas, hours, actions) {
-    const primary = f.inputs.filter((i) => i.itemHrid !== COIN4 && !i.catalyst).sort((a, b) => b.count * b.price - a.count * a.price)[0];
+    const primary = f.inputs.filter((i) => i.itemHrid !== COIN5 && !i.catalyst).sort((a, b) => b.count * b.price - a.count * a.price)[0];
     const usedOf = (hrid) => used.find((u) => u.itemHrid === hrid && u.level === 0);
     const n3 = primary && usedOf(primary.itemHrid) ? usedOf(primary.itemHrid).qty / primary.count : actions;
     const parts = { yield: 0, prices: 0, usage: 0, bought: 0, teas: 0 };
@@ -3957,7 +4170,8 @@
     const profit = f.profitPerAction * n3;
     return { actions: n3, profit, margin: f.margin, perHour: f.profitPerHour, actionsPerHour: f.actionsPerHour, parts };
   }
-  function compactForecast(entry) {
+  function compactForecast(row) {
+    const entry = row?.single || row;
     if (!entry || !(entry.actionsPerHour > 0)) return null;
     return {
       name: entry.name,
@@ -3973,7 +4187,7 @@
 
   // src/job-log.js
   var KEY = "mwia-jobs";
-  var COIN5 = "/items/coin";
+  var COIN6 = "/items/coin";
   var HEADING = /^loot\s*&\s*xp\s*log$/i;
   var START = /^Start Time:\s*(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)/;
   var MAX_FORECASTS = 60;
@@ -4155,7 +4369,7 @@
       const level = levelOfHash2(e.primaryItemHash);
       add(keyOf(item, level), -bulk * count2);
       const coins8 = coinCost(kind, detail) * count2;
-      if (coins8) add(keyOf(COIN5), -coins8);
+      if (coins8) add(keyOf(COIN6), -coins8);
       const catalyst = itemOfHash2(e.secondaryItemHash);
       if (catalyst) {
         const per = successOutputs(kind, detail, level).filter((o2) => o2.count > 0);
@@ -5659,7 +5873,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.53.0" : "dev";
+  var VERSION = true ? "0.54.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5736,7 +5950,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   // src/export.js
   var INVENTORY4 = '[class*="Inventory_items"]';
   var SCAN_MS2 = 500;
-  var COIN6 = "/items/coin";
+  var COIN7 = "/items/coin";
   var INVENTORY_LOCATION = "/item_locations/inventory";
   var ex = { win: null, scanTimer: null, context: () => ({}), loading: null };
   var n = (x) => Math.round(x).toLocaleString("en-US");
@@ -5838,10 +6052,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const abilities = (c2.characterAbilities || []).filter((a) => a.abilityHrid).map((a) => `${words(a.abilityHrid)} ${a.level}${a.slotNumber ? ` (slot ${a.slotNumber})` : ""}`);
     section("Abilities", [abilities.join(" \xB7 ")].filter(Boolean));
     const stacks = items.filter((i) => i.itemHrid && i.itemLocationHrid === INVENTORY_LOCATION);
-    const coinCount = stacks.filter((i) => i.itemHrid === COIN6).reduce((sum, i) => sum + (i.count || 0), 0);
+    const coinCount = stacks.filter((i) => i.itemHrid === COIN7).reduce((sum, i) => sum + (i.count || 0), 0);
     section("Coins", [n(coinCount)]);
     const pricer = data ? marketPricer((hrid) => marketEntry(hrid), data, "bid") : null;
-    const priced = stacks.filter((i) => i.itemHrid !== COIN6).map((i) => {
+    const priced = stacks.filter((i) => i.itemHrid !== COIN7).map((i) => {
       const m = marketEntry(i.itemHrid, i.enhancementLevel || 0);
       const ask = m?.a > 0 ? m.a : null;
       const bid = m?.b > 0 ? m.b : null;
@@ -7205,12 +7419,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const gathered = new Set((train.gather || []).filter((item) => item.on).map((item) => item.itemHrid));
     return train.shortages.filter((shortage) => !gathered.has(shortage.itemHrid));
   }
-  var COIN7 = "/items/coin";
+  var COIN8 = "/items/coin";
   function boughtCost(rows, price) {
     let coins8 = 0;
     const unpriced = [];
     for (const row of rows.values()) {
-      if (row.action || row.need <= 0 || row.hrid === COIN7) continue;
+      if (row.action || row.need <= 0 || row.hrid === COIN8) continue;
       const each = price(row.hrid);
       if (each === null || each === void 0) unpriced.push(row.name);
       else coins8 += Math.ceil(row.need - 1e-9) * each;
@@ -8649,7 +8863,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function cartItems(c2) {
     const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c2.result?.consumables?.[hrid] || 0)));
-    if (c2.kind === "house") return c2.materials.filter((m) => m.hrid !== COIN8).map((m) => ({ hrid: m.hrid, quantity: m.count }));
+    if (c2.kind === "house") return c2.materials.filter((m) => m.hrid !== COIN9).map((m) => ({ hrid: m.hrid, quantity: m.count }));
     if (c2.kind === "abilityOrder" || c2.kind === "skillLevel") return [];
     if (c2.enhance) return mergeCart([...enhanceCart(c2), ...c2.extraFood ? [{ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) }] : []]);
     if (c2.kind === "abilityLevel") return [{ hrid: c2.bookHrid, quantity: c2.books }];
@@ -8659,11 +8873,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (c2.extraFood) items.push({ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) });
     return items;
   }
-  var COIN8 = "/items/coin";
+  var COIN9 = "/items/coin";
   function enhanceCart(c2) {
     const e = c2.enhance;
     const items = e.start === "buy" ? [{ hrid: c2.hrid, quantity: 1, enhancementLevel: 0 }] : [];
-    for (const m of e.materials) if (m.itemHrid !== COIN8) items.push({ hrid: m.itemHrid, quantity: Math.ceil(m.count * e.attempts) });
+    for (const m of e.materials) if (m.itemHrid !== COIN9) items.push({ hrid: m.itemHrid, quantity: Math.ceil(m.count * e.attempts) });
     if (e.protect && e.protections > 0) items.push({ hrid: e.protect.itemHrid, quantity: Math.ceil(e.protections), enhancementLevel: 0 });
     for (const tea of e.teas) items.push({ hrid: tea, quantity: Math.ceil(e.drinks) });
     return items;
@@ -8887,7 +9101,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     return html + `</tbody></table>`;
   }
   function houseMaterials(c2) {
-    return c2.materials.map((m) => m.hrid === COIN8 ? `${coins7(m.count)} coins` : `${int(m.count)}\xD7 ${esc(itemName(m.hrid))}`).join(", ");
+    return c2.materials.map((m) => m.hrid === COIN9 ? `${coins7(m.count)} coins` : `${int(m.count)}\xD7 ${esc(itemName(m.hrid))}`).join(", ");
   }
   function orderTable(list) {
     const shown = list.filter((c2) => c2.delta > 0).slice(0, 5);
@@ -9049,7 +9263,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.53.0" : "dev";
+  var VERSION3 = true ? "0.54.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

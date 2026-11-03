@@ -8,6 +8,7 @@
 import { experienceOf, levelsPerDay } from "./levels.js";
 import { ALCHEMY, ALCHEMY_FUNCTION, alchemyActions, decomposeAction, decomposesEnhanced, evaluateAlchemy } from "./alchemy.js";
 import { ENHANCE_FUNCTION, ENHANCING, enhancingActions, evaluateEnhance } from "./enhancing.js";
+import { alchemyChain } from "./alchemy-chain.js";
 
 export const SKILLING_SKILLS = ["milking", "foraging", "woodcutting", "cheesesmithing", "crafting", "tailoring", "cooking", "brewing"];
 // Skills you mostly pay to level: shown when picked, not in "All skills".
@@ -988,12 +989,18 @@ export function rankSkilling(who, data, market, { skill = "all", teaMode = "curr
     const scoreFor = (r) => (levelingList ? timeMoneyScore(goldWeight, r, xpOf) : focusScore(goldWeight, r, xpOf));
     const score = scoreFor(refs);
     const chain = chainBuilder(who, data, market, teaMode);
+    const chainCaches = new Map();
     const heldPrice = (hrid, level = 0) => (level > 0 ? levelingOptions.plusHeld?.(hrid, level) || 0 : heldValue(market, data, hrid));
     const available = doable.map(({ action, evaluate }) => {
         const teaScore = scoreFor(skillRefs[action.type]);
         const current = evaluate(who.drinks[action.type] || [], teaScore);
         const best = bestTeas(action, who, data, market, evaluate, teaScore);
-        const shown = teaMode === "best" ? best.result : current;
+        let shown = teaMode === "best" ? best.result : current;
+        // Alchemy: what it gives may be worth more processed further (a chain) – when that suits the focus better.
+        if (action.function === ALCHEMY_FUNCTION) {
+            const chained = alchemyChain(shown, who, data, market, chainCaches);
+            if (chained && teaScore(chained) > teaScore(shown) + 1e-12) shown = chained;
+        }
         const price = plan?.price?.(shown.action) ?? null;
         const liquidity = plan?.liquidity?.(shown.action) ?? null;
         // Alchemy's products (coins, essences) aren't stock you are already selling.

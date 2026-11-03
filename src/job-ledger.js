@@ -309,7 +309,9 @@ function compare(f, made, used, teas, hours, actions) {
 }
 
 // What the advice expected, kept small for storage.
-export function compactForecast(entry) {
+export function compactForecast(row) {
+    // A job in the game is the row's own step; a chain's further steps are jobs of their own.
+    const entry = row?.single || row;
     if (!entry || !(entry.actionsPerHour > 0)) return null;
     return {
         name: entry.name,

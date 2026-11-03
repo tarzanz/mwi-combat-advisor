@@ -869,6 +869,16 @@ try {
     check("Alchemy lists item actions, with what the planned hours give", alchemy.length > 0 && expAlc.slice(0, 3).every((e, i) => alchemy[i]?.name === e.action.name && alchemy[i].gold === `${coinText(alcDay(e))}/day`) && expAlc.some((e) => e.suggestion?.count && e.fill < 1),
         JSON.stringify(alchemy.slice(0, 2)) + " vs " + expAlc.slice(0, 2).map((e) => `${e.action.name} ${coinText(alcDay(e))}`).join(", "));
     check("Alchemy rows show the success rate", /% success/.test(alchemy[0]?.sub || ""), alchemy[0]?.sub);
+    // A row whose outputs are worth more processed further (a chain) says what comes next, and its detail shows it.
+    const chained = expAlc.findIndex((e) => e.alchemyChain);
+    if (chained >= 0 && chained < alchemy.length) {
+        const e = expAlc[chained];
+        const hints = await page.evaluate((h) => [...[...document.querySelectorAll(".mwia-skill-row")].find((x) => x.dataset.hrid === h).querySelectorAll(".mwia-skill-hint")].map((n) => n.textContent), e.hrid);
+        check("a chain row says what it processes next", hints.some((t) => t.startsWith(`⛓ then ${e.alchemyChain.further[0].name}`)), `${hints.join(" | ")} vs ${e.alchemyChain.further[0].name}`);
+        const detail = await page.evaluate((h) => { const r = [...document.querySelectorAll(".mwia-skill-row")].find((x) => x.dataset.hrid === h); r.open = true; return r.querySelector(".mwia-skill-detail").textContent; }, e.hrid);
+        check("…and its detail the further steps, against selling it all", detail.includes("⛓ Further") && detail.includes(`against ${coinText(e.alchemyChain.singleGoldPerDay)}/day selling all it gives`) && detail.includes("processed further; sells for"), detail.slice(detail.indexOf("⛓ Further"), detail.indexOf("⛓ Further") + 300));
+        await page.evaluate((h) => { [...document.querySelectorAll(".mwia-skill-row")].find((x) => x.dataset.hrid === h).open = false; }, e.hrid);
+    } else console.log("NOTE no chain row among the shown alchemy rows");
     const above = expAlc.find((e) => e.requiredLevel > e.effectiveLevel);
     check("an item above your level has lower odds", !above || above.successRate < above.baseRate * (1 + above.catalyst.bonus + above.successBuff) - 1e-9, above ? `${above.action.name} ${above.successRate}` : "none");
     // ▶ Coinify with an item you have (Donut): the tab, the item and the count.

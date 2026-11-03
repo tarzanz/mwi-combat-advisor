@@ -347,6 +347,8 @@ function rowHtml(entry, best, upcoming = false, first = false) {
     const full = cut ? `<span class="mwia-skill-full${fill < SHORT_FILL ? " mwia-warn" : ""}" title="The rate while it runs, with the materials at their lowest ask">${fill < 1 ? `full ${hoursText(entry.suggestion.plannedHours)}` : "at the lowest ask"}: ${coins(day)}/day</span>` : "";
     const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1
         ? `<span class="mwia-skill-hint">⛓ ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>`
+        : !upcoming && entry.alchemyChain
+        ? `<span class="mwia-skill-hint">⛓ then ${esc(entry.alchemyChain.further.slice(0, 2).map((f) => f.name).join(", "))}${entry.alchemyChain.further.length > 2 ? ` +${entry.alchemyChain.further.length - 2} more` : ""}</span>`
         : "";
     // Levelling costs gold by design: only an invalid row or one you can't afford fades.
     const faded = !entry.valid || (!leveling && day <= 0) || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
@@ -371,14 +373,17 @@ function detailHtml(e, upcoming) {
 
     const speed = e.speed ? ` → ${dec(e.cycleSeconds, 2)} s with ${pct(e.speed)} speed${e.cycleSeconds <= 3 + 1e-9 ? " (3 s is the floor)" : ""}` : "";
     const buffEfficiency = e.efficiency - e.levelEfficiency;
+    const ac = e.alchemyChain;
+    const own = ac ? e.ownActionsPerHour : e.actionsPerHour;
     sections.push(section("⏱ Speed", `${dec(e.actionsPerHour, 0)} actions/h`, [
-        `${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} ${isAlchemy(e) ? "for the item" : "needed"}${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) → <b>${dec(e.actionsPerHour, 0)} actions/h</b>.`,
+        `${dec(e.baseSeconds, 1)} s${speed}. Efficiency ${pct(e.efficiency)} (levels ${pct(e.levelEfficiency)}: level ${dec(e.effectiveLevel, 0)} vs ${dec(e.requiredLevel, 0)} ${isAlchemy(e) ? "for the item" : "needed"}${buffEfficiency ? `, buffs ${pct(buffEfficiency)}` : ""}) → <b>${dec(own, 0)} actions/h</b>.${ac ? ` With the further steps (⛓) ${dec(ac.share * 100, 0)}% of each hour is this action: <b>${dec(e.actionsPerHour, 0)} of it an hour of the chain</b>.` : ""}`,
     ]));
 
     const gold = [];
     const outputs = e.outputs.filter((o) => o.value > 0 || o.kind === "product").map((o) => {
         const capped = o.sell.capped === "usual" ? `usual ask; ${coins(o.sell.ask)} now` : o.sell.capped === "spread" ? `${dec(WIDE_SPREAD, 1)}× bid; ask ${coins(o.sell.ask)}` : o.sell.source;
         const how = o.sell.source === "ask" || o.sell.source === "bid" ? ` <span class="mwia-dim">(${capped} −${dec(MARKET_TAX * 100, 0)}%)</span>` : o.sell.source === "vendor" || o.sell.source === "contents" ? ` <span class="mwia-dim">(${o.sell.source})</span>` : "";
+        if (o.chainValue !== undefined) return `${count(o.count)} × ${esc(itemName(o.itemHrid))} @ <b>${coins(o.chainValue)}</b> <span class="mwia-dim">(⛓ processed further; sells for ${coins(o.price)})</span>`;
         return `${count(o.count)} × ${esc(itemName(o.itemHrid))} @ ${coins(o.price)}${how}`;
     });
     const boosts = [e.quantity && `quantity ${pct(e.quantity)}`, e.processing && `processing ${pct(e.processing)}`].filter(Boolean).join(", ");
@@ -396,6 +401,7 @@ function detailHtml(e, upcoming) {
     if (capped) gold.push(salesCapText(e.salesCap, esc(itemName(capped.itemHrid)), capped.price));
     sections.push(section("💰 Gold", `${coins(e.profitPerHour)}/h${e.margin !== null ? ` · margin ${dec(e.margin * 100, 1)}%` : ""}`, gold));
     if (e.chain) sections.push(section("⛓ Yourself", `${coins(e.chain.profitPerHour)}/h making the materials`, [chainHtml(e)]));
+    if (ac) sections.push(section("⛓ Further", `+${coins(e.goldPerDay - ac.singleGoldPerDay)}/day over selling it all`, [alchemyChainHtml(e)]));
 
     sections.push(section("✨ XP", `${coins(e.xpPerHour)}/h`, [`${dec(e.xpPerAction, 1)} per action × ${dec(e.actionsPerHour, 0)} = ${coins(e.xpPerHour)}/h${hours} = <b>${coins(e.xpPerDay)}/day</b>`]));
     if (!upcoming && e.suggestion) sections.push(section("📦 How many", suggestionSummary(e.suggestion), [suggestionHtml(e)]));
@@ -458,6 +464,18 @@ function enhanceSections(e, section) {
     sections.push(section("🎚 Targets", `+${e.target} suits your Focus`, [`Stopping at a lower +level sells the item sooner (more of it comes back, each attempt gives less XP); a high target almost never gets there, so it is all materials. 🧪: decomposing the +level (Alchemy, with the teas in your Alchemy slots) suits your Focus better than selling it, counting the Alchemy time. With ${item}:`, rows.join("<br>")]));
     sections.push(section("🍵 Teas", teaSummary(e), [teaHtml(e)]));
     return sections;
+}
+
+// Alchemy: what the outputs are processed into further, and what is sold.
+function alchemyChainHtml(e) {
+    const ac = e.alchemyChain;
+    const perHour = (f) => f.count * e.actionsPerHour;
+    const steps = ac.further.map((f) => `${esc(f.name)}: ${count(perHour(f))} an hour <span class="mwia-dim">(${dec((f.hours * e.actionsPerHour) * 100, 0)}% of the time, ${dec(f.successRate * 100, 0)}% success${f.catalyst ? `, ${esc(itemName(f.catalyst))}` : ""})</span>`);
+    const sold = ac.sold.map((x) => `${count(x.count * e.actionsPerHour)} ${esc(itemName(x.itemHrid))}`);
+    return `What this action gives is worth more processed further than sold. Of each hour ${dec(ac.share * 100, 0)}% is ${esc(e.action.name)}; then:<br>${steps.join("<br>")}
+        ${sold.length ? `<br>Sold, an hour: ${sold.join(" · ")}.` : ""}
+        <br>Gold an hour of the whole chain: <b>${coins(e.profitPerHour)}/h = ${coins(e.goldPerDay)}/day</b>, against ${coins(ac.singleGoldPerDay)}/day selling all it gives.
+        <span class="mwia-dim">Each further step is chosen when it gives more than selling, counting its hours at the chain's own gold an hour; all with this row's teas. ▶ starts this action only – queue the further steps as their outputs come in.</span>`;
 }
 
 // What decomposing an item gives: its outputs at their prices, less the coins and the catalyst.
