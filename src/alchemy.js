@@ -6,7 +6,9 @@
 // - one action takes the item's bulk size (e.g. 10 essences) and gives that many times the outputs;
 // - decompose costs 5 × (10 + item level) coins, transmute max(50, sell price / 5), each × bulk;
 // - XP (1.0 coinify, 1.4 decompose, 1.6 transmute) × (10 + item level) × (1 + wisdom), a tenth on a failure;
-// - every action may drop Alchemy Essence ((100 + item level) / 1800) and an Artisan's Crate.
+// - every action may drop Alchemy Essence ((100 + item level) / 1800) and an Artisan's Crate;
+// - decomposing an enhanced (+N) item also gives round(2 × (0.5 + 0.1 × 1.05^item level) × 2^N)
+//   Enhancing Essence (the game client's getAlchemyDecomposeEnhancingEssenceOutput).
 // On a failure the item and the coins are lost; a catalyst is used up only on a success.
 
 import { teaBuffs, totals } from "./skilling.js";
@@ -20,6 +22,7 @@ const MIN_CYCLE_SECONDS = 3;
 const FAIL_XP = 0.1;
 const COIN = "/items/coin";
 const ESSENCE = "/items/alchemy_essence";
+export const ENHANCING_ESSENCE = "/items/enhancing_essence";
 
 export const ALCHEMY_KINDS = {
     coinify: { name: "Coinify", hrid: "/actions/alchemy/coinify", rate: 0.7, xp: 1.0, catalyst: "/items/catalyst_of_coinification" },
@@ -44,11 +47,24 @@ export function coinCost(kind, detail) {
 export const bulkOf = (detail) => Math.max(1, Math.floor(detail.alchemyDetail?.bulkMultiplier || 1));
 const meanCount = (drop) => (Number(drop.dropRate ?? 1) || 0) * ((Number(drop.minCount ?? 1) + Number(drop.maxCount ?? 1)) / 2);
 
-// What one successful action gives, before the bulk size.
-export function successOutputs(kind, detail) {
+// The Enhancing Essence decomposing an item at +level gives (none at +0).
+export function decomposeEssence(itemLevel, level) {
+    return level > 0 ? Math.round(2 * (0.5 + 0.1 * Math.pow(1.05, itemLevel || 0)) * Math.pow(2, level)) : 0;
+}
+
+// Equipment that can be enhanced and decomposed: worth decomposing at +N too.
+export const decomposesEnhanced = (detail) => !!(detail?.equipmentDetail && detail.enhancementCosts?.length && detail.alchemyDetail?.decomposeItems?.length);
+
+// What one successful action gives, before the bulk size; level: the item's +level.
+export function successOutputs(kind, detail, level = 0) {
     const a = detail.alchemyDetail;
     if (kind === "coinify") return [{ itemHrid: COIN, count: 5 * (detail.sellPrice || 0) }];
-    if (kind === "decompose") return (a.decomposeItems || []).map((d) => ({ itemHrid: d.itemHrid, count: d.count }));
+    if (kind === "decompose") {
+        const out = (a.decomposeItems || []).map((d) => ({ itemHrid: d.itemHrid, count: d.count }));
+        const essence = decomposeEssence(detail.itemLevel, level);
+        if (essence >= 1) out.push({ itemHrid: ENHANCING_ESSENCE, count: essence });
+        return out;
+    }
     return (a.transmuteDropTable || []).map((d) => ({ itemHrid: d.itemHrid, count: meanCount(d) }));
 }
 
@@ -59,40 +75,62 @@ export function crateDrop(itemLevel) {
     return { itemHrid: "/items/large_artisans_crate", rate: (30 + itemLevel) / 288000 };
 }
 
+// The row of one item × action; level: the item's +level (decompose only).
+function alchemyAction(kind, detail, level = 0) {
+    const k = ALCHEMY_KINDS[kind];
+    const outputs = successOutputs(kind, detail, level).filter((o) => o.itemHrid !== detail.hrid);
+    // An enhanced item is decomposed for its Enhancing Essence.
+    const main = kind === "coinify" ? COIN : level > 0 ? ENHANCING_ESSENCE : outputs.sort((x, y) => y.count - x.count)[0]?.itemHrid;
+    return {
+        hrid: alchemyHrid(kind, detail.hrid, level),
+        name: `${k.name} ${detail.name}${level > 0 ? ` +${level}` : ""}`,
+        kind,
+        itemHrid: detail.hrid,
+        enhancementLevel: level,
+        type: TYPE,
+        function: ALCHEMY_FUNCTION,
+        levelRequirement: { skillHrid: SKILL, level: detail.itemLevel || 1 },
+        baseTimeCost: BASE_SECONDS * 1e9,
+        outputItems: main ? [{ itemHrid: main, count: 1 }] : [],
+        sortIndex: detail.sortIndex || 0,
+    };
+}
+
+// A row's id: "/actions/alchemy/decompose#/items/x", with "#+N" for an enhanced item.
+export const alchemyHrid = (kind, itemHrid, level = 0) => `${ALCHEMY_KINDS[kind].hrid}#${itemHrid}${level > 0 ? `#+${level}` : ""}`;
+
 // Every item × alchemy action the market lets you do: the item for sale, and
-// for decompose and transmute something to get out of it.
-export function alchemyActions(data, market) {
+// for decompose and transmute something to get out of it. plusLevels(hrid):
+// the +levels (1 and up) of an item you have or can buy – each is decomposed
+// for its Enhancing Essence as a row of its own.
+export function alchemyActions(data, market, plusLevels = () => []) {
     const list = [];
     for (const detail of Object.values(data.itemDetailMap)) {
         const a = detail.alchemyDetail;
+        if (a && detail.isTradable && decomposesEnhanced(detail)) {
+            for (const level of plusLevels(detail.hrid)) if (level > 0) list.push(alchemyAction("decompose", detail, level));
+        }
         if (!a || !detail.isTradable || market.buy(detail.hrid) === null) continue;
         const kinds = [];
         if (a.isCoinifiable && detail.sellPrice > 0) kinds.push("coinify");
         if (a.decomposeItems?.length) kinds.push("decompose");
         if (a.transmuteDropTable?.length && a.transmuteSuccessRate > 0) kinds.push("transmute");
-        for (const kind of kinds) {
-            const k = ALCHEMY_KINDS[kind];
-            const main = kind === "coinify" ? COIN : successOutputs(kind, detail).filter((o) => o.itemHrid !== detail.hrid).sort((x, y) => y.count - x.count)[0]?.itemHrid;
-            list.push({
-                hrid: `${k.hrid}#${detail.hrid}`,
-                name: `${k.name} ${detail.name}`,
-                kind,
-                itemHrid: detail.hrid,
-                type: TYPE,
-                function: ALCHEMY_FUNCTION,
-                levelRequirement: { skillHrid: SKILL, level: detail.itemLevel || 1 },
-                baseTimeCost: BASE_SECONDS * 1e9,
-                outputItems: main ? [{ itemHrid: main, count: 1 }] : [],
-                sortIndex: detail.sortIndex || 0,
-            });
-        }
+        for (const kind of kinds) list.push(alchemyAction(kind, detail));
     }
-    return list.sort((a, b) => a.levelRequirement.level - b.levelRequirement.level || a.sortIndex - b.sortIndex);
+    return list.sort((a, b) => a.levelRequirement.level - b.levelRequirement.level || a.sortIndex - b.sortIndex || (a.enhancementLevel || 0) - (b.enhancementLevel || 0));
 }
+
+// The decompose row of an item at +level, whether or not you have one or it is for sale.
+export const decomposeAction = (detail, level) => alchemyAction("decompose", detail, level);
 
 // One item × action with one tea setup; the catalyst (none, the action's own,
 // or Prime) that scores best is picked (gold a day by default).
-export function evaluateAlchemy(action, who, data, market, teas, { score = (r) => r.goldPerDay } = {}) {
+// plusBuy(hrid, level): the ask of an item at +level (null when nobody sells
+// one); plusHeld(hrid, level): what one you have at +level sells for (the bid
+// after tax). An enhanced item for sale is bought at its ask (the batch counts
+// what you have at plusHeld); one only you have costs what it would sell for.
+// itemPrice: the item's worth instead (0: your own, e.g. from Enhancing).
+export function evaluateAlchemy(action, who, data, market, teas, { score = (r) => r.goldPerDay, plusBuy = () => null, plusHeld = () => 0, itemPrice = null } = {}) {
     const detail = data.itemDetailMap[action.itemHrid];
     const kind = action.kind;
     const k = ALCHEMY_KINDS[kind];
@@ -115,7 +153,11 @@ export function evaluateAlchemy(action, who, data, market, teas, { score = (r) =
     const wisdom = fraction("/buff_types/wisdom");
     const xpBase = k.xp * (10 + itemLevel) * (1 + wisdom);
 
-    const price = market.buy(action.itemHrid);
+    const plus = action.enhancementLevel || 0;
+    // An enhanced item nobody sells: only the ones you have, at what they would sell for.
+    const plusAsk = plus > 0 ? plusBuy(action.itemHrid, plus) : null;
+    const forSale = plus === 0 || plusAsk !== null;
+    const price = itemPrice !== null ? itemPrice : plus > 0 ? plusAsk ?? plusHeld(action.itemHrid, plus) : market.buy(action.itemHrid);
     const coins = coinCost(kind, detail);
     const drinksPerHour = 12 * who.concentration;
     const teaCosts = teas.map((hrid) => {
@@ -143,13 +185,13 @@ export function evaluateAlchemy(action, who, data, market, teas, { score = (r) =
         };
         // A transmute that gives the item back saves buying one.
         let selfBack = 0;
-        for (const o of successOutputs(kind, detail)) {
+        for (const o of successOutputs(kind, detail, plus)) {
             if (o.itemHrid === action.itemHrid) selfBack += o.count * bulk * successRate;
             else add(o.itemHrid, o.count * bulk * successRate, "product");
         }
         add(essence.itemHrid, essence.count, "essence");
         add(rare.itemHrid, rare.count, "rare");
-        const inputs = [{ itemHrid: action.itemHrid, count: bulk - selfBack, price, value: (bulk - selfBack) * (price || 0) }];
+        const inputs = [{ itemHrid: action.itemHrid, enhancementLevel: plus, count: bulk - selfBack, price, value: (bulk - selfBack) * (price || 0), ...(forSale ? {} : { forSale: false }) }];
         if (coins) inputs.push({ itemHrid: COIN, count: coins, price: 1, value: coins });
         if (catalyst.itemHrid) inputs.push({ itemHrid: catalyst.itemHrid, count: successRate, price: catalyst.price, value: successRate * catalyst.price, catalyst: true });
 
@@ -157,7 +199,7 @@ export function evaluateAlchemy(action, who, data, market, teas, { score = (r) =
         const costPerAction = inputs.reduce((sum, i) => sum + i.value, 0);
         const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
         const xpPerAction = xpBase * (successRate + FAIL_XP * (1 - successRate));
-        const main = outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
+        const main = (plus > 0 && outputs.find((o) => o.itemHrid === ENHANCING_ESSENCE)) || outputs.filter((o) => o.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
         const warnings = [];
         if (main && main.sell.note) warnings.push({ kind: main.sell.note, itemHrid: main.itemHrid, ask: main.sell.ask, bid: main.sell.bid });
         const r = {
@@ -189,7 +231,8 @@ export function evaluateAlchemy(action, who, data, market, teas, { score = (r) =
             mainCount: main ? main.count : bulk,
             xpPerAction,
             xpPerHour: actionsPerHour * xpPerAction,
-            valid: price !== null && successRate > 0 && (!!main || kind === "coinify"),
+            valid: price !== null && price !== undefined && successRate > 0 && (!!main || kind === "coinify"),
+            enhancementLevel: plus,
             warnings,
             buffsKnown: !!who.buffs,
             bulk,

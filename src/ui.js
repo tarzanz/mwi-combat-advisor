@@ -1092,13 +1092,15 @@ async function openWithCount(actionHrid, count) {
 async function openLeveling(dataset) {
     const { item, kind, label } = dataset;
     const value = Number(dataset.value) || 0;
-    const steps = [`${kind} ${item} ${kind === "enhance" ? `→ +${value}` : `${label} ×${value}`}`];
+    // Decomposing an enhanced item: the one at that +level.
+    const level = Number(dataset.level) || 0;
+    const steps = [`${kind} ${item}${level ? ` +${level}` : ""} ${kind === "enhance" ? `→ +${value}` : `${label} ×${value}`}`];
     const stacks = [...state.items.values()].filter((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory");
     steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
-    const owned = stacks.some((i) => !i.enhancementLevel && i.count > 0);
+    const owned = stacks.some((i) => (i.enhancementLevel || 0) === level && i.count > 0);
     const characterId = state.character?.character?.id;
     if (owned && !characterId) steps.push("no character id");
-    const hash = owned && characterId ? inventoryItemHash(characterId, item) : null;
+    const hash = owned && characterId ? inventoryItemHash(characterId, item, level) : null;
     // The protection (Enhancing) or catalyst (Alchemy) the row counts on, when you have one at +0.
     const ownHash = (hrid) => (hrid && characterId && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId, hrid) : null);
     const protect = dataset.protect ? { hash: ownHash(dataset.protect), from: Number(dataset.protectFrom) } : null;
@@ -1246,7 +1248,7 @@ function act(target) {
             break;
         case "skilling-market":
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
-            if (openMarketplace(ui.win, target.dataset.item)) {
+            if (openMarketplace(ui.win, target.dataset.item, Number(target.dataset.level) || 0)) {
                 ui.root.classList.add("mwia-hidden");
                 returnAfterMarket();
             } else {

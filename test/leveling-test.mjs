@@ -4,9 +4,9 @@
 // Usage: node test/leveling-test.mjs
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { alchemyActions, coinCost, evaluateAlchemy, levelPenalty } from "../src/alchemy.js";
+import { alchemyActions, alchemyHrid, coinCost, decomposeAction, decomposeEssence, evaluateAlchemy, levelPenalty } from "../src/alchemy.js";
 import { BASE_RATES, MAX_TARGET, MIN_PROTECT, cheapestProtection, enhanceCycles, enhancingActions, evaluateEnhance, levelBonus, protectedCycle, selfEnhanceCosts } from "../src/enhancing.js";
-import { PLAN_MODES, coinsPerXp, enhanceBudget, marketPricer, rankSkilling } from "../src/skilling.js";
+import { PLAN_MODES, coinsPerXp, decomposeFinisher, enhanceBudget, marketPricer, rankSkilling } from "../src/skilling.js";
 import { itemSkillBuffs, rankUpgrades } from "../src/skilling-upgrades.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -60,6 +60,59 @@ check("bulk: one transmute takes 10 essences, some come back", bulk.bulk === 10 
 // A catalyst is used up only on a success, and is picked when it pays.
 const withCatalyst = actions.map((a) => evaluateAlchemy(a, alchemist, data, market, [])).find((r) => r.catalyst.itemHrid);
 check("a catalyst is used only on a success", !withCatalyst || near(withCatalyst.inputs.find((i) => i.catalyst).count, withCatalyst.successRate));
+
+// The guide's examples (Alchemy 100, Holy Alembic: 10.53 s; Catalytic Tea: × 1.0553).
+{
+    const pro = { levels: { "/skills/alchemy": 100 }, buffs: { [ALCHEMY]: [{ typeHrid: "/buff_types/action_speed", flatBoost: 0.9, ratioBoost: 0 }, { typeHrid: "/buff_types/alchemy_success", flatBoost: 0, ratioBoost: 0.0553 }] }, drinks: {}, slots: { [ALCHEMY]: 3 }, concentration: 1 };
+    const guideMarket = marketPricer((hrid) => ({ "/items/arcane_log": { a: 540, b: 500 }, "/items/woodcutting_essence": { a: 255, b: 255 }, "/items/enchanted_essence": { a: 1550, b: 1500 } })[hrid] || marketData[hrid]?.[0], data, "bid");
+    const list = alchemyActions(data, guideMarket);
+    const log = evaluateAlchemy(list.find((a) => a.hrid === "/actions/alchemy/decompose#/items/arcane_log"), pro, data, guideMarket, []);
+    check("guide: decompose Arcane Log – 2 logs, 900 coins, 20 Woodcutting Essence at 63.32%", log.bulk === 2 && log.coinCost === 900 && near(log.successRate, 0.6332 + 0.6 * log.catalyst.bonus, 1e-4) && near(log.outputs.find((o) => o.itemHrid === "/items/woodcutting_essence").count, 20 * log.successRate) && near(log.cycleSeconds, 10.53, 0.01), `${log.bulk} ${log.coinCost} ${log.successRate} ${log.cycleSeconds}`);
+    const enchanted = evaluateAlchemy(list.find((a) => a.hrid === "/actions/alchemy/coinify#/items/enchanted_essence"), pro, data, guideMarket, []);
+    // The guide uses no catalyst; one is picked here when it pays, adding its 15%.
+    check("guide: coinify 5 Enchanted Essence for 12,500 coins at 73.87% (+ the catalyst's 15% when one pays)", enchanted.bulk === 5 && near(enchanted.successRate, 0.7387 + 0.7 * enchanted.catalyst.bonus, 1e-4) && near(enchanted.outputs.find((o) => o.itemHrid === "/items/coin").count, 12500 * enchanted.successRate), `${enchanted.successRate}`);
+}
+
+// Decomposing an enhanced item: the game client's round(2 × (0.5 + 0.1 × 1.05^level) × 2^+level) Enhancing Essence.
+{
+    check("enhancing essence: none at +0, by item level and +level", decomposeEssence(1, 0) === 0 && decomposeEssence(1, 1) === Math.round(2 * (0.5 + 0.1 * 1.05) * 2) && decomposeEssence(80, 10) === Math.round(2 * (0.5 + 0.1 * Math.pow(1.05, 80)) * 1024), `${decomposeEssence(1, 1)} ${decomposeEssence(80, 10)}`);
+    const sword = data.itemDetailMap["/items/cheese_sword"];
+    const plusMarket = { "/items/cheese_sword": { 0: { a: 500, b: 400 }, 5: { a: 3000, b: 2000 } }, "/items/enhancing_essence": { 0: { a: 50, b: 40 } } };
+    const pm = marketPricer((hrid) => plusMarket[hrid]?.[0] || marketData[hrid]?.[0], data, "bid");
+    const levels = (hrid) => (hrid === sword.hrid ? [5, 7] : []);
+    const list = alchemyActions(data, pm, levels);
+    const plus5 = list.find((a) => a.hrid === alchemyHrid("decompose", sword.hrid, 5));
+    check("a decompose row for each +level you have or can buy", plus5 && list.some((a) => a.hrid === "/actions/alchemy/decompose#/items/cheese_sword#+7") && plus5.name === "Decompose Cheese Sword +5" && plus5.outputItems[0].itemHrid === "/items/enhancing_essence", plus5?.name);
+    const opts = { plusBuy: (hrid, level) => plusMarket[hrid]?.[level]?.a ?? null, plusHeld: (hrid, level) => (plusMarket[hrid]?.[level]?.b ?? 900) * 0.96 };
+    const r5 = evaluateAlchemy(plus5, alchemist, data, pm, [], opts);
+    const ess = decomposeEssence(sword.itemLevel, 5);
+    const out = r5.outputs.find((o) => o.itemHrid === "/items/enhancing_essence");
+    check("+5: bought at its ask, gives the cheese and the Enhancing Essence", r5.valid && r5.inputs[0].price === 3000 && r5.inputs[0].enhancementLevel === 5 && near(out.count, ess * r5.successRate) && r5.outputs.some((o) => o.itemHrid === "/items/cheese") && r5.coinCost === coinCost("decompose", sword), `${r5.inputs[0].price} ${out?.count}`);
+    const r7 = evaluateAlchemy(list.find((a) => a.hrid.endsWith("#+7")), alchemist, data, pm, [], opts);
+    check("+7 nobody sells: only yours, at what it would sell for", r7.inputs[0].forSale === false && near(r7.inputs[0].price, 900 * 0.96));
+    // Enhancing: decomposing the +target instead of selling it, the Alchemy time counted.
+    const enhancer = { ...alchemist, levels: { "/skills/enhancing": 30, "/skills/alchemy": 30 }, buffs: {}, drinks: {} };
+    const action = enhancingActions(data, pm).find((a) => a.itemHrid === sword.hrid);
+    const cheap = () => ({ price: 1, source: "bid", level: 0 });
+    const fin = { kind: "decompose", value: 5000, hours: 20 / 3600, xp: 10, entry: r5 };
+    const sold = evaluateEnhance(action, enhancer, data, pm, [], { resale: cheap, target: 5 });
+    const decomposed = evaluateEnhance(action, enhancer, data, pm, [], { resale: cheap, target: 5, finish: (hrid, t) => (t === 5 ? fin : null) });
+    const hoursE = decomposed.attempts / decomposed.actionsPerHour;
+    const share = hoursE / (hoursE + fin.hours);
+    const expected = share * (decomposed.actionsPerHour * (decomposed.costPerAttempt * 0 + (5000 / decomposed.attempts + decomposed.dropsPerAttempt) - decomposed.costPerAction) - decomposed.teaPerHour);
+    check("enhancing: the +target is decomposed when that pays better", decomposed.finish?.value === fin.value && sold.finish === null && decomposed.goldPerDay > sold.goldPerDay && near(decomposed.profitPerHour, expected, 1e-6) && near(decomposed.enhanceShare, share), `${decomposed.profitPerHour} vs ${expected}`);
+    check("…the gold and XP per hour of both skills", near(decomposed.xpPerHour, share * decomposed.actionsPerHour * decomposed.xpPerAction) && decomposed.outputs[0].sell.source === "decompose" && decomposed.sold.price === 1);
+    const worse = evaluateEnhance(action, enhancer, data, pm, [], { resale: () => ({ price: 1e6, source: "bid", level: 0 }), target: 5, finish: () => fin });
+    check("…and sold when selling pays better", worse.finish === null);
+    // When decomposing the item as it is (+0) already gives more than it costs, the item counts at that.
+    const atZero = { ...fin, value: 2000 };
+    const floored = evaluateEnhance(action, enhancer, data, pm, [], { resale: cheap, target: 5, finish: (hrid, t) => (t === 0 ? atZero : t === 5 ? fin : null) });
+    const item = floored.inputs.find((i) => i.upgrade);
+    check("…the item counting at least at what decomposing it at +0 gives", floored.finish?.itemFloor === 2000 && item.price === Math.max(floored.base.price, 2000) && floored.goldPerDay < decomposed.goldPerDay, `${item.price} ${floored.base.price}`);
+    // Through the ranking: a finisher with the character's Alchemy (decompose the +target, item free).
+    const real = decomposeAction(sword, 5);
+    check("decompose row of any +level", real.enhancementLevel === 5 && real.hrid.endsWith("#+5"));
+}
 
 // ---------- Enhancing ----------
 check("wiki: level 10 on an item level 50 with a Cheese Enhancer: 24.24% for +4→+5", near(BASE_RATES[4] * (1 + levelBonus(10, 50) + 0.006), 0.2424));
@@ -272,6 +325,27 @@ for (const skill of ["enhancing", "alchemy"]) {
     check(`${skill}: not in All skills`, !rankSkilling(who, data, market, { skill: "all" }).available.some((e) => e.action.type === `/action_types/${skill}`));
 }
 
+// The list with enhanced items: a +level only you have is decomposed no more times than you have it.
+{
+    const sword = "/items/cheese_sword";
+    const plusMarket = { 5: { a: 3000, b: 2000 } };
+    const leveling = {
+        resale,
+        owned: (hrid, level = 0) => (hrid === sword && level === 7 ? 3 : 0),
+        plusLevels: (hrid) => (hrid === sword ? [5, 7] : []),
+        plusBuy: (hrid, level) => (hrid === sword ? plusMarket[level]?.a ?? null : null),
+        plusHeld: (hrid, level) => (hrid === sword ? (plusMarket[level]?.b ?? 900) * 0.96 : 0),
+    };
+    const plan = { ...PLAN_MODES.away, stock: () => ({ inventory: 0, listed: 0, listings: [] }), book: () => null, coins: 1e9, have: (hrid, level = 0) => leveling.owned(hrid, level), liquidity: () => ({ rating: "stable", known: true }), inputMarket: () => ({ liquidity: { rating: "stable", known: true }, book: null }) };
+    const rows = rankSkilling(who, data, market, { skill: "alchemy", plan, leveling }).available;
+    const mine = rows.find((e) => e.hrid === "/actions/alchemy/decompose#/items/cheese_sword#+7");
+    check("ranking: your own +7 is listed (kept on the shortlist) and capped at the 3 you have", mine && mine.suggestion.count === 3 && mine.suggestion.short === "owned", JSON.stringify(mine?.suggestion && { c: mine.suggestion.count, s: mine.suggestion.short }));
+    // Enhancing in the list decomposes a +target when Alchemy makes more of it (here: Enhancing Essence worth a fortune).
+    const rich = marketPricer((hrid) => (hrid === "/items/enhancing_essence" ? { a: 1e5, b: 1e5 } : marketData[hrid]?.[0]), data, "bid");
+    const enh = rankSkilling({ ...who, levels: { ...who.levels, "/skills/alchemy": 50 } }, data, rich, { skill: "enhancing", goldWeight: 1, leveling: { resale } }).available.find((e) => e.valid);
+    check("ranking: Enhancing decomposes the +target when that pays", enh && enh.finish?.kind === "decompose" && enh.enhanceShare < 1, `${enh?.action.name} +${enh?.target} ${enh?.finish?.kind}`);
+}
+
 // ---------- Upgrades that pay back ----------
 {
     const buffOf = (hrid, skill, type) => itemSkillBuffs(hrid, 0, skill, data).buffs.find((b) => b.typeHrid === type)?.flatBoost || 0;
@@ -298,7 +372,7 @@ for (const skill of ["enhancing", "alchemy"]) {
     const top = list("enhancing", 0.5)[0];
     const xpPrice = Math.max(0, coinsPerXp(top));
     const worth = (buffs) => {
-        const r = evaluateEnhance(top.action, { ...who, buffs: { "/action_types/enhancing": buffs } }, data, market, [], { resale, score: (x) => x.goldPerDay + xpPrice * x.xpPerDay });
+        const r = evaluateEnhance(top.action, { ...who, buffs: { "/action_types/enhancing": buffs } }, data, market, [], { resale, score: (x) => x.goldPerDay + xpPrice * x.xpPerDay, finish: decomposeFinisher(who, data, market) });
         return r.goldPerDay + xpPrice * r.xpPerDay;
     };
     const speed = { typeHrid: "/buff_types/action_speed", flatBoost: 0.01, ratioBoost: 0 };

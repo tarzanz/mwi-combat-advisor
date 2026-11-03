@@ -146,7 +146,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     hours of materials and teas may take the share of your coins that the item's market allows; a row whose item you
     can't afford fades and goes last, one your coins carry only part of the hours ranks by that part. **▶ Enhance to +N** opens Enhancing with the item from your inventory in the slot
     and the target set (without it, the page opens and says to buy it first); **🛒 Materials** adds what the planned
-    hours use.
+    hours use. **🧪 Decompose instead of selling:** at every target the +level is also decomposed (Alchemy, with the
+    teas in your Alchemy slots: its odds, coins, catalyst, the materials and the Enhancing Essence a +level gives);
+    when that gives more for the item than selling it and suits the focus better, the row says *→ +N 🧪 decompose*
+    and its gold and XP are per hour of both skills – the hours split between enhancing and decomposing (the Alchemy
+    XP is named, not counted). A job that decomposes only a few is marked ⚠: each is one roll.
   - **Alchemy:** every coinify, decompose and transmute of an item on the market, bought at the ask. Success = base
     (70%, 60%, the item's transmute rate) × (1 + catalyst + Catalytic Tea + 0.9 / item level per level below the item);
     20 s / (1 + speed) with efficiency +1% per level above the item; the bulk size (10 essences at once), the coins it
@@ -155,6 +159,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     action's own or Prime) that suits the focus is picked; it is used up only on a success. A transmute that gives the
     item back saves buying one. *Plan*, the market's rating and *How many* work as for crafting; **▶ Coinify N**
     (Decompose, Transmute) opens that tab with the item from your inventory and the count filled in.
+    **Enhanced items:** equipment you have, or can buy, at +1 and up is decomposed as a row of its own (*Decompose
+    Cheese Sword +5*): the same materials, plus round(2 × (0.5 + 0.1 × 1.05^item level) × 2^+level) Enhancing Essence
+    on a success (the game client's formula). One for sale is bought at its ask at that +level; one only you have
+    counts at what it would sell for, and a job decomposes no more than you have. With fewer than 10 in a job the row
+    is marked ⚠ – each is one roll, and a failure loses the item.
     When a ▶ button can't get there, or breaks on the way, the panel comes back scrolled to a notice that lists
     what each step found (the item in your inventory, the game's handler, the menu link, the window, the tab) or
     the error; **📋 Copy** copies it with the script's version and your browser, to paste into a chat. When the game's

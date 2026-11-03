@@ -8,7 +8,7 @@ import { onStateChange, state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
 import { findActionPanel, levelingPanels, openActionPanels, setReactInput } from "./game-nav.js";
 import { heldStock } from "./skilling.js";
-import { adviceName, itemOfHash, skillingAdvice, slotsLine } from "./skilling-ui.js";
+import { adviceName, itemOfHash, levelOfHash, skillingAdvice, slotsLine } from "./skilling-ui.js";
 
 const SCAN_MS = 400;
 const COMBAT = "/action_types/combat";
@@ -95,7 +95,7 @@ function scan() {
         const itemHrid = itemOfHash(itemHash);
         if (!itemHrid || !state.character || (kind === "alchemy" && !tab)) continue;
         const actionHrid = kind === "enhancing" ? "/actions/enhancing/enhance" : `/actions/alchemy/${tab.toLowerCase()}`;
-        const html = skillingHtml(skillingAdvice(actionHrid, g.deps.settings(), { itemHrid, target }));
+        const html = skillingHtml(skillingAdvice(actionHrid, g.deps.settings(), { itemHrid, target, level: levelOfHash(itemHash) }));
         if (html) shown.add(placeBox(panel, buttons, `${actionHrid}#${itemHrid}+${target ?? ""}`, html));
     }
     document.querySelectorAll(".mwia-guide-box").forEach((box) => shown.has(box) || box.remove());

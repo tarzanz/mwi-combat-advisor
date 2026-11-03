@@ -7,7 +7,7 @@
 // XP an upgrade adds counts at the coins per XP of the top row (what that XP
 // would cost you otherwise), so a charm that only adds XP pays back too.
 
-import { MARKET_TAX, SKILLING_SKILLS, bestTeas, drinkSlots, daily, evaluateAction, skillType, skillingActions } from "./skilling.js";
+import { MARKET_TAX, SKILLING_SKILLS, bestTeas, decomposeFinisher, drinkSlots, daily, evaluateAction, skillType, skillingActions } from "./skilling.js";
 import { ENHANCING, enhancingActions, evaluateEnhance } from "./enhancing.js";
 import { ALCHEMY, alchemyActions, evaluateAlchemy } from "./alchemy.js";
 
@@ -80,9 +80,12 @@ function measure(who, data, market, skill, actionHrid, leveling) {
         return { worth: (r) => r.goldPerDay, xpPrice: 0, day: (w) => bestDay(actions, w, data, market), dayWithTeas: (w) => bestDayWithTeas(actions, w, data, market) };
     }
     const enhancing = skill === ENHANCING;
-    const action = actionHrid && (enhancing ? enhancingActions(data, market, leveling.owned) : alchemyActions(data, market)).find((a) => a.hrid === actionHrid);
+    const owned = (hrid) => leveling.owned?.(hrid, 0) || 0;
+    const action = actionHrid && (enhancing ? enhancingActions(data, market, owned) : alchemyActions(data, market, leveling.plusLevels)).find((a) => a.hrid === actionHrid);
     if (!action) return null;
-    const evaluate = (w, teas, score) => (enhancing ? evaluateEnhance(action, w, data, market, teas, { resale: leveling.resale, owned: leveling.owned, score }) : evaluateAlchemy(action, w, data, market, teas, { score }));
+    // As in the list: a +target may be decomposed (Alchemy, which the Enhancing upgrades leave as it is).
+    const finish = enhancing ? decomposeFinisher(who, data, market) : null;
+    const evaluate = (w, teas, score) => (enhancing ? evaluateEnhance(action, w, data, market, teas, { resale: leveling.resale, owned, score, finish }) : evaluateAlchemy(action, w, data, market, teas, { score, plusBuy: leveling.plusBuy, plusHeld: leveling.plusHeld }));
     const plain = evaluate(who, who.drinks[action.type] || [], (r) => -(r.coinsPerXp ?? Infinity));
     const xpPrice = Math.max(0, leveling.xpPrice ?? plain.coinsPerXp ?? 0);
     const worth = (r) => r.goldPerDay + xpPrice * r.xpPerDay;

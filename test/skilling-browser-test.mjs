@@ -59,6 +59,8 @@ marketData["/items/gathering_tea"] = { 0: { a: -1, b: 10 } };
 marketData["/items/efficiency_tea"] = { 0: { a: 2, b: 1 } };
 marketData["/items/tailoring_tea"] = { 0: { a: 2, b: 1 } };
 marketData["/items/artisan_tea"] = { 0: { a: 2, b: 1 } };
+// Enhancing Essence nearly worthless: Enhancing sells its +levels here (decomposing them is checked on its own).
+marketData["/items/enhancing_essence"] = { 0: { a: 2, b: 1 } };
 // Cotton Boots sell for 2% more than their materials cost: a thin margin.
 const bootsCost = clientData.actionDetailMap["/actions/tailoring/cotton_boots"].inputItems.reduce((sum, i) => sum + i.count * marketData[i.itemHrid][0].a, 0);
 marketData["/items/cotton_boots"] = { 0: { a: Math.round((bootsCost * 1.02) / 0.96), b: Math.round(bootsCost) } };
@@ -210,6 +212,7 @@ const browser = await puppeteer.launch({ browser: firefox ? "firefox" : "chrome"
 // Rows of the section with this heading ("Best now", "Unlocks soon").
 const rows = (page, heading = "Best now") => page.$$eval(".mwia-body section", (sections, title) => [...(sections.find((s) => s.querySelector("h3")?.textContent === title)?.querySelectorAll(".mwia-skill-row") || [])].map((row) => ({
     name: row.querySelector(".mwia-skill-name").childNodes[0].textContent.trim(),
+    enh: row.querySelector(".mwia-enh")?.textContent || "",
     sub: row.querySelector(".mwia-skill-name small").textContent,
     gold: row.querySelector(".mwia-skill-nums b").textContent,
     xp: row.querySelector(".mwia-skill-nums .mwia-dim").textContent,
@@ -798,12 +801,21 @@ try {
     const guarded = expEnh.find((e) => e.protect);
     const guardedRow = guarded && enhancing.find((r) => r.name === guarded.action.name);
     check("a protected row says from which +level", !guarded || (guardedRow && guardedRow.sub.includes(`protect from +${guarded.protect.from}`)), JSON.stringify(guardedRow));
-    check("an enhanced item no one buys is valued at a lower +level's bid", /valued at the \+0 bid/.test(enhancing[0]?.warn || ""), enhancing[0]?.warn);
+    // The first row that sells its +level (another may decompose it; then its detail compares with that floor, below).
+    const sellRow = enhancing[expEnh.findIndex((e) => !e.finish)];
+    if (sellRow) check("an enhanced item no one buys is valued at a lower +level's bid", /valued at the \+0 bid/.test(sellRow.warn || ""), sellRow.warn);
+    // A row that decomposes its +target (worth more than the +0 bid it would sell for) says so.
+    const decomposing = expEnh.findIndex((e) => e.finish);
+    check("a row that decomposes its +target says 🧪 decompose", decomposing < 0 || enhancing[decomposing]?.enh === `→ +${expEnh[decomposing].target} 🧪 decompose`, JSON.stringify(enhancing[decomposing]));
     // A lone listing nobody buys from stays a cost, not a fortune.
     const loneRow = enhancing.find((r) => r.name === clientData.itemDetailMap[LONE].name);
     check("a lone +level listing without buyers isn't counted", !!loneRow && /^−/.test(loneRow.gold) && enhancing.every((r) => /^−/.test(r.gold)), JSON.stringify(loneRow));
     await page.click(".mwia-skill-row summary");
     const enhDetail = await page.$eval(".mwia-skill-row[open] .mwia-skill-detail", (n) => n.textContent);
+    if (expEnh[0].finish) {
+        check("decomposing: compared with selling at the +0 bid nobody bids above", enhDetail.includes(`then decomposed instead of sold`) && enhDetail.includes(`selling it at the +0 bid (nobody bids for +${expEnh[0].target})`), enhDetail.slice(enhDetail.indexOf("Each +"), enhDetail.indexOf("Each +") + 400));
+        check("decomposing: the hours split between both skills", /of each hour \d+% is enhancing and \d+% decomposing/.test(enhDetail));
+    }
     if (expEnh[0].protect) check("Enhancing detail: protections per +level", enhDetail.includes(`uses up one ${clientData.itemDetailMap[expEnh[0].protect.itemHrid].name}`) && /\(protection\) @/.test(enhDetail), enhDetail.slice(0, 600));
     check("Enhancing detail: odds, attempts, every target", /attempts per \+\d+/.test(enhDetail) && /A failure (below \+\d+ )?drops the item to \+0/.test(enhDetail) && /\+1: [\d.,]+ attempts/.test(enhDetail) && /suits your Focus/.test(enhDetail), enhDetail.slice(0, 300));
     await page.screenshot({ path: path.join(shotDir, "skilling-12-enhancing.png") });
@@ -988,6 +1000,14 @@ try {
         await pressLevel({ kind: "enhance", item: LONE, value: "8", protect: LONE, protectFrom: "3" });
         const guarded = await page.evaluate(() => ({ item: window.protectionItem, from: window.protectFrom, target: window.enhanceTarget }));
         check("protection: the item and the +level go in", guarded.item === `1::/item_locations/inventory::${LONE}::0` && guarded.from === "3" && guarded.target === "8", JSON.stringify(guarded));
+        await page.evaluate(() => { document.querySelector(".lvl")?.remove(); document.getElementById("slot-test")?.remove(); });
+        // Decomposing an enhanced item: the copy at that +level goes in.
+        for (const socket of sockets) socket.send(JSON.stringify({ type: "items_updated", endCharacterItems: [{ itemHrid: LONE, itemLocationHrid: "/item_locations/inventory", count: 2, enhancementLevel: 3, hash: `1::/item_locations/inventory::${LONE}::3` }] }));
+        await page.waitForFunction(() => window.lastType === "items_updated");
+        await page.evaluate(() => { window.alchemyItem = undefined; });
+        await pressLevel({ kind: "alchemy", item: LONE, level: "3", label: "Decompose", value: "2" });
+        const plusItem = await page.evaluate(() => ({ item: window.alchemyItem, count: window.alchemyCount }));
+        check("▶ Decompose of a +3: that copy goes in", plusItem.item === `1::/item_locations/inventory::${LONE}::3` && plusItem.count === "2", JSON.stringify(plusItem));
         await page.evaluate(() => { document.querySelector(".lvl")?.remove(); document.getElementById("slot-test")?.remove(); });
     }
     await page.evaluate(() => document.querySelector(".lvl")?.remove());

@@ -10,7 +10,7 @@ import { onStateChange, state } from "./game-state.js";
 import { esc } from "./format.js";
 import { visible } from "./game-nav.js";
 import { LEVELING_SKILLS, SKILLING_SKILLS, heldStock } from "./skilling.js";
-import { adviceName, itemOfHash, skillingAdvice, topActionKey } from "./skilling-ui.js";
+import { adviceName, itemOfHash, levelOfHash, skillingAdvice, topActionKey } from "./skilling-ui.js";
 
 const SCAN_MS = 300;
 // The advice is worked out again at most this often while nothing else changes
@@ -108,7 +108,7 @@ function adviceFor(skill) {
     const settings = t.deps.settings();
     const drinks = (state.character.actionTypeDrinkSlotsMap?.[type] || []).map((slot) => slot?.itemHrid || null);
     // Enhancing and Alchemy: the item in the job and the target set for it.
-    const item = LEVELING_SKILLS.includes(skill) ? { itemHrid: itemOfHash(job.primaryItemHash), target: job.enhancingMaxLevel } : null;
+    const item = LEVELING_SKILLS.includes(skill) ? { itemHrid: itemOfHash(job.primaryItemHash), target: job.enhancingMaxLevel, level: levelOfHash(job.primaryItemHash) } : null;
     const key = [job.actionHrid, JSON.stringify(item), JSON.stringify(drinks), pricesStamp(), topActionKey(settings)].join("|");
     if (t.key !== key || Date.now() - t.at > REFRESH_MS) {
         const entry = skillingAdvice(job.actionHrid, settings, item);

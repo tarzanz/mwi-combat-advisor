@@ -101,6 +101,7 @@ function whenReady(then) {
 
 const settings = () => ({ ...(j.deps?.settings() || {}), skillingTeas: "current" });
 const itemOfHash = (hash) => String(hash || "").split("::")[2] || null;
+const levelOfHash = (hash) => Number(String(hash || "").split("::")[3]) || 0;
 const skillOf = (actionHrid) => String(actionHrid || "").split("/")[2] || "";
 // The skilling jobs worth a result: not fights, not Enhancing (luck with the +levels).
 const counted = (actionHrid) => !!actionHrid && !["combat", "enhancing"].includes(skillOf(actionHrid));
@@ -117,15 +118,15 @@ function keepForecast(completed = false) {
     const kept = L.forecasts[running.id];
     if (kept && (kept.settled || !completed)) return;
     if (!whenReady(() => keepForecast(completed))) return;
-    L.forecasts[running.id] = { at: kept?.at ?? Date.now(), settled: completed, forecast: forecastFor(running.actionHrid, itemOfHash(running.primaryItemHash)) };
+    L.forecasts[running.id] = { at: kept?.at ?? Date.now(), settled: completed, forecast: forecastFor(running.actionHrid, itemOfHash(running.primaryItemHash), levelOfHash(running.primaryItemHash)) };
     const ids = Object.keys(L.forecasts).sort((a, b) => L.forecasts[a].at - L.forecasts[b].at);
     for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORECASTS))) delete L.forecasts[id];
     save();
 }
 
-function forecastFor(actionHrid, item) {
+function forecastFor(actionHrid, item, level = 0) {
     try {
-        const entry = skillingAdvice(actionHrid, settings(), item ? { itemHrid: item } : null);
+        const entry = skillingAdvice(actionHrid, settings(), item ? { itemHrid: item, level } : null);
         if (!entry?.valid) return null;
         const f = compactForecast(entry);
         if (f) {
@@ -243,12 +244,13 @@ export function entryDeltas(e, data, forecast) {
         const detail = data.itemDetailMap[item];
         if (!detail || !ALCHEMY_KINDS[kind]) return deltas;
         const bulk = bulkOf(detail);
-        add(keyOf(item), -bulk * count);
+        const level = levelOfHash(e.primaryItemHash);
+        add(keyOf(item, level), -bulk * count);
         const coins = coinCost(kind, detail) * count;
         if (coins) add(keyOf(COIN), -coins);
         const catalyst = itemOfHash(e.secondaryItemHash);
         if (catalyst) {
-            const per = successOutputs(kind, detail).filter((o) => o.count > 0);
+            const per = successOutputs(kind, detail, level).filter((o) => o.count > 0);
             const dropped = (o) => Number(e.drops?.[keyOf(o.itemHrid)]) || 0;
             // Transmute: one roll of its table a success; Decompose and Coinify: all of it, each.
             const successes = Math.min(

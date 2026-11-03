@@ -226,7 +226,11 @@ function enhanceRates(who, data, teas, itemLevel) {
 // level, floor, sold (a day, or null) }. The market takes only sold a day; the
 // rest goes for the floor price.
 // target: a fixed target (the one set in the game) instead of the best one.
-export function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score = (r) => r.goldPerDay, target: fixedTarget = null } = {}) {
+// finish(hrid, target): decomposing the +target instead of selling it, or null
+// – { value (gold one decompose gives, its coins, catalyst and Alchemy teas
+// paid), hours (Alchemy time per item), … }. When it scores better the +target
+// is decomposed, and the gold and XP are per hour of both skills.
+export function evaluateEnhance(action, who, data, market, teas, { resale, owned = () => 0, score = (r) => r.goldPerDay, target: fixedTarget = null, finish = () => null } = {}) {
     const itemLevel = action.levelRequirement.level;
     const detail = data.itemDetailMap[action.itemHrid];
     const { fraction, level, effectiveLevel, success, bonus, multiplier, rates, blessed, levelSpeed, speed, cycleSeconds } = enhanceRates(who, data, teas, itemLevel);
@@ -289,31 +293,42 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
     // the numbers a score needs, and the whole result (full) for the one picked.
     const guard = cheapestProtection(detail, market);
     const valid = !!base && inputs.length > 0;
-    const build = (target, sold, cycle, protect, full = false) => {
+    // fin: the +target decomposed (Alchemy) instead of sold; the hours then
+    // split between enhancing (share) and decomposing.
+    const build = (target, sold, cycle, protect, full = false, fin = null) => {
         const { attempts } = cycle;
         // Per attempt: the materials, and 1/attempts of an item bought and of one sold at +target.
         const perCycle = 1 / attempts;
-        const madePerDay = (actionsPerHour / attempts) * 24;
-        const { price, salesCap } = salesLimited({ ...sold, floor: sold.floor === undefined ? undefined : Math.min(sold.floor, sold.price) }, madePerDay);
+        const share = fin ? attempts / actionsPerHour / (attempts / actionsPerHour + fin.hours) : 1;
+        const madePerDay = (actionsPerHour / attempts) * 24 * share;
+        const { price, salesCap } = fin ? { price: fin.value, salesCap: null } : salesLimited({ ...sold, floor: sold.floor === undefined ? undefined : Math.min(sold.floor, sold.price) }, madePerDay);
         const guardValue = protect ? (cycle.protections / attempts) * protect.price : 0;
         const attemptCost = costPerAttempt + guardValue;
         const revenuePerAction = perCycle * price + dropsPerAttempt;
-        const costPerAction = attemptCost + (base ? perCycle * base.price : 0);
-        const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
+        // Decomposing: the item counts at least at what decomposing it as it is (+0)
+        // gives – that gain is the Alchemy list's, not this row's.
+        const itemCost = base ? (fin ? Math.max(base.price, fin.itemFloor || 0) : base.price) : 0;
+        const costPerAction = attemptCost + perCycle * itemCost;
+        const profitPerHour = share * (actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour);
         const xpPerAction = cycle.xp / attempts;
-        const xpPerHour = actionsPerHour * xpPerAction;
-        const numbers = { skill: SKILL, target, valid, goldPerDay: profitPerHour * 24, xpPerDay: xpPerHour * 24, coinsPerXp: xpPerHour > 0 ? -profitPerHour / xpPerHour : null, attempts, protect, cycle };
+        const xpPerHour = share * actionsPerHour * xpPerAction;
+        const numbers = { skill: SKILL, target, valid, goldPerDay: profitPerHour * 24, xpPerDay: xpPerHour * 24, coinsPerXp: xpPerHour > 0 ? -profitPerHour / xpPerHour : null, attempts, protect, cycle, fin };
         if (!full) return numbers;
-        const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: base.price, value: perCycle * base.price, upgrade: true, owned: base.owned } : null;
+        const itemIn = base ? { itemHrid: action.itemHrid, count: perCycle, price: itemCost, value: perCycle * itemCost, upgrade: true, owned: base.owned } : null;
         const guardIn = protect ? { itemHrid: protect.itemHrid, count: cycle.protections / attempts, price: protect.price, value: guardValue, protection: true } : null;
         const perAttempt = guardIn ? [...inputs, guardIn] : inputs;
-        const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price, sell: sold, value: perCycle * price }, ...drops];
+        const sell = fin ? { price: fin.value, source: "decompose", history: true, level: target } : sold;
+        const outputs = [{ itemHrid: action.itemHrid, enhancementLevel: target, count: perCycle, kind: "product", price, sell, value: perCycle * price }, ...drops];
         return {
             ...common,
             ...numbers,
             attempts,
             protect: protect ? { ...protect, protections: cycle.protections } : null,
-            itemsPerHour: actionsPerHour / attempts,
+            itemsPerHour: (actionsPerHour / attempts) * share,
+            // The share of the hours spent enhancing; the rest decomposes the +target (finish).
+            enhanceShare: share,
+            finish: fin,
+            sold,
             salesCap,
             outputs,
             inputs: itemIn ? [...perAttempt, itemIn] : perAttempt,
@@ -331,24 +346,36 @@ export function evaluateEnhance(action, who, data, market, teas, { resale, owned
 
     const results = [];
     const xpPer = rates.map((r, L) => (r + FAIL_XP * (1 - r)) * xpAt[L]);
+    // What decomposing the item as it is (+0) gives, for the decompose finish.
+    const atZero = finish(action.itemHrid, 0);
     for (let target = 1; target <= MAX_TARGET; target++) {
         const attempts = cycles.attempts[target];
         if (!Number.isFinite(attempts) || attempts <= 0) break;
         const sold = resale ? resale(action.itemHrid, target) : { price: 0, source: "none", level: null };
-        // Without protection, then protected from each +level that can fail into another; the one that scores best.
-        let best = build(target, sold, { attempts, xp: cycles.xp[target], protections: 0 }, null);
+        // Sold, or decomposed when that suits better; without protection, then
+        // protected from each +level that can fail into another; the one that scores best.
+        // Only when it gives more for the item than selling it: spending hours on
+        // Alchemy just to lose less gold an hour isn't a better job.
+        const decomposed = finish(action.itemHrid, target);
+        const fin = decomposed && decomposed.value > sold.price ? { ...decomposed, itemFloor: Math.max(0, atZero?.value || 0) } : null;
+        const ways = [{ cycle: { attempts, xp: cycles.xp[target], protections: 0 }, protect: null }];
         for (let from = MIN_PROTECT; guard && from < target; from++) {
             const cycle = protectedCycle(rates, blessed, target, from, xpPer);
-            if (!cycle) continue;
-            const r = build(target, sold, cycle, { ...guard, from });
-            if (score(r) > score(best) + 1e-12) best = r;
+            if (cycle) ways.push({ cycle, protect: { ...guard, from } });
         }
-        results.push(build(target, sold, best.cycle, best.protect, true));
+        let best = null;
+        for (const f of fin ? [null, fin] : [null]) {
+            for (const way of ways) {
+                const r = build(target, sold, way.cycle, way.protect, false, f);
+                if (!best || score(r) > score(best) + 1e-12) best = r;
+            }
+        }
+        results.push(build(target, sold, best.cycle, best.protect, true, best.fin));
     }
     let best = results[0];
     for (const r of results) if (score(r) > score(best) + 1e-12) best = r;
     if (fixedTarget) best = results.find((r) => r.target === Math.min(MAX_TARGET, fixedTarget)) || best;
-    best.targets = results.map((r) => ({ target: r.target, attempts: r.attempts, protect: r.protect, goldPerDay: r.goldPerDay, xpPerDay: r.xpPerDay, coinsPerXp: r.coinsPerXp, sell: r.outputs[0].sell }));
+    best.targets = results.map((r) => ({ target: r.target, attempts: r.attempts, protect: r.protect, goldPerDay: r.goldPerDay, xpPerDay: r.xpPerDay, coinsPerXp: r.coinsPerXp, sell: r.outputs[0].sell, finish: r.finish }));
     return best;
 }
 
