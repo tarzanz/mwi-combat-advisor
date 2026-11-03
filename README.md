@@ -279,7 +279,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   first worked out (as the job ends if the log is open, else when you open it), the 4% tax off; what it used at what
   you paid – your buy orders' fills, oldest first; one that filled right after you placed it is priced up the order
   book seen for it – else at the advice's price; teas at the advice's rate. The advice is kept as each job begins
-  (with your current teas); a job that began before the advisor saw it is compared with the advice worked out then,
+  (with your current teas), worked out again at its first finished action – a loadout, or teas changed just before,
+  reach the page after the job does – and the line says which teas it counted on; a job that began before the advisor saw it is compared with the advice worked out then,
   and says so. The difference is split into what came out (luck), what it sells for now, what it used and what the
   materials cost. A job still in your queue shows its result *so far* (the log gives a running job an end too: its
   latest action), worked out again each time the log is fetched and using none of your bought lots; once it has

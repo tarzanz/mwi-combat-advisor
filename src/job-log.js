@@ -70,7 +70,7 @@ function onMessage(type, data) {
             if (noteFills(L, listings, { now: Date.now(), live: type === "market_listings_updated", bookOf: (hrid, level) => orderBookAt(hrid, level)?.asks || null })) changed();
             save();
         }
-        if (type === "init_character_data" || type === "actions_updated" || type === "action_completed") keepForecast();
+        if (type === "init_character_data" || type === "actions_updated" || type === "action_completed") keepForecast(type === "action_completed");
         // A job that ended changes its line from "so far" to "ended".
         if (type === "actions_updated") schedule();
         if (type === "loot_log_updated") {
@@ -106,12 +106,18 @@ const skillOf = (actionHrid) => String(actionHrid || "").split("/")[2] || "";
 const counted = (actionHrid) => !!actionHrid && !["combat", "enhancing"].includes(skillOf(actionHrid));
 
 // The advice for the job that runs now, kept until its log entry shows up.
-function keepForecast() {
+// A job's teas and gear are set as it starts – a loadout, or slots changed just
+// before, reach the page after the job does – so the advice is worked out
+// again at its first finished action (completed), and kept from then on
+// (settled). The one from when it was queued stands in if the page slept.
+function keepForecast(completed = false) {
     const L = j.ledger;
     const running = runningAction(state.character?.characterActions);
-    if (!running || !counted(running.actionHrid) || L.forecasts[running.id]) return;
-    if (!whenReady(keepForecast)) return;
-    L.forecasts[running.id] = { at: Date.now(), forecast: forecastFor(running.actionHrid, itemOfHash(running.primaryItemHash)) };
+    if (!running || !counted(running.actionHrid)) return;
+    const kept = L.forecasts[running.id];
+    if (kept && (kept.settled || !completed)) return;
+    if (!whenReady(() => keepForecast(completed))) return;
+    L.forecasts[running.id] = { at: kept?.at ?? Date.now(), settled: completed, forecast: forecastFor(running.actionHrid, itemOfHash(running.primaryItemHash)) };
     const ids = Object.keys(L.forecasts).sort((a, b) => L.forecasts[a].at - L.forecasts[b].at);
     for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORECASTS))) delete L.forecasts[id];
     save();
@@ -125,6 +131,7 @@ function forecastFor(actionHrid, item) {
         if (f) {
             f.name = adviceName(entry);
             f.catalyst = entry.catalyst?.itemHrid || null;
+            f.teas = entry.teas || [];
         }
         return f;
     } catch (error) {
@@ -189,7 +196,8 @@ function reportLog() {
     if (!todo.length || !whenReady(() => (reportLog(), schedule()))) return;
     const data = getClientData();
     for (const e of todo.sort((a, b) => time(a.endTime) - time(b.endTime))) {
-        const kept = L.forecasts[e.characterActionId]?.forecast || null;
+        const keptEntry = L.forecasts[e.characterActionId];
+        const kept = keptEntry?.forecast || null;
         const item = itemOfHash(e.primaryItemHash);
         const forecast = kept || forecastFor(e.actionHrid, item);
         const job = {
@@ -202,6 +210,7 @@ function reportLog() {
             deltas: entryDeltas(e, data, forecast),
             forecast,
             forecastNow: !kept && !!forecast,
+            forecastSettled: kept ? keptEntry.settled !== false : null,
         };
         job.name = forecast?.name || jobName(e, data);
         const key = entryKey(e);
@@ -366,7 +375,8 @@ export function lineHtml(r, state = null) {
         const parts = Object.entries(f.parts).filter(([, v]) => Math.abs(v) >= Math.max(1, Math.abs(r.revenue) * 0.002)).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
         if (parts.length) lines.push(`Where the difference came from: ${parts.map(([k, v]) => `${names[k]} <span class="${v >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(v)}</span>`).join(" · ")}.`);
         if (r.actionsPerHour) lines.push(`Speed: ${qty(Math.round(r.actionsPerHour))} actions/h (${qty(Math.round(f.actionsPerHour))} expected) · ${duration(r.hours)}.`);
-        if ((f.catalyst || null) !== (r.catalyst || null)) lines.push(`<span class="mwia-dim">The advice counted on ${f.catalyst ? esc(itemName(f.catalyst)) : "no catalyst"}; the job used ${r.catalyst ? esc(itemName(r.catalyst)) : "none"}.</span>`);
+        if (f.teas) lines.push(`<span class="mwia-dim">The advice counted on ${f.teas.length ? f.teas.map((t) => esc(itemName(t))).join(", ") : "no teas"}${f.settled === false ? " (as the job was queued)" : ""}.</span>`);
+        if (skillOf(r.actionHrid) === "alchemy" && (f.catalyst || null) !== (r.catalyst || null)) lines.push(`<span class="mwia-dim">The advice counted on ${f.catalyst ? esc(itemName(f.catalyst)) : "no catalyst"}; the job used ${r.catalyst ? esc(itemName(r.catalyst)) : "none"}.</span>`);
     } else lines.push("No advice to compare with.");
     if (r.made.length) lines.push(`Made: ${r.made.map((m) => `${qty(m.qty)} ${esc(itemName(m.itemHrid))}${levelText(m.level)} × ${coins(m.unit)} = ${coins(m.total)}`).join(" · ")}.`);
     if (r.used.length) lines.push(`Used: ${r.used.map((u) => `${qty(u.qty)} ${esc(itemName(u.itemHrid))}${levelText(u.level)} × ${coins(u.unit)} = ${coins(u.total)}${u.bought > 0 ? ` <span class="mwia-dim">(${u.bought >= u.qty - 1e-6 ? "all" : qty(u.bought)} at what you paid${u.boughtEstimate ? ", bought at once: priced up the order book seen" : ""})</span>` : ""}`).join(" · ")}${r.teas >= 1 ? ` · teas ≈ ${coins(r.teas)}` : ""}.`);

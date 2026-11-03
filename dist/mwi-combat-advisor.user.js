@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.52.0
+// @version      0.52.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -3786,7 +3786,8 @@
       margin: revenue > 0 ? profit / revenue : null,
       perHour: hours > 0 ? profit / hours : null,
       actionsPerHour: hours > 0 ? actions / hours : null,
-      forecast: f ? { ...compare(f, made, used, teas, hours, actions), now: !!job.forecastNow } : null
+      // now: worked out when the result was (the job began unseen); settled: from its first action (else as it was queued).
+      forecast: f ? { ...compare(f, made, used, teas, hours, actions), now: !!job.forecastNow, settled: job.forecastSettled ?? null, catalyst: f.catalyst ?? null, teas: f.teas ?? null } : null
     };
     return report;
   }
@@ -3882,7 +3883,7 @@
         if (noteFills(L, listings, { now: Date.now(), live: type === "market_listings_updated", bookOf: (hrid, level) => orderBookAt(hrid, level)?.asks || null })) changed();
         save();
       }
-      if (type === "init_character_data" || type === "actions_updated" || type === "action_completed") keepForecast();
+      if (type === "init_character_data" || type === "actions_updated" || type === "action_completed") keepForecast(type === "action_completed");
       if (type === "actions_updated") schedule();
       if (type === "loot_log_updated") {
         const synced = j.sync ? Promise.race([j.sync().catch(() => null), new Promise((r) => setTimeout(r, PI_WAIT_MS))]) : Promise.resolve();
@@ -3905,12 +3906,14 @@
   var itemOfHash2 = (hash) => String(hash || "").split("::")[2] || null;
   var skillOf2 = (actionHrid) => String(actionHrid || "").split("/")[2] || "";
   var counted = (actionHrid) => !!actionHrid && !["combat", "enhancing"].includes(skillOf2(actionHrid));
-  function keepForecast() {
+  function keepForecast(completed = false) {
     const L = j.ledger;
     const running2 = runningAction(state.character?.characterActions);
-    if (!running2 || !counted(running2.actionHrid) || L.forecasts[running2.id]) return;
-    if (!whenReady(keepForecast)) return;
-    L.forecasts[running2.id] = { at: Date.now(), forecast: forecastFor(running2.actionHrid, itemOfHash2(running2.primaryItemHash)) };
+    if (!running2 || !counted(running2.actionHrid)) return;
+    const kept = L.forecasts[running2.id];
+    if (kept && (kept.settled || !completed)) return;
+    if (!whenReady(() => keepForecast(completed))) return;
+    L.forecasts[running2.id] = { at: kept?.at ?? Date.now(), settled: completed, forecast: forecastFor(running2.actionHrid, itemOfHash2(running2.primaryItemHash)) };
     const ids = Object.keys(L.forecasts).sort((a, b) => L.forecasts[a].at - L.forecasts[b].at);
     for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORECASTS))) delete L.forecasts[id];
     save();
@@ -3923,6 +3926,7 @@
       if (f) {
         f.name = adviceName(entry);
         f.catalyst = entry.catalyst?.itemHrid || null;
+        f.teas = entry.teas || [];
       }
       return f;
     } catch (error) {
@@ -3970,7 +3974,8 @@
     if (!todo.length || !whenReady(() => (reportLog(), schedule()))) return;
     const data = getClientData();
     for (const e of todo.sort((a, b) => time(a.endTime) - time(b.endTime))) {
-      const kept = L.forecasts[e.characterActionId]?.forecast || null;
+      const keptEntry = L.forecasts[e.characterActionId];
+      const kept = keptEntry?.forecast || null;
       const item = itemOfHash2(e.primaryItemHash);
       const forecast = kept || forecastFor(e.actionHrid, item);
       const job = {
@@ -3982,7 +3987,8 @@
         hours: (time(e.endTime) - time(e.startTime)) / 36e5,
         deltas: entryDeltas(e, data, forecast),
         forecast,
-        forecastNow: !kept && !!forecast
+        forecastNow: !kept && !!forecast,
+        forecastSettled: kept ? keptEntry.settled !== false : null
       };
       job.name = forecast?.name || jobName(e, data);
       const key = entryKey(e);
@@ -4118,7 +4124,8 @@
       const parts = Object.entries(f.parts).filter(([, v]) => Math.abs(v) >= Math.max(1, Math.abs(r.revenue) * 2e-3)).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
       if (parts.length) lines.push(`Where the difference came from: ${parts.map(([k, v]) => `${names2[k]} <span class="${v >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(v)}</span>`).join(" \xB7 ")}.`);
       if (r.actionsPerHour) lines.push(`Speed: ${qty(Math.round(r.actionsPerHour))} actions/h (${qty(Math.round(f.actionsPerHour))} expected) \xB7 ${duration(r.hours)}.`);
-      if ((f.catalyst || null) !== (r.catalyst || null)) lines.push(`<span class="mwia-dim">The advice counted on ${f.catalyst ? esc(itemName(f.catalyst)) : "no catalyst"}; the job used ${r.catalyst ? esc(itemName(r.catalyst)) : "none"}.</span>`);
+      if (f.teas) lines.push(`<span class="mwia-dim">The advice counted on ${f.teas.length ? f.teas.map((t4) => esc(itemName(t4))).join(", ") : "no teas"}${f.settled === false ? " (as the job was queued)" : ""}.</span>`);
+      if (skillOf2(r.actionHrid) === "alchemy" && (f.catalyst || null) !== (r.catalyst || null)) lines.push(`<span class="mwia-dim">The advice counted on ${f.catalyst ? esc(itemName(f.catalyst)) : "no catalyst"}; the job used ${r.catalyst ? esc(itemName(r.catalyst)) : "none"}.</span>`);
     } else lines.push("No advice to compare with.");
     if (r.made.length) lines.push(`Made: ${r.made.map((m) => `${qty(m.qty)} ${esc(itemName(m.itemHrid))}${levelText(m.level)} \xD7 ${coins2(m.unit)} = ${coins2(m.total)}`).join(" \xB7 ")}.`);
     if (r.used.length) lines.push(`Used: ${r.used.map((u) => `${qty(u.qty)} ${esc(itemName(u.itemHrid))}${levelText(u.level)} \xD7 ${coins2(u.unit)} = ${coins2(u.total)}${u.bought > 0 ? ` <span class="mwia-dim">(${u.bought >= u.qty - 1e-6 ? "all" : qty(u.bought)} at what you paid${u.boughtEstimate ? ", bought at once: priced up the order book seen" : ""})</span>` : ""}`).join(" \xB7 ")}${r.teas >= 1 ? ` \xB7 teas \u2248 ${coins2(r.teas)}` : ""}.`);
@@ -5515,7 +5522,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.52.0" : "dev";
+  var VERSION = true ? "0.52.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -8904,7 +8911,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.52.0" : "dev";
+  var VERSION3 = true ? "0.52.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

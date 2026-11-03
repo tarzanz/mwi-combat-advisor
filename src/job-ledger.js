@@ -267,7 +267,8 @@ export function jobReport(ledger, job, prices, now = Date.now()) {
         margin: revenue > 0 ? profit / revenue : null,
         perHour: hours > 0 ? profit / hours : null,
         actionsPerHour: hours > 0 ? actions / hours : null,
-        forecast: f ? { ...compare(f, made, used, teas, hours, actions), now: !!job.forecastNow } : null,
+        // now: worked out when the result was (the job began unseen); settled: from its first action (else as it was queued).
+        forecast: f ? { ...compare(f, made, used, teas, hours, actions), now: !!job.forecastNow, settled: job.forecastSettled ?? null, catalyst: f.catalyst ?? null, teas: f.teas ?? null } : null,
     };
     return report;
 }
