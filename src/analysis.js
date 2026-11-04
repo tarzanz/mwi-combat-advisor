@@ -2,7 +2,7 @@
 
 import { askPrice, combatZones, expectedLootPerKill, getClientData, marketBids, marketEntry, marketListings, sellValue } from "./game-data.js";
 import { confidenceGreater } from "./stats.js";
-import { COMBAT_SKILLS, GEAR_TYPES, cloneProfile, equip, meetsRequirements, slotCounts, styleOfItem, toDTO, weaponOf, weaponStyle } from "./profile.js";
+import { COMBAT_SKILLS, GEAR_TYPES, cloneProfile, equip, meetsRequirements, sameKind, slotCounts, styleOfItem, toDTO, weaponOf, weaponStyle } from "./profile.js";
 import { experienceOf, levelsPerHour } from "./levels.js";
 import { resaleValue } from "./skilling-upgrades.js";
 import { MAX_TARGET } from "./enhancing.js";
@@ -317,7 +317,8 @@ function gearCandidates(profile, settings) {
             const foodSlotsNow = slotCounts(profile, data).food;
             if (type === "pouch" && slotCounts(variant, data).food > foodSlotsNow) {
                 for (const food of combatConsumables("food")) {
-                    if (profile.food.includes(food)) continue;
+                    // One food of each kind: a second gummy would take the first one out.
+                    if (profile.food.slice(0, foodSlotsNow).some((had) => sameKind(had, food, data))) continue;
                     const withFood = cloneProfile(variant);
                     while (withFood.food.length <= foodSlotsNow) withFood.food.push(null);
                     withFood.food[foodSlotsNow] = food;
@@ -476,7 +477,7 @@ function abilityLevelCandidates(profile, budget, books) {
     return candidates;
 }
 
-function consumableCandidates(profile, kind) {
+export function consumableCandidates(profile, kind) {
     const data = getClientData();
     const slots = slotCounts(profile, data);
     const count = kind === "food" ? slots.food : slots.drinks;
@@ -488,7 +489,9 @@ function consumableCandidates(profile, kind) {
     const candidates = [];
     for (const hrid of combatConsumables(kind)) {
         if (current.includes(hrid)) continue;
-        for (const index of placements) {
+        // One of each kind: next to one of its kind it can only take that one's place.
+        const clash = current.findIndex((had) => sameKind(had, hrid, data));
+        for (const index of clash !== -1 ? [clash] : placements) {
             const variant = cloneProfile(profile);
             const list = kind === "food" ? variant.food : variant.drinks;
             while (list.length < count) list.push(null);
@@ -835,7 +838,9 @@ export function buildPlan(analysis, budget, spending = "balanced") {
 
     const drink = pickConsumable(analysis.drinks, analysis.goal.gold);
     const food = pickConsumable(analysis.food, analysis.goal.gold);
-    if (food.value && picks.some((p) => p.extraFood === food.value.hrid)) food.value = null;
+    // The pouch's extra food and the food change must not be the same food, nor of the same kind.
+    const data = getClientData();
+    if (food.value && !food.value.remove && picks.some((p) => p.extraFood && sameKind(p.extraFood, food.value.hrid, data))) food.value = null;
     // A better ability order is free: the surest clear gain, if any.
     const order = (analysis.orders || []).filter((c) => usable(c) && c.delta >= STOP_TOLERANCE).sort((a, b) => b.delta - a.delta)[0] || null;
     return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max, order };

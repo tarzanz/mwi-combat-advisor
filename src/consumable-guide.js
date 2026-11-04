@@ -37,6 +37,14 @@ export function rememberCombatSetup(zone, setup) {
     scheduleScan();
 }
 
+// The setup for this zone, else the one analysed last: { zoneHrid, setup } or null.
+export function combatSetupNow(zoneHrid) {
+    const all = combatSetups();
+    if (zoneHrid && all[zoneHrid]) return { zoneHrid, setup: all[zoneHrid] };
+    const latest = Object.entries(all).sort((a, b) => (b[1].at || 0) - (a[1].at || 0))[0];
+    return latest ? { zoneHrid: latest[0], setup: latest[1] } : null;
+}
+
 function combatSetups() {
     try {
         return JSON.parse(localStorage.getItem(SETUPS_KEY) || "{}") || {};

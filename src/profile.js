@@ -286,6 +286,27 @@ export function applyLoadout(profile, loadout, items, data) {
     };
 }
 
+// ---------- one consumable of each kind ----------
+// The game takes one food of each kind – HP or mana, at once or over time – and
+// one drink per buff (Intelligence Coffee and Super Intelligence Coffee are the
+// same kind): putting in a second one takes the first out.
+export function consumableKinds(hrid, data) {
+    const detail = data.itemDetailMap[hrid]?.consumableDetail;
+    if (!detail) return [hrid];
+    const timed = (detail.recoveryDuration || 0) > 0 ? "time" : "instant";
+    if ((detail.hitpointRestore || 0) > 0) return ["hp:" + timed];
+    if ((detail.manapointRestore || 0) > 0) return ["mp:" + timed];
+    const buffs = (detail.buffs || []).map((b) => b.uniqueHrid || b.typeHrid).filter(Boolean);
+    return buffs.length ? buffs : [hrid];
+}
+
+export function sameKind(a, b, data) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const kinds = new Set(consumableKinds(a, data));
+    return consumableKinds(b, data).some((kind) => kinds.has(kind));
+}
+
 export function cloneProfile(profile) {
     return structuredClone(profile);
 }

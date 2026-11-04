@@ -39,7 +39,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   use and afford), ranks them by XP/h gained per coin, builds a shopping list within your budget (type e.g. `500k`
   or `2M`) and simulates the whole list together. *Spending* (Frugal / Balanced / All in) sets how much XP a purchase
   must give per coin; pricier +N versions are only bought when they are clearly better. Changes that make you die
-  more often are never recommended.
+  more often are never recommended. Food and drinks follow the game's rule of one of each kind – one food each for
+  HP or mana, at once or over time, and one drink per buff (Intelligence and Super Intelligence Coffee are one
+  kind): one of a kind you already use only takes its place, never a free slot (the same for a bigger pouch's slot).
   - **Enhance it yourself** – every +level of an item is priced at the cheaper of the market listing and enhancing it
     yourself: from the copy you wear (Hat +3 → +6), a copy in your inventory, or a +0 bought at the ask. The expected
     attempts, materials and protections are solved exactly (the same maths as the Enhancing tab) with your Enhancing
@@ -224,6 +226,10 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   game's tea picker the right teas glow green ("Remove" does when a wrong tea has nothing to replace it). Right teas
   you don't have are named in the picker, with a 🛒 button that tops all of them up to 8 hours in the MWITools cart.
   Nothing shows when the skill has no job in the queue.
+- **Food and drink slots on the combat page** – the same marks for combat: right is what your latest *Analyze
+  upgrades* picked for the zone you fight in (or the zone you analysed last). A slot with food or a drink it doesn't
+  use, or an empty one while something is missing, glows red; in the game's picker the right ones glow green, and
+  those you don't have are named with a 🛒 button for 8 hours of them at the pace of the analysis.
 - **Market** – your own orders and what to sell.
   - *Your orders*: every open sell and buy order with its standing. ✅ first in line (or sharing the price); a few
     better offers first; ⛔ behind a wall – more than a day of sales comes before yours (from the sales the price

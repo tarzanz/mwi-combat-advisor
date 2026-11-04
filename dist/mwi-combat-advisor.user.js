@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.56.0
+// @version      0.57.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -4865,6 +4865,21 @@
       loadout: { id: loadout.id, name: loadout.name || "Loadout", missing }
     };
   }
+  function consumableKinds(hrid, data) {
+    const detail = data.itemDetailMap[hrid]?.consumableDetail;
+    if (!detail) return [hrid];
+    const timed = (detail.recoveryDuration || 0) > 0 ? "time" : "instant";
+    if ((detail.hitpointRestore || 0) > 0) return ["hp:" + timed];
+    if ((detail.manapointRestore || 0) > 0) return ["mp:" + timed];
+    const buffs = (detail.buffs || []).map((b) => b.uniqueHrid || b.typeHrid).filter(Boolean);
+    return buffs.length ? buffs : [hrid];
+  }
+  function sameKind(a, b, data) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const kinds = new Set(consumableKinds(a, data));
+    return consumableKinds(b, data).some((kind) => kinds.has(kind));
+  }
   function cloneProfile(profile) {
     return structuredClone(profile);
   }
@@ -5169,7 +5184,7 @@
         const foodSlotsNow = slotCounts(profile, data).food;
         if (type === "pouch" && slotCounts(variant, data).food > foodSlotsNow) {
           for (const food of combatConsumables("food")) {
-            if (profile.food.includes(food)) continue;
+            if (profile.food.slice(0, foodSlotsNow).some((had) => sameKind(had, food, data))) continue;
             const withFood = cloneProfile(variant);
             while (withFood.food.length <= foodSlotsNow) withFood.food.push(null);
             withFood.food[foodSlotsNow] = food;
@@ -5317,7 +5332,8 @@
     const candidates = [];
     for (const hrid of combatConsumables(kind)) {
       if (current.includes(hrid)) continue;
-      for (const index of placements) {
+      const clash = current.findIndex((had) => sameKind(had, hrid, data));
+      for (const index of clash !== -1 ? [clash] : placements) {
         const variant = cloneProfile(profile);
         const list = kind === "food" ? variant.food : variant.drinks;
         while (list.length < count2) list.push(null);
@@ -5603,7 +5619,8 @@
     spent = picks.reduce((sum, p2) => sum + p2.cost, 0) + (starter?.cost || 0);
     const drink = pickConsumable(analysis.drinks, analysis.goal.gold);
     const food = pickConsumable(analysis.food, analysis.goal.gold);
-    if (food.value && picks.some((p2) => p2.extraFood === food.value.hrid)) food.value = null;
+    const data = getClientData();
+    if (food.value && !food.value.remove && picks.some((p2) => p2.extraFood && sameKind(p2.extraFood, food.value.hrid, data))) food.value = null;
     const order = (analysis.orders || []).filter((c2) => usable(c2) && c2.delta >= STOP_TOLERANCE).sort((a, b) => b.delta - a.delta)[0] || null;
     return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max, order };
   }
@@ -6049,7 +6066,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.56.0" : "dev";
+  var VERSION = true ? "0.57.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -6783,6 +6800,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     scheduleScan4();
   }
+  function combatSetupNow(zoneHrid) {
+    const all = combatSetups();
+    if (zoneHrid && all[zoneHrid]) return { zoneHrid, setup: all[zoneHrid] };
+    const latest = Object.entries(all).sort((a, b) => (b[1].at || 0) - (a[1].at || 0))[0];
+    return latest ? { zoneHrid: latest[0], setup: latest[1] } : null;
+  }
   function combatSetups() {
     try {
       return JSON.parse(localStorage.getItem(SETUPS_KEY) || "{}") || {};
@@ -7100,14 +7123,14 @@ i.mwia-history-bid { background: #7ee2b0; }
   var REFRESH_MS = 5 * 60 * 1e3;
   var TEA_HOURS = 8;
   var LABEL = /^consumables$/i;
-  var SLOTS = '[class*="ActionTypeConsumableSlots_consumableSlots"]';
+  var SLOTS = '[class*="ActionTypeConsumableSlots_consumableSlots"], [class*="BattlePanel_combatConsumableGrid"]';
   var MENU = '[class*="ItemSelector_menu"]';
   var MENU_ITEM = '[class*="ItemSelector_itemContainer"]';
   var NAV = '[class*="NavigationBar"]';
   var VERSION2 = typeof GM_info !== "undefined" ? GM_info.script?.version || "" : "";
   var t2 = { deps: null, scanTimer: null, loading: null, key: "", at: 0, advice: null, status: "" };
   var skillLabel3 = (skill) => skill.charAt(0).toUpperCase() + skill.slice(1);
-  var SKILLS = [...SKILLING_SKILLS, ...LEVELING_SKILLS];
+  var SKILLS = [...SKILLING_SKILLS, ...LEVELING_SKILLS, "combat"];
   var have3 = (hrid) => heldStock(state.character, state.items, hrid).inventory;
   var iconItem = (element) => {
     const use = element.querySelector("svg use");
@@ -7167,7 +7190,16 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return menu ? { menu, items } : null;
   }
+  function combatAdvice() {
+    const fighting = (state.character?.characterActions || []).find((a) => a.actionHrid?.startsWith("/actions/combat/"));
+    const found = combatSetupNow(fighting?.actionHrid);
+    if (!found) return null;
+    const { zoneHrid, setup } = found;
+    const right = [...setup.drinks || [], ...setup.food || []].filter(Boolean);
+    return { combat: true, name: actionName(zoneHrid) + (setup.tier ? ` T${setup.tier}` : ""), teas: right, perHour: setup.perHour || {} };
+  }
   function adviceFor(skill) {
+    if (skill === "combat") return combatAdvice();
     const type = `/action_types/${skill}`;
     const data = getClientData();
     const job = (state.character?.characterActions || []).find((a) => data.actionDetailMap[a.actionHrid]?.type === type);
@@ -7195,7 +7227,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     let note = null;
     let noteAt = null;
     if (found?.error) {
-      note = `<span class="mwia-dim">MWI Advisor${VERSION2 ? " " + VERSION2 : ""}: can't mark the teas \u2013 ${esc(found.error)}.</span>`;
+      note = `<span class="mwia-dim">MWI Advisor${VERSION2 ? " " + VERSION2 : ""}: can't mark the ${found.skill === "combat" ? "drinks and food" : "teas"} \u2013 ${esc(found.error)}.</span>`;
       noteAt = (leaves(document.body, (text) => LABEL.test(text)).find(visible) || {}).parentElement;
     } else if (advice) {
       const right = new Set(advice.teas);
@@ -7207,7 +7239,8 @@ i.mwia-history-bid { background: #7ee2b0; }
         const hrid = inSlots[i];
         const wrong = hrid ? !right.has(hrid) : empty-- > 0;
         if (wrong) {
-          mark2(slot, "wrong", hrid ? `Not for ${advice.name}: ${advice.teas.length ? "use " + advice.teas.map(itemName).join(", ") : "no tea pays"}` : `Empty: put in ${missing.map(itemName).join(" or ")}`);
+          const none = advice.combat ? "the advice leaves it empty" : "no tea pays";
+          mark2(slot, "wrong", hrid ? `Not for ${advice.name}: ${advice.teas.length ? "use " + advice.teas.map(itemName).join(", ") : none}` : `Empty: put in ${missing.map(itemName).join(" or ")}`);
           marked.add(slot);
         }
       });
@@ -7218,7 +7251,7 @@ i.mwia-history-bid { background: #7ee2b0; }
           const hrid = iconItem(item);
           const good = hrid ? right.has(hrid) && !inSlots.includes(hrid) : /^remove$/i.test(item.textContent.trim()) && anyWrong && !missing.length;
           if (good) {
-            mark2(item, "right", hrid ? `Right for ${advice.name}` : "Take the wrong tea out");
+            mark2(item, "right", hrid ? `Right for ${advice.name}` : advice.combat ? "Take the wrong one out" : "Take the wrong tea out");
             marked.add(item);
           }
         }
@@ -7251,11 +7284,20 @@ i.mwia-history-bid { background: #7ee2b0; }
   function noteHtml(advice) {
     const lacking = advice.teas.filter((hrid) => have3(hrid) <= 0);
     if (!lacking.length) return t2.status ? `<div class="mwia-guide-status">${esc(t2.status)}</div>` : "";
+    if (advice.combat) return combatNoteHtml(advice, lacking);
     const perTea = Math.ceil(TEA_HOURS * advice.entry.current.drinksPerHour);
     const items = advice.teas.map((hrid) => ({ hrid, quantity: perTea - have3(hrid) })).filter((i) => i.quantity > 0);
     const button = items.length ? `<button class="mwia-guide-cart" data-tea-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">\u{1F6D2} ${TEA_HOURS} h of teas</button>` : "";
     return `<div><b>Missing for ${esc(advice.name)}:</b> ${esc(lacking.map(itemName).join(", "))}</div>
         <div class="mwia-dim">${TEA_HOURS} h is ${perTea} of each (${skillLabel3(advice.action.type.split("/").pop())} job first in your queue).</div>
+        ${button}${t2.status ? `<div class="mwia-guide-status">${esc(t2.status)}</div>` : ""}`;
+  }
+  function combatNoteHtml(advice, lacking) {
+    const need = (hrid) => Math.ceil(TEA_HOURS * (advice.perHour[hrid] || 0));
+    const items = advice.teas.map((hrid) => ({ hrid, quantity: need(hrid) - have3(hrid) })).filter((i) => i.quantity > 0);
+    const button = items.length ? `<button class="mwia-guide-cart" data-tea-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">\u{1F6D2} ${TEA_HOURS} h of drinks and food</button>` : "";
+    return `<div><b>Missing for ${esc(advice.name)}:</b> ${esc(lacking.map(itemName).join(", "))}</div>
+        <div class="mwia-dim">${TEA_HOURS} h at the pace of the advisor's Upgrades analysis for ${esc(advice.name)}.</div>
         ${button}${t2.status ? `<div class="mwia-guide-status">${esc(t2.status)}</div>` : ""}`;
   }
   async function onClick4(event) {
@@ -9459,7 +9501,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.56.0" : "dev";
+  var VERSION3 = true ? "0.57.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

@@ -272,6 +272,33 @@ try {
         rangedUpgrades.slice(rangedUpgrades.indexOf("Recommended shopping list"), rangedUpgrades.indexOf("Recommended shopping list") + 300));
     check("ranged: a better bow replaces the staff you wear, not the starter", !/replaces Wooden (Bow|Crossbow)/.test(rangedUpgrades));
     await page.screenshot({ path: path.join(shotDir, "7-ranged.png") });
+    // The combat page's food and drink slots: red for what the analysis doesn't use, green in the picker for what it does.
+    {
+        const setups = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-combat-setups") || "{}"));
+        const fighting = fixtureCharacter().characterActions[0].actionHrid;
+        const setup = setups[fighting] || Object.values(setups).sort((a, b) => b.at - a.at)[0];
+        const right = [...setup.drinks, ...setup.food].filter(Boolean);
+        const wrongFood = Object.values(clientData.itemDetailMap).find((i) => i.categoryHrid === "/item_categories/food" && !right.includes(i.hrid)).hrid;
+        const icon = (hrid) => `<svg><use href="#${hrid.split("/").pop()}"></use></svg>`; // no sprite file to load
+        await page.evaluate((html) => {
+            document.querySelector(".mwia-panel").classList.add("mwia-hidden");
+            document.body.insertAdjacentHTML("beforeend", html);
+        }, `<div id="combatpage"><div class="title"><span>Combat</span> <span>?</span></div>
+            <div class="consumables"><div class="label">Consumables</div><div class="row" style="display:flex;gap:4px">
+            <div class="slot" style="width:60px;height:60px">${icon("/items/donut")}<span>300</span></div><div class="slot" style="width:60px;height:60px">${icon(wrongFood)}</div></div></div></div>`);
+        await new Promise((r) => setTimeout(r, 900));
+        const marks = await page.$$eval("#combatpage .slot", (list) => list.map((n) => n.dataset.mwiaTea || ""));
+        check("combat slots: food the advice doesn't use glows red, the advised one doesn't", marks[0] === (right.includes("/items/donut") ? "" : "wrong") && marks[1] === "wrong", `${JSON.stringify(marks)} for ${right}`);
+        const choices = [...new Set([...right, wrongFood, "/items/apple_gummy"])];
+        await page.evaluate((html) => document.body.insertAdjacentHTML("beforeend", html),
+            `<div class="ItemSelector_menu__x" id="cpicker"><div class="ItemSelector_itemList__y">${choices.map((hrid) => `<div class="ItemSelector_itemContainer__z" data-hrid="${hrid}">${icon(hrid)}</div>`).join("")}</div></div>`);
+        await new Promise((r) => setTimeout(r, 900));
+        const green = await page.$$eval("#cpicker [data-mwia-tea=right]", (list) => list.map((n) => n.dataset.hrid));
+        const expected = right.filter((hrid) => hrid !== "/items/donut");
+        check("combat picker: the advised drinks and food not in a slot glow green", JSON.stringify(green.sort()) === JSON.stringify([...expected].sort()), `${green} vs ${expected}`);
+        await page.screenshot({ path: path.join(shotDir, "7b-combat-slots.png") });
+        await page.evaluate(() => { document.getElementById("cpicker").remove(); document.getElementById("combatpage").remove(); document.querySelector(".mwia-panel").classList.remove("mwia-hidden"); });
+    }
     // A saved combat loadout: the combat tabs work from it, "Equipped now" goes back to what you wear.
     await page.select('[data-setting="combatStyle"]', "current");
     const at = (type) => "/item_locations/" + type;

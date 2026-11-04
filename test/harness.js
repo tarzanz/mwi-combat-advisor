@@ -3,8 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fill } from "../src/data-shim.js";
 import { runSim } from "../src/sim-core.js";
 import { engineTables, loadClientData, loadPrices } from "../src/game-data.js";
-import { buildProfile, toDTO, slotCounts } from "../src/profile.js";
-import { analyzeZones, analyzeUpgrades as analyzeRaw, rateUpgrades, buildPlan, verifyPlan, pickBestZone, xpValue, isSpawnCapped, MAX_ENCOUNTERS_PER_HOUR, uncertainCandidates, refineUncertain, CONFIDENCE_LEVEL, switchStyle } from "../src/analysis.js";
+import { buildProfile, toDTO, slotCounts, sameKind } from "../src/profile.js";
+import { consumableCandidates, analyzeZones, analyzeUpgrades as analyzeRaw, rateUpgrades, buildPlan, verifyPlan, pickBestZone, xpValue, isSpawnCapped, MAX_ENCOUNTERS_PER_HOUR, uncertainCandidates, refineUncertain, CONFIDENCE_LEVEL, switchStyle } from "../src/analysis.js";
 import { fractionalLevel, levelsPerDay, nextPouchGoal } from "../src/levels.js";
 import { levelProgress, marketPricer, skillingCharacter } from "../src/skilling.js";
 import { selfEnhanceCosts } from "../src/enhancing.js";
@@ -27,6 +27,7 @@ globalThis.fetch = async (url) => {
     return { ok: false, status: 404 };
 };
 
+const cloneForKinds = (p) => structuredClone(p);
 const pool = { runAll: async (jobs, onProgress) => { const out = []; for (const j of jobs) { out.push(await runSim(j)); onProgress?.(out.length, jobs.length); } return out; } };
 
 let failures = 0;
@@ -329,6 +330,24 @@ const job = { player: dto, zoneHrid: "/actions/combat/fly", tier: 0, hours: 1, s
 const a = await runSim(job), b = await runSim(job);
 check("seeded runs are reproducible", a.xpTotal === b.xpTotal && a.deaths === b.deaths);
 check("Math.random restored after sim", Math.random !== undefined && Math.random() !== Math.random());
+
+// One consumable of each kind: a second instant mana food, or another tier of a coffee, only takes the first one's place.
+{
+    const mage = cloneForKinds(buildProfile(character, items, data));
+    mage.equipment.pouch = { hrid: "/items/medium_pouch", enhancementLevel: 0 }; // 2 food and 2 drink slots
+    mage.food = ["/items/orange_gummy", null];
+    mage.drinks = ["/items/intelligence_coffee", null];
+    check("kinds: two gummies are the same kind, a gummy and a yogurt are not", sameKind("/items/orange_gummy", "/items/apple_gummy", data) && !sameKind("/items/orange_gummy", "/items/apple_yogurt", data) && !sameKind("/items/orange_gummy", "/items/donut", data));
+    check("kinds: coffee tiers are the same kind", sameKind("/items/intelligence_coffee", "/items/super_intelligence_coffee", data) && !sameKind("/items/intelligence_coffee", "/items/wisdom_coffee", data));
+    const food = consumableCandidates(mage, "food").filter((c) => !c.remove);
+    const apple = food.filter((c) => c.hrid === "/items/apple_gummy");
+    check("food: a gummy only replaces the gummy, never goes in the free slot", apple.length > 0 && apple.every((c) => c.slot === "food0" && c.replaces === "/items/orange_gummy"), JSON.stringify(apple.map((c) => c.slot)));
+    check("food: another kind goes in the free slot", food.some((c) => c.hrid === "/items/apple_yogurt" && c.slot === "food1") && food.some((c) => c.hrid === "/items/donut" && c.slot === "food1"));
+    check("food: no candidate has two of a kind", food.every((c) => { const f = c.profile.food.filter(Boolean); return f.every((a, i) => f.every((b, j) => i === j || !sameKind(a, b, data))); }));
+    const drinks = consumableCandidates(mage, "drinks").filter((c) => c.hrid === "/items/super_intelligence_coffee");
+    check("drinks: a better tier replaces the coffee it upgrades, not the free slot", drinks.length > 0 && drinks.every((c) => c.slot === "drinks0"));
+    check("drinks: another coffee goes in the free slot", consumableCandidates(mage, "drinks").some((c) => c.hrid === "/items/wisdom_coffee" && c.slot === "drinks1"));
+}
 
 log(failures ? `${failures} FAILED` : "ALL PASSED");
 process.exitCode = failures ? 1 : 0;
