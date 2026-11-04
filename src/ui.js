@@ -38,7 +38,7 @@ import {
     pricesAge,
 } from "./game-data.js";
 import { onStateChange, state } from "./game-state.js";
-import { COMBAT_SKILLS, STYLE_NAMES, buildProfile, combatLevel, slotCounts, styleSkills, weaponOf, weaponStyle } from "./profile.js";
+import { COMBAT_SKILLS, STYLE_NAMES, applyLoadout, buildProfile, chooseLoadout, combatLevel, combatLoadouts, slotCounts, styleSkills, weaponOf, weaponStyle } from "./profile.js";
 import { experienceOf, nextPouchGoal, xpToNextLevel } from "./levels.js";
 import { SimPool } from "./pool.js";
 import { CSS } from "./style.js";
@@ -56,7 +56,7 @@ import { startTrain } from "./train-ui.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100 };
+const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100 };
 
 const SKILL_NAMES = {
     stamina: "Stamina",
@@ -174,10 +174,12 @@ const xpNum = (v) => (countingLevels() ? dec(perDay(v), 2) : int(v));
 
 // ---------- data ----------
 
+// The character as it fights: the gear it wears, or a saved combat loadout (Gear from).
 function currentProfile() {
     const data = getClientData();
     if (!state.character || !data) return null;
-    return buildProfile(state.character, state.items, data);
+    const profile = buildProfile(state.character, state.items, data);
+    return applyLoadout(profile, chooseLoadout(state.character, ui.settings.combatGear), state.items, data);
 }
 
 async function ensureReady() {
@@ -411,6 +413,19 @@ function settingsHtml(fields) {
         parts.push(`<label title="Rank by how many levels the XP gives instead of by XP: XP in a low skill buys many more levels than in a high one, so this is the fastest way up in total level. Counted over a day of training.">
             Total level <span class="mwia-focus-row"><input type="checkbox" data-setting="countLevels" ${s.countLevels ? "checked" : ""}> Count levels, not XP</span></label>`);
     }
+    if (fields.includes("gear")) {
+        const loadouts = combatLoadouts(state.character);
+        if (loadouts.length) {
+            const auto = chooseLoadout(state.character, "auto");
+            const options = [
+                ["auto", `Default loadout (${auto?.name || "Loadout"})`],
+                ["equipped", "Equipped now"],
+                ...loadouts.map((l) => [l.id, `Loadout: ${l.name || "Loadout"}${l.isDefault ? " ★" : ""}`]),
+            ];
+            parts.push(`<label title="The gear, abilities, food and drinks to work from: a combat loadout you saved in the game, or what you wear now. Gear you own but the loadout doesn't wear counts as in your inventory.">
+            Gear from <select data-setting="combatGear">${options.map(([k, v]) => `<option value="${esc(k)}" ${String(s.combatGear) === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>`);
+        }
+    }
     if (fields.includes("style")) {
         const profile = currentProfile();
         const now = profile && getClientData() ? STYLE_NAMES[weaponStyle(profile, getClientData())] : null;
@@ -483,6 +498,7 @@ function renderOverview() {
         Array.from({ length: count }, (_, i) => `<li>${list[i] ? esc(itemName(list[i])) : '<span class="mwia-warn">empty slot</span>'}</li>`).join("");
 
     return `
+    ${combatLoadouts(state.character).length ? settingsHtml(["gear"]) : ""}${loadoutNote(profile)}
     <div class="mwia-grid">
       <section><h3>Levels</h3>
         <table class="mwia-table">${levelRows}
@@ -496,6 +512,15 @@ function renderOverview() {
     <h3>Tips for your character</h3>
     <ul class="mwia-tips">${tips.map((t) => `<li class="mwia-tip-${t.level}">${t.html}</li>`).join("")}</ul>
     <p class="mwia-dim">Next step: the <b>Where to fight</b> tab, then <b>Upgrades</b>.</p>`;
+}
+
+// Which gear the combat tabs work from, and what a loadout names that you no longer have.
+function loadoutNote(profile) {
+    if (!profile?.loadout) return "";
+    const missing = profile.loadout.missing;
+    return `<p class="mwia-dim">Working from your loadout <b>${esc(profile.loadout.name)}</b>, not the gear you wear now.</p>${
+        missing.length ? `<p class="mwia-warn">⚠ Not in your inventory, so left empty: ${missing.map(gearLabel).join(", ")}.</p>` : ""
+    }`;
 }
 
 const STYLE_WEAPONS = { magic: "a staff", ranged: "a bow or crossbow", melee: "a sword, mace or spear" };
@@ -608,7 +633,7 @@ const cappedBadge = (r) => (isSpawnCapped(r) ? ` <span class="mwia-warn" title="
 function renderZones() {
     let html = `<p>Simulates your current setup against every combat zone and shows where you get the most XP or gold per hour
       <b>${ui.settings.acceptRareDeaths ? "while dying rarely at most" : "without dying"}</b>.</p>
-      ${settingsHtml(["focus", "levels", "style", "risk", "accuracy", "maxTier"])}
+      ${settingsHtml(["focus", "levels", "gear", "style", "risk", "accuracy", "maxTier"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="zones" ${ui.busy ? "disabled" : ""}>Run zone analysis</button>`;
     if (!ui.zoneResults) return html;
 
@@ -757,7 +782,7 @@ function renderUpgrades() {
     let html = `<p>Tests one change at a time (gear incl. enhanced +N copies – bought or enhanced yourself –, new abilities, levelling abilities with extra books,
       the order of your abilities, combat house rooms, drinks, food, and a few more levels in each skill) in the chosen zone
       and measures how much it improves your focus – XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
-      ${settingsHtml(["focus", "levels", "style", "zone", "budget", "spending", "risk", "accuracy"])}
+      ${settingsHtml(["focus", "levels", "gear", "style", "zone", "budget", "spending", "risk", "accuracy"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>`;
     const result = ui.upgradeResult;
     if (!result) return html;
@@ -1310,8 +1335,8 @@ function onChange(event) {
         render();
         return;
     }
-    // Another style means other gear and other zones: the old results no longer apply.
-    if (key === "combatStyle") {
+    // Another style or loadout means other gear and other zones: the old results no longer apply.
+    if (key === "combatStyle" || key === "combatGear") {
         ui.zoneResults = null;
         ui.upgradeRaw = ui.upgradeResult = ui.plan = ui.verified = null;
         render();

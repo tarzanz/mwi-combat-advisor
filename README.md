@@ -13,6 +13,12 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   skill: a bow or crossbow, a sword or mace, a staff). Zones and upgrades are simulated with it, it heads the shopping
   list, and better weapons of the style, armour and charms that suit it are tested as upgrades (a better weapon on
   the list is bought instead of it).
+- **Gear from** – your saved combat loadouts: the combat tabs (Overview, Where to fight, Upgrades) work from the
+  default combat loadout, or another one you pick, instead of the gear you wear now – its gear, abilities, food,
+  drinks and triggers, as the game puts them on (the saved +level with *exact enhancement*, else the highest you have,
+  from that slot or the inventory). Gear you wear that the loadout doesn't counts as in your inventory, a slot it
+  leaves out is empty, and gear it names that you no longer have is flagged. *Equipped now* uses what you wear; with
+  no combat loadouts nothing changes.
 - **Count levels, not XP** (Where to fight, Upgrades, Skilling) – the XP is counted as the levels it gives each skill
   from where it is now, over a day of training. Each level needs more XP than the one before, so XP in a low skill (a
   style at level 1, a gathering skill at 45) buys far more levels than in a high one: the fastest way up in total

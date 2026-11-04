@@ -173,6 +173,119 @@ export function buildProfile(character, items, data) {
     };
 }
 
+// ---------- combat loadouts ----------
+// The game keeps saved loadouts in characterLoadoutMap (init_character_data and
+// loadouts_updated): { id: { name, actionTypeHrid, isDefault, ordinal,
+// useExactEnhancement, wearableMap: { location: item hash }, foodItemHrids,
+// drinkItemHrids, abilityMap: { slot: abilityHrid }, ...TriggersMap } }.
+// A loadout is made from what you wear, so it holds the whole set: a slot it
+// leaves out is empty.
+
+// The loadouts for combat (or for any action), in the game's order.
+export function combatLoadouts(character) {
+    return Object.entries(character?.characterLoadoutMap || {})
+        .filter(([, loadout]) => loadout && (!loadout.actionTypeHrid || loadout.actionTypeHrid === COMBAT))
+        .map(([id, loadout]) => ({ ...loadout, id: String(id) }))
+        .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
+}
+
+// "auto" picks the default combat loadout, else the first; "equipped" or no
+// loadouts means the gear you wear now. Returns the loadout or null.
+export function chooseLoadout(character, choice) {
+    if (choice === "equipped") return null;
+    const loadouts = combatLoadouts(character);
+    const picked = choice && choice !== "auto" ? loadouts.find((l) => l.id === String(choice)) : null;
+    return picked || loadouts.find((l) => l.isDefault && l.actionTypeHrid === COMBAT) || loadouts.find((l) => l.isDefault) || loadouts[0] || null;
+}
+
+const levelOfHash = (hash) => {
+    const last = String(hash || "").split("::").pop();
+    return /^\d+$/.test(last) ? Number(last) : null;
+};
+
+// The item a loadout slot gets, as the game picks it: the saved item itself, or
+// a copy in that slot or the inventory – at the saved +level with "exact
+// enhancement", else the highest you have. null when you have none.
+function loadoutItem(location, hash, items, exact, taken) {
+    const itemHrid = String(hash || "").split("::").find((part) => part.startsWith("/items/"));
+    if (!itemHrid) return null;
+    const saved = levelOfHash(hash);
+    const usable = [...items].filter(
+        (item) =>
+            item.itemHrid === itemHrid &&
+            item.count !== 0 &&
+            (taken.get(item) ?? 0) < (item.count ?? 1) &&
+            (item.hash === hash || item.itemLocationHrid === location || item.itemLocationHrid === INVENTORY) &&
+            (!exact || (item.enhancementLevel || 0) === saved)
+    );
+    usable.sort((a, b) => (b.enhancementLevel || 0) - (a.enhancementLevel || 0) || (b.hash === hash) - (a.hash === hash));
+    return usable[0] ? { item: usable[0], itemHrid } : { item: null, itemHrid };
+}
+
+// The profile as it fights with this loadout: its gear, food, drinks, abilities
+// and triggers. Gear you wear now that the loadout doesn't goes to the inventory
+// (you own it), and what the loadout puts on leaves it. profile.loadout says
+// which loadout it is and what it lacks.
+export function applyLoadout(profile, loadout, items, data) {
+    if (!loadout) return profile;
+    const owned = [...items.values()].filter((item) => item.itemHrid);
+    const taken = new Map();
+    const missing = [];
+    const equipment = {};
+    for (const [location, hash] of Object.entries(loadout.wearableMap || {})) {
+        const type = location.split("/").pop();
+        if (!GEAR_TYPES.includes(type) || !hash) continue;
+        const found = loadoutItem(location, hash, owned, loadout.useExactEnhancement === true, taken);
+        if (!found) continue;
+        if (!found.item) {
+            missing.push({ hrid: found.itemHrid, enhancementLevel: levelOfHash(hash) || 0 });
+            continue;
+        }
+        taken.set(found.item, (taken.get(found.item) ?? 0) + 1);
+        equipment[type] = { hrid: found.itemHrid, enhancementLevel: found.item.enhancementLevel || 0 };
+    }
+
+    // The inventory once the loadout is on: everything you own that isn't worn.
+    const inventory = new Map();
+    const stash = (hrid, enhancementLevel, count) => {
+        const key = hrid + "#" + enhancementLevel;
+        const entry = inventory.get(key) || { hrid, enhancementLevel, count: 0 };
+        entry.count += count;
+        inventory.set(key, entry);
+    };
+    for (const item of owned) {
+        const worn = item.itemLocationHrid !== INVENTORY;
+        if (worn && !GEAR_TYPES.includes(item.itemLocationHrid?.split("/").pop())) continue;
+        const left = (item.count ?? 1) - (taken.get(item) ?? 0);
+        if (left > 0) stash(item.itemHrid, item.enhancementLevel || 0, left);
+    }
+
+    const consumables = (list) => (Array.isArray(list) ? list.map((hrid) => hrid || null) : null);
+    const abilities = [null, null, null, null, null];
+    let next = 1;
+    const slots = Object.entries(loadout.abilityMap || {})
+        .filter(([, hrid]) => hrid)
+        .sort((a, b) => Number(a[0]) - Number(b[0]));
+    for (const [, hrid] of slots) {
+        if (!profile.learnedAbilities[hrid]) continue;
+        const entry = { hrid, level: profile.learnedAbilities[hrid] };
+        if (data.abilityDetailMap[hrid]?.isSpecialAbility) abilities[0] = entry;
+        else if (next <= 4) abilities[next++] = entry;
+    }
+
+    return {
+        ...profile,
+        equipment,
+        inventory: [...inventory.values()],
+        food: consumables(loadout.foodItemHrids) ?? profile.food,
+        drinks: consumables(loadout.drinkItemHrids) ?? profile.drinks,
+        abilities: loadout.abilityMap ? abilities : profile.abilities,
+        abilityTriggers: { ...profile.abilityTriggers, ...(loadout.abilityCombatTriggersMap || {}) },
+        consumableTriggers: { ...profile.consumableTriggers, ...(loadout.consumableCombatTriggersMap || {}) },
+        loadout: { id: loadout.id, name: loadout.name || "Loadout", missing },
+    };
+}
+
 export function cloneProfile(profile) {
     return structuredClone(profile);
 }

@@ -1,6 +1,6 @@
 // Listens to the game's WebSocket and keeps a copy of the parts of the
 // character that matter for combat and skilling: skills, equipment, inventory, abilities,
-// consumable slots, triggers, house rooms, achievements and buffs.
+// consumable slots, triggers, house rooms, achievements, buffs and saved loadouts.
 
 const INTERESTING = new RegExp(
     '"type":"(' +
@@ -27,6 +27,7 @@ const INTERESTING = new RegExp(
             "market_listings_updated",
             "market_item_order_books_updated",
             "loot_log_updated",
+            "loadouts_updated",
         ].join("|") +
         ')"'
 );
@@ -282,6 +283,10 @@ function handle(data) {
                 break;
             case "achievements_updated":
                 copyFields(data, ["characterAchievements"]);
+                break;
+            case "loadouts_updated":
+                // The saved loadouts, whole (an empty map when the last one is deleted).
+                copyFields(data, ["characterLoadoutMap"]);
                 break;
             case "community_buffs_updated":
             case "moo_pass_buffs_updated":

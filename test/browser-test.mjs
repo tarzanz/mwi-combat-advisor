@@ -72,7 +72,9 @@ const server = http.createServer((req, res) => {
     }
 });
 const wss = new WebSocketServer({ server });
+let gameSocket = null;
 wss.on("connection", (socket) => {
+    gameSocket = socket;
     socket.send(JSON.stringify(fixtureCharacter()));
     // A later equipment change, to check incremental updates are applied.
     setTimeout(() => socket.send(JSON.stringify({ type: "items_updated", endCharacterItems: [{ hash: "h7", itemHrid: "/items/linen_gloves", itemLocationHrid: "/item_locations/hands", enhancementLevel: 0, count: 1 }] })), 300);
@@ -270,6 +272,28 @@ try {
         rangedUpgrades.slice(rangedUpgrades.indexOf("Recommended shopping list"), rangedUpgrades.indexOf("Recommended shopping list") + 300));
     check("ranged: a better bow replaces the staff you wear, not the starter", !/replaces Wooden (Bow|Crossbow)/.test(rangedUpgrades));
     await page.screenshot({ path: path.join(shotDir, "7-ranged.png") });
+    // A saved combat loadout: the combat tabs work from it, "Equipped now" goes back to what you wear.
+    await page.select('[data-setting="combatStyle"]', "current");
+    const at = (type) => "/item_locations/" + type;
+    gameSocket.send(JSON.stringify({ type: "loadouts_updated", characterLoadoutMap: {
+        4: { name: "Mage kit", actionTypeHrid: "/action_types/combat", isDefault: true, ordinal: 0,
+            wearableMap: { [at("main_hand")]: `1::${at("main_hand")}::/items/birch_water_staff::0`, [at("head")]: `1::${at("head")}::/items/cheese_helmet::0`, [at("ring")]: `1::${at("ring")}::/items/ring_of_regeneration::0` },
+            foodItemHrids: ["/items/donut"], drinkItemHrids: [], abilityMap: { 1: "/abilities/water_strike" } },
+    } }));
+    await page.click('[data-tab="overview"]');
+    await page.waitForFunction(() => document.querySelector('.mwia-body [data-setting="combatGear"]'), { timeout: 5000 });
+    const withLoadout = await page.$eval(".mwia-body", (n) => n.innerText);
+    check("loadout: the overview works from the default combat loadout", /Working from your loadout Mage kit/.test(withLoadout) && /Body\s+empty/.test(withLoadout) && /Head\s+Cheese Helmet/.test(withLoadout), withLoadout.slice(0, 400));
+    check("loadout: gear it names that you don't have is flagged", /Not in your inventory[^\n]*Ring of Regeneration/i.test(withLoadout));
+    await page.screenshot({ path: path.join(shotDir, "8-loadout.png") });
+    await page.click('[data-tab="zones"]');
+    await page.click('[data-action="zones"]');
+    await page.waitForSelector(".mwia-reco", { timeout: 120000 });
+    check("loadout: zones are simulated with it", /Working from your loadout Mage kit/.test(await page.$eval(".mwia-body", (n) => n.innerText)));
+    await page.click('[data-tab="overview"]');
+    await page.select('[data-setting="combatGear"]', "equipped");
+    const worn = await page.$eval(".mwia-body", (n) => n.innerText);
+    check("loadout: Equipped now shows what you wear", !/Working from your loadout/.test(worn) && /Body\s+Cotton Robe Top/.test(worn));
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {
     await browser.close();

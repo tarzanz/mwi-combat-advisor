@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.55.0
+// @version      0.56.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -45,7 +45,8 @@
       "equipment_buffs_updated",
       "market_listings_updated",
       "market_item_order_books_updated",
-      "loot_log_updated"
+      "loot_log_updated",
+      "loadouts_updated"
     ].join("|") + ')"'
   );
   var BUFF_MAPS = [
@@ -265,6 +266,9 @@
           break;
         case "achievements_updated":
           copyFields(data, ["characterAchievements"]);
+          break;
+        case "loadouts_updated":
+          copyFields(data, ["characterLoadoutMap"]);
           break;
         case "community_buffs_updated":
         case "moo_pass_buffs_updated":
@@ -4785,6 +4789,82 @@
       currentZone: combatAction ? { zoneHrid: combatAction.actionHrid, tier: combatAction.difficultyTier || 0 } : null
     };
   }
+  function combatLoadouts(character) {
+    return Object.entries(character?.characterLoadoutMap || {}).filter(([, loadout]) => loadout && (!loadout.actionTypeHrid || loadout.actionTypeHrid === COMBAT)).map(([id, loadout]) => ({ ...loadout, id: String(id) })).sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
+  }
+  function chooseLoadout(character, choice) {
+    if (choice === "equipped") return null;
+    const loadouts = combatLoadouts(character);
+    const picked = choice && choice !== "auto" ? loadouts.find((l2) => l2.id === String(choice)) : null;
+    return picked || loadouts.find((l2) => l2.isDefault && l2.actionTypeHrid === COMBAT) || loadouts.find((l2) => l2.isDefault) || loadouts[0] || null;
+  }
+  var levelOfHash3 = (hash) => {
+    const last = String(hash || "").split("::").pop();
+    return /^\d+$/.test(last) ? Number(last) : null;
+  };
+  function loadoutItem(location2, hash, items, exact, taken) {
+    const itemHrid = String(hash || "").split("::").find((part) => part.startsWith("/items/"));
+    if (!itemHrid) return null;
+    const saved = levelOfHash3(hash);
+    const usable = [...items].filter(
+      (item) => item.itemHrid === itemHrid && item.count !== 0 && (taken.get(item) ?? 0) < (item.count ?? 1) && (item.hash === hash || item.itemLocationHrid === location2 || item.itemLocationHrid === INVENTORY3) && (!exact || (item.enhancementLevel || 0) === saved)
+    );
+    usable.sort((a, b) => (b.enhancementLevel || 0) - (a.enhancementLevel || 0) || (b.hash === hash) - (a.hash === hash));
+    return usable[0] ? { item: usable[0], itemHrid } : { item: null, itemHrid };
+  }
+  function applyLoadout(profile, loadout, items, data) {
+    if (!loadout) return profile;
+    const owned = [...items.values()].filter((item) => item.itemHrid);
+    const taken = /* @__PURE__ */ new Map();
+    const missing = [];
+    const equipment = {};
+    for (const [location2, hash] of Object.entries(loadout.wearableMap || {})) {
+      const type = location2.split("/").pop();
+      if (!GEAR_TYPES.includes(type) || !hash) continue;
+      const found = loadoutItem(location2, hash, owned, loadout.useExactEnhancement === true, taken);
+      if (!found) continue;
+      if (!found.item) {
+        missing.push({ hrid: found.itemHrid, enhancementLevel: levelOfHash3(hash) || 0 });
+        continue;
+      }
+      taken.set(found.item, (taken.get(found.item) ?? 0) + 1);
+      equipment[type] = { hrid: found.itemHrid, enhancementLevel: found.item.enhancementLevel || 0 };
+    }
+    const inventory = /* @__PURE__ */ new Map();
+    const stash = (hrid, enhancementLevel, count2) => {
+      const key = hrid + "#" + enhancementLevel;
+      const entry = inventory.get(key) || { hrid, enhancementLevel, count: 0 };
+      entry.count += count2;
+      inventory.set(key, entry);
+    };
+    for (const item of owned) {
+      const worn = item.itemLocationHrid !== INVENTORY3;
+      if (worn && !GEAR_TYPES.includes(item.itemLocationHrid?.split("/").pop())) continue;
+      const left = (item.count ?? 1) - (taken.get(item) ?? 0);
+      if (left > 0) stash(item.itemHrid, item.enhancementLevel || 0, left);
+    }
+    const consumables = (list) => Array.isArray(list) ? list.map((hrid) => hrid || null) : null;
+    const abilities = [null, null, null, null, null];
+    let next = 1;
+    const slots = Object.entries(loadout.abilityMap || {}).filter(([, hrid]) => hrid).sort((a, b) => Number(a[0]) - Number(b[0]));
+    for (const [, hrid] of slots) {
+      if (!profile.learnedAbilities[hrid]) continue;
+      const entry = { hrid, level: profile.learnedAbilities[hrid] };
+      if (data.abilityDetailMap[hrid]?.isSpecialAbility) abilities[0] = entry;
+      else if (next <= 4) abilities[next++] = entry;
+    }
+    return {
+      ...profile,
+      equipment,
+      inventory: [...inventory.values()],
+      food: consumables(loadout.foodItemHrids) ?? profile.food,
+      drinks: consumables(loadout.drinkItemHrids) ?? profile.drinks,
+      abilities: loadout.abilityMap ? abilities : profile.abilities,
+      abilityTriggers: { ...profile.abilityTriggers, ...loadout.abilityCombatTriggersMap || {} },
+      consumableTriggers: { ...profile.consumableTriggers, ...loadout.consumableCombatTriggersMap || {} },
+      loadout: { id: loadout.id, name: loadout.name || "Loadout", missing }
+    };
+  }
   function cloneProfile(profile) {
     return structuredClone(profile);
   }
@@ -5969,7 +6049,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.55.0" : "dev";
+  var VERSION = true ? "0.56.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -8442,7 +8522,7 @@ i.mwia-history-bid { background: #7ee2b0; }
 
   // src/ui.js
   var SETTINGS_KEY = "mwia-settings";
-  var DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100 };
+  var DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100 };
   var SKILL_NAMES = {
     stamina: "Stamina",
     intelligence: "Intelligence",
@@ -8551,7 +8631,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   function currentProfile() {
     const data = getClientData();
     if (!state.character || !data) return null;
-    return buildProfile(state.character, state.items, data);
+    const profile = buildProfile(state.character, state.items, data);
+    return applyLoadout(profile, chooseLoadout(state.character, ui.settings.combatGear), state.items, data);
   }
   async function ensureReady() {
     const data = await loadClientData(ui.win);
@@ -8750,6 +8831,19 @@ i.mwia-history-bid { background: #7ee2b0; }
       parts.push(`<label title="Rank by how many levels the XP gives instead of by XP: XP in a low skill buys many more levels than in a high one, so this is the fastest way up in total level. Counted over a day of training.">
             Total level <span class="mwia-focus-row"><input type="checkbox" data-setting="countLevels" ${s2.countLevels ? "checked" : ""}> Count levels, not XP</span></label>`);
     }
+    if (fields.includes("gear")) {
+      const loadouts = combatLoadouts(state.character);
+      if (loadouts.length) {
+        const auto = chooseLoadout(state.character, "auto");
+        const options = [
+          ["auto", `Default loadout (${auto?.name || "Loadout"})`],
+          ["equipped", "Equipped now"],
+          ...loadouts.map((l2) => [l2.id, `Loadout: ${l2.name || "Loadout"}${l2.isDefault ? " \u2605" : ""}`])
+        ];
+        parts.push(`<label title="The gear, abilities, food and drinks to work from: a combat loadout you saved in the game, or what you wear now. Gear you own but the loadout doesn't wear counts as in your inventory.">
+            Gear from <select data-setting="combatGear">${options.map(([k, v]) => `<option value="${esc(k)}" ${String(s2.combatGear) === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>`);
+      }
+    }
     if (fields.includes("style")) {
       const profile = currentProfile();
       const now = profile && getClientData() ? STYLE_NAMES[weaponStyle(profile, getClientData())] : null;
@@ -8808,6 +8902,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const consumableList = (list, count2) => Array.from({ length: count2 }, (_, i) => `<li>${list[i] ? esc(itemName(list[i])) : '<span class="mwia-warn">empty slot</span>'}</li>`).join("");
     return `
+    ${combatLoadouts(state.character).length ? settingsHtml(["gear"]) : ""}${loadoutNote(profile)}
     <div class="mwia-grid">
       <section><h3>Levels</h3>
         <table class="mwia-table">${levelRows}
@@ -8821,6 +8916,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     <h3>Tips for your character</h3>
     <ul class="mwia-tips">${tips.map((t4) => `<li class="mwia-tip-${t4.level}">${t4.html}</li>`).join("")}</ul>
     <p class="mwia-dim">Next step: the <b>Where to fight</b> tab, then <b>Upgrades</b>.</p>`;
+  }
+  function loadoutNote(profile) {
+    if (!profile?.loadout) return "";
+    const missing = profile.loadout.missing;
+    return `<p class="mwia-dim">Working from your loadout <b>${esc(profile.loadout.name)}</b>, not the gear you wear now.</p>${missing.length ? `<p class="mwia-warn">\u26A0 Not in your inventory, so left empty: ${missing.map(gearLabel).join(", ")}.</p>` : ""}`;
   }
   var STYLE_WEAPONS = { magic: "a staff", ranged: "a bow or crossbow", melee: "a sword, mace or spear" };
   function overviewTips(profile, slots, data) {
@@ -8912,7 +9012,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function renderZones() {
     let html = `<p>Simulates your current setup against every combat zone and shows where you get the most XP or gold per hour
       <b>${ui.settings.acceptRareDeaths ? "while dying rarely at most" : "without dying"}</b>.</p>
-      ${settingsHtml(["focus", "levels", "style", "risk", "accuracy", "maxTier"])}
+      ${settingsHtml(["focus", "levels", "gear", "style", "risk", "accuracy", "maxTier"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="zones" ${ui.busy ? "disabled" : ""}>Run zone analysis</button>`;
     if (!ui.zoneResults) return html;
     const goal = zoneGoal(ui.zoneResults, ui.settings);
@@ -9038,7 +9138,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     let html = `<p>Tests one change at a time (gear incl. enhanced +N copies \u2013 bought or enhanced yourself \u2013, new abilities, levelling abilities with extra books,
       the order of your abilities, combat house rooms, drinks, food, and a few more levels in each skill) in the chosen zone
       and measures how much it improves your focus \u2013 XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
-      ${settingsHtml(["focus", "levels", "style", "zone", "budget", "spending", "risk", "accuracy"])}
+      ${settingsHtml(["focus", "levels", "gear", "style", "zone", "budget", "spending", "risk", "accuracy"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>`;
     const result = ui.upgradeResult;
     if (!result) return html;
@@ -9359,7 +9459,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.55.0" : "dev";
+  var VERSION3 = true ? "0.56.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -9524,7 +9624,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       render2();
       return;
     }
-    if (key === "combatStyle") {
+    if (key === "combatStyle" || key === "combatGear") {
       ui.zoneResults = null;
       ui.upgradeRaw = ui.upgradeResult = ui.plan = ui.verified = null;
       render2();
