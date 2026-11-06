@@ -59,6 +59,22 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     one goes on the list as a free change (*Put your abilities in this order: …*). Like the game, the simulation puts
     abilities without a cooldown (Water Strike, Fireball, Entangle) behind the others, so orders that only move those
     are not tried, and an ability whose triggers hold but whose mana isn't there yet stops the rest for an auto attack.
+  - **Triggers** – the setup as it is is simulated with measurements: how often an ability's triggers held while its
+    mana wasn't there (an auto attack instead – the table lists these as *Waiting for mana*), how often a single-target
+    hit lands on a nearly dead monster, how many monsters are up when an area ability goes off, how much a heal or food
+    goes past full, and deaths while the HP food waits on its cooldown. From that, a few changes with whole-number
+    values are tried, each like any other suggestion – nothing the measurements don't point to:
+    *own MP ≥ its cost* (the next ability goes while it waits), *own MP ≥ both costs* on a cheaper ability further
+    down (keeps the mana for the one above), *target's HP ≥* half or one typical hit, *enemies up ≥ 1/2/3* for area
+    abilities, *own missing HP ≥* half, one or two typical heals, and HP or MP food eaten later (less food) or earlier
+    (when you die or run dry). Buffs and coffee keep *is inactive*. The best one per ability and food that is sure
+    goes on the list as a free change (*Set the triggers of Heal to own missing HP ≥ 50*). The three best new
+    abilities also get a round with their own triggers, and take that setting instead of the game's default only when
+    it clearly beats it. Trigger variants' simulations are kept in the browser (up to 1,500 runs), so the same setup
+    again (same gear, zone, hours and seed) is not simulated twice.
+  - **Abilities & triggers only** – the button beside *Analyze upgrades* tests only new abilities, ability levels,
+    their order and the triggers of your abilities and food: no gear, house rooms, drinks or food to buy, so it is
+    much quicker.
   - **More levels (not for sale)** – +1 and +5 levels in each combat skill your style uses (never the other two
     styles' own skill), with how long they take at the XP an hour that skill gets in the zone now: to weigh a
     purchase against simply levelling. They never go on the shopping list.
@@ -391,6 +407,9 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
   enhanced yourself). House rooms are tested one level up only.
 - Ability level-ups need the game's `levelExperienceTable`; if the client lacks it they are skipped (the panel says so).
 - New food/drinks use the game's default triggers; your own trigger settings are used for things you already have.
+- Trigger changes are tried one at a time against your current ability order; the shopping list applies the best one
+  for each ability and food together and simulates the whole list, but combinations are not searched. A changed order
+  and changed triggers are worked out separately too. The changes go in by hand in the game's trigger settings.
 - Results are estimates – a few percent either way is normal.
 - The plan train relies on the class names of the MWITools planning tab and the game's action pages; it has only been
   tested against mock-ups of both.

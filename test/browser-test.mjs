@@ -191,6 +191,7 @@ try {
     check("house rooms tested", headings.includes("House") && /(Mystical Study|Armory|Library|Gym|Dojo|Archery Range|Dining Room)\s+lvl 0 → 1/.test(upgrades));
     check("more skill levels shown with the time to get there", /More levels \(not for sale\)/.test(upgrades) && /Magic\s+21 → 26/.test(upgrades) && /\d+(\.\d)? (h|days|min)/.test(upgrades.slice(upgrades.indexOf("More levels"))));
     check("ability order section", /Ability order/.test(upgrades));
+    check("triggers section", /\nTriggers\n/.test(upgrades), upgrades.slice(upgrades.indexOf("\nTriggers\n"), upgrades.indexOf("\nTriggers\n") + 200));
     check("what you take off is counted as sold", /− [\d.,]+k? selling your/.test(upgrades) || /\*/.test(upgrades.slice(upgrades.indexOf("Equipment\n"))));
     check("gear you can enhance yourself is offered", /🔨 enhance yourself/.test(upgrades) || /enhance it to \+\d+ yourself/.test(upgrades));
     console.log(upgrades.slice(upgrades.indexOf("Zone:"), upgrades.indexOf("Equipment\n")));
@@ -257,6 +258,17 @@ try {
         await page.waitForSelector(".mwia-notice-bad", { timeout: 5000 });
         check("without MWITools a click explains why", /cart was not found/.test(await page.$eval(".mwia-notice", (n) => n.textContent)));
     }
+    // Abilities & triggers only: no gear, house rooms or consumables, and a good deal quicker.
+    const t1 = Date.now();
+    await page.click('[data-action="upgrades-abilities"]');
+    await page.waitForFunction(() => document.querySelector(".mwia-body")?.innerText.includes("Only abilities and triggers were tested") && !document.querySelector(".mwia-progress"), { timeout: 300000 });
+    const abilitiesOnly = await page.$eval(".mwia-body", (n) => n.innerText);
+    const onlyHeadings = await page.$$eval(".mwia-body h3", (hs) => hs.map((h) => h.textContent));
+    console.log(`abilities & triggers took ${((Date.now() - t1) / 1000).toFixed(1)} s in the browser`);
+    check("abilities & triggers only: abilities, order and triggers, no gear or food", ["Abilities", "Ability order", "Triggers"].every((h) => onlyHeadings.includes(h)) && !["Equipment", "House", "Food", "Drinks"].some((h) => onlyHeadings.includes(h)), onlyHeadings.join(", "));
+    check("abilities & triggers only: nothing to buy but abilities", !/Buy [^\n]* in (Head|Body|Legs|Feet|Hands|Weapon|Pouch)/.test(abilitiesOnly));
+    await page.evaluate(() => [...document.querySelectorAll(".mwia-body h3")].find((h) => h.textContent === "Triggers")?.scrollIntoView());
+    await page.screenshot({ path: path.join(shotDir, "4b-triggers.png") });
     // Fight as Ranged: a bow or crossbow is put first on the shopping list, zones are simulated with it.
     await page.click('[data-tab="zones"]');
     await page.select('[data-setting="combatStyle"]', "ranged");

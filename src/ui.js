@@ -53,6 +53,7 @@ import { startTeaSlots } from "./tea-slots.js";
 import { findActionPanel, inventoryItemHash, navDiagnostics, openAction, openAlchemy, openEnhancing, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 import { startTrain } from "./train-ui.js";
+import { describeTriggers } from "./triggers.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 
 const SETTINGS_KEY = "mwia-settings";
@@ -294,16 +295,19 @@ async function doRefine() {
     rerateUpgrades();
 }
 
-async function doUpgrades() {
+const hasPlan = (plan) => !!(plan && (plan.picks.length || plan.drink || plan.food || plan.order || plan.triggers?.length));
+
+// scope "abilities": only abilities, their levels, order and triggers – no gear to buy.
+async function doUpgrades(scope = "all") {
     const { profile, starter } = fightingProfile();
     if (ui.settings.zone === "auto" && !ui.zoneResults) await doZones();
     const zone = chosenZone(profile);
     if (!zone) throw new Error("Pick a zone first.");
     const run = runSettings();
-    const settings = { ...run, budget: Math.max(0, run.budget - (starter?.cost || 0)), starter, enhanceCost: enhanceCostFor() };
+    const settings = { ...run, budget: Math.max(0, run.budget - (starter?.cost || 0)), starter, enhanceCost: enhanceCostFor(), scope };
     ui.upgradeRaw = await analyzeUpgrades(ui.pool, profile, zone, settings, progress("Testing upgrades"), progress("Re-running uncertain suggestions"));
     rerateUpgrades();
-    if (ui.plan.picks.length || ui.plan.drink || ui.plan.food || ui.plan.order) {
+    if (hasPlan(ui.plan)) {
         ui.verified = await verifyPlan(ui.pool, profile, ui.plan, zone, settings, progress("Checking the shopping list"));
         saveCombatSetup();
     }
@@ -688,7 +692,7 @@ function upgradeNotes(c, base) {
 function cartItems(c) {
     const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c.result?.consumables?.[hrid] || 0)));
     if (c.kind === "house") return c.materials.filter((m) => m.hrid !== COIN).map((m) => ({ hrid: m.hrid, quantity: m.count }));
-    if (c.kind === "abilityOrder" || c.kind === "skillLevel") return [];
+    if (c.kind === "abilityOrder" || c.kind === "skillLevel" || c.kind === "trigger") return [];
     if (c.enhance) return mergeCart([...enhanceCart(c), ...(c.extraFood ? [{ hrid: c.extraFood, quantity: forOneDay(c.extraFood) }] : [])]);
     if (c.kind === "abilityLevel") return [{ hrid: c.bookHrid, quantity: c.books }];
     if (c.kind === "ability") return c.cost ? [{ hrid: c.bookHrid, quantity: 1 }] : [];
@@ -780,10 +784,11 @@ async function sendItemsToCart(items) {
 
 function renderUpgrades() {
     let html = `<p>Tests one change at a time (gear incl. enhanced +N copies – bought or enhanced yourself –, new abilities, levelling abilities with extra books,
-      the order of your abilities, combat house rooms, drinks, food, and a few more levels in each skill) in the chosen zone
+      the order of your abilities and their triggers, combat house rooms, drinks, food and their triggers, and a few more levels in each skill) in the chosen zone
       and measures how much it improves your focus – XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
       ${settingsHtml(["focus", "levels", "gear", "style", "zone", "budget", "spending", "risk", "accuracy"])}${loadoutNote(currentProfile())}
-      <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>`;
+      <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>
+      <button class="mwia-btn" data-action="upgrades-abilities" ${ui.busy ? "disabled" : ""} title="Only abilities, their levels and order, and the triggers of your abilities and food – much quicker">Abilities &amp; triggers only</button>`;
     const result = ui.upgradeResult;
     if (!result) return html;
     const base = result.base;
@@ -806,7 +811,7 @@ function renderUpgrades() {
           <button class="mwia-btn" data-action="refine" ${ui.busy ? "disabled" : ""}>🎯 Run more simulations for them</button></p>`;
     }
     html += `<h3>📋 Recommended shopping list</h3>`;
-    if (!plan || (!plan.picks.length && !plan.starter && !plan.drink && !plan.food && !plan.order)) {
+    if (!plan || (!hasPlan(plan) && !plan.starter)) {
         html += `<p>Nothing within budget gave a reliable improvement that is worth its price. Try Spending "All in", raise the budget, try another zone,
           or just keep levelling – at some levels that really is the best move.</p>`;
     } else {
@@ -821,7 +826,7 @@ function renderUpgrades() {
             if (p.kind === "abilityLevel") {
                 what = `${p.books}× <b>${esc(itemName(p.bookHrid))}</b> and read them: ${esc(abilityName(p.hrid))} level ${p.fromLevel} → ${p.level}`;
             } else if (p.kind === "ability") {
-                what = `ability <b>${esc(abilityName(p.hrid))}</b>${p.cost ? ` (buy the book ${esc(itemName(p.bookHrid))})` : ` (level ${p.level})`}`;
+                what = `ability <b>${esc(abilityName(p.hrid))}</b>${p.cost ? ` (buy the book ${esc(itemName(p.bookHrid))})` : ` (level ${p.level})`}${p.triggers ? `, triggers: <b>${esc(describeTriggers(p.triggers, getClientData()))}</b>` : ""}`;
             } else if (p.kind === "house") {
                 html += `<li>Build <b>${esc(p.name)}</b> level ${p.fromLevel} → ${p.level} <span class="mwia-dim">(${houseMaterials(p)})</span>: ${gainText(p)} for ${coins(p.cost)} ${cartButton(cartItems(p), "🛒 Materials")}</li>`;
                 continue;
@@ -840,6 +845,10 @@ function renderUpgrades() {
         if (plan.order) {
             html += `<li>Put your abilities in this order: <b>${plan.order.order.map((h) => esc(abilityName(h))).join(" → ")}</b>
               <span class="mwia-dim">(now ${plan.order.was.map((h) => esc(abilityName(h))).join(" → ")})</span>: ${gainText(plan.order)} (free)</li>`;
+        }
+        for (const t of plan.triggers || []) {
+            html += `<li>Set the triggers of <b>${esc(triggerTargetName(t))}</b> to <b>${esc(describeTriggers(t.triggers, getClientData()))}</b>
+              <span class="mwia-dim">(now ${esc(describeTriggers(t.was, getClientData()))})</span>: ${gainText(t)} (free)</li>`;
         }
         for (const [kind, pick, max] of [["Food", plan.food, plan.foodMax], ["Drink", plan.drink, plan.drinkMax]]) {
             if (!pick) continue;
@@ -871,7 +880,8 @@ function renderUpgrades() {
         }
     }
 
-    html += upgradeTable("Equipment", result.gear, base, (c) => SLOT_NAMES[c.slot], (c) => gearLabel(c) + (c.extraFood ? ` <span class="mwia-dim">+ ${esc(itemName(c.extraFood))} in new slot</span>` : ""), (c) => (c.replaces ? gearLabel(c.replaces) : "–"), "Item");
+    const all = result.scope !== "abilities";
+    if (all) html += upgradeTable("Equipment", result.gear, base, (c) => SLOT_NAMES[c.slot], (c) => gearLabel(c) + (c.extraFood ? ` <span class="mwia-dim">+ ${esc(itemName(c.extraFood))} in new slot</span>` : ""), (c) => (c.replaces ? gearLabel(c.replaces) : "–"), "Item");
     html += upgradeTable(
         "Abilities",
         result.abilities,
@@ -881,7 +891,8 @@ function renderUpgrades() {
             esc(abilityName(c.hrid)) +
             (c.kind === "abilityLevel"
                 ? ` <span class="mwia-dim">lvl ${c.fromLevel} → ${c.level} (${c.books} books)</span>`
-                : ` <span class="mwia-dim">lvl ${c.level}</span>`),
+                : ` <span class="mwia-dim">lvl ${c.level}</span>`) +
+            (c.triggers ? `<br><span class="mwia-dim">triggers: ${esc(describeTriggers(c.triggers, getClientData()))}</span>` : ""),
         (c) => (c.kind === "abilityLevel" ? '<span class="mwia-dim">level up</span>' : c.replaces ? esc(abilityName(c.replaces)) : "–"),
         "Ability"
     );
@@ -889,10 +900,15 @@ function renderUpgrades() {
         html += `<p class="mwia-dim">The game data has no level table, so levelling up abilities with extra books could not be evaluated.</p>`;
     }
     html += orderTable(result.orders || []);
-    html += upgradeTable("House", result.house || [], base, () => "House", (c) => `${esc(c.name)} <span class="mwia-dim">lvl ${c.fromLevel} → ${c.level}</span>`, () => "–", "Room");
-    html += levelTable(result.levels || [], base);
-    html += consumableTable("Drinks", result.drinks, base);
-    html += consumableTable("Food", result.food, base);
+    html += triggerTable(result.triggers || [], result);
+    if (all) {
+        html += upgradeTable("House", result.house || [], base, () => "House", (c) => `${esc(c.name)} <span class="mwia-dim">lvl ${c.fromLevel} → ${c.level}</span>`, () => "–", "Room");
+        html += levelTable(result.levels || [], base);
+        html += consumableTable("Drinks", result.drinks, base);
+        html += consumableTable("Food", result.food, base);
+    } else {
+        html += `<p class="mwia-dim">Only abilities and triggers were tested. <b>Analyze upgrades</b> also tests gear, house rooms, drinks and food.</p>`;
+    }
     if (result.food.some((c) => !c.safe && c.delta > 0) && result.gear.some((c) => c.extraFood && c.safe && c.delta > 0)) {
         html += `<p class="mwia-reco">Some food gives more XP but makes you die, because it replaces your only HP food. A bigger pouch gives an extra
           food slot so you can keep both – see the pouch row under Equipment.</p>`;
@@ -974,6 +990,32 @@ function orderTable(list) {
     return html + `</tbody></table>`;
 }
 
+const triggerTargetName = (c) => (c.target === "food" ? itemName(c.hrid) : abilityName(c.hrid));
+
+// Trigger changes, one row per ability or food: the best one tried for it.
+function triggerTable(list, result) {
+    const data = getClientData();
+    const shown = list.filter((c) => c.delta > 0).slice(0, 8);
+    let html = `<h3>Triggers</h3>`;
+    const waiting = Object.entries(result.telemetry?.abilities || {}).filter(([, s]) => s.waitingPerHour >= 0.1 * Math.max(1, s.castsPerHour) && s.waitingPerHour >= 3);
+    if (waiting.length) {
+        html += `<p class="mwia-dim">Waiting for mana (an auto attack instead, as its triggers held): ${waiting
+            .map(([hrid, s]) => `${esc(abilityName(hrid))} ${int(s.waitingPerHour)}×/h (cast ${int(s.castsPerHour)}×/h)`)
+            .join(", ")}.</p>`;
+    }
+    if (!list.length) return html + `<p class="mwia-dim">Nothing in the simulation pointed to a trigger worth changing.</p>`;
+    if (!shown.length) return html + `<p class="mwia-dim">Your triggers are the best of the ${(result.triggerVariants || list).length + 1} settings tried.</p>`;
+    html += `<table class="mwia-table mwia-wide"><thead><tr><th>For</th><th>Triggers</th><th>Now</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
+      <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th></tr></thead><tbody>`;
+    for (const c of shown) {
+        html += `<tr class="${c.significant ? "" : "mwia-faded"}"><td>${esc(triggerTargetName(c))}</td><td>${esc(describeTriggers(c.triggers, data))}</td>
+          <td class="mwia-dim">${esc(describeTriggers(c.was, data))}</td>
+          <td class="mwia-num">${signed(xpNum, c.xpDelta)}</td><td class="mwia-num">${signed(coins, perDay(c.profitDelta))}</td><td class="mwia-num">${pct(c.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c)}</td><td>${upgradeNotes(c, ui.upgradeResult.base)}</td></tr>`;
+    }
+    return html + `</tbody></table>`;
+}
+
 // What more levels in a combat skill would give, and how long they take at the XP you get there now.
 function levelTable(list, base) {
     if (!list.length) return "";
@@ -1036,7 +1078,9 @@ function renderGuide() {
     <h3>Abilities</h3>
     <p>Abilities add a lot of damage – for a mage most of it, since staves halve auto-attack damage. They cost mana, are learned by reading an
     ability book (bought on the market) and get stronger as they level up, which happens when you use them or read more copies of the same book.
-    Order matters: the topmost ability that can be cast goes first.</p>
+    Order matters: each turn the topmost ability whose triggers hold goes first – and if its mana isn't there yet, you auto-attack
+    instead of casting the next one. Abilities without a cooldown (Water Strike, Fireball, Entangle) are moved behind the others in battle.
+    A trigger like "own MP ≥ its cost" lets the next ability go while one waits for mana; Upgrades tries such changes (Triggers).</p>
     <h3>Food and drinks</h3>
     <p><b>Food</b> is eaten automatically according to its triggers (by default when you're missing enough HP/MP). HP food keeps you alive,
     MP food lets you keep casting abilities. <b>Drinks</b> (coffee) give a 5-minute buff, e.g. Magic or Ranged Coffee (+level)
@@ -1240,7 +1284,10 @@ function act(target) {
             runTask(doZones);
             break;
         case "upgrades":
-            runTask(doUpgrades);
+            runTask(() => doUpgrades("all"));
+            break;
+        case "upgrades-abilities":
+            runTask(() => doUpgrades("abilities"));
             break;
         case "refine":
             runTask(doRefine);

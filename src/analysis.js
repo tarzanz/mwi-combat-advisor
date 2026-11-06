@@ -6,6 +6,8 @@ import { COMBAT_SKILLS, GEAR_TYPES, battleAbilityOrder, cloneProfile, equip, mee
 import { experienceOf, levelsPerHour } from "./levels.js";
 import { resaleValue } from "./skilling-upgrades.js";
 import { MAX_TARGET } from "./enhancing.js";
+import { cacheResult, cachedResult, jobKey } from "./sim-cache.js";
+import { mergeTelemetry, triggerChanges } from "./triggers.js";
 
 // Many short runs (each with its own random seed) rather than a few long ones: the
 // same total time, but the spread between runs tells how sure a result is.
@@ -158,18 +160,33 @@ function enrich(result, tier, profile) {
 // Runs of different setups are compared as independent samples: the random streams
 // part ways within a few attacks, so pairing by seed would only share one run's luck
 // (say, a rare death in the base) with every suggestion.
+// An item may ask for the runs to be measured (telemetry: true – the measurements go to
+// item.telemetryOut, one per run) or for its runs to be kept and taken from the cache (cache: true).
 async function simulateRuns(pool, items, zone, hours, onProgress) {
     const data = getClientData();
     const jobs = [];
+    const slots = []; // per run: { key, cached } – cached runs need no job
     for (const item of items) {
         const player = toDTO(item.profile, data);
         for (const seed of item.seeds) {
-            jobs.push({ player, zoneHrid: zone.zoneHrid, tier: zone.tier, hours, seed: seedFor(seed), extraBuffs: item.profile.extraBuffs });
+            const job = { player, zoneHrid: zone.zoneHrid, tier: zone.tier, hours, seed: seedFor(seed), extraBuffs: item.profile.extraBuffs };
+            const key = item.cache ? jobKey(job, data) : null;
+            const cached = key && !item.telemetry ? cachedResult(key) : null;
+            slots.push({ key, cached, job: cached ? -1 : jobs.length });
+            if (!cached) jobs.push(item.telemetry ? { ...job, telemetry: true } : job);
         }
     }
     const results = await pool.runAll(jobs, onProgress);
     let next = 0;
-    return items.map((item) => item.seeds.map((seed) => ({ ...enrich(results[next++], zone.tier, item.profile), seed })));
+    return items.map((item) =>
+        item.seeds.map((seed) => {
+            const slot = slots[next++];
+            const { telemetry, ...result } = slot.cached || results[slot.job];
+            if (slot.key && !slot.cached) cacheResult(slot.key, result);
+            if (item.telemetry) (item.telemetryOut ||= []).push(telemetry);
+            return { ...enrich(result, zone.tier, item.profile), seed };
+        })
+    );
 }
 
 const summarize = (runs, tier, profile) => enrich(average(runs), tier, profile);
@@ -603,21 +620,54 @@ function bestPerItem(evaluated) {
     });
 }
 
+// Changes to the triggers of your abilities and food, from what the measured runs of the
+// setup showed (see triggers.js). only: the ability hrids to look at (all when left out).
+function triggerCandidates(profile, telemetry, only = null) {
+    const data = getClientData();
+    const slots = slotCounts(profile, data);
+    const changes = triggerChanges(profile, battleAbilityOrder(profile, data), telemetry, data, { food: profile.food.slice(0, slots.food), only });
+    return changes.map((change) => ({ change, profile: withTriggers(profile, change) }));
+}
+
+function withTriggers(profile, change) {
+    const variant = cloneProfile(profile);
+    const map = change.target === "ability" ? "abilityTriggers" : "consumableTriggers";
+    variant[map] = { ...(variant[map] || {}), [change.hrid]: change.triggers };
+    return variant;
+}
+
+const TUNED_ABILITIES = 3; // new abilities that get a round with their own triggers
+
+// settings.scope "abilities": only abilities, their levels, order and triggers (and food
+// triggers) – no gear, house rooms, skill levels, drinks or food to buy.
 export async function analyzeUpgrades(pool, profile, zone, settings, onProgress, onRefineProgress) {
     const budget = settings.budget;
+    const all = settings.scope !== "abilities";
+    const seeds = (n) => Array.from({ length: n }, (_, i) => i);
     const candidates = [
-        ...gearCandidates(profile, settings),
+        ...(all ? gearCandidates(profile, settings) : []),
         ...abilityCandidates(profile, budget),
         ...abilityOrderCandidates(profile),
-        ...houseCandidates(profile, budget),
-        ...skillLevelCandidates(profile),
-        ...consumableCandidates(profile, "drinks"),
-        ...consumableCandidates(profile, "food"),
-    ].map((c, id) => ({ ...c, id }));
-    const seeds = (n) => Array.from({ length: n }, (_, i) => i);
-    const items = [{ profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR) }, ...candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds) }))];
-    const runs = await simulateRuns(pool, items, zone, settings.hours, onProgress);
-    const simulated = [{ profile }, ...candidates].map((v, i) => ({ ...v, result: summarize(runs[i], zone.tier, v.profile), runs: runs[i] }));
+        ...(all ? houseCandidates(profile, budget) : []),
+        ...(all ? skillLevelCandidates(profile) : []),
+        ...(all ? consumableCandidates(profile, "drinks") : []),
+        ...(all ? consumableCandidates(profile, "food") : []),
+    ];
+    // The setup as it is, measured: what its triggers get wrong decides which trigger changes to try.
+    const baseItem = { profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR), telemetry: true };
+    const planned = baseItem.seeds.length + candidates.length * settings.seeds;
+    const [baseRuns] = await simulateRuns(pool, [baseItem], zone, settings.hours, (done) => onProgress?.(done, planned));
+    const telemetry = mergeTelemetry(baseItem.telemetryOut);
+    for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) {
+        candidates.push(triggerCandidate(change, variant));
+    }
+    candidates.forEach((c, id) => (c.id = id));
+    // New abilities are measured too, to give the most promising ones their own triggers.
+    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds), telemetry: c.kind === "ability", cache: c.kind === "trigger" }));
+    const done0 = baseItem.seeds.length;
+    const total = done0 + items.reduce((sum, item) => sum + item.seeds.length, 0);
+    const runs = await simulateRuns(pool, items, zone, settings.hours, (done) => onProgress?.(done0 + done, total));
+    const simulated = candidates.map((c, i) => ({ ...c, result: summarize(runs[i], zone.tier, c.profile), runs: runs[i], telemetry: items[i].telemetry ? mergeTelemetry(items[i].telemetryOut) : undefined }));
     const slots = slotCounts(profile, getClientData());
     const emptyAbilitySlots = [];
     for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
@@ -625,13 +675,17 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
         zone,
         hours: settings.hours,
         seedsPerRound: settings.seeds,
+        scope: all ? "all" : "abilities",
         emptyAbilitySlots,
         starter: settings.starter || null,
         baseProfile: profile,
-        base: simulated[0].result,
-        baseRuns: simulated[0].runs,
-        candidates: simulated.slice(1),
+        base: summarize(baseRuns, zone.tier, profile),
+        baseRuns,
+        telemetry: summaryOfTelemetry(telemetry),
+        candidates: simulated,
     };
+    await tuneNewAbilities(pool, raw, settings, onRefineProgress);
+    for (const c of raw.candidates) delete c.telemetry;
     // Two automatic rounds of extra runs for promising but uncertain suggestions.
     for (let round = 0; round < 2; round++) {
         if (!(await refineUncertain(pool, raw, settings, onRefineProgress))) break;
@@ -639,11 +693,60 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
     return raw;
 }
 
+function triggerCandidate(change, profile) {
+    return { kind: "trigger", slot: "trigger:" + change.hrid, hrid: change.hrid, target: change.target, triggers: change.triggers, was: change.was, rule: change.rule, why: change.why, cost: 0, owned: true, replaces: null, profile };
+}
+
+// What the measurements of your setup showed, small enough to keep with the analysis.
+function summaryOfTelemetry(t) {
+    const perHour = (n) => (t.hours ? n / t.hours : 0);
+    const abilities = {};
+    for (const [hrid, s] of Object.entries(t.abilities)) {
+        abilities[hrid] = { castsPerHour: perHour(s.casts), waitingPerHour: perHour(s.blocked), healed: s.heals ? s.healed / s.heals : null };
+    }
+    return { abilities, maxEnemies: t.maxEnemies, deathsFoodWaiting: perHour(t.deathsFoodWaiting) };
+}
+
+// The best few new abilities, tried again with triggers worked out from their own measured runs:
+// an ability that looks poor with the game's default triggers can be good with its own.
+async function tuneNewAbilities(pool, raw, settings, onProgress) {
+    const rated = rateUpgrades(raw, settings);
+    const top = rated.abilities.filter((c) => c.kind === "ability" && c.delta > 0).slice(0, TUNED_ABILITIES);
+    const tries = [];
+    for (const rated of top) {
+        const c = raw.candidates.find((x) => x.id === rated.id);
+        if (!c?.telemetry) continue;
+        for (const { change, profile } of triggerCandidates(c.profile, c.telemetry, [c.hrid])) {
+            const { result, runs, telemetry, id, ...rest } = c;
+            tries.push({ ...rest, profile, triggers: change.triggers, was: change.was, rule: change.rule });
+        }
+    }
+    if (!tries.length) return 0;
+    const seeds = Array.from({ length: raw.seedsPerRound }, (_, i) => i);
+    const runs = await simulateRuns(pool, tries.map((t) => ({ profile: t.profile, seeds, cache: true })), raw.zone, raw.hours, onProgress);
+    // The best of a few noisy variants looks better than it is: one only takes the plain
+    // ability's place when it beats it clearly, and then replaces it, so re-runs and the
+    // shopping list see one row for that ability.
+    const scores = (c) => c.runs.map((r) => score(r, rated.goal));
+    const mean = (list) => list.reduce((a, b) => a + b, 0) / list.length;
+    let id = Math.max(...raw.candidates.map((c) => c.id)) + 1;
+    for (const plain of top.map((r) => raw.candidates.find((x) => x.id === r.id))) {
+        const mine = tries.map((t, i) => ({ ...t, result: summarize(runs[i], raw.zone.tier, t.profile), runs: runs[i] })).filter((t) => t.hrid === plain.hrid && t.slot === plain.slot);
+        const better = mine
+            .filter((t) => mean(scores(t)) > mean(scores(plain)) && (confidenceGreater(scores(t), scores(plain)) ?? 0) >= TUNED_CONFIDENCE)
+            .sort((a, b) => mean(scores(b)) - mean(scores(a)))[0];
+        if (better) raw.candidates[raw.candidates.indexOf(plain)] = { ...better, id: id++ };
+    }
+    return tries.length;
+}
+
+const TUNED_CONFIDENCE = 0.8;
+
 // Suggestions worth more runs: they look like an improvement, but are not beyond doubt.
 export function uncertainCandidates(raw, settings) {
     const rated = rateUpgrades(raw, settings);
     const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
-    return [...rated.gear, ...rated.abilities, ...rated.house, ...rated.orders, ...rated.drinks, ...rated.food]
+    return [...rated.gear, ...rated.abilities, ...rated.house, ...rated.orders, ...rated.triggers, ...rated.drinks, ...rated.food]
         .filter((c) => c.delta > 0 && c.safe && c.confidence < REFINE_BELOW && c.runs.length < maxRuns)
         .sort((a, b) => b.delta - a.delta)
         .slice(0, MAX_REFINED);
@@ -651,11 +754,17 @@ export function uncertainCandidates(raw, settings) {
 
 // Gives uncertain suggestions another round of seeds. Returns how many were refined.
 export async function refineUncertain(pool, raw, settings, onProgress) {
-    const targets = uncertainCandidates(raw, settings).map((c) => raw.candidates.find((x) => x.id === c.id));
+    // A trigger change's promising variants get their runs together: otherwise, when the luckiest
+    // one falls back, the next would take its row on its first few runs.
+    const rated = rateUpgrades(raw, settings);
+    const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
+    const rows = uncertainCandidates(raw, settings);
+    const siblings = rated.triggerVariants.filter((v) => rows.some((r) => r.kind === "trigger" && r.hrid === v.hrid && r.id !== v.id) && v.delta > 0 && v.safe && v.confidence < REFINE_BELOW && v.runs.length < maxRuns);
+    const targets = [...rows, ...siblings].map((c) => raw.candidates.find((x) => x.id === c.id));
     if (!targets.length) return 0;
     const items = targets.map((c) => {
         const first = Math.max(...c.runs.map((r) => r.seed)) + 1;
-        return { profile: c.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
+        return { profile: c.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i), cache: c.kind === "trigger" || !!c.triggers };
     });
     const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
     targets.forEach((c, i) => {
@@ -713,6 +822,8 @@ export function rateUpgrades(raw, settings) {
         gear: best.filter((c) => c.kind === "gear").sort(byDelta),
         abilities: best.filter((c) => c.kind === "ability" || c.kind === "abilityLevel").sort(byDelta),
         orders: best.filter((c) => c.kind === "abilityOrder").sort(byDelta),
+        triggers: best.filter((c) => c.kind === "trigger").sort(byDelta),
+        triggerVariants: evaluated.filter((c) => c.kind === "trigger"),
         house: best.filter((c) => c.kind === "house").sort(byDelta),
         levels: best.filter((c) => c.kind === "skillLevel").sort((a, b) => a.hrid.localeCompare(b.hrid) || a.level - b.level),
         drinks: best.filter((c) => c.kind === "drinks").sort(byDelta),
@@ -850,7 +961,15 @@ export function buildPlan(analysis, budget, spending = "balanced") {
     if (food.value && !food.value.remove && picks.some((p) => p.extraFood && sameKind(p.extraFood, food.value.hrid, data))) food.value = null;
     // A better ability order is free: the surest clear gain, if any.
     const order = (analysis.orders || []).filter((c) => usable(c) && c.delta >= STOP_TOLERANCE).sort((a, b) => b.delta - a.delta)[0] || null;
-    return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max, order };
+    // Trigger changes are free too: the best one for each ability and food, unless the plan
+    // takes that ability or food out.
+    const gone = new Set([...picks.filter((p) => p.kind === "ability" && p.replaces).map((p) => p.replaces), ...[food.value, drink.value].filter((p) => p?.remove || p?.replaces).map((p) => p.replaces || p.hrid)]);
+    const triggers = [];
+    for (const c of analysis.triggers || []) {
+        if (!usable(c) || c.delta < STOP_TOLERANCE || gone.has(c.hrid) || triggers.some((t) => t.hrid === c.hrid)) continue;
+        triggers.push(c);
+    }
+    return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max, order, triggers };
 }
 
 // Puts the abilities named in order into that order, in the slots they hold now;
@@ -878,11 +997,16 @@ export function applyPlan(profile, plan) {
             if (pick.extraFood) putConsumable(result.food, "food" + pick.extraFoodSlot, pick.extraFood);
         } else if (pick.kind === "ability" || pick.kind === "abilityLevel") {
             result.abilities[Number(pick.slot.replace("ability", ""))] = { hrid: pick.hrid, level: pick.level };
+            if (pick.triggers) result.abilityTriggers = { ...(result.abilityTriggers || {}), [pick.hrid]: pick.triggers };
         } else if (pick.kind === "house") {
             result.houseRooms = { ...result.houseRooms, [pick.hrid]: pick.level };
         }
     }
     if (plan.order) reorderAbilities(result, plan.order.order);
+    for (const t of plan.triggers || []) {
+        const map = t.target === "ability" ? "abilityTriggers" : "consumableTriggers";
+        result[map] = { ...(result[map] || {}), [t.hrid]: t.triggers };
+    }
     for (const pick of [plan.drink, plan.food]) {
         if (pick) putConsumable(pick.kind === "food" ? result.food : result.drinks, pick.slot, pick.remove ? null : pick.hrid);
     }

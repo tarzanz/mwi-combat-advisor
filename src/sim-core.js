@@ -4,6 +4,7 @@
 import CombatSimulator from "../engine/combatSimulator";
 import Player from "../engine/player";
 import Zone from "../engine/zone";
+import { measured } from "./sim-telemetry.js";
 
 const ONE_HOUR = 3600e9;
 
@@ -36,7 +37,8 @@ export async function runSim(job) {
         player.extraBuffs = job.extraBuffs || [];
 
         const simulator = new CombatSimulator([player], zone, null, {});
-        const result = await simulator.simulate(job.hours * ONE_HOUR);
+        const simulate = () => simulator.simulate(job.hours * ONE_HOUR);
+        const [result, telemetry] = job.telemetry ? await measured(simulator, player, simulate) : [await simulate(), null];
         const hours = result.simulatedTime / ONE_HOUR;
 
         const kills = {};
@@ -57,6 +59,7 @@ export async function runSim(job) {
             dropRateMultiplier: result.dropRateMultiplier.player1 ?? 1,
             rareFindMultiplier: result.rareFindMultiplier.player1 ?? 1,
             combatDropQuantity: result.combatDropQuantity.player1 ?? 0,
+            ...(telemetry ? { telemetry: { ...telemetry, hours } } : {}),
         };
     } finally {
         Math.random = nativeRandom;

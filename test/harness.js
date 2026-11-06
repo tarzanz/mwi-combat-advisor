@@ -9,6 +9,7 @@ import { fractionalLevel, levelsPerDay, nextPouchGoal } from "../src/levels.js";
 import { levelProgress, marketPricer, skillingCharacter } from "../src/skilling.js";
 import { selfEnhanceCosts } from "../src/enhancing.js";
 import { applyPlan } from "../src/analysis.js";
+import { describeTriggers } from "../src/triggers.js";
 import { marketEntry } from "../src/game-data.js";
 import { styleOfItem, weaponStyle } from "../src/profile.js";
 import { studentTCdf, confidenceAboveZero, confidenceGreater } from "../src/stats.js";
@@ -154,6 +155,43 @@ check("plan does not make things worse", score(verified.planned) >= score(verifi
     check("ability order: an ability the plan swaps in keeps its slot", swapped.abilities[3].hrid === "/abilities/entangle" && swapped.abilities[1].hrid === "/abilities/ice_spear" && swapped.abilities[2].hrid === "/abilities/water_strike");
     const plan4 = buildPlan(rated4, quick.budget);
     check("ability order: a recommended order is significant and safe", !plan4.order || (plan4.order.significant && plan4.order.safe && plan4.order.delta > 0), plan4.order ? plan4.order.order.join(">") : "keep the order");
+}
+
+// Triggers: changes worked out from the measured runs of the setup, simulated like any suggestion,
+// free on the plan, applied to the profile; the same variants again come from the cache.
+{
+    const pt = structuredClone(profile);
+    for (const skill of Object.keys(pt.levels)) pt.levels[skill] = 60;
+pt.levels.intelligence = 90;
+    pt.abilities = [null, { hrid: "/abilities/flame_blast", level: 10 }, { hrid: "/abilities/ice_spear", level: 10 }, { hrid: "/abilities/heal", level: 10 }, { hrid: "/abilities/fireball", level: 10 }];
+    pt.abilityTriggers = {};
+    const zoneT = { zoneHrid: "/actions/combat/swamp_planet", tier: 0 };
+    const quick = { ...settings, hours: 1, seeds: 2, scope: "abilities" };
+    let jobs = 0;
+    const counting = { runAll: (list, onProgress) => { jobs += list.length; return pool.runAll(list, onProgress); } };
+    let t0 = performance.now();
+    const rawT = await analyzeRaw(counting, pt, zoneT, quick);
+    log(`triggers: ${jobs} sims in ${(performance.now() - t0).toFixed(0)} ms`);
+    const ratedT = rateUpgrades(rawT, quick);
+    const tried = rawT.candidates.filter((c) => c.kind === "trigger");
+    check("triggers: changes are tried, from the measured runs", tried.length > 0, tried.map((c) => `${c.hrid.split("/").pop()} ${c.rule}: ${describeTriggers(c.triggers, data)}`).join(" | "));
+    check("triggers: whole numbers only", tried.every((c) => c.triggers.every((t) => Number.isInteger(t.value))));
+    check("triggers: Heal's scratch trigger is questioned", tried.some((c) => c.hrid === "/abilities/heal" && c.rule === "heal"));
+    check("triggers: abilities only – no gear, house, levels or consumables", rawT.candidates.every((c) => ["ability", "abilityLevel", "abilityOrder", "trigger"].includes(c.kind)), [...new Set(rawT.candidates.map((c) => c.kind))].join());
+    check("triggers: one row per ability or food", new Set(ratedT.triggers.map((c) => c.hrid)).size === ratedT.triggers.length);
+    log("   " + ratedT.triggers.map((c) => `${c.hrid.split("/").pop()} → ${describeTriggers(c.triggers, data)} ${(c.deltaPct * 100).toFixed(1)}% sure ${Math.round(c.confidence * 100)}%`).join("\n   "));
+    const planT = buildPlan(ratedT, quick.budget);
+    check("triggers: the plan's trigger changes are significant, safe and one per ability", planT.triggers.every((c) => c.significant && c.safe && c.delta > 0) && new Set(planT.triggers.map((c) => c.hrid)).size === planT.triggers.length, planT.triggers.map((c) => c.hrid.split("/").pop()).join());
+    const change = tried[0];
+    const appliedT = applyPlan(pt, { picks: [], triggers: [change] });
+    const dtoT = toDTO(appliedT, data);
+    const where = change.target === "ability" ? dtoT.abilities.find((a) => a?.hrid === change.hrid) : dtoT.food.find((f) => f?.hrid === change.hrid);
+    check("triggers: applied to the profile and the simulation", JSON.stringify(where.triggers) === JSON.stringify(change.triggers));
+    const first = jobs;
+    jobs = 0;
+    await analyzeRaw(counting, pt, zoneT, quick);
+    const triggerJobs = tried.length * quick.seeds;
+    check("triggers: the same variants again come from the cache", jobs > 0 && jobs <= first - triggerJobs, `${first} sims the first time, ${jobs} the second (${triggerJobs} for trigger changes)`);
 }
 
 // Same simulations, gold focus: no re-simulation, and running costs now count against a drink.
