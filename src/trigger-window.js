@@ -45,7 +45,7 @@ export function watchTriggerClicks() {
 }
 
 function triggerWindow() {
-    const title = [...document.querySelectorAll("body *")].find((el) => el.children.length === 0 && clean(el.textContent) === "Combat Triggers" && visible(el));
+    const title = [...document.querySelectorAll("body *")].find((el) => !el.closest('[class*="mwia"]') && ownText(el) === "Combat Triggers" && visible(el));
     if (!title) return { title: null, box: null };
     let box = title.parentElement;
     while (box && box !== document.body && ![...box.querySelectorAll("button")].some((b) => clean(b.textContent) === "Save")) box = box.parentElement;
@@ -87,33 +87,59 @@ const holdsTriggers = (v) => Array.isArray(v) && v.length > 0 && v.every(isTrigg
 const typeName = (f) => attempt(() => (typeof f.type === "string" ? f.type : f.type?.displayName || f.type?.name || "?"), "?");
 const valueText = (v) => (holdsTriggers(v) ? JSON.stringify(v.map((t) => [t.dependencyHrid, t.conditionHrid, t.comparatorHrid, t.value].map((x) => String(x).split("/").pop()))) : Array.isArray(v) ? `[${v.length}]` : typeof v === "object" && v ? `{${Object.keys(v).slice(0, 8).join(",")}}` : typeof v === "function" ? "fn" : short(String(v), 40));
 
-// The React components whose state or props hold a list of trigger conditions.
+const isClass = (f) => !!(f.stateNode && typeof f.stateNode === "object" && !(f.stateNode instanceof Element) && f.stateNode.setState);
+function hookValues(f) {
+    const out = [];
+    for (let h = f.memoizedState, i = 0; h && typeof h === "object" && "next" in h && i < 30; h = h.next, i++) out.push(attempt(() => h.memoizedState));
+    return out;
+}
+const propsText = (props) => Object.entries(props || {}).filter(([k]) => k !== "children").map(([k, v]) => `${k}=${valueText(v)}`).join("; ");
+
+// The game's slot components that hold conditions in their props: one line each.
 function triggerComponents() {
     const found = [];
     walkFibers((f) => {
-        if (found.length >= 4) return true;
-        const state = attempt(() => f.stateNode?.state);
+        if (found.length >= 16) return true;
         const props = f.memoizedProps;
-        const hooks = [];
-        for (let h = f.memoizedState, i = 0; h && typeof h === "object" && i < 30; h = h.next, i++) hooks.push(attempt(() => h.memoizedState));
-        const inState = state && typeof state === "object" && Object.values(state).some(holdsTriggers);
-        const inHooks = !state && hooks.some(holdsTriggers);
-        const inProps = props && typeof props === "object" && Object.values(props).some(holdsTriggers);
-        if (!inState && !inHooks && !inProps) return false;
-        const lines = [`component ${typeName(f)} (${f.stateNode && typeof f.stateNode === "object" && !(f.stateNode instanceof Element) ? "class" : "function"}) – conditions in ${[inState && "state", inHooks && "hooks", inProps && "props"].filter(Boolean).join("+")}`];
-        if (state) lines.push(`  state: ${Object.entries(state).map(([k, v]) => `${k}=${valueText(v)}`).join("; ")}`);
-        if (inHooks) lines.push(`  hooks: ${hooks.map(valueText).join("; ")}`);
-        if (props) lines.push(`  props: ${Object.entries(props).filter(([k]) => k !== "children").map(([k, v]) => `${k}=${valueText(v)}`).join("; ")}`);
-        if (f.stateNode && typeof f.stateNode === "object" && !(f.stateNode instanceof Element)) lines.push(`  methods: ${componentMethods(f.stateNode).slice(0, 40).join(", ")}`);
-        const parents = [];
-        for (let p = f.return; p && parents.length < 4; p = p.return) if (typeof p.type !== "string") parents.push(typeName(p));
-        lines.push(`  inside: ${parents.join(" < ")}`);
-        found.push(lines.join("\n"));
+        if (typeof f.type === "string" || !props || typeof props !== "object" || !Object.values(props).some(holdsTriggers)) return false;
+        const fns = Object.entries(props).filter(([, v]) => typeof v === "function").map(([k]) => k);
+        const what = props.abilityHrid || props.itemHrid || Object.entries(props).find(([k, v]) => /hrid/i.test(k) && typeof v === "string")?.[1] || "?";
+        const triggers = Object.values(props).find(holdsTriggers);
+        found.push(`slot ${typeName(f)}: ${String(what).split("/").pop()} ${Object.entries(props).filter(([k, v]) => /slot|type/i.test(k) && typeof v !== "function" && typeof v !== "object").map(([k, v]) => `${k}=${String(v).split("/").pop()}`).join(" ")} ${valueText(triggers)} fns: ${fns.join(",")}`);
         return false;
     });
     return found;
 }
 
+// The open window's own React components: from its element up, what each holds –
+// where its copy of the conditions lives, and what the dropdowns and the value field call.
+function windowFibers(box) {
+    const lines = [];
+    const host = walkFibers((f) => f.stateNode === box).fiber;
+    if (!host) return ["window fiber: not found from the React root"];
+    let n = 0;
+    for (let f = host.return; f && n < 14; f = f.return) {
+        if (typeof f.type === "string") continue;
+        n++;
+        const hooks = hookValues(f);
+        lines.push(`up ${n}: ${typeName(f)}${isClass(f) ? " (class)" : ""}`);
+        const props = propsText(f.memoizedProps);
+        if (props) lines.push(`  props: ${short(props, 400)}`);
+        if (isClass(f)) {
+            lines.push(`  state: ${short(Object.entries(f.stateNode.state || {}).map(([k, v]) => `${k}=${valueText(v)}`).join("; "), 400)}`);
+            lines.push(`  methods: ${componentMethods(f.stateNode).slice(0, 30).join(", ")}`);
+        } else if (hooks.length) {
+            lines.push(`  hooks: ${short(hooks.map((v, i) => `${i}:${valueText(v)}`).join("; "), 400)}`);
+        }
+        if (Object.values(f.memoizedProps || {}).some(holdsTriggers) && n > 2) break;
+    }
+    // What the window's form elements are wired to.
+    for (const el of [box.querySelector("select"), box.querySelector("input"), box.querySelector('[role="button"],[aria-haspopup]')].filter(Boolean)) {
+        const fiber = walkFibers((f) => f.stateNode === el).fiber;
+        lines.push(`${describe(el)} props: ${fiber ? Object.keys(fiber.memoizedProps || {}).join(",") : "fiber not found"}`);
+    }
+    return lines;
+}
 // The loadout's Abilities and Consumables rows: their slots, icons and gear buttons.
 function loadoutRows(lines) {
     for (const label of ["Abilities", "Consumables"]) {
@@ -139,9 +165,44 @@ export function triggerWindowReport() {
         for (let node = title; node && node !== document.body && chain.length < 8; node = node.parentElement) chain.push(describe(node));
         lines.push(`trigger window: ${chain.join(" < ")}`);
         outline(box, 12, lines);
+        lines.push(...windowFibers(box));
     }
     lines.push(...triggerComponents());
     if (lines.length < MAX_LINES) loadoutRows(lines);
     lines.push(`last clicks: ${clicks.join(" || ") || "none"}`);
     return lines.join("\n");
+}
+
+// A small bar inside the game's Combat Triggers window (a tap there doesn't close it,
+// as one on the 🧭 panel does): reads the window and copies the report.
+// onReport(text, copied) also hands it to the panel, to copy from there.
+export function startTriggerWindow(onReport) {
+    let timer = null;
+    const scan = () => {
+        timer = null;
+        const { box } = triggerWindow();
+        if (!box || box.querySelector(".mwia-trig-bar")) return;
+        const bar = document.createElement("div");
+        bar.className = "mwia-trig-bar";
+        bar.innerHTML = `<button type="button" class="mwia-trig-read">🧭 📋 Read for MWI Advisor</button> <span class="mwia-trig-status"></span>`;
+        bar.querySelector("button").addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const report = triggerWindowReport();
+            let copied = false;
+            try {
+                await navigator.clipboard.writeText(report);
+                copied = true;
+            } catch {
+                // the panel keeps it to copy from
+            }
+            bar.querySelector(".mwia-trig-status").textContent = copied ? "Copied – paste it in the chat." : "Not copied – open 🧭 Upgrades and tap 📋 Copy.";
+            onReport?.(report, copied);
+        });
+        box.prepend(bar);
+    };
+    new MutationObserver((records) => {
+        if (timer || records.every((r) => r.target.closest?.(".mwia-trig-bar"))) return;
+        timer = setTimeout(scan, 200);
+    }).observe(document.body, { childList: true, subtree: true });
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.58.1
+// @version      0.58.2
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -4963,7 +4963,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.58.1" : "dev";
+  var VERSION = true ? "0.58.2" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -6386,6 +6386,8 @@ i.mwia-history-bid { background: #7ee2b0; }
 [data-mwia-tea="right"] { outline: 3px solid #3ddc84 !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-right 1.2s ease-in-out infinite; }
 @keyframes mwia-tea-wrong { 0%, 100% { box-shadow: 0 0 4px 1px rgba(255, 77, 77, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(255, 77, 77, 0.95); } }
 @keyframes mwia-tea-right { 0%, 100% { box-shadow: 0 0 4px 1px rgba(61, 220, 132, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(61, 220, 132, 0.95); } }
+.mwia-trig-bar { margin: 0 0 6px; padding: 4px 6px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; }
+.mwia-trig-bar button { padding: 3px 8px; border: 0; border-radius: 4px; background: #4f5bd5; color: #fff; font: 600 12px/1.4 sans-serif; cursor: pointer; }
 .mwia-tea-note { margin: 6px 4px 2px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
@@ -8502,7 +8504,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     );
   }
   function triggerWindow() {
-    const title = [...document.querySelectorAll("body *")].find((el) => el.children.length === 0 && clean2(el.textContent) === "Combat Triggers" && visible(el));
+    const title = [...document.querySelectorAll("body *")].find((el) => !el.closest('[class*="mwia"]') && ownText2(el) === "Combat Triggers" && visible(el));
     if (!title) return { title: null, box: null };
     let box = title.parentElement;
     while (box && box !== document.body && ![...box.querySelectorAll("button")].some((b) => clean2(b.textContent) === "Save")) box = box.parentElement;
@@ -8538,30 +8540,52 @@ i.mwia-history-bid { background: #7ee2b0; }
   var holdsTriggers = (v) => Array.isArray(v) && v.length > 0 && v.every(isTrigger);
   var typeName = (f) => attempt2(() => typeof f.type === "string" ? f.type : f.type?.displayName || f.type?.name || "?", "?");
   var valueText = (v) => holdsTriggers(v) ? JSON.stringify(v.map((t4) => [t4.dependencyHrid, t4.conditionHrid, t4.comparatorHrid, t4.value].map((x) => String(x).split("/").pop()))) : Array.isArray(v) ? `[${v.length}]` : typeof v === "object" && v ? `{${Object.keys(v).slice(0, 8).join(",")}}` : typeof v === "function" ? "fn" : short(String(v), 40);
+  var isClass = (f) => !!(f.stateNode && typeof f.stateNode === "object" && !(f.stateNode instanceof Element) && f.stateNode.setState);
+  function hookValues(f) {
+    const out = [];
+    for (let h2 = f.memoizedState, i = 0; h2 && typeof h2 === "object" && "next" in h2 && i < 30; h2 = h2.next, i++) out.push(attempt2(() => h2.memoizedState));
+    return out;
+  }
+  var propsText = (props) => Object.entries(props || {}).filter(([k]) => k !== "children").map(([k, v]) => `${k}=${valueText(v)}`).join("; ");
   function triggerComponents() {
     const found = [];
     walkFibers((f) => {
-      if (found.length >= 4) return true;
-      const state2 = attempt2(() => f.stateNode?.state);
+      if (found.length >= 16) return true;
       const props = f.memoizedProps;
-      const hooks = [];
-      for (let h2 = f.memoizedState, i = 0; h2 && typeof h2 === "object" && i < 30; h2 = h2.next, i++) hooks.push(attempt2(() => h2.memoizedState));
-      const inState = state2 && typeof state2 === "object" && Object.values(state2).some(holdsTriggers);
-      const inHooks = !state2 && hooks.some(holdsTriggers);
-      const inProps = props && typeof props === "object" && Object.values(props).some(holdsTriggers);
-      if (!inState && !inHooks && !inProps) return false;
-      const lines = [`component ${typeName(f)} (${f.stateNode && typeof f.stateNode === "object" && !(f.stateNode instanceof Element) ? "class" : "function"}) \u2013 conditions in ${[inState && "state", inHooks && "hooks", inProps && "props"].filter(Boolean).join("+")}`];
-      if (state2) lines.push(`  state: ${Object.entries(state2).map(([k, v]) => `${k}=${valueText(v)}`).join("; ")}`);
-      if (inHooks) lines.push(`  hooks: ${hooks.map(valueText).join("; ")}`);
-      if (props) lines.push(`  props: ${Object.entries(props).filter(([k]) => k !== "children").map(([k, v]) => `${k}=${valueText(v)}`).join("; ")}`);
-      if (f.stateNode && typeof f.stateNode === "object" && !(f.stateNode instanceof Element)) lines.push(`  methods: ${componentMethods(f.stateNode).slice(0, 40).join(", ")}`);
-      const parents = [];
-      for (let p2 = f.return; p2 && parents.length < 4; p2 = p2.return) if (typeof p2.type !== "string") parents.push(typeName(p2));
-      lines.push(`  inside: ${parents.join(" < ")}`);
-      found.push(lines.join("\n"));
+      if (typeof f.type === "string" || !props || typeof props !== "object" || !Object.values(props).some(holdsTriggers)) return false;
+      const fns = Object.entries(props).filter(([, v]) => typeof v === "function").map(([k]) => k);
+      const what = props.abilityHrid || props.itemHrid || Object.entries(props).find(([k, v]) => /hrid/i.test(k) && typeof v === "string")?.[1] || "?";
+      const triggers = Object.values(props).find(holdsTriggers);
+      found.push(`slot ${typeName(f)}: ${String(what).split("/").pop()} ${Object.entries(props).filter(([k, v]) => /slot|type/i.test(k) && typeof v !== "function" && typeof v !== "object").map(([k, v]) => `${k}=${String(v).split("/").pop()}`).join(" ")} ${valueText(triggers)} fns: ${fns.join(",")}`);
       return false;
     });
     return found;
+  }
+  function windowFibers(box) {
+    const lines = [];
+    const host = walkFibers((f) => f.stateNode === box).fiber;
+    if (!host) return ["window fiber: not found from the React root"];
+    let n3 = 0;
+    for (let f = host.return; f && n3 < 14; f = f.return) {
+      if (typeof f.type === "string") continue;
+      n3++;
+      const hooks = hookValues(f);
+      lines.push(`up ${n3}: ${typeName(f)}${isClass(f) ? " (class)" : ""}`);
+      const props = propsText(f.memoizedProps);
+      if (props) lines.push(`  props: ${short(props, 400)}`);
+      if (isClass(f)) {
+        lines.push(`  state: ${short(Object.entries(f.stateNode.state || {}).map(([k, v]) => `${k}=${valueText(v)}`).join("; "), 400)}`);
+        lines.push(`  methods: ${componentMethods(f.stateNode).slice(0, 30).join(", ")}`);
+      } else if (hooks.length) {
+        lines.push(`  hooks: ${short(hooks.map((v, i) => `${i}:${valueText(v)}`).join("; "), 400)}`);
+      }
+      if (Object.values(f.memoizedProps || {}).some(holdsTriggers) && n3 > 2) break;
+    }
+    for (const el of [box.querySelector("select"), box.querySelector("input"), box.querySelector('[role="button"],[aria-haspopup]')].filter(Boolean)) {
+      const fiber = walkFibers((f) => f.stateNode === el).fiber;
+      lines.push(`${describe(el)} props: ${fiber ? Object.keys(fiber.memoizedProps || {}).join(",") : "fiber not found"}`);
+    }
+    return lines;
   }
   function loadoutRows(lines) {
     for (const label3 of ["Abilities", "Consumables"]) {
@@ -8585,11 +8609,41 @@ i.mwia-history-bid { background: #7ee2b0; }
       for (let node = title; node && node !== document.body && chain.length < 8; node = node.parentElement) chain.push(describe(node));
       lines.push(`trigger window: ${chain.join(" < ")}`);
       outline(box, 12, lines);
+      lines.push(...windowFibers(box));
     }
     lines.push(...triggerComponents());
     if (lines.length < MAX_LINES) loadoutRows(lines);
     lines.push(`last clicks: ${clicks.join(" || ") || "none"}`);
     return lines.join("\n");
+  }
+  function startTriggerWindow(onReport) {
+    let timer = null;
+    const scan7 = () => {
+      timer = null;
+      const { box } = triggerWindow();
+      if (!box || box.querySelector(".mwia-trig-bar")) return;
+      const bar = document.createElement("div");
+      bar.className = "mwia-trig-bar";
+      bar.innerHTML = `<button type="button" class="mwia-trig-read">\u{1F9ED} \u{1F4CB} Read for MWI Advisor</button> <span class="mwia-trig-status"></span>`;
+      bar.querySelector("button").addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const report = triggerWindowReport();
+        let copied = false;
+        try {
+          await navigator.clipboard.writeText(report);
+          copied = true;
+        } catch {
+        }
+        bar.querySelector(".mwia-trig-status").textContent = copied ? "Copied \u2013 paste it in the chat." : "Not copied \u2013 open \u{1F9ED} Upgrades and tap \u{1F4CB} Copy.";
+        onReport?.(report, copied);
+      });
+      box.prepend(bar);
+    };
+    new MutationObserver((records) => {
+      if (timer || records.every((r) => r.target.closest?.(".mwia-trig-bar"))) return;
+      timer = setTimeout(scan7, 200);
+    }).observe(document.body, { childList: true, subtree: true });
   }
 
   // src/listing-price.js
@@ -10009,7 +10063,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.58.1" : "dev";
+  var VERSION3 = true ? "0.58.2" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -10253,6 +10307,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     watchTriggerClicks();
+    startTriggerWindow((diag, copied) => {
+      ui.tab = "upgrades";
+      ui.notice = { level: "info", text: `The game's trigger window, read (nothing changed)${copied ? " and copied" : ""}. Paste it into the chat.`, diag };
+      render2();
+    });
     ui.root = root;
     root.addEventListener("click", onClick6);
     root.addEventListener("change", onChange);

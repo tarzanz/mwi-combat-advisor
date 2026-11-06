@@ -75,9 +75,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   - **Abilities & triggers only** – the button beside *Analyze upgrades* tests only new abilities, ability levels,
     their order and the triggers of your abilities and food: no gear, house rooms, drinks or food to buy, so it is
     much quicker.
-  - **📋 Read the game's trigger window** – with a loadout's ⚙ (Combat Triggers) open in the game, reads how that
-    window is built – its elements, the game component that holds the conditions and the loadout's slots – as text to
-    copy into a chat. It changes nothing; it is the groundwork for filling the window in.
+  - **📋 Read the game's trigger window** – a loadout's ⚙ (Combat Triggers) window in the game gets a small bar
+    *🧭 📋 Read for MWI Advisor* (a tap on the 🧭 panel would close the game's window): it reads how the window is
+    built – its elements, the game components above it and what they hold, the loadout's slots – copies it and shows it
+    under Upgrades, to paste into a chat. It changes nothing; it is the groundwork for filling the window in. The same
+    link under Upgrades reads the page without the window.
   - **More levels (not for sale)** – +1 and +5 levels in each combat skill your style uses (never the other two
     styles' own skill), with how long they take at the XP an hour that skill gets in the zone now: to weigh a
     purchase against simply levelling. They never go on the shopping list.

@@ -282,7 +282,12 @@ try {
           <button>+ Condition</button><button>Reset Default</button><button>Save</button>`;
         document.body.appendChild(box);
     });
-    await page.click('[data-action="trigger-window"]');
+    // A bar in the window itself reads it (a tap on the 🧭 panel would close the game's window).
+    await page.waitForSelector(".Modal_modal__x .mwia-trig-bar button", { timeout: 3000 });
+    await page.click(".Modal_modal__x .mwia-trig-bar button");
+    await page.waitForFunction(() => /trigger window: div/.test(document.querySelector(".mwia-notice")?.textContent || ""), { timeout: 5000 });
+    const barStatus = await page.$eval(".mwia-trig-status", (n) => n.textContent);
+    check("trigger window: a bar inside it reads it and says where the text is", /Copied|Not copied/.test(barStatus), barStatus);
     const report = await page.$eval(".mwia-notice", (n) => n.textContent);
     check("trigger window: its dropdowns, value and buttons are read", /trigger window: div\.CombatTriggersSetting_title/.test(report) && /options: \/combat_trigger_dependencies\/all_enemies=Enemies' Total/.test(report) && /input \(type=number value=3/.test(report) && /"Save"/.test(report), report.slice(0, 400));
     await page.evaluate(() => document.querySelector(".Modal_modal__x").remove());

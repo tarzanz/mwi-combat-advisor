@@ -54,7 +54,7 @@ import { findActionPanel, inventoryItemHash, navDiagnostics, openAction, openAlc
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 import { startTrain } from "./train-ui.js";
 import { describeTriggers } from "./triggers.js";
-import { triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
+import { startTriggerWindow, triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 
 const SETTINGS_KEY = "mwia-settings";
@@ -1468,6 +1468,11 @@ export function mountUI(win, workerSource) {
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     watchTriggerClicks();
+    startTriggerWindow((diag, copied) => {
+        ui.tab = "upgrades"; // the notice shows there, and stays until another tab is opened
+        ui.notice = { level: "info", text: `The game's trigger window, read (nothing changed)${copied ? " and copied" : ""}. Paste it into the chat.`, diag };
+        render();
+    });
     ui.root = root;
 
     root.addEventListener("click", onClick);
