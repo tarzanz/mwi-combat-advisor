@@ -54,6 +54,7 @@ import { findActionPanel, inventoryItemHash, navDiagnostics, openAction, openAlc
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 import { startTrain } from "./train-ui.js";
 import { describeTriggers } from "./triggers.js";
+import { triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 
 const SETTINGS_KEY = "mwia-settings";
@@ -788,7 +789,8 @@ function renderUpgrades() {
       and measures how much it improves your focus – XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
       ${settingsHtml(["focus", "levels", "gear", "style", "zone", "budget", "spending", "risk", "accuracy"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>
-      <button class="mwia-btn" data-action="upgrades-abilities" ${ui.busy ? "disabled" : ""} title="Only abilities, their levels and order, and the triggers of your abilities and food – much quicker">Abilities &amp; triggers only</button>`;
+      <button class="mwia-btn" data-action="upgrades-abilities" ${ui.busy ? "disabled" : ""} title="Only abilities, their levels and order, and the triggers of your abilities and food – much quicker">Abilities &amp; triggers only</button>
+      <button class="mwia-link" data-action="trigger-window" title="Open a loadout's ⚙ under an ability in the game first. Reads how the game's Combat Triggers window is built – changes nothing – for filling it in later.">📋 Read the game's trigger window</button>`;
     const result = ui.upgradeResult;
     if (!result) return html;
     const base = result.base;
@@ -1289,6 +1291,17 @@ function act(target) {
         case "upgrades-abilities":
             runTask(() => doUpgrades("abilities"));
             break;
+        case "trigger-window": {
+            const diag = triggerWindowReport();
+            const open = !diag.includes("trigger window: not open");
+            ui.notice = {
+                level: open ? "info" : "warn",
+                text: open ? "The game's trigger window, read (nothing changed). Copy it and paste it into the chat." : "No Combat Triggers window is open. In the game: Loadouts → your combat loadout → ⚙ under an ability, then tap this again.",
+                diag,
+            };
+            render();
+            break;
+        }
         case "refine":
             runTask(doRefine);
             break;
@@ -1454,6 +1467,7 @@ export function mountUI(win, workerSource) {
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
+    watchTriggerClicks();
     ui.root = root;
 
     root.addEventListener("click", onClick);

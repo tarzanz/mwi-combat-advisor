@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.58.0
+// @version      0.58.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1657,12 +1657,12 @@
     const held = stock.inventory + stock.listed;
     const units = unitsToMake(planned * entry.mainCount, salesDay(product), held);
     let count2 = Math.max(0, Math.ceil(units / entry.mainCount - 1e-9));
-    let short = units < planned * entry.mainCount ? units < plannedUnits ? "held" : "sales" : null;
+    let short2 = units < planned * entry.mainCount ? units < plannedUnits ? "held" : "sales" : null;
     const swing = swingShare(price);
     if (swing && swing.share < 1) {
       const before = count2;
       count2 = Math.ceil(count2 * swing.share);
-      if (count2 < before) short = "swing";
+      if (count2 < before) short2 = "swing";
     }
     const haveOf = (input) => have4(input.itemHrid, input.enhancementLevel || 0);
     const toBuy2 = (input, n3) => input.itemHrid === COIN3 ? input.count * n3 : Math.max(0, input.count * n3 - haveOf(input));
@@ -1673,7 +1673,7 @@
       const most = Math.floor(haveOf(input) / input.count + 1e-9);
       if (most < count2) {
         count2 = most;
-        short = "owned";
+        short2 = "owned";
       }
     }
     const bought = entry.inputs.filter((input) => input.itemHrid !== COIN3 && input.forSale !== false && input.count > 0 && input.price > 0 && toBuy2(input, count2) > 0);
@@ -1709,7 +1709,7 @@
       if (most < count2) {
         count2 = most;
         limitedByListing = input.itemHrid;
-        short = "onelisted";
+        short2 = "onelisted";
       }
     }
     const booked = new Map(inputs.filter((i) => i.asks).map((i) => [i.itemHrid, i.asks]));
@@ -1732,7 +1732,7 @@
       if (input.maxCount < count2) {
         count2 = input.maxCount;
         limitedByBook = input.itemHrid;
-        short = "book";
+        short2 = "book";
       }
     }
     let rating = product;
@@ -1756,7 +1756,7 @@
       }
       count2 = low;
       limitedByCoins = true;
-      short = "coins";
+      short2 = "coins";
     }
     const jobHours = count2 / entry.actionsPerHour;
     const aboveAsk = spend(count2) - entry.inputs.reduce((sum, input) => sum + (input.forSale === false ? 0 : toBuy2(input, count2) * (input.price || 0)), 0);
@@ -1783,7 +1783,7 @@
       heldOff: Math.max(0, plannedUnits - units),
       plannedHours: hours,
       plannedUnits,
-      short,
+      short: short2,
       cappedBySales: plannedUnits < planned * entry.mainCount,
       liquidity: rating,
       productLiquidity: product,
@@ -4963,7 +4963,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.58.0" : "dev";
+  var VERSION = true ? "0.58.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5218,7 +5218,7 @@
       if (kinds.includes("damage:allEnemies") && telemetry.maxEnemies >= 2) {
         const now = valueOf(was, ENEMIES, C("number_of_active_units"), GTE) ?? 1;
         const castsBelow = (k) => Object.entries(s2.enemiesAtCast).reduce((sum, [n3, count2]) => sum + (Number(n3) < k ? count2 : 0), 0);
-        for (let k = 1; k <= Math.min(3, telemetry.maxEnemies); k++) {
+        for (let k = 1; k <= telemetry.maxEnemies; k++) {
           if (k === now) continue;
           if (k > now && castsBelow(k) < SHARE * Math.max(1, s2.casts)) continue;
           add("ability", hrid, was, setCondition(was, ENEMIES, C("number_of_active_units"), GTE, k), "aoe", { from: now, to: k });
@@ -5246,15 +5246,15 @@
       const used = telemetry.consumables[hrid]?.uses || 0;
       if (!detail || !used) continue;
       const was = consumableTriggers(profile, hrid, data);
-      for (const [condition, restore2, short] of [
+      for (const [condition, restore2, short2] of [
         [C("missing_hp"), detail.hitpointRestore, telemetry.deaths > 0],
         [C("missing_mp"), detail.manapointRestore, blockedTotal >= SHARE * Math.max(1, castsTotal)]
       ]) {
         if (!(restore2 > 0)) continue;
         const now = valueOf(was, SELF, condition, GTE);
         if (now === null) continue;
-        const value = short ? whole(now / 2) : whole(now * 1.5);
-        if (value !== now) add("food", hrid, was, setCondition(was, SELF, condition, GTE, value), "food", { earlier: short, deaths: telemetry.deaths, blocked: blockedTotal });
+        const value = short2 ? whole(now / 2) : whole(now * 1.5);
+        if (value !== now) add("food", hrid, was, setCondition(was, SELF, condition, GTE, value), "food", { earlier: short2, deaths: telemetry.deaths, blocked: blockedTotal });
       }
     }
     return out;
@@ -8467,6 +8467,131 @@ i.mwia-history-bid { background: #7ee2b0; }
     scheduleScan7();
   }
 
+  // src/trigger-window.js
+  var MAX_LINES = 160;
+  var clicks = [];
+  var attempt2 = (read, fallback = null) => {
+    try {
+      return read();
+    } catch {
+      return fallback;
+    }
+  };
+  var clean2 = (text) => String(text || "").replace(/\s+/g, " ").trim();
+  var short = (text, n3 = 40) => text.length > n3 ? text.slice(0, n3) + "\u2026" : text;
+  function watchTriggerClicks() {
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (!target || target.closest(".mwia-panel, .mwia-launcher")) return;
+        const chain = [];
+        for (let node = target; node && node !== document.body && chain.length < 4; node = node.parentElement) chain.push(describe(node));
+        let around = "";
+        for (let node = target.parentElement, i = 0; node && i < 4; node = node.parentElement, i++) {
+          const ids = iconIds(node).filter(Boolean);
+          if (ids.length > iconIds(target).length) {
+            around = ids.join("+");
+            break;
+          }
+        }
+        clicks.push(`${chain.join(" < ")} {${iconIds(target).join("+")}} around [${around}]`);
+        if (clicks.length > 4) clicks.shift();
+      },
+      true
+    );
+  }
+  function triggerWindow() {
+    const title = [...document.querySelectorAll("body *")].find((el) => el.children.length === 0 && clean2(el.textContent) === "Combat Triggers" && visible(el));
+    if (!title) return { title: null, box: null };
+    let box = title.parentElement;
+    while (box && box !== document.body && ![...box.querySelectorAll("button")].some((b) => clean2(b.textContent) === "Save")) box = box.parentElement;
+    return { title, box: box && box !== document.body ? box : title.parentElement };
+  }
+  function attrs(el) {
+    const out = [];
+    for (const name of ["role", "type", "aria-haspopup", "aria-expanded", "tabindex", "value", "name"]) {
+      const v = el.getAttribute(name);
+      if (v !== null) out.push(`${name}=${short(v, 20)}`);
+    }
+    if (el.tagName === "INPUT" || el.tagName === "SELECT") out.push(`value="${short(String(el.value), 20)}"`);
+    return out.length ? ` (${out.join(" ")})` : "";
+  }
+  function ownText2(el) {
+    return clean2([...el.childNodes].filter((n3) => n3.nodeType === 3).map((n3) => n3.textContent).join(" "));
+  }
+  function outline(root, maxDepth, lines) {
+    const walk = (el, depth) => {
+      if (lines.length >= MAX_LINES || depth > maxDepth) return;
+      const text = ownText2(el);
+      const icons = el.tagName.toLowerCase() === "use" ? ` #${(el.getAttribute("href") || el.getAttribute("xlink:href") || "").split("#")[1] || ""}` : "";
+      lines.push(`${"  ".repeat(depth)}${describe(el)}${attrs(el)}${text ? ` "${short(text)}"` : ""}${icons}`);
+      if (el.tagName === "SELECT") {
+        lines.push(`${"  ".repeat(depth + 1)}options: ${[...el.options].map((o2) => `${o2.value}=${short(clean2(o2.textContent), 20)}`).join(" | ")}`);
+        return;
+      }
+      for (const child of el.children) walk(child, depth + 1);
+    };
+    walk(root, 0);
+  }
+  var isTrigger = (t4) => t4 && typeof t4 === "object" && typeof t4.conditionHrid === "string";
+  var holdsTriggers = (v) => Array.isArray(v) && v.length > 0 && v.every(isTrigger);
+  var typeName = (f) => attempt2(() => typeof f.type === "string" ? f.type : f.type?.displayName || f.type?.name || "?", "?");
+  var valueText = (v) => holdsTriggers(v) ? JSON.stringify(v.map((t4) => [t4.dependencyHrid, t4.conditionHrid, t4.comparatorHrid, t4.value].map((x) => String(x).split("/").pop()))) : Array.isArray(v) ? `[${v.length}]` : typeof v === "object" && v ? `{${Object.keys(v).slice(0, 8).join(",")}}` : typeof v === "function" ? "fn" : short(String(v), 40);
+  function triggerComponents() {
+    const found = [];
+    walkFibers((f) => {
+      if (found.length >= 4) return true;
+      const state2 = attempt2(() => f.stateNode?.state);
+      const props = f.memoizedProps;
+      const hooks = [];
+      for (let h2 = f.memoizedState, i = 0; h2 && typeof h2 === "object" && i < 30; h2 = h2.next, i++) hooks.push(attempt2(() => h2.memoizedState));
+      const inState = state2 && typeof state2 === "object" && Object.values(state2).some(holdsTriggers);
+      const inHooks = !state2 && hooks.some(holdsTriggers);
+      const inProps = props && typeof props === "object" && Object.values(props).some(holdsTriggers);
+      if (!inState && !inHooks && !inProps) return false;
+      const lines = [`component ${typeName(f)} (${f.stateNode && typeof f.stateNode === "object" && !(f.stateNode instanceof Element) ? "class" : "function"}) \u2013 conditions in ${[inState && "state", inHooks && "hooks", inProps && "props"].filter(Boolean).join("+")}`];
+      if (state2) lines.push(`  state: ${Object.entries(state2).map(([k, v]) => `${k}=${valueText(v)}`).join("; ")}`);
+      if (inHooks) lines.push(`  hooks: ${hooks.map(valueText).join("; ")}`);
+      if (props) lines.push(`  props: ${Object.entries(props).filter(([k]) => k !== "children").map(([k, v]) => `${k}=${valueText(v)}`).join("; ")}`);
+      if (f.stateNode && typeof f.stateNode === "object" && !(f.stateNode instanceof Element)) lines.push(`  methods: ${componentMethods(f.stateNode).slice(0, 40).join(", ")}`);
+      const parents = [];
+      for (let p2 = f.return; p2 && parents.length < 4; p2 = p2.return) if (typeof p2.type !== "string") parents.push(typeName(p2));
+      lines.push(`  inside: ${parents.join(" < ")}`);
+      found.push(lines.join("\n"));
+      return false;
+    });
+    return found;
+  }
+  function loadoutRows(lines) {
+    for (const label3 of ["Abilities", "Consumables"]) {
+      const heading = [...document.querySelectorAll("body *")].find((el) => el.children.length === 0 && clean2(el.textContent) === label3 && visible(el) && !el.closest(".mwia-panel"));
+      if (!heading) {
+        lines.push(`${label3}: heading not found`);
+        continue;
+      }
+      lines.push(`${label3}: heading ${describe(heading)} in ${describe(heading.parentElement)}`);
+      const row = heading.nextElementSibling || heading.parentElement?.nextElementSibling;
+      if (row) outline(row, 4, lines);
+    }
+  }
+  function triggerWindowReport() {
+    const lines = [`world: ${worldReport()}`];
+    const { title, box } = triggerWindow();
+    if (!box) {
+      lines.push("trigger window: not open \u2013 open a loadout's \u2699 under an ability, then tap the button again");
+    } else {
+      const chain = [];
+      for (let node = title; node && node !== document.body && chain.length < 8; node = node.parentElement) chain.push(describe(node));
+      lines.push(`trigger window: ${chain.join(" < ")}`);
+      outline(box, 12, lines);
+    }
+    lines.push(...triggerComponents());
+    if (lines.length < MAX_LINES) loadoutRows(lines);
+    lines.push(`last clicks: ${clicks.join(" || ") || "none"}`);
+    return lines.join("\n");
+  }
+
   // src/listing-price.js
   var WALL_SHARE = 0.2;
   function otherLevels(levels, own = [], range = null, side = "sell") {
@@ -9384,7 +9509,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       box.innerHTML = html;
       return [...box.querySelectorAll(selector)].map((node) => (node.tagName === "TR" ? [...node.children].map((cell) => cell.textContent.trim()).join(" | ") : node.textContent).replace(/\s+/g, " ").trim()).filter(Boolean);
     };
-    const attempt2 = (title, lines) => {
+    const attempt3 = (title, lines) => {
       try {
         const got = lines();
         if (got.length) sections.push({ title, lines: got });
@@ -9392,9 +9517,9 @@ i.mwia-history-bid { background: #7ee2b0; }
         sections.push({ title, lines: [`(not available: ${error?.message || error})`] });
       }
     };
-    attempt2("Skilling: best now", () => getClientData() ? skillingExportLines(ui.settings) : []);
-    if (ui.zoneResults) attempt2("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
-    if (ui.upgradeResult) attempt2("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
+    attempt3("Skilling: best now", () => getClientData() ? skillingExportLines(ui.settings) : []);
+    if (ui.zoneResults) attempt3("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
+    if (ui.upgradeResult) attempt3("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
     return { settings: ui.settings, sections };
   }
   var CAPPED_TITLE = "You kill faster than new monsters appear (one encounter per 3 s at most), so more damage barely helps here";
@@ -9530,7 +9655,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       and measures how much it improves your focus \u2013 XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
       ${settingsHtml(["focus", "levels", "gear", "style", "zone", "budget", "spending", "risk", "accuracy"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>
-      <button class="mwia-btn" data-action="upgrades-abilities" ${ui.busy ? "disabled" : ""} title="Only abilities, their levels and order, and the triggers of your abilities and food \u2013 much quicker">Abilities &amp; triggers only</button>`;
+      <button class="mwia-btn" data-action="upgrades-abilities" ${ui.busy ? "disabled" : ""} title="Only abilities, their levels and order, and the triggers of your abilities and food \u2013 much quicker">Abilities &amp; triggers only</button>
+      <button class="mwia-link" data-action="trigger-window" title="Open a loadout's \u2699 under an ability in the game first. Reads how the game's Combat Triggers window is built \u2013 changes nothing \u2013 for filling it in later.">\u{1F4CB} Read the game's trigger window</button>`;
     const result = ui.upgradeResult;
     if (!result) return html;
     const base = result.base;
@@ -9883,7 +10009,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.58.0" : "dev";
+  var VERSION3 = true ? "0.58.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -9932,12 +10058,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!target || !ui.root.contains(target)) return;
     try {
       const running2 = act(target);
-      running2?.catch?.((error) => buttonFailed(clean2(target.textContent) || target.dataset.action, error));
+      running2?.catch?.((error) => buttonFailed(clean3(target.textContent) || target.dataset.action, error));
     } catch (error) {
-      buttonFailed(clean2(target.textContent) || target.dataset.action, error);
+      buttonFailed(clean3(target.textContent) || target.dataset.action, error);
     }
   }
-  var clean2 = (text) => String(text || "").replace(/\s+/g, " ").trim();
+  var clean3 = (text) => String(text || "").replace(/\s+/g, " ").trim();
   function act(target) {
     if (target.dataset.tab) {
       if (ui.tab !== target.dataset.tab) ui.notice = null;
@@ -9958,6 +10084,17 @@ i.mwia-history-bid { background: #7ee2b0; }
       case "upgrades-abilities":
         runTask(() => doUpgrades("abilities"));
         break;
+      case "trigger-window": {
+        const diag = triggerWindowReport();
+        const open = !diag.includes("trigger window: not open");
+        ui.notice = {
+          level: open ? "info" : "warn",
+          text: open ? "The game's trigger window, read (nothing changed). Copy it and paste it into the chat." : "No Combat Triggers window is open. In the game: Loadouts \u2192 your combat loadout \u2192 \u2699 under an ability, then tap this again.",
+          diag
+        };
+        render2();
+        break;
+      }
       case "refine":
         runTask(doRefine);
         break;
@@ -10115,6 +10252,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
+    watchTriggerClicks();
     ui.root = root;
     root.addEventListener("click", onClick6);
     root.addEventListener("change", onChange);

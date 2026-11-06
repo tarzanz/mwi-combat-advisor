@@ -65,9 +65,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     goes past full, and deaths while the HP food waits on its cooldown. From that, a few changes with whole-number
     values are tried, each like any other suggestion – nothing the measurements don't point to:
     *own MP ≥ its cost* (the next ability goes while it waits), *own MP ≥ both costs* on a cheaper ability further
-    down (keeps the mana for the one above), *target's HP ≥* half or one typical hit, *enemies up ≥ 1/2/3* for area
-    abilities, *own missing HP ≥* half, one or two typical heals, and HP or MP food eaten later (less food) or earlier
-    (when you die or run dry). Buffs and coffee keep *is inactive*. The best one per ability and food that is sure
+    down (keeps the mana for the one above), *target's HP ≥* half or one typical hit, *enemies up ≥ 1, 2, …* up to
+    the most the zone brings at once for area abilities, *own missing HP ≥* half, one or two typical heals, and HP or
+    MP food eaten later (less food) or earlier (when you die or run dry). Buffs and coffee keep *is inactive*. The best one per ability and food that is sure
     goes on the list as a free change (*Set the triggers of Heal to own missing HP ≥ 50*). The three best new
     abilities also get a round with their own triggers, and take that setting instead of the game's default only when
     it clearly beats it. Trigger variants' simulations are kept in the browser (up to 1,500 runs), so the same setup
@@ -75,6 +75,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   - **Abilities & triggers only** – the button beside *Analyze upgrades* tests only new abilities, ability levels,
     their order and the triggers of your abilities and food: no gear, house rooms, drinks or food to buy, so it is
     much quicker.
+  - **📋 Read the game's trigger window** – with a loadout's ⚙ (Combat Triggers) open in the game, reads how that
+    window is built – its elements, the game component that holds the conditions and the loadout's slots – as text to
+    copy into a chat. It changes nothing; it is the groundwork for filling the window in.
   - **More levels (not for sale)** – +1 and +5 levels in each combat skill your style uses (never the other two
     styles' own skill), with how long they take at the XP an hour that skill gets in the zone now: to weigh a
     purchase against simply levelling. They never go on the shopping list.

@@ -269,6 +269,23 @@ try {
     check("abilities & triggers only: nothing to buy but abilities", !/Buy [^\n]* in (Head|Body|Legs|Feet|Hands|Weapon|Pouch)/.test(abilitiesOnly));
     await page.evaluate(() => [...document.querySelectorAll(".mwia-body h3")].find((h) => h.textContent === "Triggers")?.scrollIntoView());
     await page.screenshot({ path: path.join(shotDir, "4b-triggers.png") });
+    // Reading the game's trigger window: says so when none is open, else lists its parts (nothing is changed).
+    await page.click('[data-action="trigger-window"]');
+    check("trigger window: none open is said", /No Combat Triggers window is open/.test(await page.$eval(".mwia-notice", (n) => n.textContent)));
+    await page.evaluate(() => {
+        const box = document.createElement("div");
+        box.className = "Modal_modal__x";
+        box.innerHTML = `<div class="CombatTriggersSetting_title">Combat Triggers</div>
+          <div class="CombatTriggersSetting_condition"><select class="CombatTriggerSelect_a"><option value="/combat_trigger_dependencies/all_enemies">Enemies' Total</option></select>
+          <select><option value="/combat_trigger_conditions/number_of_active_units"># of Active Units</option></select>
+          <select><option value="/combat_trigger_comparators/greater_than_equal">&gt;=</option></select><input type="number" value="3"><button>🗑</button></div>
+          <button>+ Condition</button><button>Reset Default</button><button>Save</button>`;
+        document.body.appendChild(box);
+    });
+    await page.click('[data-action="trigger-window"]');
+    const report = await page.$eval(".mwia-notice", (n) => n.textContent);
+    check("trigger window: its dropdowns, value and buttons are read", /trigger window: div\.CombatTriggersSetting_title/.test(report) && /options: \/combat_trigger_dependencies\/all_enemies=Enemies' Total/.test(report) && /input \(type=number value=3/.test(report) && /"Save"/.test(report), report.slice(0, 400));
+    await page.evaluate(() => document.querySelector(".Modal_modal__x").remove());
     // Fight as Ranged: a bow or crossbow is put first on the shopping list, zones are simulated with it.
     await page.click('[data-tab="zones"]');
     await page.select('[data-setting="combatStyle"]', "ranged");

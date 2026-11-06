@@ -96,11 +96,11 @@ export function visible(element) {
 
 const iconHref = (use) => use.getAttribute("href") || use.getAttribute("xlink:href") || "";
 
-function iconIds(element) {
+export function iconIds(element) {
     return [...element.querySelectorAll("use")].map((use) => iconHref(use).split("#")[1] || "");
 }
 
-function describe(element) {
+export function describe(element) {
     const classes = String(element.className?.baseVal ?? element.className ?? "").trim().split(/\s+/).filter(Boolean).slice(0, 2);
     return [element.tagName.toLowerCase(), ...classes].join(".");
 }
@@ -212,7 +212,7 @@ function rootFibers() {
 }
 
 // Walks the React tree from the roots until found(fiber) holds: { fiber, roots, seen }.
-function walkFibers(found) {
+export function walkFibers(found) {
     const fibers = rootFibers();
     const roots = fibers.length;
     const visited = new Set();

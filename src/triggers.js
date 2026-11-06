@@ -9,7 +9,8 @@
 //             "own MP ≥ both costs" on the cheaper one;
 // - overkill: a single-target hit that often lands on a nearly dead monster –
 //             "target's HP ≥ half / one typical hit";
-// - aoe:      an area ability with more than one monster up at times – "monsters up ≥ 1, 2, 3";
+// - aoe:      an area ability with more than one monster up at times – "monsters up ≥ 1, 2, …" up to
+//             the most the zone brings at once (a higher bar only when it often went off on fewer);
 // - heal:     a heal that goes past full or goes off for a scratch – "missing HP ≥" a part of what it heals;
 // - food:     HP or MP food eaten later (less food) or earlier (when you die or run dry).
 // Buffs and drinks keep "is inactive": they already go off as soon as they can.
@@ -139,7 +140,7 @@ export function triggerChanges(profile, battle, telemetry, data, options = {}) {
         if (kinds.includes("damage:allEnemies") && telemetry.maxEnemies >= 2) {
             const now = valueOf(was, ENEMIES, C("number_of_active_units"), GTE) ?? 1;
             const castsBelow = (k) => Object.entries(s.enemiesAtCast).reduce((sum, [n, count]) => sum + (Number(n) < k ? count : 0), 0);
-            for (let k = 1; k <= Math.min(3, telemetry.maxEnemies); k++) {
+            for (let k = 1; k <= telemetry.maxEnemies; k++) {
                 if (k === now) continue;
                 if (k > now && castsBelow(k) < SHARE * Math.max(1, s.casts)) continue;
                 add("ability", hrid, was, setCondition(was, ENEMIES, C("number_of_active_units"), GTE, k), "aoe", { from: now, to: k });
