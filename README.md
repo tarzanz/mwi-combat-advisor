@@ -272,21 +272,33 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     than a day of sales, or some are already listed. Teas, food and drinks in any slot, materials for your queued
     actions (and the item being enhanced and its materials) or a running train, coins, untradable items and what
     you pin with 📌 are never offered; amounts under 10k wait behind *Show all*.
-- **Labyrinth** – the Labyrinth's combat rooms, simulated as the game fights them: one monster scaled to the room
-  level (its stats are built for level 100 and grow in proportion), from full HP and mana, no food or drinks – only
-  the coffee and food crate opened on entry (*Your Labyrinth slots*, none, or a tier) – and 2 minutes to win.
-  - **Check the rooms** – your setup (your Labyrinth loadout if you have one, else *Gear from*) against all ten
-    monsters at room levels 5, 10, 20 … 200, then every 2 levels where you go from winning safely to hardly ever.
-    Per monster: its attack, what it is weak to – each one hardly dodges one or two attack styles (Cyclops: stab or
-    magic, Dryad: ranged, …) and lets one damage type through best – how your style and best element match it,
-    *Safe up to* (≥ 90% of the rooms won), *50% at*, and at the *Room level* you type (re-read without simulating
-    again): ✅ fight, ⚠ risky or ✖ shroud or go around, with why rooms are lost (*you die* or *too slow*) and the
-    typical time to win.
-  - **What should I improve?** – the next coffee and food crates, +5 in each combat skill and +5 levels in each
-    ability you use, simulated against every monster at the room level where you win about half the rooms (with
-    the same random numbers as now); the gain is shown as room levels. Per monster, *Better with* names an ability
-    you know in place of one you use, or another attack style (stab, slash, smash, ranged, magic – the best weapon
-    for it you own, else the cheapest on the market, everything else as now) when it clearly takes you further.
+- **Labyrinth** – the Labyrinth's combat rooms, simulated as the game fights them: 1 against 1 with one monster scaled
+  to the room level (its stats are built for level 100 and grow in proportion), from full HP and mana, no food or
+  drinks – only the coffee and food crate opened on entry (*Your Labyrinth slots*, none, or a tier) – and 2 minutes to
+  win. The game's Labyrinth automation can put on a loadout for each room type, so the tab works per room type.
+  - **Check the rooms** – every saved combat (and Labyrinth) loadout, and what you wear now if no loadout matches it,
+    against all ten monsters at room levels 5, 10, 20 … 200, then every 2 levels where you go from winning safely to
+    hardly ever. Per monster: its attack, what it is weak to as the wiki puts it (the attack styles it hardly dodges
+    and the damage types its resistances let through – Cyclops: magic with fire or water, Dryad: ranged, Pyre
+    Hunter: slash or smash, Mimic: Thorns / Retaliation), the **loadout** that goes furthest against it (set that one
+    for the room type in the automation), how that loadout hits it, *Safe up to* (≥ 90% of the rooms won), *50% at*,
+    and at a **floor** or **room level** (re-read without simulating again): ✅ fight, ⚠ risky or ✖ shroud or go
+    around, with why rooms are lost (*you die* or *too slow*) and the typical time to win. *All your loadouts* shows
+    every loadout against every monster. Floors are a guess: floor 1 ≈ room level 20 and about 20 levels a floor (a
+    community guide says ~20 a floor; where floor 1 starts isn't written anywhere we found).
+  - **What should I improve?** – the next coffee and food crates, +5 in each combat skill, +5 levels in each ability,
+    taking an ability off and an ability you know in place of one you use – each against every monster with the
+    loadout you'd use for it, at the room level where you win about half the rooms; the gain is shown as room levels.
+    The setup now gets four runs with other seeds, so its luck in one run doesn't count for or against every change.
+  - **Build a loadout for the Labyrinth** – *Fight as* stab, slash, smash, ranged or magic: the room types weak to it
+    are the targets. Starts from *Gear from* with a weapon for the style (yours, else the cheapest) and tests every
+    piece of gear and ability (new, or levelled with books) within the budget, taking abilities off (spells in a
+    crossbow loadout can cost more than they give) and running abilities without triggers. Round by round, the best
+    change is taken – free ones first, then the most room levels per coin, as *Spending* allows (Frugal 2 levels per
+    1M, Balanced 0.5, All in anything) – after a second check with other seeds, and the rest are measured again from
+    there, until nothing takes you half a level further. Nothing is sold: what the loadout replaces is still worn in
+    your other loadouts. Shows the list with 🛒, the safe and 50% levels before and after, and the closest changes
+    that didn't make it. Ranked for winning 2-minute duels, not for XP or loot.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the
   plan's goals (house level / item quantity) and the Full chain / One step / Buy choice of every step-2 row, works out
@@ -425,9 +437,10 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 ## Limitations
 
 - Solo combat only (no parties, no dungeons). Guild buffs are not modelled by the engine.
-- Labyrinth: only the combat rooms, one at a time – not the map, torches, beacons, shrouds or skilling rooms. The
-  room rules (no food or drinks, crates, 2 minutes, full HP each room) are the community simulator's; other attack
-  styles are tried with only the weapon changed.
+- Labyrinth: only the combat rooms, one at a time – not the map, torches, beacons, shrouds, treasure or skilling
+  rooms. The room rules (no food or drinks, crates, 2 minutes, full HP each room) are the community simulator's, and
+  the floors' room levels are a guess. The shop's combat upgrades (+% damage, speed, crit) are not counted. The
+  loadout builder adds one change at a time; combinations are only found that way.
 - *Fight as* picks one starter weapon; other weapons of the style are tested as upgrades within the budget left after
   it. Levels are counted over a day at today's rate, so a skill you would level past in an hour is still worth a lot.
 - At most five enhancement levels per item are tested (those where a higher level also costs more, bought or
@@ -468,7 +481,7 @@ node test/pi-server-test.mjs                              # the Pi's history, se
 node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, Pi down, unlink
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
 node test/export-browser-test.mjs /tmp                    # Export for chat: under the inventory, share sheet or download
-node test/labyrinth-browser-test.mjs /tmp                 # Labyrinth tab: rooms by level, room level, improvements
+node test/labyrinth-browser-test.mjs /tmp                 # Labyrinth tab: loadouts per room type, floors, improvements, builder
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox
 ```

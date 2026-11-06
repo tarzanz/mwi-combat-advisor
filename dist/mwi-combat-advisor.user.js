@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.60.0
+// @version      0.61.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -3306,9 +3306,9 @@
   function chainHtml(e) {
     const c2 = e.chain;
     const shares = [`${dec(c2.craftShare * 100, 0)}% ${esc(e.action.name)}`, ...[...c2.shares].sort((a, b) => b.share - a.share).map((s2) => `${dec(s2.share * 100, 0)}% ${esc(itemName(s2.itemHrid))} <span class="mwia-dim">(${skillLabel(s2.action.type.split("/").pop())}, ${count(s2.count)} each)</span>`)];
-    const better = c2.profitPerHour > e.profitPerHour;
+    const better2 = c2.profitPerHour > e.profitPerHour;
     return `Make every material your levels allow, buy the rest: <b>${coins(c2.profitPerHour)}/h = ${coins(c2.goldPerDay)}/day</b>
-        <span class="${better ? "mwia-ok" : "mwia-dim"}">(${better ? "+" : "\u2212"}${coins(Math.abs(c2.goldPerDay - e.goldPerDay))}/day vs buying)</span>.
+        <span class="${better2 ? "mwia-ok" : "mwia-dim"}">(${better2 ? "+" : "\u2212"}${coins(Math.abs(c2.goldPerDay - e.goldPerDay))}/day vs buying)</span>.
         <br>Of each hour: ${shares.join(" \xB7 ")}.${c2.bought.length ? `<br>Still bought: ${esc(names(c2.bought))}.` : ""}
         <br><span class="mwia-dim">Each step uses that skill's teas; the gold is per hour of the whole chain.</span>${chainTrainText(e)}`;
   }
@@ -4966,7 +4966,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.60.0" : "dev";
+  var VERSION = true ? "0.61.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5856,8 +5856,8 @@
     let id = Math.max(...raw.candidates.map((c2) => c2.id)) + 1;
     for (const plain of top.map((r) => raw.candidates.find((x) => x.id === r.id))) {
       const mine = tries.map((t4, i) => ({ ...t4, result: summarize3(runs[i], raw.zone.tier, t4.profile), runs: runs[i] })).filter((t4) => t4.hrid === plain.hrid && t4.slot === plain.slot);
-      const better = mine.filter((t4) => mean(scores(t4)) > mean(scores(plain)) && (confidenceGreater(scores(t4), scores(plain)) ?? 0) >= TUNED_CONFIDENCE).sort((a, b) => mean(scores(b)) - mean(scores(a)))[0];
-      if (better) raw.candidates[raw.candidates.indexOf(plain)] = { ...better, id: id++ };
+      const better2 = mine.filter((t4) => mean(scores(t4)) > mean(scores(plain)) && (confidenceGreater(scores(t4), scores(plain)) ?? 0) >= TUNED_CONFIDENCE).sort((a, b) => mean(scores(b)) - mean(scores(a)))[0];
+      if (better2) raw.candidates[raw.candidates.indexOf(plain)] = { ...better2, id: id++ };
     }
     return tries.length;
   }
@@ -8812,13 +8812,13 @@ ${triggerWindowReport()}`, false);
     return null;
   }
   function standing(price, levels, side = "sell") {
-    let better = 0;
+    let better2 = 0;
     let same2 = 0;
     for (const level of levels) {
       if (level.price === price) same2 += level.quantity;
-      else if (side === "sell" ? level.price < price : level.price > price) better += level.quantity;
+      else if (side === "sell" ? level.price < price : level.price > price) better2 += level.quantity;
     }
-    return { better, same: same2 };
+    return { better: better2, same: same2 };
   }
   var HORIZONS = [1, 8, 24];
   var CONFIDENCE = 0.7;
@@ -8853,7 +8853,7 @@ ${triggerWindowReport()}`, false);
       if (seen.length >= Math.max(1, COVERAGE * horizon)) windows.push(seen);
     }
     if (windows.length < MIN_WINDOWS) return { price: null, why: "history", windows: windows.length };
-    const better = (x, y) => sell ? x < y : x > y;
+    const better2 = (x, y) => sell ? x < y : x > y;
     const inRange = (price) => !range || price >= range.min && price <= range.max;
     const prices2 = new Set([...hours.map((r) => r[key2]), ...levels.map((level) => level.price)].filter((p2) => p2 > 0 && inRange(p2)));
     const sorted = [...prices2].sort((x, y) => x - y);
@@ -8864,14 +8864,14 @@ ${triggerWindowReport()}`, false);
     const rank = (c2) => sell ? c2.price - (c2.under ? 0.5 : 0) : -(c2.price + (c2.under ? 0.5 : 0));
     candidates.sort((x, y) => rank(y) - rank(x));
     const top = quantile(hours.map((r) => [r[key2], 1]), sell ? USUAL_TOP : 1 - USUAL_TOP);
-    const usual = (price) => top === null || !better(top, price);
+    const usual = (price) => top === null || !better2(top, price);
     for (const c2 of candidates) {
-      const firstNow = best > 0 && (c2.under ? usual(past) : better(c2.price, best) && usual(c2.price));
+      const firstNow = best > 0 && (c2.under ? usual(past) : better2(c2.price, best) && usual(c2.price));
       let sold = 0;
       for (const seen of windows) {
         let front = 0;
         for (const [k, other] of seen) {
-          const value = !Number.isFinite(other) ? 1 : c2.under ? better(other, c2.price) ? 0 : 1 : better(other, c2.price) ? 0 : other === c2.price ? 0.5 : 1;
+          const value = !Number.isFinite(other) ? 1 : c2.under ? better2(other, c2.price) ? 0 : 1 : better2(other, c2.price) ? 0 : other === c2.price ? 0.5 : 1;
           front += firstNow && k === 1 ? 1 : value;
         }
         front *= horizon / seen.length;
@@ -8949,7 +8949,7 @@ ${triggerWindowReport()}`, false);
     const sold = summary?.liquidity?.sold;
     const perDay2 = sold?.enough && sold.perDay > 0 ? sold.perDay : null;
     const out = { side, price, left: remaining(listing), kind: "unknown", alert: false, fromBook: false, better: null, total: null, share: null, daysAhead: null, gap: null, best: null, perDay: perDay2 };
-    const better = (a, b) => sell ? a < b : a > b;
+    const better2 = (a, b) => sell ? a < b : a > b;
     if (book && now - book.at <= rules.bookHours * HOUR) {
       const levels = otherLevels(sell ? book.asks : book.bids, own, book.range, side);
       const { better: ahead, same: same2 } = standing(price, levels, side);
@@ -8965,7 +8965,7 @@ ${triggerWindowReport()}`, false);
       const best = sell ? entry?.a : entry?.b;
       if (best > 0) {
         out.best = best;
-        if (!better(best, price)) out.kind = "front";
+        if (!better2(best, price)) out.kind = "front";
         else {
           out.kind = "cheaper";
           out.gap = Math.abs(best / price - 1);
@@ -9245,6 +9245,10 @@ ${triggerWindowReport()}`, false);
   var COARSE_LEVELS = [5, ...Array.from({ length: 20 }, (_, i) => 10 * (i + 1))];
   var FINE_STEP = 2;
   var MAX_FINE = 12;
+  var FLOOR_STEP = 20;
+  var FLOOR_ONE_LEVEL = 20;
+  var floorLevel = (floor) => FLOOR_ONE_LEVEL + (floor - 1) * FLOOR_STEP;
+  var floorAt = (level) => level === null || level < FLOOR_ONE_LEVEL ? 0 : 1 + Math.floor((level - FLOOR_ONE_LEVEL) / FLOOR_STEP);
   var LAB_ACCURACY = {
     fast: { rooms: 20, improveRooms: 40 },
     normal: { rooms: 40, improveRooms: 80 },
@@ -9282,9 +9286,8 @@ ${triggerWindowReport()}`, false);
     }
     return buffs;
   }
-  function labyrinthLoadout(character) {
-    const loadouts = Object.entries(character?.characterLoadoutMap || {}).filter(([, l2]) => l2?.actionTypeHrid === LABYRINTH).map(([id, l2]) => ({ ...l2, id: String(id) })).sort((a, b) => (b.isDefault === true) - (a.isDefault === true) || (a.ordinal ?? 0) - (b.ordinal ?? 0));
-    return loadouts[0] || null;
+  function labyrinthLoadouts(character) {
+    return Object.entries(character?.characterLoadoutMap || {}).filter(([, l2]) => l2?.actionTypeHrid === LABYRINTH).map(([id, l2]) => ({ ...l2, id: String(id) })).sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
   }
   function roomFighter(profile, data, crates) {
     const fighter = cloneProfile(profile);
@@ -9294,6 +9297,8 @@ ${triggerWindowReport()}`, false);
   }
   var DAMAGE_TYPES = ["physical", "water", "nature", "fire"];
   var RESISTANCE_STAT = { physical: "armor", water: "waterResistance", nature: "natureResistance", fire: "fireResistance" };
+  var ATTACK_STYLES = ["stab", "slash", "smash", "ranged", "magic"];
+  var STYLE_TYPES = { stab: ["physical"], slash: ["physical"], smash: ["physical"], ranged: ["physical", "water", "fire"], magic: ["water", "nature", "fire"] };
   function damageTaken(data, monsterHrid, level) {
     const monster = data.combatMonsterDetailMap[monsterHrid];
     const stats = monster.combatDetails.combatStats || {};
@@ -9306,65 +9311,68 @@ ${triggerWindowReport()}`, false);
     }
     return out;
   }
-  var ATTACK_STYLES = ["stab", "slash", "smash", "ranged", "magic"];
   function evasionByStyle(data, monsterHrid) {
     const stats = data.combatMonsterDetailMap[monsterHrid].combatDetails.combatStats || {};
     return Object.fromEntries(ATTACK_STYLES.map((style) => [style, 1 + (stats[style + "Evasion"] || 0)]));
   }
-  function weakStyles(data, monsterHrid) {
-    const evasion = evasionByStyle(data, monsterHrid);
-    const least = Math.min(...Object.values(evasion));
-    return ATTACK_STYLES.filter((style) => evasion[style] <= least * 1.25);
+  function hitScore(data, monsterHrid, style, type) {
+    return damageTaken(data, monsterHrid, 100)[type] / evasionByStyle(data, monsterHrid)[style];
+  }
+  var THORNS_BELOW = 0.1;
+  function weakTo(data, monsterHrid) {
+    const pairs = [];
+    for (const style of ATTACK_STYLES) for (const type of STYLE_TYPES[style]) pairs.push({ style, type, score: hitScore(data, monsterHrid, style, type) });
+    const best = Math.max(...pairs.map((p2) => p2.score));
+    const styles = [];
+    for (const p2 of pairs.filter((p3) => p3.score >= best / 2).sort((a, b) => b.score - a.score)) {
+      const known = styles.find((s2) => s2.style === p2.style);
+      if (known) known.types.push(p2.type);
+      else styles.push({ style: p2.style, types: [p2.type] });
+    }
+    return { styles, best, thorns: best < THORNS_BELOW };
   }
   function yourStyle(profile, data) {
     const weapon = weaponOf(profile);
     const first = weapon ? data.itemDetailMap[weapon.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] : null;
     return (first || "/combat_styles/smash").split("/").pop();
   }
-  function styleWeapons(profile, data) {
-    const now = yourStyle(profile, data);
-    const out = [];
-    for (const style of ATTACK_STYLES) {
-      if (style === now) continue;
-      const fits = (item) => item?.equipmentDetail && ["main_hand", "two_hand"].includes(item.equipmentDetail.type?.split("/").pop()) && item.equipmentDetail.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style && meetsRequirements(profile, item.equipmentDetail.levelRequirements);
-      const owned = profile.inventory.filter((i) => fits(data.itemDetailMap[i.hrid])).sort((a, b) => (data.itemDetailMap[b.hrid].itemLevel || 0) - (data.itemDetailMap[a.hrid].itemLevel || 0) || b.enhancementLevel - a.enhancementLevel)[0];
-      let weapon = owned ? { hrid: owned.hrid, enhancementLevel: owned.enhancementLevel, cost: 0, owned: true } : null;
-      if (!weapon) {
-        for (const item of Object.values(data.itemDetailMap)) {
-          if (!fits(item)) continue;
-          const price = askPrice(item.hrid, 0);
-          if (price !== null && (!weapon || price < weapon.cost)) weapon = { hrid: item.hrid, enhancementLevel: 0, cost: price, owned: false };
-        }
+  function yourAttacks(profile, data) {
+    const weapon = weaponOf(profile);
+    const out = [{ what: weapon?.hrid || "punch", style: yourStyle(profile, data), type: (weapon ? data.itemDetailMap[weapon.hrid]?.equipmentDetail?.combatStats?.damageType : "") || "/damage_types/physical" }];
+    for (const entry of profile.abilities || []) {
+      if (!entry) continue;
+      for (const effect of data.abilityDetailMap[entry.hrid]?.abilityEffects || []) {
+        if (effect.damageType && effect.combatStyleHrid) out.push({ what: entry.hrid, style: effect.combatStyleHrid, type: effect.damageType });
       }
-      if (!weapon) continue;
-      const changed2 = cloneProfile(profile);
-      equip(changed2, data.itemDetailMap[weapon.hrid].equipmentDetail.type.split("/").pop(), { hrid: weapon.hrid, enhancementLevel: weapon.enhancementLevel });
-      out.push({ style, weapon, profile: changed2 });
     }
-    return out;
+    return out.map((a) => ({ ...a, style: a.style.split("/").pop(), type: a.type.split("/").pop() })).filter((a) => ATTACK_STYLES.includes(a.style) && DAMAGE_TYPES.includes(a.type));
+  }
+  function yourMatch(profile, data, monsterHrid) {
+    const weak = weakTo(data, monsterHrid);
+    let best = null;
+    for (const a of yourAttacks(profile, data)) {
+      const score2 = hitScore(data, monsterHrid, a.style, a.type);
+      if (!best || score2 > best.score) best = { ...a, score: score2 };
+    }
+    return best ? { ...best, share: best.score / weak.best } : null;
   }
   function monsterAttack(data, monsterHrid) {
     const stats = data.combatMonsterDetailMap[monsterHrid].combatDetails.combatStats || {};
-    return {
-      style: (stats.combatStyleHrids?.[0] || "").split("/").pop(),
-      type: (stats.damageType || "").split("/").pop()
-    };
+    return { style: (stats.combatStyleHrids?.[0] || "").split("/").pop(), type: (stats.damageType || "").split("/").pop() };
   }
-  function yourDamageTypes(profile, data) {
-    const types = /* @__PURE__ */ new Map();
-    const add = (type, what) => {
-      type = (type || "").split("/").pop();
-      if (!DAMAGE_TYPES.includes(type)) return;
-      if (!types.has(type)) types.set(type, []);
-      types.get(type).push(what);
-    };
-    const weapon = weaponOf(profile);
-    add(weapon ? data.itemDetailMap[weapon.hrid]?.equipmentDetail?.combatStats?.damageType : "/damage_types/physical", weapon ? weapon.hrid : "punch");
-    for (const entry of profile.abilities || []) {
-      if (!entry) continue;
-      for (const effect of data.abilityDetailMap[entry.hrid]?.abilityEffects || []) add(effect.damageType, entry.hrid);
+  function styleWeapon(profile, data, style) {
+    const fits = (item) => item?.equipmentDetail && ["main_hand", "two_hand"].includes(item.equipmentDetail.type?.split("/").pop()) && item.equipmentDetail.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style && meetsRequirements(profile, item.equipmentDetail.levelRequirements);
+    const owned = profile.inventory.filter((i) => fits(data.itemDetailMap[i.hrid])).sort((a, b) => (data.itemDetailMap[b.hrid].itemLevel || 0) - (data.itemDetailMap[a.hrid].itemLevel || 0) || b.enhancementLevel - a.enhancementLevel)[0];
+    let weapon = owned ? { hrid: owned.hrid, enhancementLevel: owned.enhancementLevel, cost: 0, owned: true } : null;
+    if (!weapon) {
+      for (const item of Object.values(data.itemDetailMap)) {
+        if (!fits(item)) continue;
+        const price = askPrice(item.hrid, 0);
+        if (price !== null && (!weapon || price < weapon.cost)) weapon = { hrid: item.hrid, enhancementLevel: 0, cost: price, owned: false };
+      }
     }
-    return types;
+    if (weapon) weapon.slot = data.itemDetailMap[weapon.hrid].equipmentDetail.type.split("/").pop();
+    return weapon;
   }
   var rate = (point) => point.attempts ? point.wins / point.attempts : 0;
   function pointsToJobs(fighter, points, rooms) {
@@ -9405,14 +9413,13 @@ ${triggerWindowReport()}`, false);
   function nearestPoint(curve, level) {
     return curve.reduce((best, p2) => !best || Math.abs(p2.level - level) < Math.abs(best.level - level) ? p2 : best, null);
   }
-  async function analyzeLabyrinth(pool, profile, data, settings2, character, onProgress) {
-    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
-    const crates = chosenCrates(settings2, character);
-    const fighter = roomFighter(profile, data, crates);
-    const monsters = labyrinthMonsters(data);
-    return { crates, rooms: accuracy.rooms, monsters: await simulateCurves(pool, fighter, monsters, accuracy.rooms, true, onProgress) };
+  function better(a, b) {
+    const key2 = (m) => [m.half ?? -1, m.safe ?? -1, m.curve.length ? rate(m.curve[0]) : 0];
+    const [x, y] = [key2(a), key2(b)];
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] > y[i];
+    return false;
   }
-  async function simulateCurves(pool, fighter, monsters, rooms, fineToo, onProgress) {
+  async function simulateCurves(pool, fighter, monsters, rooms, onProgress) {
     const coarse = monsters.flatMap((monster) => COARSE_LEVELS.map((level, i) => ({ monster, level, seed: i })));
     const fine = [];
     let before = 0;
@@ -9421,7 +9428,7 @@ ${triggerWindowReport()}`, false);
     before = coarse.length;
     const curves = new Map(monsters.map((m) => [m, []]));
     coarse.forEach((p2, i) => curves.get(p2.monster).push({ level: p2.level, ...coarseResults[i] }));
-    for (const monster of fineToo ? monsters : []) {
+    for (const monster of monsters) {
       const curve = curves.get(monster);
       const lastSafe = [...curve].reverse().find((p2) => rate(p2) >= SAFE_WIN)?.level ?? 0;
       const firstLost = curve.find((p2) => p2.level > lastSafe && rate(p2) <= 0.1)?.level ?? MAX_LEVEL;
@@ -9438,6 +9445,28 @@ ${triggerWindowReport()}`, false);
       const curve = curves.get(hrid).sort((a, b) => a.level - b.level);
       return { hrid, curve, ...summarizeCurve(curve) };
     });
+  }
+  async function analyzeLabyrinth(pool, setups, data, settings2, character, onProgress) {
+    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
+    const crates = chosenCrates(settings2, character);
+    const monsters = labyrinthMonsters(data);
+    const results = [];
+    for (const [i, setup] of setups.entries()) {
+      const curves = await simulateCurves(
+        pool,
+        roomFighter(setup.profile, data, crates),
+        monsters,
+        accuracy.rooms,
+        (done2, total) => onProgress?.(i * 1e3 + Math.round(1e3 * done2 / Math.max(1, total)), setups.length * 1e3)
+      );
+      results.push({ id: setup.id, name: setup.name, monsters: curves });
+    }
+    const best = monsters.map((hrid, m) => {
+      let pick2 = null;
+      for (const setup of results) if (!pick2 || better(setup.monsters[m], pick2.monster)) pick2 = { setup, monster: setup.monsters[m] };
+      return { ...pick2.monster, setupId: pick2.setup.id, setupName: pick2.setup.name };
+    });
+    return { crates, rooms: accuracy.rooms, setups: results, monsters: best };
   }
   var SKILL_STEP = 5;
   var ABILITY_STEP = 5;
@@ -9461,6 +9490,12 @@ ${triggerWindowReport()}`, false);
       changed2.abilities[slot].level += ABILITY_STEP;
       list.push({ id: `ability:${entry.hrid}`, kind: "ability", hrid: entry.hrid, label: `+${ABILITY_STEP} levels ${data.abilityDetailMap[entry.hrid]?.name || entry.hrid}`, crates, profile: changed2 });
     });
+    profile.abilities.forEach((entry, slot) => {
+      if (!entry || slot === 0) return;
+      const changed2 = cloneProfile(profile);
+      changed2.abilities[slot] = null;
+      list.push({ id: `drop:${entry.hrid}`, kind: "swap", hrid: null, replaces: entry.hrid, slot, label: `Without ${data.abilityDetailMap[entry.hrid]?.name || entry.hrid}`, crates, profile: changed2 });
+    });
     const using = new Set(profile.abilities.filter(Boolean).map((a) => a.hrid));
     for (const [hrid, level] of Object.entries(profile.learnedAbilities || {})) {
       const detail = data.abilityDetailMap[hrid];
@@ -9475,90 +9510,242 @@ ${triggerWindowReport()}`, false);
     }
     return list;
   }
-  async function analyzeImprovements(pool, profile, data, settings2, lab, onProgress) {
-    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
-    const candidates = improvementCandidates(profile, data, lab.crates);
-    const edges = lab.monsters.map((m, i) => {
-      const level = Math.round(Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, m.half ?? MIN_LEVEL)));
-      const below = [...m.curve].reverse().find((p2) => p2.level <= level - 1 && rate(p2) > winAt(m.curve, level)) || m.curve[0];
-      const above = m.curve.find((p2) => p2.level >= level + 1 && rate(p2) < winAt(m.curve, level)) || m.curve[m.curve.length - 1];
-      const slope = above.level > below.level ? (rate(below) - rate(above)) / (above.level - below.level) : 0;
-      return { hrid: m.hrid, level, slope: Math.max(0.01, slope), seed: 1e3 + i };
-    });
-    const setups = [{ id: "base", crates: lab.crates, profile }, ...candidates];
+  function edgeOf(m, seed) {
+    const level = Math.round(Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, m.half ?? MIN_LEVEL)));
+    const here = winAt(m.curve, level);
+    const below = [...m.curve].reverse().find((p2) => p2.level <= level - 1 && rate(p2) > here) || m.curve[0];
+    const above = m.curve.find((p2) => p2.level >= level + 1 && rate(p2) < here) || m.curve[m.curve.length - 1];
+    const slope = above.level > below.level ? (rate(below) - rate(above)) / (above.level - below.level) : 0;
+    return { hrid: m.hrid, level, slope: Math.max(0.01, slope), seed };
+  }
+  var BASE_REPEAT = 4;
+  async function atEdges(pool, data, setups, rooms, seedShift, onProgress) {
     const jobs = [];
     for (const setup of setups) {
       const fighter = roomFighter(setup.profile, data, setup.crates);
-      for (const edge of edges) jobs.push({ ...fighter, monsterHrid: edge.hrid, roomLevel: edge.level, attempts: accuracy.improveRooms, seed: seedFor2(edge.seed) });
+      for (let k = 0; k < (setup.repeat || 1); k++) {
+        for (const edge of setup.edges) jobs.push({ ...fighter, monsterHrid: edge.hrid, roomLevel: edge.level, attempts: rooms, seed: seedFor2(edge.seed + seedShift + 7919 * k) });
+      }
     }
-    const styles = styleWeapons(profile, data);
-    const monsters = lab.monsters.map((m) => m.hrid);
-    const styleJobs = styles.length * monsters.length * COARSE_LEVELS.length;
-    const results = await pool.runAll(jobs, (done2) => onProgress?.(done2, jobs.length + styleJobs));
-    const styleCurves = [];
-    for (const [i, style] of styles.entries()) {
-      const before = jobs.length + i * monsters.length * COARSE_LEVELS.length;
-      const curves = await simulateCurves(pool, roomFighter(style.profile, data, lab.crates), monsters, accuracy.rooms, false, (done2) => onProgress?.(before + done2, jobs.length + styleJobs));
-      const { profile: _p, ...rest } = style;
-      styleCurves.push({ ...rest, monsters: curves });
-    }
-    const base = results.slice(0, edges.length);
-    const out = candidates.map((candidate, c2) => {
-      const own = results.slice((c2 + 1) * edges.length, (c2 + 2) * edges.length);
-      const perMonster = edges.map((edge, i) => {
-        const gain = rate(own[i]) - rate(base[i]);
-        return { hrid: edge.hrid, level: edge.level, before: rate(base[i]), after: rate(own[i]), levels: Math.max(-50, Math.min(50, gain / edge.slope)) };
-      });
-      const levels = perMonster.reduce((sum, m) => sum + m.levels, 0) / perMonster.length;
-      const { profile: _p, crates: _c, ...rest } = candidate;
-      return { ...rest, levels, perMonster };
+    const results = await pool.runAll(jobs, onProgress);
+    let next = 0;
+    return setups.map((setup) => {
+      const sums = setup.edges.map(() => ({ attempts: 0, wins: 0, deaths: 0, timeouts: 0 }));
+      for (let k = 0; k < (setup.repeat || 1); k++) {
+        sums.forEach((sum) => {
+          const r = results[next++];
+          for (const key2 of Object.keys(sum)) sum[key2] += r[key2];
+        });
+      }
+      return sums;
     });
-    return { edges, rooms: accuracy.improveRooms, styles: styleCurves, base: edges.map((e, i) => ({ hrid: e.hrid, level: e.level, win: rate(base[i]), deaths: base[i].deaths / base[i].attempts, timeouts: base[i].timeouts / base[i].attempts })), candidates: out };
+  }
+  async function analyzeImprovements(pool, setups, data, settings2, lab, onProgress) {
+    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
+    const byId = new Map(setups.map((s2) => [s2.id, s2]));
+    const groups = /* @__PURE__ */ new Map();
+    lab.monsters.forEach((m, i) => {
+      const setup = byId.get(m.setupId) || setups[0];
+      if (!groups.has(setup.id)) groups.set(setup.id, { setup, edges: [], candidates: improvementCandidates(setup.profile, data, lab.crates) });
+      groups.get(setup.id).edges.push(edgeOf(m, 1e3 + i));
+    });
+    const runs = [];
+    for (const group of groups.values()) {
+      runs.push({ profile: group.setup.profile, crates: lab.crates, edges: group.edges, repeat: BASE_REPEAT });
+      for (const c2 of group.candidates) runs.push({ profile: c2.profile, crates: c2.crates, edges: group.edges });
+    }
+    const results = await atEdges(pool, data, runs, accuracy.improveRooms, 0, onProgress);
+    const combined = /* @__PURE__ */ new Map();
+    const base = [];
+    let r = 0;
+    for (const group of groups.values()) {
+      const own = results[r++];
+      group.edges.forEach((edge, i) => base.push({ hrid: edge.hrid, level: edge.level, setupName: group.setup.name, win: rate(own[i]), deaths: own[i].deaths / own[i].attempts, timeouts: own[i].timeouts / own[i].attempts }));
+      for (const c2 of group.candidates) {
+        const theirs = results[r++];
+        const id = c2.kind === "swap" ? `${group.setup.id}:${c2.id}` : c2.id;
+        const { profile: _p, crates: _c, ...rest } = c2;
+        if (!combined.has(id)) combined.set(id, { ...rest, setupName: group.setup.name, perMonster: [] });
+        group.edges.forEach((edge, i) => {
+          const gain = rate(theirs[i]) - rate(own[i]);
+          combined.get(id).perMonster.push({ hrid: edge.hrid, level: edge.level, before: rate(own[i]), after: rate(theirs[i]), levels: Math.max(-50, Math.min(50, gain / edge.slope)) });
+        });
+      }
+    }
+    const candidates = [...combined.values()].map((c2) => ({ ...c2, levels: c2.perMonster.reduce((sum, m) => sum + m.levels, 0) / lab.monsters.length }));
+    return { rooms: accuracy.improveRooms, base, candidates };
+  }
+  function monstersFor(data, style) {
+    return labyrinthMonsters(data).filter((hrid) => weakTo(data, hrid).styles.some((s2) => s2.style === style));
+  }
+  var SCREEN_SHARE = 0.5;
+  var PER_SLOT = 3;
+  var ROUNDS2 = 6;
+  var MIN_LEVELS = 0.5;
+  var LEVELS_PER_MILLION = { frugal: 2, balanced: 0.5, all: 0 };
+  var ROUND_ROOMS = 2;
+  var CONFIRM_TRIES = 3;
+  function applyCandidate(profile, c2) {
+    const out = cloneProfile(profile);
+    const index = c2.slot?.startsWith("ability") ? Number(c2.slot.replace("ability", "")) : null;
+    if (c2.kind === "gear") equip(out, c2.slot, { hrid: c2.hrid, enhancementLevel: c2.enhancementLevel });
+    else if (c2.kind === "ability" || c2.kind === "abilityLevel") out.abilities[index] = { hrid: c2.hrid, level: c2.level };
+    else if (c2.kind === "drop") out.abilities[index] = null;
+    else if (c2.kind === "dropAll") out.abilities = out.abilities.map((entry, i) => i === 0 ? entry : null);
+    else if (c2.kind === "triggers") out.abilityTriggers = { ...out.abilityTriggers, ...Object.fromEntries(out.abilities.filter(Boolean).map((a) => [a.hrid, []])) };
+    return out;
+  }
+  async function buildLoadout(pool, profile, data, settings2, opts, onProgress) {
+    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
+    const { style, crates } = opts;
+    let budget = Math.max(0, Number(opts.budget) || 0);
+    const minPerMillion = LEVELS_PER_MILLION[settings2.spending] ?? LEVELS_PER_MILLION.balanced;
+    const targets = monstersFor(data, style);
+    if (!targets.length) throw new Error(`No Labyrinth monster is weak to ${style}.`);
+    let start = cloneProfile(profile);
+    let starter = null;
+    if (yourStyle(profile, data) !== style) {
+      starter = styleWeapon(profile, data, style);
+      if (!starter) throw new Error(`No ${style} weapon you can wear is for sale.`);
+      starter.replaces = weaponOf(profile);
+      equip(start, starter.slot, { hrid: starter.hrid, enhancementLevel: starter.enhancementLevel });
+      budget = Math.max(0, budget - starter.cost);
+    }
+    start.food = [];
+    start.drinks = [];
+    const steps = 14;
+    const part = (from, size) => (done2, total) => onProgress?.(Math.round((from + size * done2 / Math.max(1, total)) * 1e3 / steps), 1e3);
+    const before = await simulateCurves(pool, roomFighter(start, data, crates), targets, accuracy.rooms, part(0, 3));
+    const edges = before.map((m, i) => edgeOf(m, 2e3 + i));
+    const subStyle = (c2) => c2.kind !== "gear" || !["main_hand", "two_hand"].includes(c2.slot) || data.itemDetailMap[c2.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style;
+    const candidates = [
+      // A loadout of its own sells nothing: what it replaces is still worn in your other loadouts.
+      ...gearCandidates(start, { budget, starter, enhanceCost: opts.enhanceCost }).filter((c2) => c2.slot !== "pouch" && !c2.extraFood && subStyle(c2)).map((c2) => ({ ...c2, cost: c2.price ?? c2.cost, resale: 0, sold: [] })).filter((c2) => c2.cost <= budget),
+      ...abilityCandidates(start, budget)
+    ];
+    start.abilities.forEach((entry, index) => {
+      if (!entry || index === 0) return;
+      const without = cloneProfile(start);
+      without.abilities[index] = null;
+      candidates.push({ kind: "drop", slot: "ability" + index, hrid: entry.hrid, cost: 0, owned: true, profile: without });
+    });
+    if (start.abilities.slice(1).filter(Boolean).length > 1) {
+      const bare = cloneProfile(start);
+      bare.abilities = bare.abilities.map((entry, index) => index === 0 ? entry : null);
+      candidates.push({ kind: "dropAll", slot: "abilities", cost: 0, owned: true, profile: bare });
+    }
+    const quiet = cloneProfile(start);
+    quiet.abilityTriggers = Object.fromEntries(start.abilities.filter(Boolean).map((a) => [a.hrid, []]));
+    candidates.push({ kind: "triggers", slot: "triggers", cost: 0, owned: true, profile: quiet });
+    const scoreAt = (edgeList) => (own, base) => edgeList.reduce((sum, edge, i) => sum + Math.max(-50, Math.min(50, (rate(own[i]) - rate(base[i])) / edge.slope)), 0) / edgeList.length;
+    const screenRooms = Math.max(20, Math.round(accuracy.improveRooms * SCREEN_SHARE));
+    const first = await atEdges(pool, data, [{ profile: start, crates, edges, repeat: BASE_REPEAT }, ...candidates.map((c2) => ({ profile: c2.profile, crates, edges }))], screenRooms, 0, part(3, 5));
+    candidates.forEach((c2, i) => c2.levels = scoreAt(edges)(first[i + 1], first[0]));
+    const bySlot = /* @__PURE__ */ new Map();
+    for (const c2 of candidates.filter((c3) => c3.cost > 0 && c3.levels > 0).sort((a, b) => b.levels - a.levels)) {
+      const list = bySlot.get(c2.slot) || [];
+      if (list.length < PER_SLOT) list.push(c2);
+      bySlot.set(c2.slot, list);
+    }
+    const shortlist2 = [...candidates.filter((c2) => c2.cost === 0), ...[...bySlot.values()].flat()];
+    const abilitySlots = [1, 2, 3, 4].map((i) => "ability" + i);
+    const slotsOf = (c2) => c2.slot === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : c2.slot === "main_hand" || c2.slot === "off_hand" ? [c2.slot, "two_hand"] : c2.kind === "dropAll" ? [...abilitySlots, "triggers", "abilities"] : c2.slot.startsWith("ability") && c2.slot !== "ability0" ? [c2.slot, "abilities"] : c2.slot === "triggers" ? ["triggers", "abilities"] : [c2.slot];
+    const taken = /* @__PURE__ */ new Set();
+    const picks = [];
+    let left = budget;
+    let built = start;
+    let now = before;
+    let lastRound = [];
+    for (let round = 0; round < ROUNDS2; round++) {
+      const open = shortlist2.filter((c2) => !picks.includes(c2) && !slotsOf(c2).some((x) => taken.has(x)) && c2.cost <= left);
+      if (!open.length) break;
+      const roundEdges = now.map((m, i) => edgeOf(m, 3e3 + 10 * round + i));
+      const from = part(8 + round, 1);
+      const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open.map((c2) => ({ profile: applyCandidate(built, c2), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
+      open.forEach((c2, i) => c2.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
+      lastRound = open;
+      const worth = (c2) => c2.roundLevels >= MIN_LEVELS && (c2.cost === 0 || c2.roundLevels / (c2.cost / 1e6) >= minPerMillion);
+      const good = open.filter(worth);
+      const order = [...good.filter((c2) => c2.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c2) => c2.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
+      let pick2 = null;
+      for (const [k, c2] of order.slice(0, CONFIRM_TRIES).entries()) {
+        const check = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, { profile: applyCandidate(built, c2), crates, edges: roundEdges, repeat: ROUND_ROOMS }], accuracy.improveRooms, 900 + 10 * round + k);
+        c2.roundLevels = (c2.roundLevels + scoreAt(roundEdges)(check[1], check[0])) / 2;
+        if (worth(c2)) {
+          pick2 = c2;
+          break;
+        }
+      }
+      if (!pick2) break;
+      pick2.levels = pick2.roundLevels;
+      picks.push(pick2);
+      slotsOf(pick2).forEach((x) => taken.add(x));
+      left -= pick2.cost;
+      built = applyCandidate(built, pick2);
+      now = await simulateCurves(pool, roomFighter(built, data, crates), targets, accuracy.rooms, part(8 + round, 1));
+    }
+    const after = now;
+    onProgress?.(1e3, 1e3);
+    const strip = ({ profile: _p, ...rest }) => rest;
+    return {
+      style,
+      targets,
+      starter,
+      budget: Number(opts.budget) || 0,
+      spent: (starter && !starter.owned ? starter.cost : 0) + picks.reduce((sum, p2) => sum + p2.cost, 0),
+      before,
+      after,
+      picks: picks.map(strip),
+      // The best of the rest, for "also tested".
+      // The best of the rest in the last round, measured from (nearly) the finished list.
+      nearMisses: lastRound.filter((c2) => !picks.includes(c2) && c2.roundLevels > 0).sort((a, b) => b.roundLevels - a.roundLevels).slice(0, 6).map((c2) => ({ ...strip(c2), levels: c2.roundLevels })),
+      tested: candidates.length,
+      profile: built
+    };
   }
 
   // src/labyrinth-ui.js
   var cap2 = (s2) => s2 ? s2[0].toUpperCase() + s2.slice(1) : "";
   var pctText = (x) => `${Math.round(100 * x)}%`;
   var lvl = (x) => x === null || x === void 0 ? "\u2013" : String(Math.round(x));
-  var DEFAULT_LEVEL = 20;
-  var roomLevelSetting = (settings2) => Math.max(1, Math.min(300, Math.round(Number(settings2.labyLevel) || DEFAULT_LEVEL)));
+  var FLOORS = 10;
+  var roomLevelSetting = (settings2) => Math.max(1, Math.min(300, Math.round(Number(settings2.labyLevel) || FLOOR_ONE_LEVEL)));
+  var buildStyleSetting = (settings2) => ATTACK_STYLES.includes(settings2.labyStyle) ? settings2.labyStyle : "ranged";
   function crateSelect(settings2, kind, slotted) {
     const key2 = kind === "coffee" ? "labyCoffee" : "labyFood";
     const value = settings2[key2] || "slots";
-    const options = [
-      ["slots", `Your Labyrinth slots (${slotted ? cap2(slotted) : "none"})`],
-      ["none", "None"],
-      ...CRATE_TIERS.map((t4) => [t4, cap2(t4)])
-    ];
+    const options = [["slots", `Your Labyrinth slots (${slotted ? cap2(slotted) : "none"})`], ["none", "None"], ...CRATE_TIERS.map((t4) => [t4, cap2(t4)])];
     return `<label title="Opened when you enter the Labyrinth; its buffs last the whole run">${CRATE_KINDS[kind]}
       <select data-setting="${key2}">${options.map(([k, v]) => `<option value="${k}" ${value === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>`;
   }
+  function floorSelect(level) {
+    const options = Array.from({ length: FLOORS }, (_, i) => i + 1).map((f) => `<option value="${f}" ${floorLevel(f) === level ? "selected" : ""}>Floor ${f} (\u2248 level ${floorLevel(f)})</option>`);
+    const custom = !options.some((o2) => o2.includes("selected"));
+    return `<label title="A guess: floor 1 at room level ${FLOOR_ONE_LEVEL} and about ${FLOOR_STEP} levels more per floor (a community guide). Type the room level if the game shows it.">Floor
+      <select data-setting="labyFloor">${custom ? `<option selected value="">Room level ${level}</option>` : ""}${options.join("")}</select></label>`;
+  }
+  var floorText = (level) => level === null ? "" : floorAt(level) ? ` <span class="mwia-dim">(fl. ${floorAt(level)})</span>` : ` <span class="mwia-dim">(below fl. 1)</span>`;
   function verdict(win2, point) {
     if (win2 === null) return "\u2013";
     if (win2 >= SAFE_WIN) return `<span class="mwia-ok" title="You win ${pctText(win2)} of these rooms">\u2705 fight \xB7 ${pctText(win2)}</span>`;
-    const why = !point ? "" : point.deaths >= point.timeouts ? "you die" : "too slow";
-    const whyTitle = !point ? "" : point.deaths >= point.timeouts ? "Most lost rooms end with you dead" : "Most lost rooms end when the 2 minutes run out: more damage needed";
-    if (win2 >= RISKY_WIN) return `<span class="mwia-warn" title="${whyTitle}">\u26A0 risky \xB7 ${pctText(win2)}${why ? ` \xB7 ${why}` : ""}</span>`;
-    return `<span class="mwia-bad" title="${whyTitle}">\u2716 shroud or go around \xB7 ${pctText(win2)}${why ? ` \xB7 ${why}` : ""}</span>`;
+    const dies = point && point.deaths >= point.timeouts;
+    const why = point ? dies ? " \xB7 you die" : " \xB7 too slow" : "";
+    const title = point ? dies ? "Most lost rooms end with you dead" : "Most lost rooms end when the 2 minutes run out: more damage needed" : "";
+    if (win2 >= RISKY_WIN) return `<span class="mwia-warn" title="${title}">\u26A0 risky \xB7 ${pctText(win2)}${why}</span>`;
+    return `<span class="mwia-bad" title="${title}">\u2716 shroud or go around \xB7 ${pctText(win2)}${why}</span>`;
   }
-  function yourMatch(profile, data, hrid, level) {
-    const style = yourStyle(profile, data);
-    const weak = weakStyles(data, hrid);
-    const evasion = evasionByStyle(data, hrid);
-    const least = Math.min(...Object.values(evasion));
-    const styleHtml = weak.includes(style) ? `<span class="mwia-ok" title="It hardly dodges ${cap2(style)}">${cap2(style)} \u2713</span>` : `<span class="mwia-bad" title="It dodges ${cap2(style)} like \xD7${Math.round(evasion[style] / least)} better than its weak style">${cap2(style)} \u2717</span>`;
-    const taken = damageTaken(data, hrid, level);
-    const types = yourDamageTypes(profile, data);
-    let best = null;
-    for (const type of types.keys()) if (!best || taken[type] > taken[best]) best = type;
-    const top = Math.max(...Object.values(taken));
-    const elementHtml = best ? `<span class="${taken[best] >= 0.8 * top ? "mwia-ok" : "mwia-dim"}" title="Share of your ${best} damage that gets through its resistance at room level ${level}">${cap2(best)} ${pctText(taken[best])}</span>` : "";
-    return `${styleHtml} \xB7 ${elementHtml}`;
+  function weakText(data, hrid) {
+    const weak = weakTo(data, hrid);
+    if (weak.thorns) return `<span title="It dodges every style and attacks very fast: the wiki says damage back when it hits you beats it">Thorns / Retaliation</span>`;
+    return weak.styles.map((s2) => s2.types.length === 1 && s2.types[0] === "physical" ? cap2(s2.style) : `${cap2(s2.style)} <span class="mwia-dim">(${s2.types.join(", ")})</span>`).join(" \xB7 ");
   }
-  function weakText(data, hrid, level) {
-    const taken = damageTaken(data, hrid, level);
-    const element = Object.keys(taken).reduce((a, b) => taken[b] > taken[a] ? b : a);
-    return `${weakStyles(data, hrid).map(cap2).join(" / ")} \xB7 ${cap2(element)} <span class="mwia-dim">(${pctText(taken[element])})</span>`;
+  function matchHtml(profile, data, hrid) {
+    const m = profile && yourMatch(profile, data, hrid);
+    if (!m) return "\u2013";
+    const what = m.what.startsWith("/abilities/") ? abilityName(m.what) : m.what.startsWith("/items/") ? itemName(m.what) : m.what;
+    const label3 = `${cap2(m.style)} \xB7 ${m.type}`;
+    if (m.share >= 0.5) return `<span class="mwia-ok" title="Your best hit against it: ${esc(what)}">${label3} \u2713</span>`;
+    return `<span class="mwia-bad" title="Your best hit (${esc(what)}) does about ${Math.max(1, Math.round(1 / Math.max(1e-3, m.share)))}\xD7 worse than its weakness">${label3} \u2717</span>`;
   }
   function summaryHtml(lab, level) {
     const groups = { fight: [], risky: [], skip: [] };
@@ -9567,80 +9754,70 @@ ${triggerWindowReport()}`, false);
       (win2 >= SAFE_WIN ? groups.fight : win2 >= RISKY_WIN ? groups.risky : groups.skip).push(esc(monsterName(m.hrid)));
     }
     const line = (label3, list, cls) => list.length ? `<br><span class="${cls}">${label3}</span> ${list.join(", ")}` : "";
-    return `<div class="mwia-reco"><b>At room level ${level}:</b>
+    const floor = floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
+    return `<div class="mwia-reco"><b>At room level ${level}${floor}</b>, each room type with its best loadout:
       ${line("\u2705 Fight:", groups.fight, "mwia-ok")}${line("\u26A0 Risky:", groups.risky, "mwia-warn")}${line("\u2716 Shroud or go around:", groups.skip, "mwia-bad")}
-      ${groups.fight.length === lab.monsters.length ? "<br>You win every room type here safely \u2013 try a higher room level." : ""}</div>`;
+      ${groups.fight.length === lab.monsters.length ? "<br>You win every room type here safely \u2013 try a deeper floor." : ""}</div>`;
   }
-  function monsterTable(lab, profile, data, level, improve) {
-    const better = improve ? bestPerMonster(improve, lab) : /* @__PURE__ */ new Map();
-    let html = `<table class="mwia-table mwia-wide"><thead><tr><th>Monster</th><th title="Its attack style and damage type">Attacks with</th>
-      <th title="The attack style it hardly dodges, and the damage type its resistances let through best (share at this room level)">Weak to</th>
-      <th title="Your weapon's style against it, and your best damage type (share that gets through)">You</th>
-      <th class="mwia-num" title="Highest room level where you win at least ${pctText(SAFE_WIN)} of the rooms">Safe up to</th>
+  function monsterTable(lab, profileOf, data, level, improve) {
+    const swaps = improve ? bestSwaps(improve) : /* @__PURE__ */ new Map();
+    const several = lab.setups.length > 1;
+    let html = `<table class="mwia-table mwia-wide mwia-laby-rooms"><thead><tr><th>Monster</th><th title="Its attack style and damage type">Attacks with</th>
+      <th title="The attack styles (and damage types) that hurt it most: the styles it hardly dodges and what its resistances let through">Weak to</th>
+      ${several ? `<th title="Your saved loadout that goes furthest against it \u2013 set it for this room type in the game's Labyrinth automation">Loadout</th>` : ""}
+      <th title="That loadout's best way of hitting it: \u2713 when it is (close to) its weakness">Your hit</th>
+      <th class="mwia-num" title="Highest room level where you win at least ${pctText(SAFE_WIN)} of the rooms (the floor is a guess)">Safe up to</th>
       <th class="mwia-num" title="Room level where you win half the rooms">50% at</th>
       <th>At level ${level}</th><th class="mwia-num" title="Typical time to win a room at this level (the limit is 2 minutes)">Win time</th>
       ${improve ? "<th>Better with</th>" : ""}</tr></thead><tbody>`;
     for (const m of lab.monsters) {
       const attack = monsterAttack(data, m.hrid);
       const point = nearestPoint(m.curve, level);
-      const win2 = winAt(m.curve, level);
       const time2 = point?.medianWinSeconds;
-      html += `<tr><td>${esc(monsterName(m.hrid))}</td><td>${cap2(attack.style)} \xB7 ${cap2(attack.type)}</td><td>${weakText(data, m.hrid, level)}</td>
-          <td>${yourMatch(profile, data, m.hrid, level)}</td>
-          <td class="mwia-num">${m.safe === null ? '<span class="mwia-bad">below 5</span>' : lvl(m.safe)}</td><td class="mwia-num">${m.half === null ? '<span class="mwia-bad">below 5</span>' : lvl(m.half)}</td>
-          <td>${verdict(win2, point)}</td><td class="mwia-num">${time2 ? `${Math.round(time2)} s` : "\u2013"}</td>
-          ${improve ? `<td>${better.get(m.hrid) || '<span class="mwia-dim">\u2013</span>'}</td>` : ""}</tr>`;
+      html += `<tr><td>${esc(monsterName(m.hrid))}</td><td>${cap2(attack.style)} \xB7 ${attack.type}</td><td><span>${weakText(data, m.hrid)}</span></td>
+          ${several ? `<td>${esc(m.setupName)}</td>` : ""}<td>${matchHtml(profileOf(m.setupId), data, m.hrid)}</td>
+          <td class="mwia-num">${m.safe === null ? '<span class="mwia-bad">below 5</span>' : `<span>${lvl(m.safe)}${floorText(m.safe)}</span>`}</td>
+          <td class="mwia-num">${m.half === null ? '<span class="mwia-bad">below 5</span>' : lvl(m.half)}</td>
+          <td>${verdict(winAt(m.curve, level), point)}</td><td class="mwia-num">${time2 ? `${Math.round(time2)} s` : "\u2013"}</td>
+          ${improve ? `<td><span>${swaps.get(m.hrid) || '<span class="mwia-dim">\u2013</span>'}</span></td>` : ""}</tr>`;
     }
     return html + `</tbody></table>`;
   }
-  function bestPerMonster(improve, lab) {
-    const out = /* @__PURE__ */ new Map();
-    for (const base of improve.base) {
-      const parts = [];
-      const now = lab.monsters.find((m) => m.hrid === base.hrid)?.half ?? 0;
-      let bestStyle = null;
-      for (const style of improve.styles) {
-        const m = style.monsters.find((x) => x.hrid === base.hrid);
-        if (m?.half !== null && m.half >= now + 2 && (!bestStyle || m.half > bestStyle.half)) bestStyle = { ...style, half: m.half };
-      }
-      if (bestStyle) {
-        parts.push(`${cap2(bestStyle.style)} with ${esc(itemName(bestStyle.weapon.hrid))}${bestStyle.weapon.enhancementLevel ? " +" + bestStyle.weapon.enhancementLevel : ""}
-              <span class="mwia-dim">(${bestStyle.weapon.owned ? "yours" : shortCoins(bestStyle.weapon.cost)})</span>: 50% at ${lvl(bestStyle.half)}`);
-      }
-      let bestSwap = null;
-      for (const c2 of improve.candidates) {
-        if (c2.kind !== "swap") continue;
-        const m = c2.perMonster.find((x) => x.hrid === base.hrid);
-        if (m && m.levels >= 1 && m.after > m.before && (!bestSwap || m.levels > bestSwap.levels)) bestSwap = { ...m, label: c2.label };
-      }
-      if (bestSwap) parts.push(`${esc(bestSwap.label)} <span class="mwia-dim">(\u2248 +${bestSwap.levels.toFixed(1)} levels)</span>`);
-      if (parts.length) out.set(base.hrid, parts.join("<br>"));
-    }
-    return out;
-  }
-  function stylesHtml(improve, lab) {
-    if (!improve.styles.length) return "";
-    const lines = improve.styles.map((style) => {
-      const wins = style.monsters.filter((m) => {
-        const now = lab.monsters.find((x) => x.hrid === m.hrid)?.half ?? 0;
-        return m.half !== null && m.half >= now + 2;
-      });
-      const weapon = `${esc(itemName(style.weapon.hrid))}${style.weapon.enhancementLevel ? " +" + style.weapon.enhancementLevel : ""} <span class="mwia-dim">(${style.weapon.owned ? "yours" : shortCoins(style.weapon.cost)})</span>`;
-      return `<li><b>${cap2(style.style)}</b> with ${weapon}: ${wins.length ? `further against ${wins.map((m) => esc(monsterName(m.hrid))).join(", ")}` : '<span class="mwia-dim">no further against any monster</span>'}</li>`;
+  function loadoutMatrix(lab) {
+    if (lab.setups.length < 2) return "";
+    let html = `<details class="mwia-skill-sec"><summary>All your loadouts: room level where each wins half the rooms</summary>
+      <table class="mwia-table mwia-wide"><thead><tr><th>Monster</th>${lab.setups.map((s2) => `<th class="mwia-num">${esc(s2.name)}</th>`).join("")}</tr></thead><tbody>`;
+    lab.monsters.forEach((best, i) => {
+      html += `<tr><td>${esc(monsterName(best.hrid))}</td>${lab.setups.map((s2) => {
+        const m = s2.monsters[i];
+        const text = m.half === null ? "below 5" : lvl(m.half);
+        return `<td class="mwia-num">${s2.id === best.setupId ? `<b>${text}</b>` : `<span class="mwia-dim">${text}</span>`}</td>`;
+      }).join("")}</tr>`;
     });
-    return `<p>Other attack styles, tried with only the weapon changed (the rest of your gear, abilities and levels as now):</p><ul>${lines.join("")}</ul>
-      <p class="mwia-dim">A style only pays off with gear and abilities for it \u2013 a style your gear isn't made for rarely helps, even against a monster weak to it.</p>`;
+    return html + `</tbody></table></details>`;
   }
-  function improveHtml(improve, lab) {
+  function bestSwaps(improve) {
+    const out = /* @__PURE__ */ new Map();
+    for (const c2 of improve.candidates) {
+      if (c2.kind !== "swap") continue;
+      for (const m of c2.perMonster) {
+        if (m.levels < 1 || m.after <= m.before) continue;
+        const known = out.get(m.hrid);
+        if (!known || m.levels > known.levels) out.set(m.hrid, { levels: m.levels, label: c2.label });
+      }
+    }
+    return new Map([...out].map(([hrid, s2]) => [hrid, `${esc(s2.label)} <span class="mwia-dim">(\u2248 +${s2.levels.toFixed(1)} levels)</span>`]));
+  }
+  function improveHtml(improve) {
     const general = improve.candidates.filter((c2) => c2.kind !== "swap").sort((a, b) => b.levels - a.levels);
     const useful = general.filter((c2) => c2.levels >= 0.5);
     let html = `<h3>What takes you further</h3>
-      <p class="mwia-dim">Each change is simulated against every monster at the room level where you now win about half the rooms
-      (${improve.rooms} rooms each). The gain is shown as room levels: how much higher you could go for the same win rate. A monster's stats grow
-      in proportion to the room level (at level 20 one level more is 5% stronger), so at low levels the gains look small.</p>`;
+      <p class="mwia-dim">Each change is simulated against every monster, with the loadout you'd use for it, at the room level where you now win about
+      half the rooms (${improve.rooms} rooms each). The gain is shown as room levels: how much deeper you could go for the same win rate, averaged over
+      all ten room types. A monster's stats grow in proportion to the room level (at level 20 one level more is 5% stronger), so low down the gains look small.</p>`;
     if (!useful.length) html += `<p>None of the crates, skill levels or ability levels tested here takes you clearly further.</p>`;
     else {
-      html += `<table class="mwia-table mwia-wide"><thead><tr><th>Work on</th><th class="mwia-num" title="Room levels gained, averaged over the ten monsters">\u2248 Room levels</th><th>Helps most against</th></tr></thead><tbody>`;
+      html += `<table class="mwia-table mwia-wide"><thead><tr><th>Work on</th><th class="mwia-num" title="Room levels gained, averaged over the ten room types">\u2248 Room levels</th><th>Helps most against</th></tr></thead><tbody>`;
       for (const c2 of useful) {
         const most = [...c2.perMonster].filter((m) => m.levels >= 1).sort((a, b) => b.levels - a.levels).slice(0, 4);
         html += `<tr><td>${esc(c2.label)}</td><td class="mwia-num">+${c2.levels.toFixed(1)}</td>
@@ -9648,47 +9825,109 @@ ${triggerWindowReport()}`, false);
       }
       html += `</tbody></table>`;
     }
-    const flat = general.filter((c2) => c2.levels < 0.5).map((c2) => esc(c2.label));
+    const flat = [...new Set(general.filter((c2) => c2.levels < 0.5).map((c2) => c2.label))].map(esc);
     if (flat.length) html += `<p class="mwia-dim">No clear effect (within the noise): ${flat.join(", ")}.</p>`;
-    html += stylesHtml(improve, lab);
-    html += `<p class="mwia-dim"><b>Better with</b> in the table above: another attack style (your weapon swapped for the one named, everything else as now)
-      or an ability you know in place of one you use \u2013 useful if you can change your setup between rooms.</p>`;
+    html += `<p class="mwia-dim"><b>Better with</b> in the table above: an ability you know in place of one that monster's loadout uses.</p>`;
     return html;
   }
-  function renderLabyrinth({ lab, improve, profile, data, settings: settings2, busy, settingsHtml: settingsHtml2, slotted, gearNote }) {
+  function pickText(p2, coins8) {
+    const gear = (hrid, level) => `${esc(itemName(hrid))}${level ? " +" + level : ""}`;
+    const levels = `<span class="mwia-dim">\u2248 +${p2.levels.toFixed(1)} room levels</span>`;
+    const price = p2.cost ? coins8(p2.cost) : p2.owned ? '<span class="mwia-ok">you own it</span>' : "free";
+    if (p2.kind === "gear") {
+      const how = p2.enhance ? ` <span class="mwia-dim">(\u{1F528} enhance it yourself)</span>` : "";
+      return `${cap2(p2.slot.replace("_", " "))}: <b>${gear(p2.hrid, p2.enhancementLevel)}</b>${p2.replaces ? ` instead of ${gear(p2.replaces.hrid, p2.replaces.enhancementLevel)}` : ""}${how} \u2013 ${price} \xB7 ${levels}`;
+    }
+    if (p2.kind === "ability") return `Ability: <b>${esc(abilityName(p2.hrid))}</b>${p2.replaces ? ` instead of ${esc(abilityName(p2.replaces))}` : " in an empty slot"}${p2.cost ? " (book)" : ""} \u2013 ${price} \xB7 ${levels}`;
+    if (p2.kind === "abilityLevel") return `Level <b>${esc(abilityName(p2.hrid))}</b> ${p2.fromLevel} \u2192 ${p2.level} (${p2.books} book${p2.books === 1 ? "" : "s"}) \u2013 ${price} \xB7 ${levels}`;
+    if (p2.kind === "triggers") return `Run your abilities <b>without triggers</b> (cast as soon as they're ready) \u2013 free \xB7 ${levels}`;
+    if (p2.kind === "drop") return `Take <b>${esc(abilityName(p2.hrid))}</b> off \u2013 free \xB7 ${levels}`;
+    if (p2.kind === "dropAll") return `Take <b>all abilities</b> off (auto attacks only) \u2013 free \xB7 ${levels}`;
+    return "";
+  }
+  function cartOf(build) {
+    const items = [];
+    if (build.starter && !build.starter.owned) items.push({ hrid: build.starter.hrid, quantity: 1, enhancementLevel: build.starter.enhancementLevel });
+    for (const p2 of build.picks) {
+      if (p2.kind === "gear" && !p2.owned && !p2.enhance) items.push({ hrid: p2.hrid, quantity: 1, enhancementLevel: p2.enhancementLevel });
+      if ((p2.kind === "ability" || p2.kind === "abilityLevel") && p2.cost && p2.bookHrid) items.push({ hrid: p2.bookHrid, quantity: p2.books || 1, enhancementLevel: 0 });
+    }
+    return items;
+  }
+  function buildHtml(build, data, settings2, busy, settingsHtml2, cartButton4, coins8) {
+    const style = buildStyleSetting(settings2);
+    const targets = monstersFor(data, style).map((h2) => esc(monsterName(h2)));
+    let html = `<h3>Build a loadout for the Labyrinth</h3>
+      <p>Starts from your gear (<b>Gear from</b>) with a weapon for the style \u2013 yours, else the cheapest \u2013 and tries every piece of gear, every ability
+      (new, or levelled with books), taking abilities off and running them without triggers against the room types weak to that style, at the room level where you now
+      win about half. Ranked by room levels per coin \u2013 for winning 2-minute duels, not for XP or loot.</p>
+      <div class="mwia-settings"><label title="The attack style to build for; the room types weak to it are the targets">Fight as
+        <select data-setting="labyStyle">${ATTACK_STYLES.map((s2) => `<option value="${s2}" ${s2 === style ? "selected" : ""}>${cap2(s2)}</option>`).join("")}</select></label></div>
+      ${settingsHtml2(["gear", "budget", "spending"])}
+      <p class="mwia-dim">For: ${targets.join(", ") || "no room type"}.</p>
+      <button class="mwia-btn" data-action="laby-build" ${busy ? "disabled" : ""}>Build loadout</button>`;
+    if (!build || build.style !== style) return html;
+    const before = new Map(build.before.map((m) => [m.hrid, m]));
+    html += `<div class="mwia-reco"><b>${cap2(build.style)} loadout</b> \u2013 ${build.picks.length || build.starter ? `for ${coins8(build.spent)} of your ${coins8(build.budget)}` : "nothing to buy"}`;
+    if (build.starter) html += `<br>Weapon: <b>${esc(itemName(build.starter.hrid))}${build.starter.enhancementLevel ? " +" + build.starter.enhancementLevel : ""}</b> ${build.starter.owned ? '<span class="mwia-ok">you own it</span>' : "\u2013 " + coins8(build.starter.cost)}`;
+    html += `<ol class="mwia-plan">${build.picks.map((p2) => `<li>${pickText(p2, coins8)}</li>`).join("") || "<li>Nothing tested takes these rooms clearly further within the budget.</li>"}</ol>`;
+    const cart = cartOf(build);
+    if (cart.length) html += cartButton4(cart, "\u{1F6D2} Add all to the cart");
+    html += `</div><table class="mwia-table mwia-wide mwia-laby-built"><thead><tr><th>Monster</th><th class="mwia-num" title="Highest room level with at least ${pctText(SAFE_WIN)} of the rooms won">Safe: now</th><th class="mwia-num">Safe: built</th><th class="mwia-num" title="Room level where you win half the rooms">50%: now</th><th class="mwia-num">50%: built</th></tr></thead><tbody>`;
+    for (const m of build.after) {
+      const b = before.get(m.hrid);
+      const cell = (x) => x === null ? "below 5" : lvl(x);
+      html += `<tr><td>${esc(monsterName(m.hrid))}</td><td class="mwia-num">${cell(b.safe)}</td><td class="mwia-num"><span><b>${cell(m.safe)}</b>${floorText(m.safe)}</span></td>
+          <td class="mwia-num">${cell(b.half)}</td><td class="mwia-num"><b>${cell(m.half)}</b></td></tr>`;
+    }
+    html += `</tbody></table>`;
+    if (build.nearMisses?.length) {
+      html += `<details class="mwia-skill-sec"><summary>Also tested: the closest that didn't make the list (on top of it)</summary><ul>${build.nearMisses.map((p2) => `<li>${pickText(p2, coins8)}</li>`).join("")}</ul></details>`;
+    }
+    html += `<p class="mwia-dim">"Now" is your gear (Gear from)${build.starter ? " with the weapon above" : ""}. Put the list on in the game, save it as a
+      loadout and pick it for these room types in the Labyrinth automation. ${build.tested} changes tested; each has to take you at least half a room level further
+      (and a purchase, under <b>Spending</b>, Frugal: 2 levels per 1M, Balanced: 0.5, All in: anything within the budget).</p>`;
+    return html;
+  }
+  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml2, slotted, setupsNote, cartButton: cartButton4, coins: coins8 = shortCoins }) {
     const level = roomLevelSetting(settings2);
-    let html = `<p>Simulates your combat setup against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
-      one monster, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
-      It shows which rooms you win at a room level, which to shroud or go around, and what would take you further.</p>
-      ${settingsHtml2(["gear", "accuracy"])}${gearNote}
-      <div class="mwia-settings">${crateSelect(settings2, "coffee", slotted.coffee)}${crateSelect(settings2, "food", slotted.food)}
+    let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
+      1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
+      The game's Labyrinth automation can put on a loadout for each room type, so every monster is judged with the loadout that does best against it.</p>
+      ${settingsHtml2(["accuracy"])}${setupsNote}
+      <div class="mwia-settings">${crateSelect(settings2, "coffee", slotted.coffee)}${crateSelect(settings2, "food", slotted.food)}${floorSelect(level)}
       <label title="The room level to judge the rooms at; changing it needs no new simulation">Room level
         <input data-setting="labyLevel" type="number" min="1" max="300" step="1" size="4" value="${level}"></label></div>
       <button class="mwia-btn" data-action="laby-check" ${busy ? "disabled" : ""}>Check the rooms</button>`;
-    if (!lab) return html;
-    const crates = Object.entries(lab.crates).filter(([, t4]) => t4).map(([k, t4]) => `${cap2(t4)} ${CRATE_KINDS[k]}`);
-    html += `<p class="mwia-dim">Simulated with ${crates.length ? crates.join(" and ") : "no crates"}, ${lab.rooms} rooms per monster and room level.</p>`;
-    html += summaryHtml(lab, level);
-    html += monsterTable(lab, profile, data, level, improve);
-    html += `<button class="mwia-btn" data-action="laby-improve" ${busy ? "disabled" : ""}>What should I improve?</button>`;
-    if (improve) html += improveHtml(improve, lab);
-    html += `<p class="mwia-dim">Each monster hardly dodges one or two attack styles (<b>Weak to</b>) and takes far more of one damage type: the Labyrinth wants
-      magic for some rooms, ranged for others and melee (stab, slash or smash) for the rest. Shrouds clear a room without a fight
-      (Basic: 2% fail chance per level above 50, Advanced above 100, Expert never fails).
-      Estimates from the community simulator's Labyrinth rules \u2013 the game can differ.</p>`;
+    if (lab) {
+      const crates = Object.entries(lab.crates).filter(([, t4]) => t4).map(([k, t4]) => `${cap2(t4)} ${CRATE_KINDS[k]}`);
+      html += `<p class="mwia-dim">Simulated with ${crates.length ? crates.join(" and ") : "no crates"}, ${lab.rooms} rooms per monster and room level, ${lab.setups.length} loadout${lab.setups.length === 1 ? "" : "s"}.</p>`;
+      html += summaryHtml(lab, level);
+      html += monsterTable(lab, profileOf, data, level, improve);
+      html += loadoutMatrix(lab);
+      html += `<button class="mwia-btn" data-action="laby-improve" ${busy ? "disabled" : ""}>What should I improve?</button>`;
+      if (improve) html += improveHtml(improve);
+    }
+    html += buildHtml(build, data, settings2, busy, settingsHtml2, cartButton4, coins8);
+    html += `<p class="mwia-dim">Each monster hardly dodges one or two attack styles and takes far more of one damage type (<b>Weak to</b>): the Labyrinth wants
+      magic for some rooms, ranged for others and melee (stab, slash or smash) for the rest. Single-target damage is what counts in a 1-against-1 room.
+      Shrouds clear a room without a fight (Basic: 2% fail chance per level above 50, Advanced above 100, Expert never fails).
+      Floors are a guess (floor 1 \u2248 room level ${FLOOR_ONE_LEVEL}, +${FLOOR_STEP} a floor). Estimates from the community simulator's Labyrinth rules \u2013 the game can differ.</p>`;
     return html;
   }
-  function labyrinthExportLines(lab, improve, settings2) {
-    if (!lab) return [];
+  function labyrinthExportLines(lab, improve, build, settings2) {
+    const lines = [];
     const level = roomLevelSetting(settings2);
-    const lines = [`Crates: coffee ${lab.crates.coffee || "none"}, food ${lab.crates.food || "none"} \xB7 room level ${level}`];
-    for (const m of lab.monsters) {
-      const win2 = winAt(m.curve, level);
-      lines.push(`${monsterName(m.hrid)}: safe up to ${m.safe ?? "<5"} \xB7 50% at ${m.half === null ? "<5" : Math.round(m.half)} \xB7 at ${level}: ${pctText(win2)}`);
+    if (lab) {
+      lines.push(`Crates: coffee ${lab.crates.coffee || "none"}, food ${lab.crates.food || "none"} \xB7 room level ${level} \xB7 loadouts ${lab.setups.map((s2) => s2.name).join(", ")}`);
+      for (const m of lab.monsters) {
+        lines.push(`${monsterName(m.hrid)} (${m.setupName}): safe up to ${m.safe ?? "<5"} \xB7 50% at ${m.half === null ? "<5" : Math.round(m.half)} \xB7 at ${level}: ${pctText(winAt(m.curve, level))}`);
+      }
     }
-    if (improve) {
-      for (const c2 of improve.candidates.filter((c3) => c3.kind !== "swap" && c3.levels >= 0.5).sort((a, b) => b.levels - a.levels)) lines.push(`Work on: ${c2.label} \u2248 +${c2.levels.toFixed(1)} room levels`);
-      for (const s2 of improve.styles) lines.push(`As ${s2.style} (${itemName(s2.weapon.hrid)}): ` + s2.monsters.map((m) => `${monsterName(m.hrid)} ${m.half === null ? "<5" : Math.round(m.half)}`).join(", "));
+    if (improve) for (const c2 of improve.candidates.filter((c3) => c3.kind !== "swap" && c3.levels >= 0.5).sort((a, b) => b.levels - a.levels)) lines.push(`Work on: ${c2.label} \u2248 +${c2.levels.toFixed(1)} room levels`);
+    if (build) {
+      lines.push(`Built ${build.style} loadout for ${shortCoins(build.spent)}${build.starter ? ` with ${itemName(build.starter.hrid)}` : ""}: ${build.picks.map((p2) => p2.kind === "triggers" ? "no triggers" : p2.kind === "dropAll" ? "no abilities" : p2.kind === "drop" ? "without " + abilityName(p2.hrid) : p2.kind === "gear" ? itemName(p2.hrid) + (p2.enhancementLevel ? " +" + p2.enhancementLevel : "") : abilityName(p2.hrid) + (p2.kind === "abilityLevel" ? ` ${p2.level}` : "")).join(", ") || "nothing"}`);
+      for (const m of build.after) lines.push(`  ${monsterName(m.hrid)}: 50% at ${m.half === null ? "<5" : Math.round(m.half)}`);
     }
     return lines;
   }
@@ -9755,8 +9994,12 @@ ${triggerWindowReport()}`, false);
     // the 🧭 button
     labResult: null,
     // Labyrinth: win rate by room level against each monster
-    labImprove: null
+    labImprove: null,
     // Labyrinth: what takes you further
+    labBuild: null,
+    // Labyrinth: a loadout built for one attack style's rooms
+    labSetups: null
+    // Labyrinth: the loadouts the last check compared
   };
   var MARKET_PANEL = '[class*="MarketplacePanel_marketplacePanel"]';
   var MARKET_SHOW_MS = 8e3;
@@ -9875,37 +10118,61 @@ ${triggerWindowReport()}`, false);
     if (best) return best.zone;
     return profile.currentZone || null;
   }
-  function labyrinthProfile() {
+  function labyrinthSetups() {
     const data = getClientData();
-    if (!state.character || !data) return null;
-    const loadout = labyrinthLoadout(state.character);
-    if (!loadout) return currentProfile();
-    return applyLoadout(buildProfile(state.character, state.items, data), loadout, state.items, data);
+    if (!state.character || !data) return [];
+    const base = buildProfile(state.character, state.items, data);
+    const setups = [];
+    const seen = /* @__PURE__ */ new Set();
+    const add = (id, name, profile) => {
+      const key2 = JSON.stringify([profile.equipment, profile.abilities, profile.abilityTriggers]);
+      if (seen.has(key2)) return;
+      seen.add(key2);
+      setups.push({ id, name, profile });
+    };
+    for (const loadout of [...combatLoadouts(state.character), ...labyrinthLoadouts(state.character)]) {
+      add(loadout.id, loadout.name || "Loadout", applyLoadout(base, loadout, state.items, data));
+    }
+    add("equipped", "Equipped now", base);
+    return setups;
   }
   async function doLabyrinth() {
     ui.labImprove = null;
-    ui.labResult = await analyzeLabyrinth(ui.pool, labyrinthProfile(), getClientData(), ui.settings, state.character, progress("Simulating Labyrinth rooms"));
+    ui.labSetups = labyrinthSetups();
+    ui.labResult = await analyzeLabyrinth(ui.pool, ui.labSetups, getClientData(), ui.settings, state.character, progress("Simulating Labyrinth rooms"));
   }
   async function doLabImprove() {
     if (!ui.labResult) await doLabyrinth();
-    ui.labImprove = await analyzeImprovements(ui.pool, labyrinthProfile(), getClientData(), ui.settings, ui.labResult, progress("Testing improvements"));
+    ui.labImprove = await analyzeImprovements(ui.pool, ui.labSetups, getClientData(), ui.settings, ui.labResult, progress("Testing improvements"));
+  }
+  async function doLabBuild() {
+    const style = buildStyleSetting(ui.settings);
+    ui.labBuild = null;
+    ui.labBuild = await buildLoadout(ui.pool, currentProfile(), getClientData(), ui.settings, {
+      style,
+      budget: Number(ui.settings.budget) || 0,
+      enhanceCost: enhanceCostFor(),
+      crates: chosenCrates(ui.settings, state.character)
+    }, progress(`Building a ${style} loadout`));
   }
   function renderLabyrinthTab() {
     const data = getClientData();
     if (!state.character) return `<p>The script hasn't seen your character yet. <b>Reload the page (F5)</b> with the script enabled.</p>`;
     if (!data) return `<p>The game data loads with the first analysis.</p><button class="mwia-btn" data-action="laby-check" ${ui.busy ? "disabled" : ""}>Check the rooms</button>`;
-    const loadout = labyrinthLoadout(state.character);
-    const profile = labyrinthProfile();
+    const setups = ui.labSetups || labyrinthSetups();
     return renderLabyrinth({
       lab: ui.labResult,
       improve: ui.labImprove,
-      profile,
+      build: ui.labBuild,
+      profileOf: (id) => setups.find((s2) => s2.id === id)?.profile || null,
       data,
       settings: ui.settings,
       busy: ui.busy,
-      settingsHtml: (fields) => settingsHtml(loadout ? fields.filter((f) => f !== "gear") : fields),
+      settingsHtml,
       slotted: { coffee: slottedCrate(state.character, "coffee"), food: slottedCrate(state.character, "food") },
-      gearNote: loadout ? `<p class="mwia-dim">Gear and abilities from your Labyrinth loadout <b>${esc(loadout.name || "Loadout")}</b>.</p>` : loadoutNote(profile)
+      setupsNote: `<p class="mwia-dim">Loadouts: ${setups.map((s2) => `<b>${esc(s2.name)}</b>`).join(", ")}${setups.length < 2 ? " \u2013 save a loadout per combat style in the game to compare them here" : ""}.</p>`,
+      cartButton: cartButton3,
+      coins: coins7
     });
   }
   function rerateUpgrades() {
@@ -10237,7 +10504,7 @@ ${triggerWindowReport()}`, false);
     };
     attempt3("Skilling: best now", () => getClientData() ? skillingExportLines(ui.settings) : []);
     if (ui.zoneResults) attempt3("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
-    if (ui.labResult) attempt3("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.settings));
+    if (ui.labResult || ui.labBuild) attempt3("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.labBuild, ui.settings));
     if (ui.upgradeResult) attempt3("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
     return { settings: ui.settings, sections };
   }
@@ -10642,10 +10909,12 @@ ${triggerWindowReport()}`, false);
     MP food lets you keep casting abilities. <b>Drinks</b> (coffee) give a 5-minute buff, e.g. Magic or Ranged Coffee (+level)
     or Wisdom Coffee (+XP). A <b>pouch</b> gives extra food and drink slots.</p>
     <h3>The Labyrinth</h3>
-    <p>A combat room is one monster, scaled to the room level, fought from full HP and mana with no food or drinks (only the crates opened on entry)
-    and 2 minutes to win. Every monster hardly dodges one or two attack styles and dodges the rest many times over, and takes far more of one
-    damage type: the Labyrinth wants magic for some rooms, ranged for others and melee for the rest. The <b>Labyrinth</b> tab shows which rooms you
-    win at a room level, which to shroud or go around, and what would take you further.</p>
+    <p>A combat room is one monster, scaled to the room level, fought 1 against 1 from full HP and mana with no food or drinks (only the crates
+    opened on entry) and 2 minutes to win, so single-target damage is what counts. Every monster hardly dodges one or two attack styles and dodges
+    the rest many times over, and takes far more of one damage type: the Labyrinth wants magic for some rooms, ranged for others and melee for the
+    rest. The game's Labyrinth automation can put on a loadout for each room type, so a loadout per combat style pays off. The <b>Labyrinth</b>
+    tab shows which of your loadouts to use for each room type, which rooms to shroud or go around, what would take you further, and builds a
+    loadout for the rooms of one style.</p>
     <h3>What this script does</h3>
     <p>It reads your character from the game, fetches current market prices and runs combat simulations with the same engine as the community
     Combat Simulator (shykai/AmVoidGuy, MIT licence), but fed with the game's own current data. Every suggestion is tested by simulating
@@ -10733,7 +11002,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.60.0" : "dev";
+  var VERSION3 = true ? "0.61.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -10810,6 +11079,9 @@ ${triggerWindowReport()}`, false);
         break;
       case "laby-improve":
         runTask(doLabImprove);
+        break;
+      case "laby-build":
+        runTask(doLabBuild);
         break;
       case "upgrades-abilities":
         runTask(() => doUpgrades("abilities"));
@@ -10919,13 +11191,19 @@ ${triggerWindowReport()}`, false);
       return;
     }
     if (key2.startsWith("laby")) {
-      if (key2 !== "labyLevel") ui.labResult = ui.labImprove = null;
+      if (key2 === "labyFloor") {
+        if (event.target.value) ui.settings.labyLevel = floorLevel(Number(event.target.value));
+        delete ui.settings.labyFloor;
+        saveSettings();
+      } else if (key2 === "labyCoffee" || key2 === "labyFood") {
+        ui.labResult = ui.labImprove = ui.labBuild = null;
+      }
       render2();
       return;
     }
     if (key2 === "combatStyle" || key2 === "combatGear") {
       ui.zoneResults = null;
-      if (key2 === "combatGear") ui.labResult = ui.labImprove = null;
+      if (key2 === "combatGear") ui.labBuild = null;
       ui.upgradeRaw = ui.upgradeResult = ui.plan = ui.verified = null;
       render2();
       return;
@@ -11256,8 +11534,8 @@ ${triggerWindowReport()}`, false);
     const price = priceIn(c2);
     const parts = [];
     if (price > 0 && c2.book) {
-      const { better, same: same2 } = standing(price, c2.levels, c2.side);
-      parts.push(`${num(better)} ${sell ? "listed cheaper" : "bid higher"}${same2 ? `, ${num(same2)} at ${num(price)}` : ""}`);
+      const { better: better2, same: same2 } = standing(price, c2.levels, c2.side);
+      parts.push(`${num(better2)} ${sell ? "listed cheaper" : "bid higher"}${same2 ? `, ${num(same2)} at ${num(price)}` : ""}`);
       const age = Date.now() - c2.book.at;
       if (age > BOOK_OLD_MS) parts.push(`order book ${Math.round(age / 6e4)} min old`);
       const top = (sell ? c2.book.asks : c2.book.bids)[0]?.price;

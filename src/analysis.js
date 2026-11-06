@@ -275,7 +275,7 @@ function resaleOf(gear, data) {
 }
 
 // settings: { budget, starter, enhanceCost } – see gearOptions for enhanceCost.
-function gearCandidates(profile, settings) {
+export function gearCandidates(profile, settings) {
     const { budget, starter = null, enhanceCost = null } = settings;
     const data = getClientData();
     const style = weaponStyle(profile, data);
@@ -406,7 +406,7 @@ function combatConsumables(kind) {
         .map((item) => item.hrid);
 }
 
-function abilityCandidates(profile, budget) {
+export function abilityCandidates(profile, budget) {
     const data = getClientData();
     const slots = slotCounts(profile, data);
     if (slots.abilities === 0) return [];

@@ -1,6 +1,7 @@
 // The Labyrinth tab in a real browser: checks the rooms against every Labyrinth monster
-// with the crate from the character's Labyrinth slots, re-reads them at another room
-// level without simulating again, then tests what takes you further.
+// with each saved loadout (a magic and a ranged one) and the crate from the character's
+// Labyrinth slots, re-reads them at another room level and floor without simulating
+// again, tests what takes you further, and builds a ranged loadout within a budget.
 // Usage: node test/labyrinth-browser-test.mjs <screenshot-dir>
 // BROWSER_PATH picks another browser (Chromium). MOBILE=1 runs it at iPhone size.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -32,7 +33,18 @@ character.characterAbilities = [
     { abilityHrid: "/abilities/flame_blast", level: 43, experience: 0, slotNumber: 2 },
     { abilityHrid: "/abilities/water_strike", level: 30, experience: 0, slotNumber: 0 },
 ];
+character.characterAbilities.push({ abilityHrid: "/abilities/quick_shot", level: 10, experience: 0, slotNumber: 0 });
 character.combatUnit = { combatAbilities: [{ abilityHrid: "/abilities/fireball", level: 37 }, { abilityHrid: "/abilities/flame_blast", level: 43 }] };
+// Two saved combat loadouts: the mage as worn, and a ranged one with the crossbow and Quick Shot.
+const wear = (slot, hash) => [`/item_locations/${slot}`, hash];
+character.characterLoadoutMap = {
+    1: { name: "Magic", actionTypeHrid: "/action_types/combat", isDefault: true, ordinal: 1,
+        wearableMap: Object.fromEntries(Object.entries(gear).map(([slot, hrid]) => wear(slot, `1::/item_locations/${slot}::/items/${hrid}::0`))),
+        abilityMap: { 1: "/abilities/fireball", 2: "/abilities/flame_blast" } },
+    2: { name: "Ranged", actionTypeHrid: "/action_types/combat", ordinal: 2,
+        wearableMap: Object.fromEntries([...Object.entries(gear).filter(([slot]) => slot !== "two_hand"), ["two_hand", "cedar_crossbow"]].map(([slot, hrid]) => wear(slot, `1::/item_locations/${slot}::/items/${hrid}::0`))),
+        abilityMap: { 1: "/abilities/quick_shot" } },
+};
 character.actionTypeDrinkSlotsMap["/action_types/labyrinth"] = [{ itemHrid: "/items/basic_coffee_crate" }, null, null, null];
 
 const marketData = {};
@@ -97,28 +109,38 @@ try {
     check("the tab explains the room rules", /no food or drinks/.test(intro) && /2 minutes/.test(intro), intro.slice(0, 200));
     check("the crate in the Labyrinth slots is offered", /Your Labyrinth slots \(Basic\)/.test(intro));
 
+    check("both saved loadouts are listed", /Loadouts: Magic, Ranged/.test(intro), intro.match(/Loadouts:[^\n]*/)?.[0]);
+
     await page.select('[data-setting="accuracy"]', "fast");
     let t0 = Date.now();
     await page.click('[data-action="laby-check"]');
     await idle(page, "At room level 20");
     console.log(`room check took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     let text = await body(page);
-    check("simulated with the slotted crate", /Simulated with Basic Coffee crate, 20 rooms per monster/.test(text), text.match(/Simulated with[^\n]*/)?.[0]);
-    const rows = await page.$$eval(".mwia-body tbody tr", (trs) => trs.map((tr) => [...tr.cells].map((c) => c.innerText.trim())));
+    check("simulated with the slotted crate and both loadouts", /Simulated with Basic Coffee crate, 20 rooms per monster and room level, 2 loadouts/.test(text), text.match(/Simulated with[^\n]*/)?.[0]);
+    check("room level 20 is floor 1 (a guess)", /At room level 20 \(floor 1, a guess\)/.test(text));
+    const rows = await page.$$eval(".mwia-laby-rooms tbody tr", (trs) => trs.map((tr) => [...tr.cells].map((c) => c.innerText.trim())));
     check("one row per Labyrinth monster", rows.length === 10 && rows.some((r) => r[0] === "Cyclops") && rows.some((r) => r[0] === "Mimic"), rows.map((r) => r[0]).join(", "));
-    const cyclops = rows.find((r) => r[0] === "Cyclops") || [];
-    check("Cyclops: weak to magic and fire, a fire mage hits it right", /Magic/.test(cyclops[2]) && /Fire/.test(cyclops[2]) && /Magic ✓/.test(cyclops[3]) && /Fire/.test(cyclops[3]), cyclops.join(" | "));
-    const dryad = rows.find((r) => r[0] === "Dryad") || [];
-    check("Dryad: weak to ranged, magic is the wrong style", /Ranged/.test(dryad[2]) && /Magic ✗/.test(dryad[3]), dryad.join(" | "));
-    check("the mage beats a Cyclops further than a Dryad", Number(cyclops[5]) > Number(dryad[5]), `${cyclops[5]} vs ${dryad[5]}`);
-    check("a verdict for each monster at the room level", rows.every((r) => /fight|risky|shroud/.test(r[6])), rows.map((r) => r[6]).join(" / "));
-    check("summary groups the rooms", /✅ Fight:|⚠ Risky:|✖ Shroud or go around:/.test(text));
+    const row = (name) => rows.find((r) => r[0] === name) || [];
+    check("Cyclops: weak to fire and water magic (as the wiki says), fought with the Magic loadout", /Magic \(fire, water\)/.test(row("Cyclops")[2]) && row("Cyclops")[3] === "Magic" && /Magic · fire ✓/.test(row("Cyclops")[4]), row("Cyclops").join(" | "));
+    check("Giant Scorpion: water and nature magic; Giant Mantis: nature and fire", /Magic \(water, nature\)/.test(row("Giant Scorpion")[2]) && /Magic \(nature, fire\)/.test(row("Giant Mantis")[2]), row("Giant Scorpion")[2] + " / " + row("Giant Mantis")[2]);
+    check("Dryad, Salamander and Siren: ranged", ["Dryad", "Salamander", "Siren"].every((m) => /^Ranged/.test(row(m)[2])), ["Dryad", "Salamander", "Siren"].map((m) => row(m)[2]).join(" / "));
+    check("Shadow Archer stab and slash, Pyre Hunter slash and smash, Frost Sniper smash and stab", /Stab · Slash/.test(row("Shadow Archer")[2]) && /Slash · Smash/.test(row("Pyre Hunter")[2]) && /Smash · Stab/.test(row("Frost Sniper")[2]), [row("Shadow Archer")[2], row("Pyre Hunter")[2], row("Frost Sniper")[2]].join(" / "));
+    check("Mimic: Thorns / Retaliation", /Thorns \/ Retaliation/.test(row("Mimic")[2]), row("Mimic")[2]);
+    check("each room type names a loadout", rows.every((r) => r[3] === "Magic" || r[3] === "Ranged"), rows.map((r) => r[3]).join(", "));
+    check("safe levels carry the guessed floor", rows.some((r) => /\((fl\. \d+|below fl\. 1)\)/.test(r[5])), rows.map((r) => r[5]).join(" / "));
+    check("a verdict for each monster at the room level", rows.every((r) => /fight|risky|shroud/.test(r[7])), rows.map((r) => r[7]).join(" / "));
+    const matrix = await domText(page);
+    check("every loadout against every monster", /All your loadouts/.test(matrix));
     await page.screenshot({ path: path.join(shotDir, "laby-1-rooms.png"), fullPage: !MOBILE });
 
-    // Another room level: read off the curves, no new simulation.
+    // Another floor and room level: read off the curves, no new simulation.
+    await page.select('[data-setting="labyFloor"]', "2");
+    let shown = await domText(page);
+    check("floor 2 means room level 40", /At room level 40 \(floor 2, a guess\)/.test(shown) && (await page.$eval('[data-setting="labyLevel"]', (n) => n.value)) === "40");
     await page.$eval('[data-setting="labyLevel"]', (n) => { n.value = "5"; n.dispatchEvent(new Event("change", { bubbles: true })); });
-    const atFive = await domText(page);
-    check("room level 5 re-reads without simulating", /At room level 5:/.test(atFive) && !/Simulating/.test(atFive) && /At level 5/.test(atFive));
+    shown = await domText(page);
+    check("room level 5 re-reads without simulating", /At room level 5/.test(shown) && !/Simulating/.test(shown) && /At level 5/.test(shown));
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-settings")).labyLevel);
     check("room level is kept", String(saved) === "5", saved);
 
@@ -129,12 +151,32 @@ try {
     text = await body(page);
     check("improvements listed or none found", /Work on/.test(await domText(page)) || /None of the crates/.test(text), text.slice(text.indexOf("What takes you further"), text.indexOf("What takes you further") + 600));
     check("the next coffee crate helps", /Advanced Coffee crate|Expert Coffee crate/.test(text));
-    const better = await page.$$eval(".mwia-body table:first-of-type tbody tr", (trs) => trs.map((tr) => [tr.cells[0].innerText, tr.cells[tr.cells.length - 1].innerText]));
+    const better = await page.$$eval(".mwia-laby-rooms tbody tr", (trs) => trs.map((tr) => [tr.cells[0].innerText, tr.cells[tr.cells.length - 1].innerText]));
     check("a 'better with' column per monster", better.length === 10, JSON.stringify(better));
-    check("the crossbow in the bag is tried as ranged, the rest as bought weapons", /Ranged with Cedar Crossbow \(yours\)/.test(text) && /Stab with .+\(\d/.test(text) && /Slash with/.test(text) && /Smash with/.test(text), text.slice(text.indexOf("Other attack styles"), text.indexOf("Other attack styles") + 500));
-    check("Water Strike against the water-weak Giant Scorpion", better.some(([m, b]) => m === "Giant Scorpion" && /Water Strike instead of/.test(b)), JSON.stringify(better));
     writeFileSync(path.join(shotDir, "laby.txt"), text);
     await page.screenshot({ path: path.join(shotDir, "laby-2-improve.png"), fullPage: !MOBILE });
+
+    // A ranged loadout for the ranged rooms, within 5M.
+    await page.select('[data-setting="labyStyle"]', "ranged");
+    check("the builder names the ranged rooms", /For: Dryad, Salamander, Siren\./.test(await body(page)));
+    await page.$eval('[data-setting="budget"]', (n) => { n.value = "5M"; n.dispatchEvent(new Event("change", { bubbles: true })); });
+    t0 = Date.now();
+    await page.click('[data-action="laby-build"]');
+    await idle(page, "Ranged loadout");
+    console.log(`building took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+    text = await body(page);
+    const built = text.slice(text.indexOf("Ranged loadout"));
+    check("a ranged list within the budget", /Ranged loadout – (for [\d.,kM]+ of your 5\.00M|nothing to buy)/.test(built), built.slice(0, 600));
+    const spent = /for ([\d.,]+)([kM]?) of your/.exec(built);
+    const coinsOf = (m) => (m ? Number(m[1].replace(/,/g, "")) * ({ k: 1e3, M: 1e6 }[m[2]] || 1) : 0);
+    check("never over budget", coinsOf(spent) <= 5e6, spent?.[0]);
+    const after = await page.$$eval(".mwia-laby-built tbody tr", (trs) => trs.map((tr) => [...tr.cells].map((c) => c.innerText.trim())));
+    check("before and after for the three ranged rooms", after.length === 3 && after.map((r) => r[0]).join() === "Dryad,Salamander,Siren", JSON.stringify(after));
+    const level = (t) => (/below/.test(t) ? 0 : parseFloat(t));
+    check("the built loadout goes at least as far", after.every((r) => level(r[4]) >= level(r[3]) - 2), JSON.stringify(after));
+    writeFileSync(path.join(shotDir, "laby-build.txt"), await page.$eval(".mwia-body", (n) => n.textContent.slice(n.textContent.indexOf("Ranged loadout"))));
+    await page.evaluate(() => [...document.querySelectorAll(".mwia-body h3")].find((h) => /Build a loadout/.test(h.textContent))?.scrollIntoView());
+    await page.screenshot({ path: path.join(shotDir, "laby-3-build.png"), fullPage: !MOBILE });
     if (MOBILE) {
         const scroll = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
         check("phone: no sideways scrolling", scroll);

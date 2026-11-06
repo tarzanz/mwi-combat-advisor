@@ -56,8 +56,8 @@ import { startTrain } from "./train-ui.js";
 import { describeTriggers } from "./triggers.js";
 import { startTriggerWindow, triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
-import { analyzeImprovements, analyzeLabyrinth, labyrinthLoadout, slottedCrate } from "./labyrinth.js";
-import { labyrinthExportLines, renderLabyrinth } from "./labyrinth-ui.js";
+import { analyzeImprovements, analyzeLabyrinth, buildLoadout, chosenCrates, floorLevel, labyrinthLoadouts, slottedCrate } from "./labyrinth.js";
+import { buildStyleSetting, labyrinthExportLines, renderLabyrinth } from "./labyrinth-ui.js";
 
 const SETTINGS_KEY = "mwia-settings";
 const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 20 };
@@ -114,6 +114,8 @@ const ui = {
     launcher: null, // the 🧭 button
     labResult: null, // Labyrinth: win rate by room level against each monster
     labImprove: null, // Labyrinth: what takes you further
+    labBuild: null, // Labyrinth: a loadout built for one attack style's rooms
+    labSetups: null, // Labyrinth: the loadouts the last check compared
 };
 
 const MARKET_PANEL = '[class*="MarketplacePanel_marketplacePanel"]';
@@ -261,41 +263,68 @@ function chosenZone(profile) {
     return profile.currentZone || null;
 }
 
-// The character as it fights in the Labyrinth: its Labyrinth loadout if it has one, else as the combat tabs.
-function labyrinthProfile() {
+// The setups the Labyrinth tab compares: every saved combat (and Labyrinth) loadout, and
+// what you wear now when no loadout is the same. The game's automation can put on a
+// loadout for each room type.
+function labyrinthSetups() {
     const data = getClientData();
-    if (!state.character || !data) return null;
-    const loadout = labyrinthLoadout(state.character);
-    if (!loadout) return currentProfile();
-    return applyLoadout(buildProfile(state.character, state.items, data), loadout, state.items, data);
+    if (!state.character || !data) return [];
+    const base = buildProfile(state.character, state.items, data);
+    const setups = [];
+    const seen = new Set();
+    const add = (id, name, profile) => {
+        const key = JSON.stringify([profile.equipment, profile.abilities, profile.abilityTriggers]);
+        if (seen.has(key)) return;
+        seen.add(key);
+        setups.push({ id, name, profile });
+    };
+    for (const loadout of [...combatLoadouts(state.character), ...labyrinthLoadouts(state.character)]) {
+        add(loadout.id, loadout.name || "Loadout", applyLoadout(base, loadout, state.items, data));
+    }
+    add("equipped", "Equipped now", base);
+    return setups;
 }
 
 async function doLabyrinth() {
     ui.labImprove = null;
-    ui.labResult = await analyzeLabyrinth(ui.pool, labyrinthProfile(), getClientData(), ui.settings, state.character, progress("Simulating Labyrinth rooms"));
+    ui.labSetups = labyrinthSetups();
+    ui.labResult = await analyzeLabyrinth(ui.pool, ui.labSetups, getClientData(), ui.settings, state.character, progress("Simulating Labyrinth rooms"));
 }
 
 async function doLabImprove() {
     if (!ui.labResult) await doLabyrinth();
-    ui.labImprove = await analyzeImprovements(ui.pool, labyrinthProfile(), getClientData(), ui.settings, ui.labResult, progress("Testing improvements"));
+    ui.labImprove = await analyzeImprovements(ui.pool, ui.labSetups, getClientData(), ui.settings, ui.labResult, progress("Testing improvements"));
+}
+
+async function doLabBuild() {
+    const style = buildStyleSetting(ui.settings);
+    ui.labBuild = null;
+    ui.labBuild = await buildLoadout(ui.pool, currentProfile(), getClientData(), ui.settings, {
+        style,
+        budget: Number(ui.settings.budget) || 0,
+        enhanceCost: enhanceCostFor(),
+        crates: chosenCrates(ui.settings, state.character),
+    }, progress(`Building a ${style} loadout`));
 }
 
 function renderLabyrinthTab() {
     const data = getClientData();
     if (!state.character) return `<p>The script hasn't seen your character yet. <b>Reload the page (F5)</b> with the script enabled.</p>`;
     if (!data) return `<p>The game data loads with the first analysis.</p><button class="mwia-btn" data-action="laby-check" ${ui.busy ? "disabled" : ""}>Check the rooms</button>`;
-    const loadout = labyrinthLoadout(state.character);
-    const profile = labyrinthProfile();
+    const setups = ui.labSetups || labyrinthSetups();
     return renderLabyrinth({
         lab: ui.labResult,
         improve: ui.labImprove,
-        profile,
+        build: ui.labBuild,
+        profileOf: (id) => setups.find((s) => s.id === id)?.profile || null,
         data,
         settings: ui.settings,
         busy: ui.busy,
-        settingsHtml: (fields) => settingsHtml(loadout ? fields.filter((f) => f !== "gear") : fields),
+        settingsHtml,
         slotted: { coffee: slottedCrate(state.character, "coffee"), food: slottedCrate(state.character, "food") },
-        gearNote: loadout ? `<p class="mwia-dim">Gear and abilities from your Labyrinth loadout <b>${esc(loadout.name || "Loadout")}</b>.</p>` : loadoutNote(profile),
+        setupsNote: `<p class="mwia-dim">Loadouts: ${setups.map((s) => `<b>${esc(s.name)}</b>`).join(", ")}${setups.length < 2 ? " – save a loadout per combat style in the game to compare them here" : ""}.</p>`,
+        cartButton,
+        coins,
     });
 }
 
@@ -696,7 +725,7 @@ function exportContext() {
     };
     attempt("Skilling: best now", () => (getClientData() ? skillingExportLines(ui.settings) : []));
     if (ui.zoneResults) attempt("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
-    if (ui.labResult) attempt("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.settings));
+    if (ui.labResult || ui.labBuild) attempt("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.labBuild, ui.settings));
     if (ui.upgradeResult) attempt("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
     return { settings: ui.settings, sections };
 }
@@ -1157,10 +1186,12 @@ function renderGuide() {
     MP food lets you keep casting abilities. <b>Drinks</b> (coffee) give a 5-minute buff, e.g. Magic or Ranged Coffee (+level)
     or Wisdom Coffee (+XP). A <b>pouch</b> gives extra food and drink slots.</p>
     <h3>The Labyrinth</h3>
-    <p>A combat room is one monster, scaled to the room level, fought from full HP and mana with no food or drinks (only the crates opened on entry)
-    and 2 minutes to win. Every monster hardly dodges one or two attack styles and dodges the rest many times over, and takes far more of one
-    damage type: the Labyrinth wants magic for some rooms, ranged for others and melee for the rest. The <b>Labyrinth</b> tab shows which rooms you
-    win at a room level, which to shroud or go around, and what would take you further.</p>
+    <p>A combat room is one monster, scaled to the room level, fought 1 against 1 from full HP and mana with no food or drinks (only the crates
+    opened on entry) and 2 minutes to win, so single-target damage is what counts. Every monster hardly dodges one or two attack styles and dodges
+    the rest many times over, and takes far more of one damage type: the Labyrinth wants magic for some rooms, ranged for others and melee for the
+    rest. The game's Labyrinth automation can put on a loadout for each room type, so a loadout per combat style pays off. The <b>Labyrinth</b>
+    tab shows which of your loadouts to use for each room type, which rooms to shroud or go around, what would take you further, and builds a
+    loadout for the rooms of one style.</p>
     <h3>What this script does</h3>
     <p>It reads your character from the game, fetches current market prices and runs combat simulations with the same engine as the community
     Combat Simulator (shykai/AmVoidGuy, MIT licence), but fed with the game's own current data. Every suggestion is tested by simulating
@@ -1368,6 +1399,9 @@ function act(target) {
         case "laby-improve":
             runTask(doLabImprove);
             break;
+        case "laby-build":
+            runTask(doLabBuild);
+            break;
         case "upgrades-abilities":
             runTask(() => doUpgrades("abilities"));
             break;
@@ -1477,14 +1511,20 @@ function onChange(event) {
     }
     // The room level only re-reads the curves; other crates need a new simulation.
     if (key.startsWith("laby")) {
-        if (key !== "labyLevel") ui.labResult = ui.labImprove = null;
+        if (key === "labyFloor") {
+            if (event.target.value) ui.settings.labyLevel = floorLevel(Number(event.target.value));
+            delete ui.settings.labyFloor;
+            saveSettings();
+        } else if (key === "labyCoffee" || key === "labyFood") {
+            ui.labResult = ui.labImprove = ui.labBuild = null;
+        }
         render();
         return;
     }
     // Another style or loadout means other gear and other zones: the old results no longer apply.
     if (key === "combatStyle" || key === "combatGear") {
         ui.zoneResults = null;
-        if (key === "combatGear") ui.labResult = ui.labImprove = null;
+        if (key === "combatGear") ui.labBuild = null;
         ui.upgradeRaw = ui.upgradeResult = ui.plan = ui.verified = null;
         render();
         return;
