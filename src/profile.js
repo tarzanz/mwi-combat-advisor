@@ -338,6 +338,16 @@ export function slotCounts(profile, data) {
     };
 }
 
+// The game moves abilities without a cooldown (Water Strike, Fireball, Entangle) behind the
+// others in battle, keeping their order among themselves, so they never block the rest.
+// Returns the normal slots' entries (1..n, empty slots left out) in the order the game casts them.
+export function battleAbilityOrder(profile, data) {
+    const slots = slotCounts(profile, data);
+    const entries = profile.abilities.slice(1, slots.abilities + 1).filter(Boolean);
+    const noCooldown = (e) => !(data.abilityDetailMap[e.hrid]?.cooldownDuration > 0);
+    return [...entries.filter((e) => !noCooldown(e)), ...entries.filter(noCooldown)];
+}
+
 export function toDTO(profile, data) {
     const slots = slotCounts(profile, data);
     const equipment = {};
@@ -372,7 +382,7 @@ export function toDTO(profile, data) {
         equipment,
         food: profile.food.slice(0, slots.food).map(consumable),
         drinks: profile.drinks.slice(0, slots.drinks).map(consumable),
-        abilities: profile.abilities.map(ability),
+        abilities: [ability(profile.abilities[0], 0), ...battleAbilityOrder(profile, data).map((e, i) => ability(e, i + 1))],
         houseRooms: profile.houseRooms,
         achievements: profile.achievements,
         debuffOnLevelGap: 0,

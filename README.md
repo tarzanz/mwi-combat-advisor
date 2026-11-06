@@ -55,8 +55,10 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   - **House rooms** – the combat rooms (Dojo, Gym, Armory, Archery Range, Mystical Study, Library, Dining Room) one
     level up, for their coins and materials at the ask; they go on the shopping list like gear, and 🛒 adds the
     materials. The small wisdom and rare find every room adds are simulated too.
-  - **Ability order** – every order of the abilities in your normal slots (up to 24); a better one goes on the list
-    as a free change (*Put your abilities in this order: …*).
+  - **Ability order** – every order of the abilities in your normal slots that the game can cast (up to 24); a better
+    one goes on the list as a free change (*Put your abilities in this order: …*). Like the game, the simulation puts
+    abilities without a cooldown (Water Strike, Fireball, Entangle) behind the others, so orders that only move those
+    are not tried, and an ability whose triggers hold but whose mana isn't there yet stops the rest for an auto attack.
   - **More levels (not for sale)** – +1 and +5 levels in each combat skill your style uses (never the other two
     styles' own skill), with how long they take at the XP an hour that skill gets in the zone now: to weigh a
     purchase against simply levelling. They never go on the shopping list.

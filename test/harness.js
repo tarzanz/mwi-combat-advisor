@@ -134,21 +134,24 @@ check("plan does not make things worse", score(verified.planned) >= score(verifi
     check("self-enhance: plan within budget", plan2.spent <= quick.budget);
 }
 
-// Ability order: every order of the abilities in the normal slots, the best one applied by hrid.
+// Ability order: every order of the abilities in the normal slots the game can cast, the best one applied by hrid.
+// The game moves abilities without a cooldown (Water Strike) behind the rest, so only the others' order varies.
 {
     const p4 = structuredClone(profile);
     p4.levels.intelligence = 60;
-    p4.abilities = [null, { hrid: "/abilities/water_strike", level: 6 }, { hrid: "/abilities/fireball", level: 1 }, { hrid: "/abilities/ice_spear", level: 1 }, null];
+    p4.abilities = [null, { hrid: "/abilities/water_strike", level: 6 }, { hrid: "/abilities/ice_spear", level: 1 }, { hrid: "/abilities/flame_blast", level: 1 }, null];
+    const dto4 = toDTO(p4, data);
+    check("battle order: abilities without a cooldown go last", dto4.abilities.slice(1).map((a) => a?.hrid.split("/").pop()).join() === "ice_spear,flame_blast,water_strike", dto4.abilities.slice(1).map((a) => a?.hrid).join());
     const quick = { ...settings, hours: 1, seeds: 2 };
     const raw4 = await analyzeRaw(pool, p4, best.zone, quick);
     const rated4 = rateUpgrades(raw4, quick);
     const orders = raw4.candidates.filter((c) => c.kind === "abilityOrder");
-    check("ability order: all 3! − 1 other orders are tested", orders.length === 5 && new Set(orders.map((c) => c.hrid)).size === 5, orders.map((c) => c.order.map((h) => h.split("/").pop()).join(">")).join(" | "));
-    const order = ["/abilities/ice_spear", "/abilities/water_strike", "/abilities/fireball"];
+    check("ability order: only the one other order the game casts is tested", orders.length === 1 && orders[0].order.join() === "/abilities/flame_blast,/abilities/ice_spear,/abilities/water_strike" && orders[0].was[0] === "/abilities/ice_spear", orders.map((c) => c.order.map((h) => h.split("/").pop()).join(">") + " (was " + c.was.map((h) => h.split("/").pop()).join(">") + ")").join(" | "));
+    const order = orders[0].order;
     const applied = applyPlan(p4, { picks: [], order: { order } });
-    check("ability order: applied to the slots in that order", applied.abilities.slice(1, 4).map((a) => a.hrid).join() === order.join() && applied.abilities[2].level === 6);
+    check("ability order: applied to the slots in that order", applied.abilities.slice(1, 4).map((a) => a.hrid).join() === order.join() && applied.abilities[3].level === 6);
     const swapped = applyPlan(p4, { picks: [{ kind: "ability", slot: "ability3", hrid: "/abilities/entangle", level: 1 }], order: { order } });
-    check("ability order: an ability the plan swaps in keeps its slot", swapped.abilities[3].hrid === "/abilities/entangle" && swapped.abilities[1].hrid === "/abilities/water_strike" && swapped.abilities[2].hrid === "/abilities/fireball");
+    check("ability order: an ability the plan swaps in keeps its slot", swapped.abilities[3].hrid === "/abilities/entangle" && swapped.abilities[1].hrid === "/abilities/ice_spear" && swapped.abilities[2].hrid === "/abilities/water_strike");
     const plan4 = buildPlan(rated4, quick.budget);
     check("ability order: a recommended order is significant and safe", !plan4.order || (plan4.order.significant && plan4.order.safe && plan4.order.delta > 0), plan4.order ? plan4.order.order.join(">") : "keep the order");
 }

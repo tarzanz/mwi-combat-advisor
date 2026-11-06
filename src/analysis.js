@@ -2,7 +2,7 @@
 
 import { askPrice, combatZones, expectedLootPerKill, getClientData, marketBids, marketEntry, marketListings, sellValue } from "./game-data.js";
 import { confidenceGreater } from "./stats.js";
-import { COMBAT_SKILLS, GEAR_TYPES, cloneProfile, equip, meetsRequirements, sameKind, slotCounts, styleOfItem, toDTO, weaponOf, weaponStyle } from "./profile.js";
+import { COMBAT_SKILLS, GEAR_TYPES, battleAbilityOrder, cloneProfile, equip, meetsRequirements, sameKind, slotCounts, styleOfItem, toDTO, weaponOf, weaponStyle } from "./profile.js";
 import { experienceOf, levelsPerHour } from "./levels.js";
 import { resaleValue } from "./skilling-upgrades.js";
 import { MAX_TARGET } from "./enhancing.js";
@@ -554,22 +554,29 @@ function skillLevelCandidates(profile) {
     return candidates;
 }
 
-// Every order of the abilities in the normal slots: each round the first one
-// whose triggers hold and whose mana is there is cast, so the order matters.
+// Every order of the abilities in the normal slots: each round the first one whose
+// triggers hold is cast, or – without the mana for it – an auto attack, so the order
+// matters. The game puts abilities without a cooldown last in battle, so orders that
+// only differ in where those stand are the same order; each is tried once, as the game casts it.
 function abilityOrderCandidates(profile) {
-    const slots = slotCounts(profile, getClientData());
+    const data = getClientData();
+    const slots = slotCounts(profile, data);
     const indices = [];
     for (let i = 1; i <= slots.abilities; i++) if (profile.abilities[i]) indices.push(i);
     if (indices.length < 2) return [];
     const entries = indices.map((i) => profile.abilities[i]);
-    const now = entries.map((e) => e.hrid).join(">");
+    const keyOf = (list) => list.map((e) => e.hrid).join(">");
+    const now = battleAbilityOrder(profile, data);
+    const seen = new Set([keyOf(now)]);
     const candidates = [];
-    for (const order of permutations(entries)) {
-        const key = order.map((e) => e.hrid).join(">");
-        if (key === now) continue;
+    for (const permuted of permutations(entries)) {
+        const order = battleAbilityOrder({ ...profile, abilities: [null, ...permuted] }, data);
+        const key = keyOf(order);
+        if (seen.has(key)) continue;
+        seen.add(key);
         const variant = cloneProfile(profile);
         indices.forEach((slot, k) => (variant.abilities[slot] = { ...order[k] }));
-        candidates.push({ kind: "abilityOrder", slot: "abilityOrder", hrid: key, order: order.map((e) => e.hrid), was: entries.map((e) => e.hrid), cost: 0, owned: true, replaces: null, profile: variant });
+        candidates.push({ kind: "abilityOrder", slot: "abilityOrder", hrid: key, order: order.map((e) => e.hrid), was: now.map((e) => e.hrid), cost: 0, owned: true, replaces: null, profile: variant });
     }
     return candidates;
 }

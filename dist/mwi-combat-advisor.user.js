@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.57.0
+// @version      0.57.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -4908,6 +4908,12 @@
       special: profile.levels.intelligence >= (requirements[1] ?? Infinity)
     };
   }
+  function battleAbilityOrder(profile, data) {
+    const slots = slotCounts(profile, data);
+    const entries = profile.abilities.slice(1, slots.abilities + 1).filter(Boolean);
+    const noCooldown = (e) => !(data.abilityDetailMap[e.hrid]?.cooldownDuration > 0);
+    return [...entries.filter((e) => !noCooldown(e)), ...entries.filter(noCooldown)];
+  }
   function toDTO(profile, data) {
     const slots = slotCounts(profile, data);
     const equipment = {};
@@ -4939,7 +4945,7 @@
       equipment,
       food: profile.food.slice(0, slots.food).map(consumable),
       drinks: profile.drinks.slice(0, slots.drinks).map(consumable),
-      abilities: profile.abilities.map(ability),
+      abilities: [ability(profile.abilities[0], 0), ...battleAbilityOrder(profile, data).map((e, i) => ability(e, i + 1))],
       houseRooms: profile.houseRooms,
       achievements: profile.achievements,
       debuffOnLevelGap: 0
@@ -5386,19 +5392,24 @@
     return candidates;
   }
   function abilityOrderCandidates(profile) {
-    const slots = slotCounts(profile, getClientData());
+    const data = getClientData();
+    const slots = slotCounts(profile, data);
     const indices = [];
     for (let i = 1; i <= slots.abilities; i++) if (profile.abilities[i]) indices.push(i);
     if (indices.length < 2) return [];
     const entries = indices.map((i) => profile.abilities[i]);
-    const now = entries.map((e) => e.hrid).join(">");
+    const keyOf2 = (list) => list.map((e) => e.hrid).join(">");
+    const now = battleAbilityOrder(profile, data);
+    const seen = /* @__PURE__ */ new Set([keyOf2(now)]);
     const candidates = [];
-    for (const order of permutations(entries)) {
-      const key = order.map((e) => e.hrid).join(">");
-      if (key === now) continue;
+    for (const permuted of permutations(entries)) {
+      const order = battleAbilityOrder({ ...profile, abilities: [null, ...permuted] }, data);
+      const key = keyOf2(order);
+      if (seen.has(key)) continue;
+      seen.add(key);
       const variant = cloneProfile(profile);
       indices.forEach((slot, k) => variant.abilities[slot] = { ...order[k] });
-      candidates.push({ kind: "abilityOrder", slot: "abilityOrder", hrid: key, order: order.map((e) => e.hrid), was: entries.map((e) => e.hrid), cost: 0, owned: true, replaces: null, profile: variant });
+      candidates.push({ kind: "abilityOrder", slot: "abilityOrder", hrid: key, order: order.map((e) => e.hrid), was: now.map((e) => e.hrid), cost: 0, owned: true, replaces: null, profile: variant });
     }
     return candidates;
   }
@@ -6066,7 +6077,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.57.0" : "dev";
+  var VERSION = true ? "0.57.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -9501,7 +9512,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.57.0" : "dev";
+  var VERSION3 = true ? "0.57.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
