@@ -56,9 +56,11 @@ import { startTrain } from "./train-ui.js";
 import { describeTriggers } from "./triggers.js";
 import { startTriggerWindow, triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
+import { analyzeImprovements, analyzeLabyrinth, labyrinthLoadout, slottedCrate } from "./labyrinth.js";
+import { labyrinthExportLines, renderLabyrinth } from "./labyrinth-ui.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100 };
+const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 20 };
 
 const SKILL_NAMES = {
     stamina: "Stamina",
@@ -110,6 +112,8 @@ const ui = {
     marketWatch: null, // timer waiting for the marketplace to close
     marketLoading: null, // promise while the Market tab loads game data and prices
     launcher: null, // the 🧭 button
+    labResult: null, // Labyrinth: win rate by room level against each monster
+    labImprove: null, // Labyrinth: what takes you further
 };
 
 const MARKET_PANEL = '[class*="MarketplacePanel_marketplacePanel"]';
@@ -257,6 +261,44 @@ function chosenZone(profile) {
     return profile.currentZone || null;
 }
 
+// The character as it fights in the Labyrinth: its Labyrinth loadout if it has one, else as the combat tabs.
+function labyrinthProfile() {
+    const data = getClientData();
+    if (!state.character || !data) return null;
+    const loadout = labyrinthLoadout(state.character);
+    if (!loadout) return currentProfile();
+    return applyLoadout(buildProfile(state.character, state.items, data), loadout, state.items, data);
+}
+
+async function doLabyrinth() {
+    ui.labImprove = null;
+    ui.labResult = await analyzeLabyrinth(ui.pool, labyrinthProfile(), getClientData(), ui.settings, state.character, progress("Simulating Labyrinth rooms"));
+}
+
+async function doLabImprove() {
+    if (!ui.labResult) await doLabyrinth();
+    ui.labImprove = await analyzeImprovements(ui.pool, labyrinthProfile(), getClientData(), ui.settings, ui.labResult, progress("Testing improvements"));
+}
+
+function renderLabyrinthTab() {
+    const data = getClientData();
+    if (!state.character) return `<p>The script hasn't seen your character yet. <b>Reload the page (F5)</b> with the script enabled.</p>`;
+    if (!data) return `<p>The game data loads with the first analysis.</p><button class="mwia-btn" data-action="laby-check" ${ui.busy ? "disabled" : ""}>Check the rooms</button>`;
+    const loadout = labyrinthLoadout(state.character);
+    const profile = labyrinthProfile();
+    return renderLabyrinth({
+        lab: ui.labResult,
+        improve: ui.labImprove,
+        profile,
+        data,
+        settings: ui.settings,
+        busy: ui.busy,
+        settingsHtml: (fields) => settingsHtml(loadout ? fields.filter((f) => f !== "gear") : fields),
+        slotted: { coffee: slottedCrate(state.character, "coffee"), food: slottedCrate(state.character, "food") },
+        gearNote: loadout ? `<p class="mwia-dim">Gear and abilities from your Labyrinth loadout <b>${esc(loadout.name || "Loadout")}</b>.</p>` : loadoutNote(profile),
+    });
+}
+
 // Re-scores the last analysis for the current goal and rebuilds the shopping list.
 function rerateUpgrades() {
     if (!ui.upgradeRaw) return;
@@ -356,6 +398,7 @@ function render() {
     else if (ui.tab === "upgrades") html += renderUpgrades();
     else if (ui.tab === "skilling") html += renderSkillingTab();
     else if (ui.tab === "market") html += renderMarketTab();
+    else if (ui.tab === "labyrinth") html += renderLabyrinthTab();
     else html += renderGuide();
     body.innerHTML = html;
     // A notice from a button far down the list: bring it into view.
@@ -653,6 +696,7 @@ function exportContext() {
     };
     attempt("Skilling: best now", () => (getClientData() ? skillingExportLines(ui.settings) : []));
     if (ui.zoneResults) attempt("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
+    if (ui.labResult) attempt("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.settings));
     if (ui.upgradeResult) attempt("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
     return { settings: ui.settings, sections };
 }
@@ -1112,6 +1156,11 @@ function renderGuide() {
     <p><b>Food</b> is eaten automatically according to its triggers (by default when you're missing enough HP/MP). HP food keeps you alive,
     MP food lets you keep casting abilities. <b>Drinks</b> (coffee) give a 5-minute buff, e.g. Magic or Ranged Coffee (+level)
     or Wisdom Coffee (+XP). A <b>pouch</b> gives extra food and drink slots.</p>
+    <h3>The Labyrinth</h3>
+    <p>A combat room is one monster, scaled to the room level, fought from full HP and mana with no food or drinks (only the crates opened on entry)
+    and 2 minutes to win. Every monster hardly dodges one or two attack styles and dodges the rest many times over, and takes far more of one
+    damage type: the Labyrinth wants magic for some rooms, ranged for others and melee for the rest. The <b>Labyrinth</b> tab shows which rooms you
+    win at a room level, which to shroud or go around, and what would take you further.</p>
     <h3>What this script does</h3>
     <p>It reads your character from the game, fetches current market prices and runs combat simulations with the same engine as the community
     Combat Simulator (shykai/AmVoidGuy, MIT licence), but fed with the game's own current data. Every suggestion is tested by simulating
@@ -1313,6 +1362,12 @@ function act(target) {
         case "upgrades":
             runTask(() => doUpgrades("all"));
             break;
+        case "laby-check":
+            runTask(doLabyrinth);
+            break;
+        case "laby-improve":
+            runTask(doLabImprove);
+            break;
         case "upgrades-abilities":
             runTask(() => doUpgrades("abilities"));
             break;
@@ -1420,9 +1475,16 @@ function onChange(event) {
         render();
         return;
     }
+    // The room level only re-reads the curves; other crates need a new simulation.
+    if (key.startsWith("laby")) {
+        if (key !== "labyLevel") ui.labResult = ui.labImprove = null;
+        render();
+        return;
+    }
     // Another style or loadout means other gear and other zones: the old results no longer apply.
     if (key === "combatStyle" || key === "combatGear") {
         ui.zoneResults = null;
+        if (key === "combatGear") ui.labResult = ui.labImprove = null;
         ui.upgradeRaw = ui.upgradeResult = ui.plan = ui.verified = null;
         render();
         return;
@@ -1476,6 +1538,7 @@ export function mountUI(win, workerSource) {
         <button class="mwia-tab" data-tab="upgrades">Upgrades</button>
         <button class="mwia-tab" data-tab="skilling">Skilling</button>
         <button class="mwia-tab" data-tab="market">Market</button>
+        <button class="mwia-tab" data-tab="labyrinth">Labyrinth</button>
         <button class="mwia-tab" data-tab="guide">Guide</button>
       </nav>
       <div class="mwia-body"></div>`;

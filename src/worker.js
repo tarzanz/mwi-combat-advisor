@@ -1,5 +1,5 @@
 import { fill } from "./data-shim.js";
-import { runSim } from "./sim-core.js";
+import { runLabyrinthSim, runSim } from "./sim-core.js";
 
 self.onmessage = async (event) => {
     const message = event.data;
@@ -10,7 +10,7 @@ self.onmessage = async (event) => {
     }
     if (message.type === "sim") {
         try {
-            const result = await runSim(message.job);
+            const result = message.job.monsterHrid ? await runLabyrinthSim(message.job) : await runSim(message.job);
             self.postMessage({ type: "result", id: message.id, result });
         } catch (error) {
             self.postMessage({ type: "error", id: message.id, error: String(error?.stack || error) });
