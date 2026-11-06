@@ -5,6 +5,8 @@
 // the last few clicks (which gear icon opened it). Read only: nothing is changed.
 
 import { componentMethods, describe, iconIds, visible, walkFibers, worldReport } from "./game-nav.js";
+import { esc } from "./format.js";
+import { fillTriggerWindow, sameTriggers, settingFiber, shownTriggers, windowTarget } from "./trigger-fill.js";
 
 const MAX_LINES = 160;
 const clicks = []; // the last few clicks: what was clicked and the icons around it
@@ -166,6 +168,11 @@ export function triggerWindowReport() {
         lines.push(`trigger window: ${chain.join(" < ")}`);
         outline(box, 12, lines);
         lines.push(...windowFibers(box));
+        const setting = settingFiber(box);
+        lines.push(`setting component: ${setting ? typeName(setting) : "not found"}, for ${windowTarget(setting) || "?"}`);
+        for (let h = setting?.memoizedState, i = 0; h && typeof h === "object" && "next" in h && i < 40; h = h.next, i++) {
+            lines.push(`  hook ${i}: ${valueText(attempt(() => h.memoizedState))}${typeof h.queue?.dispatch === "function" ? " (dispatch)" : ""}`);
+        }
     }
     lines.push(...triggerComponents());
     if (lines.length < MAX_LINES) loadoutRows(lines);
@@ -174,18 +181,42 @@ export function triggerWindowReport() {
 }
 
 // A small bar inside the game's Combat Triggers window (a tap there doesn't close it,
-// as one on the 🧭 panel does): reads the window and copies the report.
-// onReport(text, copied) also hands it to the panel, to copy from there.
-export function startTriggerWindow(onReport) {
+// as one on the 🧭 panel does): the advice for that ability or food from the last
+// Upgrades analysis with ▶ Fill in, and 📋 to read the window for a chat.
+// deps: advice(hrid) -> { triggers } | null, describe(triggers) -> text, name(hrid) -> text,
+// onReport(text, copied) – hands a report to the panel, to copy from there.
+export function startTriggerWindow(deps) {
     let timer = null;
     const scan = () => {
         timer = null;
         const { box } = triggerWindow();
         if (!box || box.querySelector(".mwia-trig-bar")) return;
+        const fiber = settingFiber(box);
+        const hrid = windowTarget(fiber);
+        const advice = hrid ? deps.advice(hrid) : null;
         const bar = document.createElement("div");
         bar.className = "mwia-trig-bar";
-        bar.innerHTML = `<button type="button" class="mwia-trig-read">🧭 📋 Read for MWI Advisor</button> <span class="mwia-trig-status"></span>`;
-        bar.querySelector("button").addEventListener("click", async (event) => {
+        const now = shownTriggers(box);
+        let line;
+        if (!hrid) line = "🧭 Can't tell which ability or food this window is for.";
+        else if (!advice) line = `🧭 ${esc(deps.name(hrid))}: no trigger change in the last Upgrades analysis.`;
+        else if (sameTriggers(now, advice.triggers)) line = `🧭 ${esc(deps.name(hrid))}: already as advised.`;
+        else line = `🧭 Advice for ${esc(deps.name(hrid))}: <b>${esc(deps.describe(advice.triggers))}</b> <button type="button" class="mwia-trig-fill">▶ Fill in</button>`;
+        bar.innerHTML = `<div class="mwia-trig-line">${line}</div><div><button type="button" class="mwia-trig-read" title="Read how this window is built, to paste into a chat">📋</button> <span class="mwia-trig-status"></span></div>`;
+        const status = (text) => (bar.querySelector(".mwia-trig-status").textContent = text);
+        bar.querySelector(".mwia-trig-fill")?.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            status("Filling in…");
+            const result = await fillTriggerWindow(box, settingFiber(box) || fiber, advice.triggers);
+            if (result.ok) {
+                status("Filled in – check it and tap Save.");
+            } else {
+                status("Couldn't fill it in – the details are under 🧭 Upgrades.");
+                deps.onReport(`fill in ${hrid}: ${result.diag}\n${triggerWindowReport()}`, false);
+            }
+        });
+        bar.querySelector(".mwia-trig-read").addEventListener("click", async (event) => {
             event.preventDefault();
             event.stopPropagation();
             const report = triggerWindowReport();
@@ -196,8 +227,8 @@ export function startTriggerWindow(onReport) {
             } catch {
                 // the panel keeps it to copy from
             }
-            bar.querySelector(".mwia-trig-status").textContent = copied ? "Copied – paste it in the chat." : "Not copied – open 🧭 Upgrades and tap 📋 Copy.";
-            onReport?.(report, copied);
+            status(copied ? "Copied – paste it in the chat." : "Not copied – open 🧭 Upgrades and tap 📋 Copy.");
+            deps.onReport(report, copied);
         });
         box.prepend(bar);
     };

@@ -264,6 +264,31 @@ function rerateUpgrades() {
     ui.plan = buildPlan(ui.upgradeResult, Number(ui.settings.budget) || 0, ui.settings.spending);
     ui.verified = null;
     saveCombatSetup();
+    saveTriggerAdvice(ui.plan);
+}
+
+// The plan's trigger changes, for the bar in the game's Combat Triggers window (▶ Fill in):
+// { hrid: { triggers } } from the last analysis – also after a reload.
+const ADVICE_KEY = "mwia-trigger-advice";
+function saveTriggerAdvice(plan) {
+    const advice = {};
+    for (const t of plan?.triggers || []) advice[t.hrid] = { triggers: t.triggers };
+    for (const p of plan?.picks || []) if (p.kind === "ability" && p.triggers) advice[p.hrid] = { triggers: p.triggers };
+    try {
+        localStorage.setItem(ADVICE_KEY, JSON.stringify(advice));
+    } catch {
+        // kept for this page only
+    }
+    ui.triggerAdvice = advice;
+}
+function loadTriggerAdvice() {
+    if (ui.triggerAdvice) return ui.triggerAdvice;
+    try {
+        ui.triggerAdvice = JSON.parse(localStorage.getItem(ADVICE_KEY) || "{}") || {};
+    } catch {
+        ui.triggerAdvice = {};
+    }
+    return ui.triggerAdvice;
 }
 
 // The drinks and food the plan leaves you with, for the box in the game's combat window.
@@ -1468,10 +1493,15 @@ export function mountUI(win, workerSource) {
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     watchTriggerClicks();
-    startTriggerWindow((diag, copied) => {
-        ui.tab = "upgrades"; // the notice shows there, and stays until another tab is opened
-        ui.notice = { level: "info", text: `The game's trigger window, read (nothing changed)${copied ? " and copied" : ""}. Paste it into the chat.`, diag };
-        render();
+    startTriggerWindow({
+        advice: (hrid) => loadTriggerAdvice()[hrid] || null,
+        describe: (triggers) => describeTriggers(triggers, getClientData() || {}),
+        name: (hrid) => (hrid.startsWith("/items/") ? itemName(hrid) : abilityName(hrid)),
+        onReport: (diag, copied) => {
+            ui.tab = "upgrades"; // the notice shows there, and stays until another tab is opened
+            ui.notice = { level: "info", text: `The game's trigger window, read (nothing changed)${copied ? " and copied" : ""}. Paste it into the chat.`, diag };
+            render();
+        },
     });
     ui.root = root;
 

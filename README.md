@@ -75,11 +75,15 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   - **Abilities & triggers only** – the button beside *Analyze upgrades* tests only new abilities, ability levels,
     their order and the triggers of your abilities and food: no gear, house rooms, drinks or food to buy, so it is
     much quicker.
-  - **📋 Read the game's trigger window** – a loadout's ⚙ (Combat Triggers) window in the game gets a small bar
-    *🧭 📋 Read for MWI Advisor* (a tap on the 🧭 panel would close the game's window): it reads how the window is
-    built – its elements, the game components above it and what they hold, the loadout's slots – copies it and shows it
-    under Upgrades, to paste into a chat. It changes nothing; it is the groundwork for filling the window in. The same
-    link under Upgrades reads the page without the window.
+  - **▶ Fill in, in the game's trigger window** – a loadout's ⚙ opens the game's Combat Triggers window; the script
+    puts a small bar at its top with the advice for that ability or food from the last Upgrades analysis (the sure
+    changes on the shopping list, also after a reload) and **▶ Fill in**. That puts the advised conditions into the
+    window, as editing it by hand would – into the window's own copy of the conditions, else through its own
+    controls (+ Condition, 🗑, the dropdowns, the value) – and checks that the window shows them. **Save** is yours to
+    tap: nothing is saved by the script. Set them in the combat loadout you fight with, as the game puts a loadout's
+    triggers on when you go into combat with it. When filling in fails, the bar says so and the details are under
+    Upgrades, to paste into a chat. The bar's 📋 (and *📋 Read the game's trigger window* under Upgrades) reads how
+    the window is built, also to paste into a chat; it changes nothing.
   - **More levels (not for sale)** – +1 and +5 levels in each combat skill your style uses (never the other two
     styles' own skill), with how long they take at the XP an hour that skill gets in the zone now: to weigh a
     purchase against simply levelling. They never go on the shopping list.
@@ -414,7 +418,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - New food/drinks use the game's default triggers; your own trigger settings are used for things you already have.
 - Trigger changes are tried one at a time against your current ability order; the shopping list applies the best one
   for each ability and food together and simulates the whole list, but combinations are not searched. A changed order
-  and changed triggers are worked out separately too. The changes go in by hand in the game's trigger settings.
+  and changed triggers are worked out separately too. ▶ Fill in has been tried against a stand-in of the game's
+  window; in the game it reports what it found if it can't fill it in.
 - Results are estimates – a few percent either way is normal.
 - The plan train relies on the class names of the MWITools planning tab and the game's action pages; it has only been
   tested against mock-ups of both.
