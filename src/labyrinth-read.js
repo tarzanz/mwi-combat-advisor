@@ -104,7 +104,12 @@ function tableLines(lines) {
         lines.push(`— ${describe(table)} in ${chain.join(" < ")}`);
         const heads = [...table.querySelectorAll("th, [role=columnheader]")].map((h) => clean(h.textContent));
         if (heads.length) lines.push(`  headers: ${heads.join(" | ")}`);
-        const rows = [...table.querySelectorAll('tr, [role="row"]')].filter((r) => !r.querySelector("th"));
+        // Without the advisor's own marks.
+        const rows = [...table.querySelectorAll('tr, [role="row"]')].filter((r) => !r.querySelector("th")).map((r) => {
+            const copy = r.cloneNode(true);
+            copy.querySelectorAll('[class*="mwia"]').forEach((n) => n.remove());
+            return copy;
+        });
         rows.slice(0, 30).forEach((row, i) => {
             const cells = [...row.querySelectorAll('td, [role="cell"]')].map((c) => short(clean(c.textContent), 30));
             const controls = [...row.querySelectorAll(CONTROLS)].filter((c, _, all) => !all.some((o) => o !== c && o.contains(c)));

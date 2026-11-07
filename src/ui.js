@@ -50,6 +50,7 @@ import { onHistoryChange } from "./price-history-ui.js";
 import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js";
 import { startToolNotice } from "./tool-notice.js";
 import { startTeaSlots } from "./tea-slots.js";
+import { rememberLabyrinth, scheduleScan as refreshLabyrinthMarks, startLabyrinthMarks } from "./labyrinth-marks.js";
 import { startEnhancePlan } from "./enhance-plan-ui.js";
 import { findActionPanel, inventoryItemHash, navDiagnostics, openAction, openAlchemy, openEnhancing, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
@@ -58,7 +59,7 @@ import { describeTriggers } from "./triggers.js";
 import { startTriggerWindow, triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 import { analyzeImprovements, analyzeLabyrinth, buildLoadout, chosenCrates, floorLevel, labyrinthLoadouts, slottedCrate } from "./labyrinth.js";
-import { buildStyleSetting, labyrinthExportLines, renderLabyrinth } from "./labyrinth-ui.js";
+import { buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSetting } from "./labyrinth-ui.js";
 import { labyrinthReport } from "./labyrinth-read.js";
 
 const SETTINGS_KEY = "mwia-settings";
@@ -291,6 +292,7 @@ async function doLabyrinth() {
     ui.labImprove = null;
     ui.labSetups = labyrinthSetups();
     ui.labResult = await analyzeLabyrinth(ui.pool, ui.labSetups, getClientData(), ui.settings, state.character, progress("Simulating Labyrinth rooms"));
+    rememberLabyrinth(ui.labResult);
 }
 
 async function doLabImprove() {
@@ -1525,6 +1527,7 @@ function onChange(event) {
         } else if (key === "labyCoffee" || key === "labyFood") {
             ui.labResult = ui.labImprove = ui.labBuild = null;
         }
+        refreshLabyrinthMarks();
         render();
         return;
     }
@@ -1602,6 +1605,7 @@ export function mountUI(win, workerSource) {
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
+    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings) });
     startEnhancePlan(gameDeps);
     watchTriggerClicks();
     startTriggerWindow({

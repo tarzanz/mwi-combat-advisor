@@ -318,6 +318,13 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     that didn't make it. Ranked for winning 2-minute duels, not for XP or loot. An ability in place of another only
     counts when it beats simply taking the other off (here and under *Better with*): the gain of, say, Scratch in
     place of Fireball in a crossbow loadout is all Fireball gone.
+  - **Marks in the game's Labyrinth automation** – on the game's Labyrinth → Automation tab (Per-Room Settings, which
+    works without Full Automation), each monster's loadout chooser gets a line: ✅ when the loadout chosen is the one
+    that goes furthest against it, 👉 *Pick …* when another saved loadout does, ⚠ when even that wins under 90%, and
+    ✖ *Shroud or go around* under 50% – with the share of rooms won at the room level set in the Labyrinth tab. A line
+    above the table says which level and when the rooms were checked; the last check is kept in this browser, so the
+    marks stay after a reload (check again after changing gear). Before the first check the line says to tap
+    *Check the rooms*.
   - **📋 Read the game's Labyrinth** – the first step towards marks on the game's Labyrinth map (and its automation
     settings): the script keeps every message the game sends that mentions the Labyrinth (a few of each type, in
     this browser), and the button reports their types and the shape of their data, the character's Labyrinth

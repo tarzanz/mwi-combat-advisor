@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.63.1
+// @version      0.64.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -310,7 +310,7 @@
     if (!/labyrinth/i.test(raw) || LAB_SKIP.test(raw.slice(0, 200))) return;
     const type = /"type":"([^"]+)"/.exec(raw)?.[1] || "?";
     const log = labyrinthMessages();
-    const same2 = log.filter((m) => m.type === type);
+    const same2 = log.filter((m2) => m2.type === type);
     if (same2.length >= LAB_PER_TYPE) log.splice(log.indexOf(same2[0]), 1);
     log.push({ at: Date.now(), type, size: raw.length, raw: raw.slice(0, LAB_MAX) });
     while (log.length > LAB_KEEP) log.shift();
@@ -2327,10 +2327,10 @@
   }
   function rankUpgrades(who, data, market, skill, { equipped, owned, listings, bids = null, houseLevels, gameEquipmentBuffs = null, actionHrid = null, leveling: leveling2 = {} }) {
     const type = skillType(skill);
-    const m = measure(who, data, market, skill, actionHrid, leveling2);
-    const base = m?.day(who);
+    const m2 = measure(who, data, market, skill, actionHrid, leveling2);
+    const base = m2?.day(who);
     if (!base) return { base: null, upgrades: [], check: null };
-    const { worth, xpPrice } = m;
+    const { worth, xpPrice } = m2;
     const withBuffs = (extra, concentration = 0, slots = who.slots[type]) => ({
       ...who,
       buffs: { ...who.buffs || {}, [type]: [...who.buffs?.[type] || [], ...extra] },
@@ -2362,10 +2362,10 @@
         let after;
         let from = base;
         if (slotsAfter !== who.slots[type]) {
-          teaBase || (teaBase = m.dayWithTeas(who));
+          teaBase || (teaBase = m2.dayWithTeas(who));
           from = teaBase;
-          after = m.dayWithTeas(changed2);
-        } else after = m.day(changed2);
+          after = m2.dayWithTeas(changed2);
+        } else after = m2.day(changed2);
         if (!after || !from) continue;
         const gain = worth(after) - worth(from);
         if (gain <= 1) continue;
@@ -2397,7 +2397,7 @@
     const level = room ? houseLevels[room.hrid] || 0 : MAX_HOUSE_LEVEL;
     if (room && level < MAX_HOUSE_LEVEL) {
       const step = [...room.actionBuffs || [], ...room.globalBuffs || []].map((b) => ({ typeHrid: b.typeHrid, flatBoost: (level === 0 ? b.flatBoost : b.flatBoostLevelBonus) || 0, ratioBoost: (level === 0 ? b.ratioBoost : b.ratioBoostLevelBonus) || 0 }));
-      const after = m.day(withBuffs(step));
+      const after = m2.day(withBuffs(step));
       const costs = room.upgradeCostsMap?.[String(level + 1)] || [];
       const priced = costs.map((c2) => ({ itemHrid: c2.itemHrid, count: c2.count, price: market.buy(c2.itemHrid) }));
       const price = priced.some((c2) => c2.price === null) ? null : priced.reduce((sum, c2) => sum + c2.count * c2.price, 0);
@@ -3494,8 +3494,8 @@
     const s2 = LIQUIDITY.stable;
     const spikes = l2.sold?.enough && l2.sold.rawPerDay > l2.sold.perDay * 1.1 ? `; ${soldText(l2.sold.rawPerDay)} counting a few big hours in full` : "";
     const sold = l2.sold?.enough ? ` About <b>${soldText(l2.sold.perDay)} sold a day</b> (${l2.sold.hours} hours of sales${spikes}).` : "";
-    const note = sales ? "" : " Until 12 hours of sales are collected, how often the lowest ask moves stands in for them.";
-    return `${RATING[l2.rating]} over the last ${l2.hours} hours of prices: ${parts.join(", ")}.${sold} <span class="mwia-dim">Stable needs \u2265 ${share(s2.both)}, \u2264 ${share(s2.spread)}, \u2264 \xB1${share(s2.swing)} and \u2265 ${share(sales ? s2.selling : s2.activity)}; ok \u2265 ${share(LIQUIDITY.ok.both)}, \u2264 ${share(LIQUIDITY.ok.spread)}, \u2264 \xB1${share(LIQUIDITY.ok.swing)}${sales ? ` and \u2265 ${share(LIQUIDITY.ok.selling)}` : ""}.${note}</span>`;
+    const note2 = sales ? "" : " Until 12 hours of sales are collected, how often the lowest ask moves stands in for them.";
+    return `${RATING[l2.rating]} over the last ${l2.hours} hours of prices: ${parts.join(", ")}.${sold} <span class="mwia-dim">Stable needs \u2265 ${share(s2.both)}, \u2264 ${share(s2.spread)}, \u2264 \xB1${share(s2.swing)} and \u2265 ${share(sales ? s2.selling : s2.activity)}; ok \u2265 ${share(LIQUIDITY.ok.both)}, \u2264 ${share(LIQUIDITY.ok.spread)}, \u2264 \xB1${share(LIQUIDITY.ok.swing)}${sales ? ` and \u2265 ${share(LIQUIDITY.ok.selling)}` : ""}.${note2}</span>`;
   }
   var ago = (at2) => hoursText((Date.now() - at2) / 36e5);
   var soldText = (n3) => n3 >= 10 ? Math.round(n3).toLocaleString("en-US") : dec(n3, 1);
@@ -3628,8 +3628,8 @@
     const payback = u.paybackDays === null ? "price unknown" : u.paybackDays === 0 ? u.owned ? "free \u2013 you own it" : "sells again for what it costs" : `pays back in ${hoursText(u.paybackDays * 24)}`;
     const gain = xpPrice > 0 ? levelingGainText(u, base) : `+${coins(u.gainPerDay)}/day${u.xpPerDay > 1 ? `, +${coins(u.xpPerDay)} XP/day` : ""}`;
     if (u.kind === "house") {
-      const cart2 = u.materials.filter((m) => m.itemHrid !== "/items/coin").map((m) => ({ hrid: m.itemHrid, quantity: m.count }));
-      const coinsNeeded = u.materials.find((m) => m.itemHrid === "/items/coin")?.count || 0;
+      const cart2 = u.materials.filter((m2) => m2.itemHrid !== "/items/coin").map((m2) => ({ hrid: m2.itemHrid, quantity: m2.count }));
+      const coinsNeeded = u.materials.find((m2) => m2.itemHrid === "/items/coin")?.count || 0;
       return `<div class="mwia-upgrade"><div><b>\u{1F3E0} ${esc(u.name)} \u2192 level ${u.level}</b> <span class="mwia-dim">${u.price === null ? "" : coins(u.price)}</span>
             <small>${gain} \xB7 ${payback}${coinsNeeded ? ` \xB7 incl. ${coins(coinsNeeded)} coins` : ""}</small></div>
             ${cart2.length ? `<button class="mwia-cart-btn" data-action="skilling-cart" data-teas="${esc(JSON.stringify(cart2))}" title="Adds the materials to the MWITools cart">\u{1F6D2} Materials</button>` : ""}</div>`;
@@ -4269,7 +4269,7 @@
     made.sort((a, b) => b.total - a.total);
     used.sort((a, b) => b.total - a.total);
     const teas = f ? f.teaPerHour * hours : 0;
-    const revenue = made.reduce((s2, m) => s2 + m.total, 0);
+    const revenue = made.reduce((s2, m2) => s2 + m2.total, 0);
     const cost = used.reduce((s2, u) => s2 + u.total, 0) + teas;
     const profit = revenue - cost;
     const report = {
@@ -4302,14 +4302,14 @@
     const n3 = primary && usedOf(primary.itemHrid) ? usedOf(primary.itemHrid).qty / primary.count : actions;
     const parts = { yield: 0, prices: 0, usage: 0, bought: 0, teas: 0 };
     const outs = new Map(f.outputs.map((o2) => [o2.itemHrid, o2]));
-    for (const m of made) {
-      const o2 = m.level === 0 ? outs.get(m.itemHrid) : null;
+    for (const m2 of made) {
+      const o2 = m2.level === 0 ? outs.get(m2.itemHrid) : null;
       const expected = o2 ? o2.count * n3 : 0;
-      parts.yield += (m.qty - expected) * m.unit;
-      if (o2) parts.prices += expected * (m.unit - o2.price);
+      parts.yield += (m2.qty - expected) * m2.unit;
+      if (o2) parts.prices += expected * (m2.unit - o2.price);
     }
     for (const o2 of f.outputs) {
-      if (!made.some((m) => m.itemHrid === o2.itemHrid && m.level === 0)) parts.yield -= o2.count * n3 * o2.price;
+      if (!made.some((m2) => m2.itemHrid === o2.itemHrid && m2.level === 0)) parts.yield -= o2.count * n3 * o2.price;
     }
     const ins = new Map(f.inputs.map((i) => [i.itemHrid, i]));
     for (const u of used) {
@@ -4635,7 +4635,7 @@
       if (f.teas) lines.push(`<span class="mwia-dim">The advice counted on ${f.teas.length ? f.teas.map((t4) => esc(itemName(t4))).join(", ") : "no teas"}${f.settled === false ? " (as the job was queued)" : ""}.</span>`);
       if (skillOf2(r.actionHrid) === "alchemy" && (f.catalyst || null) !== (r.catalyst || null)) lines.push(`<span class="mwia-dim">The advice counted on ${f.catalyst ? esc(itemName(f.catalyst)) : "no catalyst"}; the job used ${r.catalyst ? esc(itemName(r.catalyst)) : "none"}.</span>`);
     } else lines.push("No advice to compare with.");
-    if (r.made.length) lines.push(`Made: ${r.made.map((m) => `${qty(m.qty)} ${esc(itemName(m.itemHrid))}${levelText(m.level)} \xD7 ${coins2(m.unit)} = ${coins2(m.total)}`).join(" \xB7 ")}.`);
+    if (r.made.length) lines.push(`Made: ${r.made.map((m2) => `${qty(m2.qty)} ${esc(itemName(m2.itemHrid))}${levelText(m2.level)} \xD7 ${coins2(m2.unit)} = ${coins2(m2.total)}`).join(" \xB7 ")}.`);
     if (r.used.length) lines.push(`Used: ${r.used.map((u) => `${qty(u.qty)} ${esc(itemName(u.itemHrid))}${levelText(u.level)} \xD7 ${coins2(u.unit)} = ${coins2(u.total)}${u.bought > 0 ? ` <span class="mwia-dim">(${u.bought >= u.qty - 1e-6 ? "all" : qty(u.bought)} at what you paid${u.boughtEstimate ? ", bought at once: priced up the order book seen" : ""})</span>` : ""}`).join(" \xB7 ")}${r.teas >= 1 ? ` \xB7 teas \u2248 ${coins2(r.teas)}` : ""}.`);
     const earlier = groupHistory(j.ledger, jobGroup(r.actionHrid, r.item), r.key);
     if (earlier) lines.push(`Earlier jobs like this: ${earlier.jobs}${earlier.days >= 1 ? ` over ${Math.round(earlier.days)} day${Math.round(earlier.days) === 1 ? "" : "s"}` : ""} \u2013 margin ${pct2(earlier.margin)}${earlier.expectedMargin !== null ? ` (${pct2(earlier.expectedMargin)} expected)` : ""}${earlier.perHour !== null ? `, ${coins2(earlier.perHour)}/h` : ""}, <span class="${earlier.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(earlier.profit)}</span> in all.`);
@@ -4662,16 +4662,16 @@
     if (Math.abs(d) < tiny) d = tiny;
     d = 1 / d;
     let h2 = d;
-    for (let m = 1; m <= 200; m++) {
-      const m2 = 2 * m;
-      let aa = m * (b - m) * x / ((a + m2 - 1) * (a + m2));
+    for (let m2 = 1; m2 <= 200; m2++) {
+      const m22 = 2 * m2;
+      let aa = m2 * (b - m2) * x / ((a + m22 - 1) * (a + m22));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
       c2 = 1 + aa / c2;
       if (Math.abs(c2) < tiny) c2 = tiny;
       d = 1 / d;
       h2 *= d * c2;
-      aa = -(a + m) * (a + b + m) * x / ((a + m2) * (a + m2 + 1));
+      aa = -(a + m2) * (a + b + m2) * x / ((a + m22) * (a + m22 + 1));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
       c2 = 1 + aa / c2;
@@ -5020,7 +5020,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.63.1" : "dev";
+  var VERSION = true ? "0.64.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5750,8 +5750,8 @@
       const costs = room.upgradeCostsMap?.[String(level + 1)];
       if (!costs?.length) continue;
       const materials2 = costs.map((c2) => ({ hrid: c2.itemHrid, count: c2.count, price: askPrice(c2.itemHrid, 0) }));
-      if (materials2.some((m) => m.price === null)) continue;
-      const cost = materials2.reduce((sum, m) => sum + m.count * m.price, 0);
+      if (materials2.some((m2) => m2.price === null)) continue;
+      const cost = materials2.reduce((sum, m2) => sum + m2.count * m2.price, 0);
       if (cost > budget) continue;
       const variant = cloneProfile(profile);
       variant.houseRooms = { ...variant.houseRooms, [room.hrid]: level + 1 };
@@ -6471,6 +6471,12 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-trig-bar { margin: 0 0 6px; padding: 4px 6px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; }
 .mwia-trig-line { margin-bottom: 3px; }
 .mwia-trig-bar button { padding: 3px 8px; border: 0; border-radius: 4px; background: #4f5bd5; color: #fff; font: 600 12px/1.4 sans-serif; cursor: pointer; }
+.mwia-laby-note { margin: 4px 0 6px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-laby-mark { margin-top: 3px; font: 400 11px/1.3 sans-serif; text-align: left; white-space: normal; }
+.mwia-laby-mark.mwia-laby-ok { color: #7ee2b0; }
+.mwia-laby-mark.mwia-laby-warn { color: #ffd479; }
+.mwia-laby-mark.mwia-laby-bad { color: #ff8f8f; }
+.mwia-laby-mark.mwia-laby-pick:not(.mwia-laby-bad) { font-weight: 700; color: #ffd479; }
 .mwia-tea-note { margin: 6px 4px 2px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
@@ -6681,9 +6687,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     section("Coins", [n(coinCount)]);
     const pricer = data ? marketPricer((hrid) => marketEntry(hrid), data, "bid") : null;
     const priced = stacks.filter((i) => i.itemHrid !== COIN7).map((i) => {
-      const m = marketEntry(i.itemHrid, i.enhancementLevel || 0);
-      const ask = m?.a > 0 ? m.a : null;
-      const bid = m?.b > 0 ? m.b : null;
+      const m2 = marketEntry(i.itemHrid, i.enhancementLevel || 0);
+      const ask = m2?.a > 0 ? m2.a : null;
+      const bid = m2?.b > 0 ? m2.b : null;
       const other = bid === null && ask === null && !i.enhancementLevel ? pricer?.sell(i.itemHrid) : null;
       const how = other?.source === "bag" ? "a tenth of a bag" : other?.source === "contents" ? "what it holds" : null;
       const each = bid ?? ask ?? (how ? other.price : data?.itemDetailMap?.[i.itemHrid]?.sellPrice ?? 0);
@@ -7310,7 +7316,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return box;
   }
-  var head = (title, note) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note}</span></div>`;
+  var head = (title, note2) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note2}</span></div>`;
   function itemLine(kind, hrid, extra = "") {
     const mark3 = { keep: "\u2713", add: "\u2795 Put in", remove: "\u2796 Take out" }[kind];
     return `<li class="mwia-guide-${kind}">${mark3} ${esc(itemName(hrid))}${extra ? ` <span>${extra}</span>` : ""}</li>`;
@@ -7656,10 +7662,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const advice = found && !found.error && getClientData() ? adviceFor(found.skill) : null;
     const marked = /* @__PURE__ */ new Set();
-    let note = null;
+    let note2 = null;
     let noteAt = null;
     if (found?.error) {
-      note = `<span class="mwia-dim">MWI Advisor${VERSION2 ? " " + VERSION2 : ""}: can't mark the ${found.skill === "combat" ? "drinks and food" : "teas"} \u2013 ${esc(found.error)}.</span>`;
+      note2 = `<span class="mwia-dim">MWI Advisor${VERSION2 ? " " + VERSION2 : ""}: can't mark the ${found.skill === "combat" ? "drinks and food" : "teas"} \u2013 ${esc(found.error)}.</span>`;
       noteAt = (leaves(document.body, (text) => LABEL.test(text)).find(visible) || {}).parentElement;
     } else if (advice) {
       const right = new Set(advice.teas);
@@ -7687,22 +7693,22 @@ i.mwia-history-bid { background: #7ee2b0; }
             marked.add(item);
           }
         }
-        note = noteHtml(advice);
-        noteAt = note ? picker.menu : null;
+        note2 = noteHtml(advice);
+        noteAt = note2 ? picker.menu : null;
       }
     }
     document.querySelectorAll("[data-mwia-tea]").forEach((el) => marked.has(el) || unmark(el));
-    document.querySelectorAll(".mwia-tea-note").forEach((box2) => box2.parentElement === noteAt && note || box2.remove());
-    if (!note || !noteAt) return;
+    document.querySelectorAll(".mwia-tea-note").forEach((box2) => box2.parentElement === noteAt && note2 || box2.remove());
+    if (!note2 || !noteAt) return;
     let box = noteAt.querySelector(":scope > .mwia-tea-note");
     if (!box) {
       box = document.createElement("div");
       box.className = "mwia-tea-note";
       noteAt.appendChild(box);
     }
-    if (box.dataset.html !== note) {
-      box.dataset.html = note;
-      box.innerHTML = note;
+    if (box.dataset.html !== note2) {
+      box.dataset.html = note2;
+      box.innerHTML = note2;
     }
   }
   function mark2(el, kind, title) {
@@ -7750,6 +7756,588 @@ i.mwia-history-bid { background: #7ee2b0; }
       t2.status = error.message;
     }
     scheduleScan6();
+  }
+
+  // src/labyrinth.js
+  var SAFE_WIN = 0.9;
+  var RISKY_WIN = 0.5;
+  var MIN_LEVEL = 5;
+  var MAX_LEVEL = 200;
+  var COARSE_LEVELS = [5, ...Array.from({ length: 20 }, (_, i) => 10 * (i + 1))];
+  var FINE_STEP = 2;
+  var MAX_FINE = 12;
+  var FLOOR_STEP = 20;
+  var FLOOR_ONE_LEVEL = 20;
+  var floorLevel = (floor) => FLOOR_ONE_LEVEL + (floor - 1) * FLOOR_STEP;
+  var floorAt = (level) => level === null || level < FLOOR_ONE_LEVEL ? 0 : 1 + Math.floor((level - FLOOR_ONE_LEVEL) / FLOOR_STEP);
+  var LAB_ACCURACY = {
+    fast: { rooms: 20, improveRooms: 40 },
+    normal: { rooms: 40, improveRooms: 80 },
+    thorough: { rooms: 80, improveRooms: 160 }
+  };
+  var CRATE_TIERS = ["basic", "advanced", "expert"];
+  var CRATE_KINDS = { coffee: "Coffee crate", food: "Food crate" };
+  var crateHrid = (tier, kind) => `/items/${tier}_${kind}_crate`;
+  var LABYRINTH = "/action_types/labyrinth";
+  var seedFor2 = (index) => Math.imul(index + 1, 2654435761) >>> 1 || 1;
+  function labyrinthMonsters(data) {
+    return Object.values(data.combatMonsterDetailMap || {}).filter((m2) => m2.isLabyrinthMonster).sort((a, b) => a.name.localeCompare(b.name)).map((m2) => m2.hrid);
+  }
+  function slottedCrate(character, kind) {
+    const slots = [...character?.actionTypeDrinkSlotsMap?.[LABYRINTH] || [], ...character?.actionTypeFoodSlotsMap?.[LABYRINTH] || []];
+    for (const slot of slots) {
+      const tier = CRATE_TIERS.find((t4) => slot?.itemHrid === crateHrid(t4, kind));
+      if (tier) return tier;
+    }
+    return null;
+  }
+  function chosenCrates(settings2, character) {
+    const pick2 = (kind) => {
+      const value = settings2[kind === "coffee" ? "labyCoffee" : "labyFood"] || "slots";
+      if (value === "slots") return slottedCrate(character, kind);
+      return CRATE_TIERS.includes(value) ? value : null;
+    };
+    return { coffee: pick2("coffee"), food: pick2("food") };
+  }
+  function crateBuffs(data, crates) {
+    const buffs = [];
+    for (const [kind, tier] of Object.entries(crates)) {
+      if (!tier) continue;
+      for (const buff of data.labyrinthCrateDetailMap?.[crateHrid(tier, kind)] || []) buffs.push({ ...buff, uniqueHrid: `${buff.uniqueHrid}#${kind}`, duration: 0 });
+    }
+    return buffs;
+  }
+  function labyrinthLoadouts(character) {
+    return Object.entries(character?.characterLoadoutMap || {}).filter(([, l2]) => l2?.actionTypeHrid === LABYRINTH).map(([id, l2]) => ({ ...l2, id: String(id) })).sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
+  }
+  function roomFighter(profile, data, crates) {
+    const fighter = cloneProfile(profile);
+    fighter.food = [];
+    fighter.drinks = [];
+    return { player: toDTO(fighter, data), extraBuffs: [...profile.extraBuffs || [], ...crateBuffs(data, crates)] };
+  }
+  var DAMAGE_TYPES = ["physical", "water", "nature", "fire"];
+  var RESISTANCE_STAT = { physical: "armor", water: "waterResistance", nature: "natureResistance", fire: "fireResistance" };
+  var ATTACK_STYLES = ["stab", "slash", "smash", "ranged", "magic"];
+  var STYLE_TYPES = { stab: ["physical"], slash: ["physical"], smash: ["physical"], ranged: ["physical", "water", "fire"], magic: ["water", "nature", "fire"] };
+  function damageTaken(data, monsterHrid, level) {
+    const monster = data.combatMonsterDetailMap[monsterHrid];
+    const stats = monster.combatDetails.combatStats || {};
+    const scale = level / 100;
+    const defense = 0.2 * (monster.combatDetails.defenseLevel || 0) * scale;
+    const out = {};
+    for (const type of DAMAGE_TYPES) {
+      const resistance = (stats[RESISTANCE_STAT[type]] || 0) * scale + defense;
+      out[type] = resistance >= 0 ? 100 / (100 + resistance) : (100 - resistance) / 100;
+    }
+    return out;
+  }
+  function evasionByStyle(data, monsterHrid) {
+    const stats = data.combatMonsterDetailMap[monsterHrid].combatDetails.combatStats || {};
+    return Object.fromEntries(ATTACK_STYLES.map((style) => [style, 1 + (stats[style + "Evasion"] || 0)]));
+  }
+  function hitScore(data, monsterHrid, style, type) {
+    return damageTaken(data, monsterHrid, 100)[type] / evasionByStyle(data, monsterHrid)[style];
+  }
+  var THORNS_BELOW = 0.1;
+  function weakTo(data, monsterHrid) {
+    const pairs = [];
+    for (const style of ATTACK_STYLES) for (const type of STYLE_TYPES[style]) pairs.push({ style, type, score: hitScore(data, monsterHrid, style, type) });
+    const best = Math.max(...pairs.map((p2) => p2.score));
+    const styles = [];
+    for (const p2 of pairs.filter((p3) => p3.score >= best / 2).sort((a, b) => b.score - a.score)) {
+      const known = styles.find((s2) => s2.style === p2.style);
+      if (known) known.types.push(p2.type);
+      else styles.push({ style: p2.style, types: [p2.type] });
+    }
+    return { styles, best, thorns: best < THORNS_BELOW };
+  }
+  function yourStyle(profile, data) {
+    const weapon = weaponOf(profile);
+    const first = weapon ? data.itemDetailMap[weapon.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] : null;
+    return (first || "/combat_styles/smash").split("/").pop();
+  }
+  function yourAttacks(profile, data) {
+    const weapon = weaponOf(profile);
+    const out = [{ what: weapon?.hrid || "punch", style: yourStyle(profile, data), type: (weapon ? data.itemDetailMap[weapon.hrid]?.equipmentDetail?.combatStats?.damageType : "") || "/damage_types/physical" }];
+    for (const entry of profile.abilities || []) {
+      if (!entry) continue;
+      for (const effect of data.abilityDetailMap[entry.hrid]?.abilityEffects || []) {
+        if (effect.damageType && effect.combatStyleHrid) out.push({ what: entry.hrid, style: effect.combatStyleHrid, type: effect.damageType });
+      }
+    }
+    return out.map((a) => ({ ...a, style: a.style.split("/").pop(), type: a.type.split("/").pop() })).filter((a) => ATTACK_STYLES.includes(a.style) && DAMAGE_TYPES.includes(a.type));
+  }
+  function yourMatch(profile, data, monsterHrid) {
+    const weak = weakTo(data, monsterHrid);
+    let best = null;
+    for (const a of yourAttacks(profile, data)) {
+      const score2 = hitScore(data, monsterHrid, a.style, a.type);
+      if (!best || score2 > best.score) best = { ...a, score: score2 };
+    }
+    return best ? { ...best, share: best.score / weak.best } : null;
+  }
+  function monsterAttack(data, monsterHrid) {
+    const stats = data.combatMonsterDetailMap[monsterHrid].combatDetails.combatStats || {};
+    return { style: (stats.combatStyleHrids?.[0] || "").split("/").pop(), type: (stats.damageType || "").split("/").pop() };
+  }
+  function styleWeapon(profile, data, style) {
+    const fits = (item) => item?.equipmentDetail && ["main_hand", "two_hand"].includes(item.equipmentDetail.type?.split("/").pop()) && item.equipmentDetail.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style && meetsRequirements(profile, item.equipmentDetail.levelRequirements);
+    const owned = profile.inventory.filter((i) => fits(data.itemDetailMap[i.hrid])).sort((a, b) => (data.itemDetailMap[b.hrid].itemLevel || 0) - (data.itemDetailMap[a.hrid].itemLevel || 0) || b.enhancementLevel - a.enhancementLevel)[0];
+    let weapon = owned ? { hrid: owned.hrid, enhancementLevel: owned.enhancementLevel, cost: 0, owned: true } : null;
+    if (!weapon) {
+      for (const item of Object.values(data.itemDetailMap)) {
+        if (!fits(item)) continue;
+        const price = askPrice(item.hrid, 0);
+        if (price !== null && (!weapon || price < weapon.cost)) weapon = { hrid: item.hrid, enhancementLevel: 0, cost: price, owned: false };
+      }
+    }
+    if (weapon) weapon.slot = data.itemDetailMap[weapon.hrid].equipmentDetail.type.split("/").pop();
+    return weapon;
+  }
+  var rate = (point) => point.attempts ? point.wins / point.attempts : 0;
+  function pointsToJobs(fighter, points, rooms) {
+    return points.map((p2, i) => ({ ...fighter, monsterHrid: p2.monster, roomLevel: p2.level, attempts: rooms, seed: seedFor2(p2.seed ?? i) }));
+  }
+  function summarizeCurve(curve) {
+    let safe = null;
+    for (const p2 of curve) {
+      if (rate(p2) >= SAFE_WIN) safe = p2.level;
+      else break;
+    }
+    let half = null;
+    if (curve.length && rate(curve[0]) >= RISKY_WIN) {
+      half = curve[curve.length - 1].level;
+      for (let i = 1; i < curve.length; i++) {
+        const a = curve[i - 1];
+        const b = curve[i];
+        if (rate(b) < RISKY_WIN) {
+          const ra = rate(a);
+          const rb = rate(b);
+          half = a.level + (ra - RISKY_WIN) / Math.max(1e-9, ra - rb) * (b.level - a.level);
+          break;
+        }
+      }
+    }
+    return { safe, half };
+  }
+  function winAt(curve, level) {
+    if (!curve.length) return null;
+    if (level <= curve[0].level) return rate(curve[0]);
+    for (let i = 1; i < curve.length; i++) {
+      const a = curve[i - 1];
+      const b = curve[i];
+      if (level <= b.level) return rate(a) + (level - a.level) / (b.level - a.level) * (rate(b) - rate(a));
+    }
+    return rate(curve[curve.length - 1]);
+  }
+  function nearestPoint(curve, level) {
+    return curve.reduce((best, p2) => !best || Math.abs(p2.level - level) < Math.abs(best.level - level) ? p2 : best, null);
+  }
+  function better(a, b) {
+    const key2 = (m2) => [m2.half ?? -1, m2.safe ?? -1, m2.curve.length ? rate(m2.curve[0]) : 0];
+    const [x, y] = [key2(a), key2(b)];
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] > y[i];
+    return false;
+  }
+  async function simulateCurves(pool, fighter, monsters, rooms, onProgress) {
+    const coarse = monsters.flatMap((monster) => COARSE_LEVELS.map((level, i) => ({ monster, level, seed: i })));
+    const fine = [];
+    let before = 0;
+    const run = (points) => pool.runAll(pointsToJobs(fighter, points, rooms), (done2) => onProgress?.(before + done2, coarse.length + fine.length));
+    const coarseResults = await run(coarse);
+    before = coarse.length;
+    const curves = new Map(monsters.map((m2) => [m2, []]));
+    coarse.forEach((p2, i) => curves.get(p2.monster).push({ level: p2.level, ...coarseResults[i] }));
+    for (const monster of monsters) {
+      const curve = curves.get(monster);
+      const lastSafe = [...curve].reverse().find((p2) => rate(p2) >= SAFE_WIN)?.level ?? 0;
+      const firstLost = curve.find((p2) => p2.level > lastSafe && rate(p2) <= 0.1)?.level ?? MAX_LEVEL;
+      const have5 = new Set(curve.map((p2) => p2.level));
+      const levels = [];
+      for (let level = Math.max(MIN_LEVEL, lastSafe) + FINE_STEP; level < firstLost && levels.length < MAX_FINE; level += FINE_STEP) {
+        if (!have5.has(level)) levels.push(level);
+      }
+      fine.push(...levels.map((level) => ({ monster, level, seed: 100 + level })));
+    }
+    const fineResults = await run(fine);
+    fine.forEach((p2, i) => curves.get(p2.monster).push({ level: p2.level, ...fineResults[i] }));
+    return monsters.map((hrid) => {
+      const curve = curves.get(hrid).sort((a, b) => a.level - b.level);
+      return { hrid, curve, ...summarizeCurve(curve) };
+    });
+  }
+  async function analyzeLabyrinth(pool, setups, data, settings2, character, onProgress) {
+    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
+    const crates = chosenCrates(settings2, character);
+    const monsters = labyrinthMonsters(data);
+    const results = [];
+    for (const [i, setup] of setups.entries()) {
+      const curves = await simulateCurves(
+        pool,
+        roomFighter(setup.profile, data, crates),
+        monsters,
+        accuracy.rooms,
+        (done2, total) => onProgress?.(i * 1e3 + Math.round(1e3 * done2 / Math.max(1, total)), setups.length * 1e3)
+      );
+      results.push({ id: setup.id, name: setup.name, monsters: curves });
+    }
+    const best = monsters.map((hrid, m2) => {
+      let pick2 = null;
+      for (const setup of results) if (!pick2 || better(setup.monsters[m2], pick2.monster)) pick2 = { setup, monster: setup.monsters[m2] };
+      return { ...pick2.monster, setupId: pick2.setup.id, setupName: pick2.setup.name };
+    });
+    return { crates, rooms: accuracy.rooms, setups: results, monsters: best };
+  }
+  var SKILL_STEP = 5;
+  var ABILITY_STEP = 5;
+  var SKILL_LABEL = { stamina: "Stamina", intelligence: "Intelligence", attack: "Attack", melee: "Melee", defense: "Defense", ranged: "Ranged", magic: "Magic" };
+  function improvementCandidates(profile, data, crates) {
+    const list = [];
+    for (const kind of Object.keys(CRATE_KINDS)) {
+      const now = CRATE_TIERS.indexOf(crates[kind]);
+      for (const tier of CRATE_TIERS.slice(now + 1)) {
+        list.push({ id: `crate:${kind}:${tier}`, kind: "crate", label: `${tier[0].toUpperCase() + tier.slice(1)} ${CRATE_KINDS[kind]}`, crates: { ...crates, [kind]: tier }, profile });
+      }
+    }
+    for (const skill of Object.keys(SKILL_LABEL)) {
+      const changed2 = cloneProfile(profile);
+      changed2.levels[skill] += SKILL_STEP;
+      list.push({ id: `skill:${skill}`, kind: "skill", label: `+${SKILL_STEP} ${SKILL_LABEL[skill]}`, crates, profile: changed2 });
+    }
+    profile.abilities.forEach((entry, slot) => {
+      if (!entry) return;
+      const changed2 = cloneProfile(profile);
+      changed2.abilities[slot].level += ABILITY_STEP;
+      list.push({ id: `ability:${entry.hrid}`, kind: "ability", hrid: entry.hrid, label: `+${ABILITY_STEP} levels ${data.abilityDetailMap[entry.hrid]?.name || entry.hrid}`, crates, profile: changed2 });
+    });
+    profile.abilities.forEach((entry, slot) => {
+      if (!entry || slot === 0) return;
+      const changed2 = cloneProfile(profile);
+      changed2.abilities[slot] = null;
+      list.push({ id: `drop:${entry.hrid}`, kind: "swap", hrid: null, replaces: entry.hrid, slot, label: `Without ${data.abilityDetailMap[entry.hrid]?.name || entry.hrid}`, crates, profile: changed2 });
+    });
+    const using = new Set(profile.abilities.filter(Boolean).map((a) => a.hrid));
+    for (const [hrid, level] of Object.entries(profile.learnedAbilities || {})) {
+      const detail = data.abilityDetailMap[hrid];
+      if (!detail || detail.isSpecialAbility || using.has(hrid)) continue;
+      for (let slot = 1; slot <= slotCounts(profile, data).abilities; slot++) {
+        const old = profile.abilities[slot];
+        const changed2 = cloneProfile(profile);
+        changed2.abilities[slot] = { hrid, level };
+        list.push({ id: `swap:${slot}:${hrid}`, kind: "swap", hrid, replaces: old?.hrid || null, slot, label: `${detail.name}${old ? ` instead of ${data.abilityDetailMap[old.hrid]?.name || old.hrid}` : " in an empty slot"}`, crates, profile: changed2 });
+        if (!old) break;
+      }
+    }
+    return list;
+  }
+  function edgeOf(m2, seed) {
+    const level = Math.round(Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, m2.half ?? MIN_LEVEL)));
+    const here = winAt(m2.curve, level);
+    const below = [...m2.curve].reverse().find((p2) => p2.level <= level - 1 && rate(p2) > here) || m2.curve[0];
+    const above = m2.curve.find((p2) => p2.level >= level + 1 && rate(p2) < here) || m2.curve[m2.curve.length - 1];
+    const slope = above.level > below.level ? (rate(below) - rate(above)) / (above.level - below.level) : 0;
+    return { hrid: m2.hrid, level, slope: Math.max(0.01, slope), seed };
+  }
+  var BASE_REPEAT = 4;
+  async function atEdges(pool, data, setups, rooms, seedShift, onProgress) {
+    const jobs = [];
+    for (const setup of setups) {
+      const fighter = roomFighter(setup.profile, data, setup.crates);
+      for (let k = 0; k < (setup.repeat || 1); k++) {
+        for (const edge of setup.edges) jobs.push({ ...fighter, monsterHrid: edge.hrid, roomLevel: edge.level, attempts: rooms, seed: seedFor2(edge.seed + seedShift + 7919 * k) });
+      }
+    }
+    const results = await pool.runAll(jobs, onProgress);
+    let next = 0;
+    return setups.map((setup) => {
+      const sums = setup.edges.map(() => ({ attempts: 0, wins: 0, deaths: 0, timeouts: 0 }));
+      for (let k = 0; k < (setup.repeat || 1); k++) {
+        sums.forEach((sum) => {
+          const r = results[next++];
+          for (const key2 of Object.keys(sum)) sum[key2] += r[key2];
+        });
+      }
+      return sums;
+    });
+  }
+  async function analyzeImprovements(pool, setups, data, settings2, lab, onProgress) {
+    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
+    const byId = new Map(setups.map((s2) => [s2.id, s2]));
+    const groups = /* @__PURE__ */ new Map();
+    lab.monsters.forEach((m2, i) => {
+      const setup = byId.get(m2.setupId) || setups[0];
+      if (!groups.has(setup.id)) groups.set(setup.id, { setup, edges: [], candidates: improvementCandidates(setup.profile, data, lab.crates) });
+      groups.get(setup.id).edges.push(edgeOf(m2, 1e3 + i));
+    });
+    const runs = [];
+    for (const group of groups.values()) {
+      runs.push({ profile: group.setup.profile, crates: lab.crates, edges: group.edges, repeat: BASE_REPEAT });
+      for (const c2 of group.candidates) runs.push({ profile: c2.profile, crates: c2.crates, edges: group.edges });
+    }
+    const results = await atEdges(pool, data, runs, accuracy.improveRooms, 0, onProgress);
+    const combined = /* @__PURE__ */ new Map();
+    const base = [];
+    let r = 0;
+    for (const group of groups.values()) {
+      const own = results[r++];
+      group.edges.forEach((edge, i) => base.push({ hrid: edge.hrid, level: edge.level, setupName: group.setup.name, win: rate(own[i]), deaths: own[i].deaths / own[i].attempts, timeouts: own[i].timeouts / own[i].attempts }));
+      for (const c2 of group.candidates) {
+        const theirs = results[r++];
+        const id = c2.kind === "swap" ? `${group.setup.id}:${c2.id}` : c2.id;
+        const { profile: _p, crates: _c, ...rest } = c2;
+        if (!combined.has(id)) combined.set(id, { ...rest, setupName: group.setup.name, perMonster: [] });
+        group.edges.forEach((edge, i) => {
+          const gain = rate(theirs[i]) - rate(own[i]);
+          combined.get(id).perMonster.push({ hrid: edge.hrid, level: edge.level, before: rate(own[i]), after: rate(theirs[i]), levels: Math.max(-50, Math.min(50, gain / edge.slope)) });
+        });
+      }
+    }
+    const candidates = [...combined.values()].map((c2) => ({ ...c2, levels: c2.perMonster.reduce((sum, m2) => sum + m2.levels, 0) / lab.monsters.length }));
+    return { rooms: accuracy.improveRooms, base, candidates };
+  }
+  function monstersFor(data, style) {
+    return labyrinthMonsters(data).filter((hrid) => weakTo(data, hrid).styles.some((s2) => s2.style === style));
+  }
+  var SCREEN_SHARE = 0.5;
+  var PER_SLOT = 3;
+  var ROUNDS2 = 6;
+  var MIN_LEVELS = 0.5;
+  var LEVELS_PER_MILLION = { frugal: 2, balanced: 0.5, all: 0 };
+  var ROUND_ROOMS = 2;
+  var CONFIRM_TRIES = 3;
+  function applyCandidate(profile, c2) {
+    const out = cloneProfile(profile);
+    const index = c2.slot?.startsWith("ability") ? Number(c2.slot.replace("ability", "")) : null;
+    if (c2.kind === "gear") equip(out, c2.slot, { hrid: c2.hrid, enhancementLevel: c2.enhancementLevel });
+    else if (c2.kind === "ability" || c2.kind === "abilityLevel") out.abilities[index] = { hrid: c2.hrid, level: c2.level };
+    else if (c2.kind === "drop") out.abilities[index] = null;
+    else if (c2.kind === "dropAll") out.abilities = out.abilities.map((entry, i) => i === 0 ? entry : null);
+    else if (c2.kind === "triggers") out.abilityTriggers = { ...out.abilityTriggers, ...Object.fromEntries(out.abilities.filter(Boolean).map((a) => [a.hrid, []])) };
+    return out;
+  }
+  async function buildLoadout(pool, profile, data, settings2, opts, onProgress) {
+    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
+    const { style, crates } = opts;
+    let budget = Math.max(0, Number(opts.budget) || 0);
+    const minPerMillion = LEVELS_PER_MILLION[settings2.spending] ?? LEVELS_PER_MILLION.balanced;
+    const targets = monstersFor(data, style);
+    if (!targets.length) throw new Error(`No Labyrinth monster is weak to ${style}.`);
+    let start = cloneProfile(profile);
+    let starter = null;
+    if (yourStyle(profile, data) !== style) {
+      starter = styleWeapon(profile, data, style);
+      if (!starter) throw new Error(`No ${style} weapon you can wear is for sale.`);
+      starter.replaces = weaponOf(profile);
+      equip(start, starter.slot, { hrid: starter.hrid, enhancementLevel: starter.enhancementLevel });
+      budget = Math.max(0, budget - starter.cost);
+    }
+    start.food = [];
+    start.drinks = [];
+    const steps = 14;
+    const part = (from, size) => (done2, total) => onProgress?.(Math.round((from + size * done2 / Math.max(1, total)) * 1e3 / steps), 1e3);
+    const before = await simulateCurves(pool, roomFighter(start, data, crates), targets, accuracy.rooms, part(0, 3));
+    const edges = before.map((m2, i) => edgeOf(m2, 2e3 + i));
+    const subStyle = (c2) => c2.kind !== "gear" || !["main_hand", "two_hand"].includes(c2.slot) || data.itemDetailMap[c2.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style;
+    const candidates = [
+      // A loadout of its own sells nothing: what it replaces is still worn in your other loadouts.
+      ...gearCandidates(start, { budget, starter, enhanceCost: opts.enhanceCost }).filter((c2) => c2.slot !== "pouch" && !c2.extraFood && subStyle(c2)).map((c2) => ({ ...c2, cost: c2.price ?? c2.cost, resale: 0, sold: [] })).filter((c2) => c2.cost <= budget),
+      ...abilityCandidates(start, budget)
+    ];
+    start.abilities.forEach((entry, index) => {
+      if (!entry || index === 0) return;
+      const without = cloneProfile(start);
+      without.abilities[index] = null;
+      candidates.push({ kind: "drop", slot: "ability" + index, hrid: entry.hrid, cost: 0, owned: true, profile: without });
+    });
+    if (start.abilities.slice(1).filter(Boolean).length > 1) {
+      const bare = cloneProfile(start);
+      bare.abilities = bare.abilities.map((entry, index) => index === 0 ? entry : null);
+      candidates.push({ kind: "dropAll", slot: "abilities", cost: 0, owned: true, profile: bare });
+    }
+    const quiet = cloneProfile(start);
+    quiet.abilityTriggers = Object.fromEntries(start.abilities.filter(Boolean).map((a) => [a.hrid, []]));
+    candidates.push({ kind: "triggers", slot: "triggers", cost: 0, owned: true, profile: quiet });
+    const scoreAt = (edgeList) => (own, base) => edgeList.reduce((sum, edge, i) => sum + Math.max(-50, Math.min(50, (rate(own[i]) - rate(base[i])) / edge.slope)), 0) / edgeList.length;
+    const screenRooms = Math.max(20, Math.round(accuracy.improveRooms * SCREEN_SHARE));
+    const first = await atEdges(pool, data, [{ profile: start, crates, edges, repeat: BASE_REPEAT }, ...candidates.map((c2) => ({ profile: c2.profile, crates, edges }))], screenRooms, 0, part(3, 5));
+    candidates.forEach((c2, i) => c2.levels = scoreAt(edges)(first[i + 1], first[0]));
+    const bySlot = /* @__PURE__ */ new Map();
+    for (const c2 of candidates.filter((c3) => c3.cost > 0 && c3.levels > 0).sort((a, b) => b.levels - a.levels)) {
+      const list = bySlot.get(c2.slot) || [];
+      if (list.length < PER_SLOT) list.push(c2);
+      bySlot.set(c2.slot, list);
+    }
+    const shortlist2 = [...candidates.filter((c2) => c2.cost === 0), ...[...bySlot.values()].flat()];
+    const abilitySlots = [1, 2, 3, 4].map((i) => "ability" + i);
+    const slotsOf = (c2) => c2.slot === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : c2.slot === "main_hand" || c2.slot === "off_hand" ? [c2.slot, "two_hand"] : c2.kind === "dropAll" ? [...abilitySlots, "triggers", "abilities"] : c2.slot.startsWith("ability") && c2.slot !== "ability0" ? [c2.slot, "abilities"] : c2.slot === "triggers" ? ["triggers", "abilities"] : [c2.slot];
+    const taken = /* @__PURE__ */ new Set();
+    const picks = [];
+    let left = budget;
+    let built = start;
+    let now = before;
+    let lastRound = [];
+    for (let round = 0; round < ROUNDS2; round++) {
+      const open = shortlist2.filter((c2) => !picks.includes(c2) && !slotsOf(c2).some((x) => taken.has(x)) && c2.cost <= left);
+      if (!open.length) break;
+      const roundEdges = now.map((m2, i) => edgeOf(m2, 3e3 + 10 * round + i));
+      const from = part(8 + round, 1);
+      const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open.map((c2) => ({ profile: applyCandidate(built, c2), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
+      open.forEach((c2, i) => c2.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
+      lastRound = open;
+      const dropOf = (c2) => c2.kind === "ability" && c2.replaces ? open.find((d) => d.kind === "drop" && d.hrid === c2.replaces) : null;
+      const beatsDrop = (c2) => !dropOf(c2) || c2.roundLevels >= dropOf(c2).roundLevels + MIN_LEVELS;
+      const worth = (c2) => c2.roundLevels >= MIN_LEVELS && beatsDrop(c2) && (c2.cost === 0 || c2.roundLevels / (c2.cost / 1e6) >= minPerMillion);
+      const good = open.filter(worth);
+      const order = [...good.filter((c2) => c2.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c2) => c2.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
+      let pick2 = null;
+      for (const [k, c2] of order.slice(0, CONFIRM_TRIES).entries()) {
+        const check = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, { profile: applyCandidate(built, c2), crates, edges: roundEdges, repeat: ROUND_ROOMS }], accuracy.improveRooms, 900 + 10 * round + k);
+        c2.roundLevels = (c2.roundLevels + scoreAt(roundEdges)(check[1], check[0])) / 2;
+        if (worth(c2)) {
+          pick2 = c2;
+          break;
+        }
+      }
+      if (!pick2) break;
+      pick2.levels = pick2.roundLevels;
+      picks.push(pick2);
+      slotsOf(pick2).forEach((x) => taken.add(x));
+      left -= pick2.cost;
+      built = applyCandidate(built, pick2);
+      now = await simulateCurves(pool, roomFighter(built, data, crates), targets, accuracy.rooms, part(8 + round, 1));
+    }
+    const after = now;
+    onProgress?.(1e3, 1e3);
+    const strip = ({ profile: _p, ...rest }) => rest;
+    return {
+      style,
+      targets,
+      starter,
+      budget: Number(opts.budget) || 0,
+      spent: (starter && !starter.owned ? starter.cost : 0) + picks.reduce((sum, p2) => sum + p2.cost, 0),
+      before,
+      after,
+      picks: picks.map(strip),
+      // The best of the rest, for "also tested".
+      // The best of the rest in the last round, measured from (nearly) the finished list.
+      nearMisses: lastRound.filter((c2) => !picks.includes(c2) && c2.roundLevels > 0).sort((a, b) => b.roundLevels - a.roundLevels).slice(0, 6).map((c2) => ({ ...strip(c2), levels: c2.roundLevels })),
+      tested: candidates.length,
+      profile: built
+    };
+  }
+
+  // src/labyrinth-marks.js
+  var SCAN_MS7 = 400;
+  var STORE2 = "mwia-laby-check";
+  var TABLE = 'table[class*="LabyrinthPanel_automationTable"]';
+  var LABEL2 = '[class*="LabyrinthPanel_roomLabel"]';
+  var CHOSEN = 'input[class*="MuiSelect-nativeInput"], input[class*="nativeInput"]';
+  var MARK = "mwia-laby-mark";
+  var NOTE = "mwia-laby-note";
+  var m = { deps: null, scanTimer: null, stored: void 0 };
+  var pct4 = (x) => `${Math.round(100 * x)}%`;
+  function rememberLabyrinth(lab) {
+    if (!lab) return;
+    const kept = {
+      at: Date.now(),
+      monsters: lab.monsters.map((x) => ({ hrid: x.hrid, setupId: x.setupId, setupName: x.setupName, safe: x.safe, curve: x.curve.map((p2) => ({ level: p2.level, wins: p2.wins, attempts: p2.attempts })) }))
+    };
+    m.stored = kept;
+    try {
+      localStorage.setItem(STORE2, JSON.stringify(kept));
+    } catch {
+    }
+    scheduleScan7();
+  }
+  function lastCheck() {
+    if (m.stored === void 0) {
+      try {
+        m.stored = JSON.parse(localStorage.getItem(STORE2) || "null");
+      } catch {
+        m.stored = null;
+      }
+    }
+    return m.stored;
+  }
+  function startLabyrinthMarks(deps) {
+    m.deps = deps;
+    new MutationObserver((records) => {
+      if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}`))) return;
+      scheduleScan7();
+    }).observe(document.body, { childList: true, subtree: true });
+    scheduleScan7();
+  }
+  function scheduleScan7() {
+    if (m.scanTimer || !m.deps) return;
+    m.scanTimer = setTimeout(() => {
+      m.scanTimer = null;
+      try {
+        scan6();
+      } catch (error) {
+        console.warn("[MWI Advisor] labyrinth marks", error);
+      }
+    }, SCAN_MS7);
+  }
+  function rowMonster(row, monsters, data) {
+    const label3 = row.querySelector(LABEL2) || row.querySelector("td");
+    if (!label3) return null;
+    const use = label3.querySelector("use");
+    const icon = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1];
+    const name = label3.textContent.replace(/\s+/g, " ").trim().toLowerCase();
+    return monsters.find((x) => x.hrid === `/monsters/${icon}`) || monsters.find((x) => (data?.combatMonsterDetailMap?.[x.hrid]?.name || "").toLowerCase() === name) || null;
+  }
+  function markFor(monster, chosenId, level) {
+    const win2 = winAt(monster.curve, level) ?? 0;
+    const kind = win2 >= SAFE_WIN ? "ok" : win2 >= RISKY_WIN ? "warn" : "bad";
+    const name = esc(monster.setupName);
+    const saved = monster.setupId !== "equipped";
+    const chosen = saved && String(chosenId) === String(monster.setupId);
+    const floor = monster.safe === null ? "never safe" : floorAt(monster.safe) ? `safe to floor ${floorAt(monster.safe)}` : `safe to level ${Math.round(monster.safe)}`;
+    let text;
+    if (kind === "bad") text = `\u2716 Shroud or go around \xB7 best ${name}: ${pct4(win2)}`;
+    else if (!saved) text = `${kind === "ok" ? "\u2705" : "\u26A0"} What you wear now (${pct4(win2)}) \u2013 save it as a loadout to pick it`;
+    else if (chosen) text = `${kind === "ok" ? "\u2705" : "\u26A0"} ${name} \xB7 ${pct4(win2)}`;
+    else text = `\u{1F449} Pick ${name} \xB7 ${pct4(win2)}`;
+    const title = `MWI Advisor: ${pct4(win2)} of the rooms won at room level ${level} with ${monster.setupName} (${floor})`;
+    return { kind, chosen, text, title };
+  }
+  function scan6() {
+    const tables = [...document.querySelectorAll(TABLE)].filter(visible);
+    const check = lastCheck();
+    const level = m.deps.level();
+    for (const table of tables) {
+      note(table, check, level);
+      if (!check) continue;
+      const data = getClientData();
+      for (const row of table.querySelectorAll("tbody tr")) {
+        const monster = rowMonster(row, check.monsters, data);
+        if (!monster) continue;
+        const cell = row.children[1] || row.lastElementChild;
+        const chosenId = row.querySelector(CHOSEN)?.value ?? "";
+        const mark3 = markFor(monster, chosenId, level);
+        const cls = `${MARK} mwia-laby-${mark3.kind}${mark3.chosen ? "" : " mwia-laby-pick"}`;
+        let el = cell.querySelector(`.${MARK}`);
+        if (!el) {
+          el = document.createElement("div");
+          cell.appendChild(el);
+        }
+        if (el.className !== cls) el.className = cls;
+        if (el.dataset.html !== mark3.text) el.innerHTML = el.dataset.html = mark3.text;
+        if (el.title !== mark3.title) el.title = mark3.title;
+      }
+    }
+  }
+  function note(table, check, level) {
+    let el = table.previousElementSibling?.classList?.contains(NOTE) ? table.previousElementSibling : null;
+    if (!el) {
+      el = document.createElement("div");
+      el.className = NOTE;
+      table.parentElement.insertBefore(el, table);
+    }
+    const floor = floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
+    const html = check ? `\u{1F9ED} MWI Advisor: the loadout to pick for each monster at room level ${level}${floor} \u2013 change it in \u{1F9ED} \u2192 Labyrinth. Checked ${new Date(check.at).toLocaleDateString()}; check again after changing gear.` : `\u{1F9ED} MWI Advisor: tap <b>Check the rooms</b> in \u{1F9ED} \u2192 Labyrinth, and each monster here gets the loadout to pick.`;
+    if (el.dataset.html !== html) el.innerHTML = el.dataset.html = html;
   }
 
   // src/enhance-plan.js
@@ -7888,7 +8476,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/enhance-plan-ui.js
-  var SCAN_MS7 = 400;
+  var SCAN_MS8 = 400;
   var TYPE4 = "/action_types/enhancing";
   var SKILL3 = "/skills/enhancing";
   var COIN9 = "/items/coin";
@@ -7907,24 +8495,24 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function startEnhancePlan(deps) {
     e.deps = deps;
-    onStateChange(() => scheduleScan7());
+    onStateChange(() => scheduleScan8());
     new MutationObserver((records) => {
       if (records.every((r) => r.target.closest?.(".mwia-plan-box"))) return;
-      scheduleScan7();
+      scheduleScan8();
     }).observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", onClick5, true);
     document.addEventListener("toggle", onToggle, true);
   }
-  function scheduleScan7() {
+  function scheduleScan8() {
     if (e.scanTimer) return;
     e.scanTimer = setTimeout(() => {
       e.scanTimer = null;
       try {
-        scan6();
+        scan7();
       } catch (error) {
         console.warn("[MWI Advisor] enhancing plan", error);
       }
-    }, SCAN_MS7);
+    }, SCAN_MS8);
   }
   function planInputs(itemHrid, start) {
     const data = getClientData();
@@ -7932,10 +8520,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const key2 = JSON.stringify([pricesStamp(), who.levels[SKILL3], who.drinks[TYPE4], who.concentration, who.equipped, who.houseLevels, who.buffs?.[TYPE4] || null]);
     return { id: `${itemHrid}+${start}`, key: key2, who, data };
   }
-  function scan6() {
+  function scan7() {
     const panels = levelingPanels().filter((p2) => p2.kind === "enhancing" && itemOfHash(p2.itemHash));
     if (panels.length && (!getClientData() || !pricesStamp())) {
-      e.loading || (e.loading = e.deps.prepare().then(scheduleScan7, (error) => console.warn("[MWI Advisor] enhancing plan", error)).finally(() => e.loading = null));
+      e.loading || (e.loading = e.deps.prepare().then(scheduleScan8, (error) => console.warn("[MWI Advisor] enhancing plan", error)).finally(() => e.loading = null));
       return;
     }
     const shown = /* @__PURE__ */ new Set();
@@ -7965,7 +8553,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return box;
   }
-  var head2 = (title, note) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note}</span></div>`;
+  var head2 = (title, note2) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note2}</span></div>`;
   function boxHtml2(itemHrid, start, id, key2) {
     const status = e.statuses.get(id);
     const statusHtml = status ? `<div class="mwia-guide-status">${esc(status)}</div>` : "";
@@ -8042,7 +8630,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const start = Number(startText) || 0;
     e.busy = id;
     e.statuses.delete(id);
-    scheduleScan7();
+    scheduleScan8();
     setTimeout(() => {
       try {
         const { key: key2, who, data } = planInputs(itemHrid, start);
@@ -8052,8 +8640,8 @@ i.mwia-history-bid { background: #7ee2b0; }
         e.statuses.set(id, `Could not simulate: ${error.message}`);
       }
       e.busy = null;
-      scheduleScan7();
-    }, SCAN_MS7 + 150);
+      scheduleScan8();
+    }, SCAN_MS8 + 150);
   }
   async function setTarget(button2, id) {
     const target = Number(button2.dataset.planSet);
@@ -8066,7 +8654,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       id,
       result === "item" ? `Target +${target} set${protect ? `, protection from +${protect.from}` : ""} \u2013 press the game's Enhance.` : result === "partial" ? `Target +${target} set, but put in ${itemName(protectHrid)} from +${button2.dataset.from} yourself (${navDiagnostics()}).` : `Could not set it: enter +${target} yourself (${navDiagnostics() || "no Enhancing window"}).`
     );
-    scheduleScan7();
+    scheduleScan8();
   }
   async function onClick5(event) {
     const button2 = event.target.closest?.(".mwia-plan-box button");
@@ -8089,7 +8677,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       } catch (error) {
         e.statuses.set(id, error.message);
       }
-      scheduleScan7();
+      scheduleScan8();
     }
   }
   function onToggle(event) {
@@ -8736,7 +9324,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }, NOT_QUEUED_AFTER_MS);
   }
   function onGameMessage(type, data) {
-    scheduleScan8();
+    scheduleScan9();
     if (type === "init_character_data") {
       t3.seenActionIds = /* @__PURE__ */ new Set();
       restore();
@@ -8866,7 +9454,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   var scanQueued = false;
-  function scheduleScan8() {
+  function scheduleScan9() {
     if (scanQueued) return;
     scanQueued = true;
     requestAnimationFrame(() => {
@@ -8896,8 +9484,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     rememberQueuedActions();
     render();
     onStateChange(onGameMessage);
-    new MutationObserver(scheduleScan8).observe(document.body, { childList: true, subtree: true });
-    scheduleScan8();
+    new MutationObserver(scheduleScan9).observe(document.body, { childList: true, subtree: true });
+    scheduleScan9();
   }
 
   // src/trigger-fill.js
@@ -9171,7 +9759,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function startTriggerWindow(deps) {
     let timer = null;
-    const scan8 = () => {
+    const scan9 = () => {
       timer = null;
       const { box } = triggerWindow();
       if (!box || box.querySelector(".mwia-trig-bar")) return;
@@ -9218,7 +9806,7 @@ ${triggerWindowReport()}`, false);
     };
     new MutationObserver((records) => {
       if (timer || records.every((r) => r.target.closest?.(".mwia-trig-bar"))) return;
-      timer = setTimeout(scan8, 200);
+      timer = setTimeout(scan9, 200);
     }).observe(document.body, { childList: true, subtree: true });
   }
 
@@ -9664,475 +10252,6 @@ ${triggerWindowReport()}`, false);
     return html;
   }
 
-  // src/labyrinth.js
-  var SAFE_WIN = 0.9;
-  var RISKY_WIN = 0.5;
-  var MIN_LEVEL = 5;
-  var MAX_LEVEL = 200;
-  var COARSE_LEVELS = [5, ...Array.from({ length: 20 }, (_, i) => 10 * (i + 1))];
-  var FINE_STEP = 2;
-  var MAX_FINE = 12;
-  var FLOOR_STEP = 20;
-  var FLOOR_ONE_LEVEL = 20;
-  var floorLevel = (floor) => FLOOR_ONE_LEVEL + (floor - 1) * FLOOR_STEP;
-  var floorAt = (level) => level === null || level < FLOOR_ONE_LEVEL ? 0 : 1 + Math.floor((level - FLOOR_ONE_LEVEL) / FLOOR_STEP);
-  var LAB_ACCURACY = {
-    fast: { rooms: 20, improveRooms: 40 },
-    normal: { rooms: 40, improveRooms: 80 },
-    thorough: { rooms: 80, improveRooms: 160 }
-  };
-  var CRATE_TIERS = ["basic", "advanced", "expert"];
-  var CRATE_KINDS = { coffee: "Coffee crate", food: "Food crate" };
-  var crateHrid = (tier, kind) => `/items/${tier}_${kind}_crate`;
-  var LABYRINTH = "/action_types/labyrinth";
-  var seedFor2 = (index) => Math.imul(index + 1, 2654435761) >>> 1 || 1;
-  function labyrinthMonsters(data) {
-    return Object.values(data.combatMonsterDetailMap || {}).filter((m) => m.isLabyrinthMonster).sort((a, b) => a.name.localeCompare(b.name)).map((m) => m.hrid);
-  }
-  function slottedCrate(character, kind) {
-    const slots = [...character?.actionTypeDrinkSlotsMap?.[LABYRINTH] || [], ...character?.actionTypeFoodSlotsMap?.[LABYRINTH] || []];
-    for (const slot of slots) {
-      const tier = CRATE_TIERS.find((t4) => slot?.itemHrid === crateHrid(t4, kind));
-      if (tier) return tier;
-    }
-    return null;
-  }
-  function chosenCrates(settings2, character) {
-    const pick2 = (kind) => {
-      const value = settings2[kind === "coffee" ? "labyCoffee" : "labyFood"] || "slots";
-      if (value === "slots") return slottedCrate(character, kind);
-      return CRATE_TIERS.includes(value) ? value : null;
-    };
-    return { coffee: pick2("coffee"), food: pick2("food") };
-  }
-  function crateBuffs(data, crates) {
-    const buffs = [];
-    for (const [kind, tier] of Object.entries(crates)) {
-      if (!tier) continue;
-      for (const buff of data.labyrinthCrateDetailMap?.[crateHrid(tier, kind)] || []) buffs.push({ ...buff, uniqueHrid: `${buff.uniqueHrid}#${kind}`, duration: 0 });
-    }
-    return buffs;
-  }
-  function labyrinthLoadouts(character) {
-    return Object.entries(character?.characterLoadoutMap || {}).filter(([, l2]) => l2?.actionTypeHrid === LABYRINTH).map(([id, l2]) => ({ ...l2, id: String(id) })).sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
-  }
-  function roomFighter(profile, data, crates) {
-    const fighter = cloneProfile(profile);
-    fighter.food = [];
-    fighter.drinks = [];
-    return { player: toDTO(fighter, data), extraBuffs: [...profile.extraBuffs || [], ...crateBuffs(data, crates)] };
-  }
-  var DAMAGE_TYPES = ["physical", "water", "nature", "fire"];
-  var RESISTANCE_STAT = { physical: "armor", water: "waterResistance", nature: "natureResistance", fire: "fireResistance" };
-  var ATTACK_STYLES = ["stab", "slash", "smash", "ranged", "magic"];
-  var STYLE_TYPES = { stab: ["physical"], slash: ["physical"], smash: ["physical"], ranged: ["physical", "water", "fire"], magic: ["water", "nature", "fire"] };
-  function damageTaken(data, monsterHrid, level) {
-    const monster = data.combatMonsterDetailMap[monsterHrid];
-    const stats = monster.combatDetails.combatStats || {};
-    const scale = level / 100;
-    const defense = 0.2 * (monster.combatDetails.defenseLevel || 0) * scale;
-    const out = {};
-    for (const type of DAMAGE_TYPES) {
-      const resistance = (stats[RESISTANCE_STAT[type]] || 0) * scale + defense;
-      out[type] = resistance >= 0 ? 100 / (100 + resistance) : (100 - resistance) / 100;
-    }
-    return out;
-  }
-  function evasionByStyle(data, monsterHrid) {
-    const stats = data.combatMonsterDetailMap[monsterHrid].combatDetails.combatStats || {};
-    return Object.fromEntries(ATTACK_STYLES.map((style) => [style, 1 + (stats[style + "Evasion"] || 0)]));
-  }
-  function hitScore(data, monsterHrid, style, type) {
-    return damageTaken(data, monsterHrid, 100)[type] / evasionByStyle(data, monsterHrid)[style];
-  }
-  var THORNS_BELOW = 0.1;
-  function weakTo(data, monsterHrid) {
-    const pairs = [];
-    for (const style of ATTACK_STYLES) for (const type of STYLE_TYPES[style]) pairs.push({ style, type, score: hitScore(data, monsterHrid, style, type) });
-    const best = Math.max(...pairs.map((p2) => p2.score));
-    const styles = [];
-    for (const p2 of pairs.filter((p3) => p3.score >= best / 2).sort((a, b) => b.score - a.score)) {
-      const known = styles.find((s2) => s2.style === p2.style);
-      if (known) known.types.push(p2.type);
-      else styles.push({ style: p2.style, types: [p2.type] });
-    }
-    return { styles, best, thorns: best < THORNS_BELOW };
-  }
-  function yourStyle(profile, data) {
-    const weapon = weaponOf(profile);
-    const first = weapon ? data.itemDetailMap[weapon.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] : null;
-    return (first || "/combat_styles/smash").split("/").pop();
-  }
-  function yourAttacks(profile, data) {
-    const weapon = weaponOf(profile);
-    const out = [{ what: weapon?.hrid || "punch", style: yourStyle(profile, data), type: (weapon ? data.itemDetailMap[weapon.hrid]?.equipmentDetail?.combatStats?.damageType : "") || "/damage_types/physical" }];
-    for (const entry of profile.abilities || []) {
-      if (!entry) continue;
-      for (const effect of data.abilityDetailMap[entry.hrid]?.abilityEffects || []) {
-        if (effect.damageType && effect.combatStyleHrid) out.push({ what: entry.hrid, style: effect.combatStyleHrid, type: effect.damageType });
-      }
-    }
-    return out.map((a) => ({ ...a, style: a.style.split("/").pop(), type: a.type.split("/").pop() })).filter((a) => ATTACK_STYLES.includes(a.style) && DAMAGE_TYPES.includes(a.type));
-  }
-  function yourMatch(profile, data, monsterHrid) {
-    const weak = weakTo(data, monsterHrid);
-    let best = null;
-    for (const a of yourAttacks(profile, data)) {
-      const score2 = hitScore(data, monsterHrid, a.style, a.type);
-      if (!best || score2 > best.score) best = { ...a, score: score2 };
-    }
-    return best ? { ...best, share: best.score / weak.best } : null;
-  }
-  function monsterAttack(data, monsterHrid) {
-    const stats = data.combatMonsterDetailMap[monsterHrid].combatDetails.combatStats || {};
-    return { style: (stats.combatStyleHrids?.[0] || "").split("/").pop(), type: (stats.damageType || "").split("/").pop() };
-  }
-  function styleWeapon(profile, data, style) {
-    const fits = (item) => item?.equipmentDetail && ["main_hand", "two_hand"].includes(item.equipmentDetail.type?.split("/").pop()) && item.equipmentDetail.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style && meetsRequirements(profile, item.equipmentDetail.levelRequirements);
-    const owned = profile.inventory.filter((i) => fits(data.itemDetailMap[i.hrid])).sort((a, b) => (data.itemDetailMap[b.hrid].itemLevel || 0) - (data.itemDetailMap[a.hrid].itemLevel || 0) || b.enhancementLevel - a.enhancementLevel)[0];
-    let weapon = owned ? { hrid: owned.hrid, enhancementLevel: owned.enhancementLevel, cost: 0, owned: true } : null;
-    if (!weapon) {
-      for (const item of Object.values(data.itemDetailMap)) {
-        if (!fits(item)) continue;
-        const price = askPrice(item.hrid, 0);
-        if (price !== null && (!weapon || price < weapon.cost)) weapon = { hrid: item.hrid, enhancementLevel: 0, cost: price, owned: false };
-      }
-    }
-    if (weapon) weapon.slot = data.itemDetailMap[weapon.hrid].equipmentDetail.type.split("/").pop();
-    return weapon;
-  }
-  var rate = (point) => point.attempts ? point.wins / point.attempts : 0;
-  function pointsToJobs(fighter, points, rooms) {
-    return points.map((p2, i) => ({ ...fighter, monsterHrid: p2.monster, roomLevel: p2.level, attempts: rooms, seed: seedFor2(p2.seed ?? i) }));
-  }
-  function summarizeCurve(curve) {
-    let safe = null;
-    for (const p2 of curve) {
-      if (rate(p2) >= SAFE_WIN) safe = p2.level;
-      else break;
-    }
-    let half = null;
-    if (curve.length && rate(curve[0]) >= RISKY_WIN) {
-      half = curve[curve.length - 1].level;
-      for (let i = 1; i < curve.length; i++) {
-        const a = curve[i - 1];
-        const b = curve[i];
-        if (rate(b) < RISKY_WIN) {
-          const ra = rate(a);
-          const rb = rate(b);
-          half = a.level + (ra - RISKY_WIN) / Math.max(1e-9, ra - rb) * (b.level - a.level);
-          break;
-        }
-      }
-    }
-    return { safe, half };
-  }
-  function winAt(curve, level) {
-    if (!curve.length) return null;
-    if (level <= curve[0].level) return rate(curve[0]);
-    for (let i = 1; i < curve.length; i++) {
-      const a = curve[i - 1];
-      const b = curve[i];
-      if (level <= b.level) return rate(a) + (level - a.level) / (b.level - a.level) * (rate(b) - rate(a));
-    }
-    return rate(curve[curve.length - 1]);
-  }
-  function nearestPoint(curve, level) {
-    return curve.reduce((best, p2) => !best || Math.abs(p2.level - level) < Math.abs(best.level - level) ? p2 : best, null);
-  }
-  function better(a, b) {
-    const key2 = (m) => [m.half ?? -1, m.safe ?? -1, m.curve.length ? rate(m.curve[0]) : 0];
-    const [x, y] = [key2(a), key2(b)];
-    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] > y[i];
-    return false;
-  }
-  async function simulateCurves(pool, fighter, monsters, rooms, onProgress) {
-    const coarse = monsters.flatMap((monster) => COARSE_LEVELS.map((level, i) => ({ monster, level, seed: i })));
-    const fine = [];
-    let before = 0;
-    const run = (points) => pool.runAll(pointsToJobs(fighter, points, rooms), (done2) => onProgress?.(before + done2, coarse.length + fine.length));
-    const coarseResults = await run(coarse);
-    before = coarse.length;
-    const curves = new Map(monsters.map((m) => [m, []]));
-    coarse.forEach((p2, i) => curves.get(p2.monster).push({ level: p2.level, ...coarseResults[i] }));
-    for (const monster of monsters) {
-      const curve = curves.get(monster);
-      const lastSafe = [...curve].reverse().find((p2) => rate(p2) >= SAFE_WIN)?.level ?? 0;
-      const firstLost = curve.find((p2) => p2.level > lastSafe && rate(p2) <= 0.1)?.level ?? MAX_LEVEL;
-      const have5 = new Set(curve.map((p2) => p2.level));
-      const levels = [];
-      for (let level = Math.max(MIN_LEVEL, lastSafe) + FINE_STEP; level < firstLost && levels.length < MAX_FINE; level += FINE_STEP) {
-        if (!have5.has(level)) levels.push(level);
-      }
-      fine.push(...levels.map((level) => ({ monster, level, seed: 100 + level })));
-    }
-    const fineResults = await run(fine);
-    fine.forEach((p2, i) => curves.get(p2.monster).push({ level: p2.level, ...fineResults[i] }));
-    return monsters.map((hrid) => {
-      const curve = curves.get(hrid).sort((a, b) => a.level - b.level);
-      return { hrid, curve, ...summarizeCurve(curve) };
-    });
-  }
-  async function analyzeLabyrinth(pool, setups, data, settings2, character, onProgress) {
-    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
-    const crates = chosenCrates(settings2, character);
-    const monsters = labyrinthMonsters(data);
-    const results = [];
-    for (const [i, setup] of setups.entries()) {
-      const curves = await simulateCurves(
-        pool,
-        roomFighter(setup.profile, data, crates),
-        monsters,
-        accuracy.rooms,
-        (done2, total) => onProgress?.(i * 1e3 + Math.round(1e3 * done2 / Math.max(1, total)), setups.length * 1e3)
-      );
-      results.push({ id: setup.id, name: setup.name, monsters: curves });
-    }
-    const best = monsters.map((hrid, m) => {
-      let pick2 = null;
-      for (const setup of results) if (!pick2 || better(setup.monsters[m], pick2.monster)) pick2 = { setup, monster: setup.monsters[m] };
-      return { ...pick2.monster, setupId: pick2.setup.id, setupName: pick2.setup.name };
-    });
-    return { crates, rooms: accuracy.rooms, setups: results, monsters: best };
-  }
-  var SKILL_STEP = 5;
-  var ABILITY_STEP = 5;
-  var SKILL_LABEL = { stamina: "Stamina", intelligence: "Intelligence", attack: "Attack", melee: "Melee", defense: "Defense", ranged: "Ranged", magic: "Magic" };
-  function improvementCandidates(profile, data, crates) {
-    const list = [];
-    for (const kind of Object.keys(CRATE_KINDS)) {
-      const now = CRATE_TIERS.indexOf(crates[kind]);
-      for (const tier of CRATE_TIERS.slice(now + 1)) {
-        list.push({ id: `crate:${kind}:${tier}`, kind: "crate", label: `${tier[0].toUpperCase() + tier.slice(1)} ${CRATE_KINDS[kind]}`, crates: { ...crates, [kind]: tier }, profile });
-      }
-    }
-    for (const skill of Object.keys(SKILL_LABEL)) {
-      const changed2 = cloneProfile(profile);
-      changed2.levels[skill] += SKILL_STEP;
-      list.push({ id: `skill:${skill}`, kind: "skill", label: `+${SKILL_STEP} ${SKILL_LABEL[skill]}`, crates, profile: changed2 });
-    }
-    profile.abilities.forEach((entry, slot) => {
-      if (!entry) return;
-      const changed2 = cloneProfile(profile);
-      changed2.abilities[slot].level += ABILITY_STEP;
-      list.push({ id: `ability:${entry.hrid}`, kind: "ability", hrid: entry.hrid, label: `+${ABILITY_STEP} levels ${data.abilityDetailMap[entry.hrid]?.name || entry.hrid}`, crates, profile: changed2 });
-    });
-    profile.abilities.forEach((entry, slot) => {
-      if (!entry || slot === 0) return;
-      const changed2 = cloneProfile(profile);
-      changed2.abilities[slot] = null;
-      list.push({ id: `drop:${entry.hrid}`, kind: "swap", hrid: null, replaces: entry.hrid, slot, label: `Without ${data.abilityDetailMap[entry.hrid]?.name || entry.hrid}`, crates, profile: changed2 });
-    });
-    const using = new Set(profile.abilities.filter(Boolean).map((a) => a.hrid));
-    for (const [hrid, level] of Object.entries(profile.learnedAbilities || {})) {
-      const detail = data.abilityDetailMap[hrid];
-      if (!detail || detail.isSpecialAbility || using.has(hrid)) continue;
-      for (let slot = 1; slot <= slotCounts(profile, data).abilities; slot++) {
-        const old = profile.abilities[slot];
-        const changed2 = cloneProfile(profile);
-        changed2.abilities[slot] = { hrid, level };
-        list.push({ id: `swap:${slot}:${hrid}`, kind: "swap", hrid, replaces: old?.hrid || null, slot, label: `${detail.name}${old ? ` instead of ${data.abilityDetailMap[old.hrid]?.name || old.hrid}` : " in an empty slot"}`, crates, profile: changed2 });
-        if (!old) break;
-      }
-    }
-    return list;
-  }
-  function edgeOf(m, seed) {
-    const level = Math.round(Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, m.half ?? MIN_LEVEL)));
-    const here = winAt(m.curve, level);
-    const below = [...m.curve].reverse().find((p2) => p2.level <= level - 1 && rate(p2) > here) || m.curve[0];
-    const above = m.curve.find((p2) => p2.level >= level + 1 && rate(p2) < here) || m.curve[m.curve.length - 1];
-    const slope = above.level > below.level ? (rate(below) - rate(above)) / (above.level - below.level) : 0;
-    return { hrid: m.hrid, level, slope: Math.max(0.01, slope), seed };
-  }
-  var BASE_REPEAT = 4;
-  async function atEdges(pool, data, setups, rooms, seedShift, onProgress) {
-    const jobs = [];
-    for (const setup of setups) {
-      const fighter = roomFighter(setup.profile, data, setup.crates);
-      for (let k = 0; k < (setup.repeat || 1); k++) {
-        for (const edge of setup.edges) jobs.push({ ...fighter, monsterHrid: edge.hrid, roomLevel: edge.level, attempts: rooms, seed: seedFor2(edge.seed + seedShift + 7919 * k) });
-      }
-    }
-    const results = await pool.runAll(jobs, onProgress);
-    let next = 0;
-    return setups.map((setup) => {
-      const sums = setup.edges.map(() => ({ attempts: 0, wins: 0, deaths: 0, timeouts: 0 }));
-      for (let k = 0; k < (setup.repeat || 1); k++) {
-        sums.forEach((sum) => {
-          const r = results[next++];
-          for (const key2 of Object.keys(sum)) sum[key2] += r[key2];
-        });
-      }
-      return sums;
-    });
-  }
-  async function analyzeImprovements(pool, setups, data, settings2, lab, onProgress) {
-    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
-    const byId = new Map(setups.map((s2) => [s2.id, s2]));
-    const groups = /* @__PURE__ */ new Map();
-    lab.monsters.forEach((m, i) => {
-      const setup = byId.get(m.setupId) || setups[0];
-      if (!groups.has(setup.id)) groups.set(setup.id, { setup, edges: [], candidates: improvementCandidates(setup.profile, data, lab.crates) });
-      groups.get(setup.id).edges.push(edgeOf(m, 1e3 + i));
-    });
-    const runs = [];
-    for (const group of groups.values()) {
-      runs.push({ profile: group.setup.profile, crates: lab.crates, edges: group.edges, repeat: BASE_REPEAT });
-      for (const c2 of group.candidates) runs.push({ profile: c2.profile, crates: c2.crates, edges: group.edges });
-    }
-    const results = await atEdges(pool, data, runs, accuracy.improveRooms, 0, onProgress);
-    const combined = /* @__PURE__ */ new Map();
-    const base = [];
-    let r = 0;
-    for (const group of groups.values()) {
-      const own = results[r++];
-      group.edges.forEach((edge, i) => base.push({ hrid: edge.hrid, level: edge.level, setupName: group.setup.name, win: rate(own[i]), deaths: own[i].deaths / own[i].attempts, timeouts: own[i].timeouts / own[i].attempts }));
-      for (const c2 of group.candidates) {
-        const theirs = results[r++];
-        const id = c2.kind === "swap" ? `${group.setup.id}:${c2.id}` : c2.id;
-        const { profile: _p, crates: _c, ...rest } = c2;
-        if (!combined.has(id)) combined.set(id, { ...rest, setupName: group.setup.name, perMonster: [] });
-        group.edges.forEach((edge, i) => {
-          const gain = rate(theirs[i]) - rate(own[i]);
-          combined.get(id).perMonster.push({ hrid: edge.hrid, level: edge.level, before: rate(own[i]), after: rate(theirs[i]), levels: Math.max(-50, Math.min(50, gain / edge.slope)) });
-        });
-      }
-    }
-    const candidates = [...combined.values()].map((c2) => ({ ...c2, levels: c2.perMonster.reduce((sum, m) => sum + m.levels, 0) / lab.monsters.length }));
-    return { rooms: accuracy.improveRooms, base, candidates };
-  }
-  function monstersFor(data, style) {
-    return labyrinthMonsters(data).filter((hrid) => weakTo(data, hrid).styles.some((s2) => s2.style === style));
-  }
-  var SCREEN_SHARE = 0.5;
-  var PER_SLOT = 3;
-  var ROUNDS2 = 6;
-  var MIN_LEVELS = 0.5;
-  var LEVELS_PER_MILLION = { frugal: 2, balanced: 0.5, all: 0 };
-  var ROUND_ROOMS = 2;
-  var CONFIRM_TRIES = 3;
-  function applyCandidate(profile, c2) {
-    const out = cloneProfile(profile);
-    const index = c2.slot?.startsWith("ability") ? Number(c2.slot.replace("ability", "")) : null;
-    if (c2.kind === "gear") equip(out, c2.slot, { hrid: c2.hrid, enhancementLevel: c2.enhancementLevel });
-    else if (c2.kind === "ability" || c2.kind === "abilityLevel") out.abilities[index] = { hrid: c2.hrid, level: c2.level };
-    else if (c2.kind === "drop") out.abilities[index] = null;
-    else if (c2.kind === "dropAll") out.abilities = out.abilities.map((entry, i) => i === 0 ? entry : null);
-    else if (c2.kind === "triggers") out.abilityTriggers = { ...out.abilityTriggers, ...Object.fromEntries(out.abilities.filter(Boolean).map((a) => [a.hrid, []])) };
-    return out;
-  }
-  async function buildLoadout(pool, profile, data, settings2, opts, onProgress) {
-    const accuracy = LAB_ACCURACY[settings2.accuracy] || LAB_ACCURACY.normal;
-    const { style, crates } = opts;
-    let budget = Math.max(0, Number(opts.budget) || 0);
-    const minPerMillion = LEVELS_PER_MILLION[settings2.spending] ?? LEVELS_PER_MILLION.balanced;
-    const targets = monstersFor(data, style);
-    if (!targets.length) throw new Error(`No Labyrinth monster is weak to ${style}.`);
-    let start = cloneProfile(profile);
-    let starter = null;
-    if (yourStyle(profile, data) !== style) {
-      starter = styleWeapon(profile, data, style);
-      if (!starter) throw new Error(`No ${style} weapon you can wear is for sale.`);
-      starter.replaces = weaponOf(profile);
-      equip(start, starter.slot, { hrid: starter.hrid, enhancementLevel: starter.enhancementLevel });
-      budget = Math.max(0, budget - starter.cost);
-    }
-    start.food = [];
-    start.drinks = [];
-    const steps = 14;
-    const part = (from, size) => (done2, total) => onProgress?.(Math.round((from + size * done2 / Math.max(1, total)) * 1e3 / steps), 1e3);
-    const before = await simulateCurves(pool, roomFighter(start, data, crates), targets, accuracy.rooms, part(0, 3));
-    const edges = before.map((m, i) => edgeOf(m, 2e3 + i));
-    const subStyle = (c2) => c2.kind !== "gear" || !["main_hand", "two_hand"].includes(c2.slot) || data.itemDetailMap[c2.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style;
-    const candidates = [
-      // A loadout of its own sells nothing: what it replaces is still worn in your other loadouts.
-      ...gearCandidates(start, { budget, starter, enhanceCost: opts.enhanceCost }).filter((c2) => c2.slot !== "pouch" && !c2.extraFood && subStyle(c2)).map((c2) => ({ ...c2, cost: c2.price ?? c2.cost, resale: 0, sold: [] })).filter((c2) => c2.cost <= budget),
-      ...abilityCandidates(start, budget)
-    ];
-    start.abilities.forEach((entry, index) => {
-      if (!entry || index === 0) return;
-      const without = cloneProfile(start);
-      without.abilities[index] = null;
-      candidates.push({ kind: "drop", slot: "ability" + index, hrid: entry.hrid, cost: 0, owned: true, profile: without });
-    });
-    if (start.abilities.slice(1).filter(Boolean).length > 1) {
-      const bare = cloneProfile(start);
-      bare.abilities = bare.abilities.map((entry, index) => index === 0 ? entry : null);
-      candidates.push({ kind: "dropAll", slot: "abilities", cost: 0, owned: true, profile: bare });
-    }
-    const quiet = cloneProfile(start);
-    quiet.abilityTriggers = Object.fromEntries(start.abilities.filter(Boolean).map((a) => [a.hrid, []]));
-    candidates.push({ kind: "triggers", slot: "triggers", cost: 0, owned: true, profile: quiet });
-    const scoreAt = (edgeList) => (own, base) => edgeList.reduce((sum, edge, i) => sum + Math.max(-50, Math.min(50, (rate(own[i]) - rate(base[i])) / edge.slope)), 0) / edgeList.length;
-    const screenRooms = Math.max(20, Math.round(accuracy.improveRooms * SCREEN_SHARE));
-    const first = await atEdges(pool, data, [{ profile: start, crates, edges, repeat: BASE_REPEAT }, ...candidates.map((c2) => ({ profile: c2.profile, crates, edges }))], screenRooms, 0, part(3, 5));
-    candidates.forEach((c2, i) => c2.levels = scoreAt(edges)(first[i + 1], first[0]));
-    const bySlot = /* @__PURE__ */ new Map();
-    for (const c2 of candidates.filter((c3) => c3.cost > 0 && c3.levels > 0).sort((a, b) => b.levels - a.levels)) {
-      const list = bySlot.get(c2.slot) || [];
-      if (list.length < PER_SLOT) list.push(c2);
-      bySlot.set(c2.slot, list);
-    }
-    const shortlist2 = [...candidates.filter((c2) => c2.cost === 0), ...[...bySlot.values()].flat()];
-    const abilitySlots = [1, 2, 3, 4].map((i) => "ability" + i);
-    const slotsOf = (c2) => c2.slot === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : c2.slot === "main_hand" || c2.slot === "off_hand" ? [c2.slot, "two_hand"] : c2.kind === "dropAll" ? [...abilitySlots, "triggers", "abilities"] : c2.slot.startsWith("ability") && c2.slot !== "ability0" ? [c2.slot, "abilities"] : c2.slot === "triggers" ? ["triggers", "abilities"] : [c2.slot];
-    const taken = /* @__PURE__ */ new Set();
-    const picks = [];
-    let left = budget;
-    let built = start;
-    let now = before;
-    let lastRound = [];
-    for (let round = 0; round < ROUNDS2; round++) {
-      const open = shortlist2.filter((c2) => !picks.includes(c2) && !slotsOf(c2).some((x) => taken.has(x)) && c2.cost <= left);
-      if (!open.length) break;
-      const roundEdges = now.map((m, i) => edgeOf(m, 3e3 + 10 * round + i));
-      const from = part(8 + round, 1);
-      const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open.map((c2) => ({ profile: applyCandidate(built, c2), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
-      open.forEach((c2, i) => c2.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
-      lastRound = open;
-      const dropOf = (c2) => c2.kind === "ability" && c2.replaces ? open.find((d) => d.kind === "drop" && d.hrid === c2.replaces) : null;
-      const beatsDrop = (c2) => !dropOf(c2) || c2.roundLevels >= dropOf(c2).roundLevels + MIN_LEVELS;
-      const worth = (c2) => c2.roundLevels >= MIN_LEVELS && beatsDrop(c2) && (c2.cost === 0 || c2.roundLevels / (c2.cost / 1e6) >= minPerMillion);
-      const good = open.filter(worth);
-      const order = [...good.filter((c2) => c2.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c2) => c2.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
-      let pick2 = null;
-      for (const [k, c2] of order.slice(0, CONFIRM_TRIES).entries()) {
-        const check = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, { profile: applyCandidate(built, c2), crates, edges: roundEdges, repeat: ROUND_ROOMS }], accuracy.improveRooms, 900 + 10 * round + k);
-        c2.roundLevels = (c2.roundLevels + scoreAt(roundEdges)(check[1], check[0])) / 2;
-        if (worth(c2)) {
-          pick2 = c2;
-          break;
-        }
-      }
-      if (!pick2) break;
-      pick2.levels = pick2.roundLevels;
-      picks.push(pick2);
-      slotsOf(pick2).forEach((x) => taken.add(x));
-      left -= pick2.cost;
-      built = applyCandidate(built, pick2);
-      now = await simulateCurves(pool, roomFighter(built, data, crates), targets, accuracy.rooms, part(8 + round, 1));
-    }
-    const after = now;
-    onProgress?.(1e3, 1e3);
-    const strip = ({ profile: _p, ...rest }) => rest;
-    return {
-      style,
-      targets,
-      starter,
-      budget: Number(opts.budget) || 0,
-      spent: (starter && !starter.owned ? starter.cost : 0) + picks.reduce((sum, p2) => sum + p2.cost, 0),
-      before,
-      after,
-      picks: picks.map(strip),
-      // The best of the rest, for "also tested".
-      // The best of the rest in the last round, measured from (nearly) the finished list.
-      nearMisses: lastRound.filter((c2) => !picks.includes(c2) && c2.roundLevels > 0).sort((a, b) => b.roundLevels - a.roundLevels).slice(0, 6).map((c2) => ({ ...strip(c2), levels: c2.roundLevels })),
-      tested: candidates.length,
-      profile: built
-    };
-  }
-
   // src/labyrinth-ui.js
   var cap2 = (s2) => s2 ? s2[0].toUpperCase() + s2.slice(1) : "";
   var pctText = (x) => `${Math.round(100 * x)}%`;
@@ -10169,31 +10288,31 @@ ${triggerWindowReport()}`, false);
     return weak.styles.map((s2) => s2.types.length === 1 && s2.types[0] === "physical" ? cap2(s2.style) : `${cap2(s2.style)} <span class="mwia-dim">(${s2.types.join(", ")})</span>`).join(" \xB7 ");
   }
   function matchHtml(profile, data, hrid) {
-    const m = profile && yourMatch(profile, data, hrid);
-    if (!m) return "\u2013";
-    const what = m.what.startsWith("/abilities/") ? abilityName(m.what) : m.what.startsWith("/items/") ? itemName(m.what) : m.what;
-    const label3 = `${cap2(m.style)} \xB7 ${m.type}`;
-    if (m.share >= 0.5) return `<span class="mwia-ok" title="Your best hit against it: ${esc(what)}">${label3} \u2713</span>`;
-    return `<span class="mwia-bad" title="Your best hit (${esc(what)}) does about ${Math.max(1, Math.round(1 / Math.max(1e-3, m.share)))}\xD7 worse than its weakness">${label3} \u2717</span>`;
+    const m2 = profile && yourMatch(profile, data, hrid);
+    if (!m2) return "\u2013";
+    const what = m2.what.startsWith("/abilities/") ? abilityName(m2.what) : m2.what.startsWith("/items/") ? itemName(m2.what) : m2.what;
+    const label3 = `${cap2(m2.style)} \xB7 ${m2.type}`;
+    if (m2.share >= 0.5) return `<span class="mwia-ok" title="Your best hit against it: ${esc(what)}">${label3} \u2713</span>`;
+    return `<span class="mwia-bad" title="Your best hit (${esc(what)}) does about ${Math.max(1, Math.round(1 / Math.max(1e-3, m2.share)))}\xD7 worse than its weakness">${label3} \u2717</span>`;
   }
   function roomGuide(lab, data, level) {
-    const tiles = lab.monsters.map((m) => {
-      const win2 = winAt(m.curve, level);
+    const tiles = lab.monsters.map((m2) => {
+      const win2 = winAt(m2.curve, level);
       const kind = win2 >= SAFE_WIN ? "ok" : win2 >= RISKY_WIN ? "warn" : "bad";
-      const action = kind === "bad" ? "Shroud or go around" : esc(m.setupName);
-      const reach = m.safe === null ? "never safe" : floorAt(m.safe) ? `safe to floor ${floorAt(m.safe)}` : `safe to level ${lvl(m.safe)}`;
-      return `<div class="mwia-laby-tile mwia-laby-${kind}" title="${esc(monsterName(m.hrid))}: ${pctText(win2)} of the rooms won at room level ${level} with ${esc(m.setupName)}">
-          <div class="mwia-laby-tile-name">${esc(monsterName(m.hrid))}</div>
+      const action = kind === "bad" ? "Shroud or go around" : esc(m2.setupName);
+      const reach = m2.safe === null ? "never safe" : floorAt(m2.safe) ? `safe to floor ${floorAt(m2.safe)}` : `safe to level ${lvl(m2.safe)}`;
+      return `<div class="mwia-laby-tile mwia-laby-${kind}" title="${esc(monsterName(m2.hrid))}: ${pctText(win2)} of the rooms won at room level ${level} with ${esc(m2.setupName)}">
+          <div class="mwia-laby-tile-name">${esc(monsterName(m2.hrid))}</div>
           <div class="mwia-laby-tile-action">${kind === "bad" ? "\u2716" : kind === "warn" ? "\u26A0" : "\u2705"} ${action}</div>
-          <div class="mwia-dim">${kind === "bad" ? `best: ${esc(m.setupName)} \xB7 ` : ""}${pctText(win2)} \xB7 ${reach}</div></div>`;
+          <div class="mwia-dim">${kind === "bad" ? `best: ${esc(m2.setupName)} \xB7 ` : ""}${pctText(win2)} \xB7 ${reach}</div></div>`;
     });
     return `<div class="mwia-laby-guide">${tiles.join("")}</div>`;
   }
   function summaryHtml2(lab, level) {
     const groups = { fight: [], risky: [], skip: [] };
-    for (const m of lab.monsters) {
-      const win2 = winAt(m.curve, level);
-      (win2 >= SAFE_WIN ? groups.fight : win2 >= RISKY_WIN ? groups.risky : groups.skip).push(esc(monsterName(m.hrid)));
+    for (const m2 of lab.monsters) {
+      const win2 = winAt(m2.curve, level);
+      (win2 >= SAFE_WIN ? groups.fight : win2 >= RISKY_WIN ? groups.risky : groups.skip).push(esc(monsterName(m2.hrid)));
     }
     const line = (label3, list, cls) => list.length ? `<br><span class="${cls}">${label3}</span> ${list.join(", ")}` : "";
     const floor = floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
@@ -10212,16 +10331,16 @@ ${triggerWindowReport()}`, false);
       <th class="mwia-num" title="Room level where you win half the rooms">50% at</th>
       <th>At level ${level}</th><th class="mwia-num" title="Typical time to win a room at this level (the limit is 2 minutes)">Win time</th>
       ${improve ? "<th>Better with</th>" : ""}</tr></thead><tbody>`;
-    for (const m of lab.monsters) {
-      const attack = monsterAttack(data, m.hrid);
-      const point = nearestPoint(m.curve, level);
+    for (const m2 of lab.monsters) {
+      const attack = monsterAttack(data, m2.hrid);
+      const point = nearestPoint(m2.curve, level);
       const time2 = point?.medianWinSeconds;
-      html += `<tr><td>${esc(monsterName(m.hrid))}</td><td>${cap2(attack.style)} \xB7 ${attack.type}</td><td><span>${weakText(data, m.hrid)}</span></td>
-          ${several ? `<td>${esc(m.setupName)}</td>` : ""}<td>${matchHtml(profileOf(m.setupId), data, m.hrid)}</td>
-          <td class="mwia-num">${m.safe === null ? '<span class="mwia-bad">below 5</span>' : `<span>${lvl(m.safe)}${floorText(m.safe)}</span>`}</td>
-          <td class="mwia-num">${m.half === null ? '<span class="mwia-bad">below 5</span>' : lvl(m.half)}</td>
-          <td>${verdict(winAt(m.curve, level), point)}</td><td class="mwia-num">${time2 ? `${Math.round(time2)} s` : "\u2013"}</td>
-          ${improve ? `<td><span>${swaps.get(m.hrid) || '<span class="mwia-dim">\u2013</span>'}</span></td>` : ""}</tr>`;
+      html += `<tr><td>${esc(monsterName(m2.hrid))}</td><td>${cap2(attack.style)} \xB7 ${attack.type}</td><td><span>${weakText(data, m2.hrid)}</span></td>
+          ${several ? `<td>${esc(m2.setupName)}</td>` : ""}<td>${matchHtml(profileOf(m2.setupId), data, m2.hrid)}</td>
+          <td class="mwia-num">${m2.safe === null ? '<span class="mwia-bad">below 5</span>' : `<span>${lvl(m2.safe)}${floorText(m2.safe)}</span>`}</td>
+          <td class="mwia-num">${m2.half === null ? '<span class="mwia-bad">below 5</span>' : lvl(m2.half)}</td>
+          <td>${verdict(winAt(m2.curve, level), point)}</td><td class="mwia-num">${time2 ? `${Math.round(time2)} s` : "\u2013"}</td>
+          ${improve ? `<td><span>${swaps.get(m2.hrid) || '<span class="mwia-dim">\u2013</span>'}</span></td>` : ""}</tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -10231,8 +10350,8 @@ ${triggerWindowReport()}`, false);
       <table class="mwia-table mwia-wide"><thead><tr><th>Monster</th>${lab.setups.map((s2) => `<th class="mwia-num">${esc(s2.name)}</th>`).join("")}</tr></thead><tbody>`;
     lab.monsters.forEach((best, i) => {
       html += `<tr><td>${esc(monsterName(best.hrid))}</td>${lab.setups.map((s2) => {
-        const m = s2.monsters[i];
-        const text = m.half === null ? "below 5" : lvl(m.half);
+        const m2 = s2.monsters[i];
+        const text = m2.half === null ? "below 5" : lvl(m2.half);
         return `<td class="mwia-num">${s2.id === best.setupId ? `<b>${text}</b>` : `<span class="mwia-dim">${text}</span>`}</td>`;
       }).join("")}</tr>`;
     });
@@ -10240,15 +10359,15 @@ ${triggerWindowReport()}`, false);
   }
   function bestSwaps(improve) {
     const out = /* @__PURE__ */ new Map();
-    const dropOf = (c2, hrid) => improve.candidates.find((d) => d.kind === "swap" && !d.hrid && d.replaces === c2.replaces && d.setupName === c2.setupName)?.perMonster.find((m) => m.hrid === hrid);
+    const dropOf = (c2, hrid) => improve.candidates.find((d) => d.kind === "swap" && !d.hrid && d.replaces === c2.replaces && d.setupName === c2.setupName)?.perMonster.find((m2) => m2.hrid === hrid);
     for (const c2 of improve.candidates) {
       if (c2.kind !== "swap") continue;
-      for (const m of c2.perMonster) {
-        if (m.levels < 1 || m.after <= m.before) continue;
-        const drop = c2.hrid && c2.replaces ? dropOf(c2, m.hrid) : null;
-        if (drop && m.levels < drop.levels + 1) continue;
-        const known = out.get(m.hrid);
-        if (!known || m.levels > known.levels) out.set(m.hrid, { levels: m.levels, label: c2.label });
+      for (const m2 of c2.perMonster) {
+        if (m2.levels < 1 || m2.after <= m2.before) continue;
+        const drop = c2.hrid && c2.replaces ? dropOf(c2, m2.hrid) : null;
+        if (drop && m2.levels < drop.levels + 1) continue;
+        const known = out.get(m2.hrid);
+        if (!known || m2.levels > known.levels) out.set(m2.hrid, { levels: m2.levels, label: c2.label });
       }
     }
     return new Map([...out].map(([hrid, s2]) => [hrid, `${esc(s2.label)} <span class="mwia-dim">(\u2248 +${s2.levels.toFixed(1)} levels)</span>`]));
@@ -10264,9 +10383,9 @@ ${triggerWindowReport()}`, false);
     else {
       html += `<table class="mwia-table mwia-wide"><thead><tr><th>Work on</th><th class="mwia-num" title="Room levels gained, averaged over the ten room types">\u2248 Room levels</th><th>Helps most against</th></tr></thead><tbody>`;
       for (const c2 of useful) {
-        const most = [...c2.perMonster].filter((m) => m.levels >= 1).sort((a, b) => b.levels - a.levels).slice(0, 4);
+        const most = [...c2.perMonster].filter((m2) => m2.levels >= 1).sort((a, b) => b.levels - a.levels).slice(0, 4);
         html += `<tr><td>${esc(c2.label)}</td><td class="mwia-num">+${c2.levels.toFixed(1)}</td>
-              <td>${most.map((m) => `${esc(monsterName(m.hrid))} <span class="mwia-dim">+${m.levels.toFixed(1)}</span>`).join(", ") || '<span class="mwia-dim">spread out</span>'}</td></tr>`;
+              <td>${most.map((m2) => `${esc(monsterName(m2.hrid))} <span class="mwia-dim">+${m2.levels.toFixed(1)}</span>`).join(", ") || '<span class="mwia-dim">spread out</span>'}</td></tr>`;
       }
       html += `</tbody></table>`;
     }
@@ -10312,18 +10431,18 @@ ${triggerWindowReport()}`, false);
       <p class="mwia-dim">For: ${targets.join(", ") || "no room type"}.</p>
       <button class="mwia-btn" data-action="laby-build" ${busy ? "disabled" : ""}>Build loadout</button>`;
     if (!build || build.style !== style) return html;
-    const before = new Map(build.before.map((m) => [m.hrid, m]));
+    const before = new Map(build.before.map((m2) => [m2.hrid, m2]));
     html += `<div class="mwia-reco"><b>${cap2(build.style)} loadout</b> \u2013 ${build.picks.length || build.starter ? `for ${coins9(build.spent)} of your ${coins9(build.budget)}` : "nothing to buy"}`;
     if (build.starter) html += `<br>Weapon: <b>${esc(itemName(build.starter.hrid))}${build.starter.enhancementLevel ? " +" + build.starter.enhancementLevel : ""}</b> ${build.starter.owned ? '<span class="mwia-ok">you own it</span>' : "\u2013 " + coins9(build.starter.cost)}`;
     html += `<ol class="mwia-plan">${build.picks.map((p2) => `<li>${pickText(p2, coins9)}</li>`).join("") || "<li>Nothing tested takes these rooms clearly further within the budget.</li>"}</ol>`;
     const cart = cartOf(build);
     if (cart.length) html += cartButton4(cart, "\u{1F6D2} Add all to the cart");
     html += `</div><table class="mwia-table mwia-wide mwia-laby-built"><thead><tr><th>Monster</th><th class="mwia-num" title="Highest room level with at least ${pctText(SAFE_WIN)} of the rooms won">Safe: now</th><th class="mwia-num">Safe: built</th><th class="mwia-num" title="Room level where you win half the rooms">50%: now</th><th class="mwia-num">50%: built</th></tr></thead><tbody>`;
-    for (const m of build.after) {
-      const b = before.get(m.hrid);
+    for (const m2 of build.after) {
+      const b = before.get(m2.hrid);
       const cell = (x) => x === null ? "below 5" : lvl(x);
-      html += `<tr><td>${esc(monsterName(m.hrid))}</td><td class="mwia-num">${cell(b.safe)}</td><td class="mwia-num"><span><b>${cell(m.safe)}</b>${floorText(m.safe)}</span></td>
-          <td class="mwia-num">${cell(b.half)}</td><td class="mwia-num"><b>${cell(m.half)}</b></td></tr>`;
+      html += `<tr><td>${esc(monsterName(m2.hrid))}</td><td class="mwia-num">${cell(b.safe)}</td><td class="mwia-num"><span><b>${cell(m2.safe)}</b>${floorText(m2.safe)}</span></td>
+          <td class="mwia-num">${cell(b.half)}</td><td class="mwia-num"><b>${cell(m2.half)}</b></td></tr>`;
     }
     html += `</tbody></table>`;
     if (build.nearMisses?.length) {
@@ -10371,14 +10490,14 @@ ${triggerWindowReport()}`, false);
     const level = roomLevelSetting(settings2);
     if (lab) {
       lines.push(`Crates: coffee ${lab.crates.coffee || "none"}, food ${lab.crates.food || "none"} \xB7 room level ${level} \xB7 loadouts ${lab.setups.map((s2) => s2.name).join(", ")}`);
-      for (const m of lab.monsters) {
-        lines.push(`${monsterName(m.hrid)} (${m.setupName}): safe up to ${m.safe ?? "<5"} \xB7 50% at ${m.half === null ? "<5" : Math.round(m.half)} \xB7 at ${level}: ${pctText(winAt(m.curve, level))}`);
+      for (const m2 of lab.monsters) {
+        lines.push(`${monsterName(m2.hrid)} (${m2.setupName}): safe up to ${m2.safe ?? "<5"} \xB7 50% at ${m2.half === null ? "<5" : Math.round(m2.half)} \xB7 at ${level}: ${pctText(winAt(m2.curve, level))}`);
       }
     }
     if (improve) for (const c2 of improve.candidates.filter((c3) => c3.kind !== "swap" && c3.levels >= 0.5).sort((a, b) => b.levels - a.levels)) lines.push(`Work on: ${c2.label} \u2248 +${c2.levels.toFixed(1)} room levels`);
     if (build) {
       lines.push(`Built ${build.style} loadout for ${shortCoins(build.spent)}${build.starter ? ` with ${itemName(build.starter.hrid)}` : ""}: ${build.picks.map((p2) => p2.kind === "triggers" ? "no triggers" : p2.kind === "dropAll" ? "no abilities" : p2.kind === "drop" ? "without " + abilityName(p2.hrid) : p2.kind === "gear" ? itemName(p2.hrid) + (p2.enhancementLevel ? " +" + p2.enhancementLevel : "") : abilityName(p2.hrid) + (p2.kind === "abilityLevel" ? ` ${p2.level}` : "")).join(", ") || "nothing"}`);
-      for (const m of build.after) lines.push(`  ${monsterName(m.hrid)}: 50% at ${m.half === null ? "<5" : Math.round(m.half)}`);
+      for (const m2 of build.after) lines.push(`  ${monsterName(m2.hrid)}: 50% at ${m2.half === null ? "<5" : Math.round(m2.half)}`);
     }
     return lines;
   }
@@ -10411,14 +10530,14 @@ ${triggerWindowReport()}`, false);
       lines.push("messages: none mentioning the Labyrinth yet \u2013 open the Labyrinth (and a run, if you can) with the script on, then read again");
       return;
     }
-    lines.push(`messages: ${log.length} kept (${[...new Set(log.map((m) => m.type))].join(", ")})`);
+    lines.push(`messages: ${log.length} kept (${[...new Set(log.map((m2) => m2.type))].join(", ")})`);
     const latest = /* @__PURE__ */ new Map();
-    for (const m of log) latest.set(m.type, m);
-    for (const m of latest.values()) {
-      const data = attempt3(() => JSON.parse(m.raw));
-      lines.push(`\u2014 ${m.type} (${m.size} chars, ${new Date(m.at).toISOString().slice(0, 16)}Z)`);
+    for (const m2 of log) latest.set(m2.type, m2);
+    for (const m2 of latest.values()) {
+      const data = attempt3(() => JSON.parse(m2.raw));
+      lines.push(`\u2014 ${m2.type} (${m2.size} chars, ${new Date(m2.at).toISOString().slice(0, 16)}Z)`);
       lines.push(`  shape: ${data ? shapeOf(data) : "(cut \u2013 not whole JSON)"}`);
-      lines.push(`  text: ${short2(m.raw, 1500)}`);
+      lines.push(`  text: ${short2(m2.raw, 1500)}`);
     }
   }
   function characterLines(lines) {
@@ -10467,7 +10586,11 @@ ${triggerWindowReport()}`, false);
       lines.push(`\u2014 ${describe(table)} in ${chain.join(" < ")}`);
       const heads = [...table.querySelectorAll("th, [role=columnheader]")].map((h2) => clean4(h2.textContent));
       if (heads.length) lines.push(`  headers: ${heads.join(" | ")}`);
-      const rows = [...table.querySelectorAll('tr, [role="row"]')].filter((r) => !r.querySelector("th"));
+      const rows = [...table.querySelectorAll('tr, [role="row"]')].filter((r) => !r.querySelector("th")).map((r) => {
+        const copy = r.cloneNode(true);
+        copy.querySelectorAll('[class*="mwia"]').forEach((n3) => n3.remove());
+        return copy;
+      });
       rows.slice(0, 30).forEach((row, i) => {
         const cells = [...row.querySelectorAll('td, [role="cell"]')].map((c2) => short2(clean4(c2.textContent), 30));
         const controls2 = [...row.querySelectorAll(CONTROLS)].filter((c2, _, all) => !all.some((o2) => o2 !== c2 && o2.contains(c2)));
@@ -10599,7 +10722,7 @@ ${triggerWindowReport()}`, false);
   }
   var int = (n3) => Math.round(n3).toLocaleString("en-US");
   var dec3 = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-  var pct4 = (n3) => (n3 >= 0 ? "+" : "") + dec3(n3 * 100, 1) + "%";
+  var pct5 = (n3) => (n3 >= 0 ? "+" : "") + dec3(n3 * 100, 1) + "%";
   var HOURS_PER_DAY3 = 24;
   var perDay = (perHour) => perHour * HOURS_PER_DAY3;
   function coins8(n3) {
@@ -10720,6 +10843,7 @@ ${triggerWindowReport()}`, false);
     ui.labImprove = null;
     ui.labSetups = labyrinthSetups();
     ui.labResult = await analyzeLabyrinth(ui.pool, ui.labSetups, getClientData(), ui.settings, state.character, progress("Simulating Labyrinth rooms"));
+    rememberLabyrinth(ui.labResult);
   }
   async function doLabImprove() {
     if (!ui.labResult) await doLabyrinth();
@@ -11140,7 +11264,7 @@ ${triggerWindowReport()}`, false);
   }
   function cartItems(c2) {
     const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c2.result?.consumables?.[hrid] || 0)));
-    if (c2.kind === "house") return c2.materials.filter((m) => m.hrid !== COIN11).map((m) => ({ hrid: m.hrid, quantity: m.count }));
+    if (c2.kind === "house") return c2.materials.filter((m2) => m2.hrid !== COIN11).map((m2) => ({ hrid: m2.hrid, quantity: m2.count }));
     if (c2.kind === "abilityOrder" || c2.kind === "skillLevel" || c2.kind === "trigger") return [];
     if (c2.enhance) return mergeCart([...enhanceCart(c2), ...c2.extraFood ? [{ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) }] : []]);
     if (c2.kind === "abilityLevel") return [{ hrid: c2.bookHrid, quantity: c2.books }];
@@ -11154,7 +11278,7 @@ ${triggerWindowReport()}`, false);
   function enhanceCart(c2) {
     const e2 = c2.enhance;
     const items = e2.start === "buy" ? [{ hrid: c2.hrid, quantity: 1, enhancementLevel: 0 }] : [];
-    for (const m of e2.materials) if (m.itemHrid !== COIN11) items.push({ hrid: m.itemHrid, quantity: Math.ceil(m.count * e2.attempts) });
+    for (const m2 of e2.materials) if (m2.itemHrid !== COIN11) items.push({ hrid: m2.itemHrid, quantity: Math.ceil(m2.count * e2.attempts) });
     if (e2.protect && e2.protections > 0) items.push({ hrid: e2.protect.itemHrid, quantity: Math.ceil(e2.protections), enhancementLevel: 0 });
     for (const tea of e2.teas) items.push({ hrid: tea, quantity: Math.ceil(e2.drinks) });
     return items;
@@ -11306,7 +11430,7 @@ ${triggerWindowReport()}`, false);
         const v = ui.verified;
         const before = xpValue(v.base, ui.settings);
         const after = xpValue(v.planned, ui.settings);
-        html += `<div class="mwia-reco">Everything combined (simulated): <b>${xpNum(before)} \u2192 ${xpNum(after)} ${label3}</b> (${pct4(after / Math.max(countingLevels() ? 1e-9 : 1, before) - 1)}),
+        html += `<div class="mwia-reco">Everything combined (simulated): <b>${xpNum(before)} \u2192 ${xpNum(after)} ${label3}</b> (${pct5(after / Math.max(countingLevels() ? 1e-9 : 1, before) - 1)}),
               profit <b>${coins8(perDay(v.base.profit))} \u2192 ${coins8(perDay(v.planned.profit))}</b> per day (food/drinks ${coins8(perDay(v.base.cost))} \u2192 ${coins8(perDay(v.planned.cost))}),
               deaths ${dec3(v.base.deaths, 2)} \u2192 ${dec3(v.planned.deaths, 2)} per hour.
               <br><span class="mwia-dim">Run the zone analysis again after buying \u2013 with better gear a harder zone may become the best.</span></div>`;
@@ -11362,9 +11486,9 @@ ${triggerWindowReport()}`, false);
   function gainText(c2) {
     const gold = ui.upgradeResult.goal.gold;
     const profit = `${signed2(coins8, perDay(c2.profitDelta))} profit/day`;
-    if (gold === 0) return `${pct4(c2.deltaPct)} ${xpLabel()}`;
+    if (gold === 0) return `${pct5(c2.deltaPct)} ${xpLabel()}`;
     if (gold === 1) return profit;
-    return `${pct4(c2.deltaPct)} gain (${signed2(xpNum, c2.xpDelta)} ${xpLabel()}, ${profit})`;
+    return `${pct5(c2.deltaPct)} gain (${signed2(xpNum, c2.xpDelta)} ${xpLabel()}, ${profit})`;
   }
   function confidenceCell(c2) {
     const value = Math.round(c2.confidence * 100);
@@ -11381,16 +11505,16 @@ ${triggerWindowReport()}`, false);
       <th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th><th class="mwia-num" title="${GAIN_TITLE}">Gain</th>
       <th class="mwia-num">Gain per 1M</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th><th></th></tr></thead><tbody>`;
     for (const c2 of shown) {
-      const efficiency = c2.cost > 0 ? pct4(c2.delta / c2.cost * 1e6) : "\u221E";
+      const efficiency = c2.cost > 0 ? pct5(c2.delta / c2.cost * 1e6) : "\u221E";
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${slotText(c2)}</td><td>${nameHtml(c2)}</td><td>${replacesHtml(c2)}</td>
           <td class="mwia-num"${c2.resale ? ` title="${coins8(c2.price)} \u2212 ${coins8(c2.resale)} for what it replaces"` : ""}>${c2.cost ? coins8(c2.cost) : "0"}${c2.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td>
-          <td class="mwia-num">${pct4(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
+          <td class="mwia-num">${pct5(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td>${upgradeNotes(c2, base)}</td><td>${cartButton3(cartItems(c2))}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
   function houseMaterials(c2) {
-    return c2.materials.map((m) => m.hrid === COIN11 ? `${coins8(m.count)} coins` : `${int(m.count)}\xD7 ${esc(itemName(m.hrid))}`).join(", ");
+    return c2.materials.map((m2) => m2.hrid === COIN11 ? `${coins8(m2.count)} coins` : `${int(m2.count)}\xD7 ${esc(itemName(m2.hrid))}`).join(", ");
   }
   function orderTable(list) {
     const shown = list.filter((c2) => c2.delta > 0).slice(0, 5);
@@ -11401,7 +11525,7 @@ ${triggerWindowReport()}`, false);
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th></tr></thead><tbody>`;
     for (const c2 of shown) {
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${c2.order.map((h2) => esc(abilityName(h2))).join(" \u2192 ")}</td>
-          <td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct4(c2.deltaPct)}</td>
+          <td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td>
           <td class="mwia-num">${confidenceCell(c2)}</td><td>${upgradeNotes(c2, ui.upgradeResult.base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
@@ -11422,7 +11546,7 @@ ${triggerWindowReport()}`, false);
     for (const c2 of shown) {
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${esc(triggerTargetName(c2))}</td><td>${esc(describeTriggers(c2.triggers, data))}</td>
           <td class="mwia-dim">${esc(describeTriggers(c2.was, data))}</td>
-          <td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct4(c2.deltaPct)}</td>
+          <td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td>
           <td class="mwia-num">${confidenceCell(c2)}</td><td>${upgradeNotes(c2, ui.upgradeResult.base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
@@ -11435,7 +11559,7 @@ ${triggerWindowReport()}`, false);
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num" title="Time to get there at the XP an hour the skill gets now">Time</th><th></th></tr></thead><tbody>`;
     for (const c2 of list) {
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${SKILL_NAMES[c2.hrid] || esc(c2.hrid)}</td><td>${c2.fromLevel} \u2192 ${c2.level}</td>
-          <td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct4(c2.deltaPct)}</td>
+          <td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td>
           <td class="mwia-num">${confidenceCell(c2)}</td><td class="mwia-num">${hoursText2(c2.hoursToReach)}</td><td>${upgradeNotes(c2, base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
@@ -11453,7 +11577,7 @@ ${triggerWindowReport()}`, false);
       const name = (c2.remove ? `<i>Stop using</i> ${esc(itemName(c2.hrid))}` : esc(itemName(c2.hrid))) + (dropsHpFood(c2) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c2.replaces ? esc(itemName(c2.replaces)) : "\u2013"}</td>
           <td class="mwia-num">${c2.remove ? "\u2013" : coins8(askPrice(c2.hrid))}</td><td class="mwia-num">${coins8(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td>
-          <td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct4(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
+          <td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td class="mwia-num ${c2.safe ? "" : "mwia-bad"}">${dec3(c2.result.deaths, 2)}${c2.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
           <td>${cartButton3(cartItems(c2), "\u{1F6D2} 1 day")}</td></tr>`;
     }
@@ -11582,7 +11706,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.63.1" : "dev";
+  var VERSION3 = true ? "0.64.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -11783,6 +11907,7 @@ ${triggerWindowReport()}`, false);
       } else if (key2 === "labyCoffee" || key2 === "labyFood") {
         ui.labResult = ui.labImprove = ui.labBuild = null;
       }
+      scheduleScan7();
       render2();
       return;
     }
@@ -11852,6 +11977,7 @@ ${triggerWindowReport()}`, false);
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
+    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings) });
     startEnhancePlan(gameDeps);
     watchTriggerClicks();
     startTriggerWindow({
@@ -11908,7 +12034,7 @@ ${triggerWindowReport()}`, false);
   var HEADER = '[class*="MarketplacePanel_header"]';
   var PRICE_INPUTS = '[class*="MarketplacePanel_priceInputs"]';
   var BEST = '[class*="MarketplacePanel_bestPrice"]';
-  var SCAN_MS8 = 300;
+  var SCAN_MS9 = 300;
   var BOOK_OLD_MS = 10 * 60 * 1e3;
   var LABELS = { match: "Match", wall: "Wall" };
   var label2 = (s2) => s2.kind === "horizon" ? `<${s2.horizon}h` : LABELS[s2.kind];
@@ -11923,11 +12049,11 @@ ${triggerWindowReport()}`, false);
     l.win = win2;
     new MutationObserver((records) => {
       if (records.every((r) => r.target.closest?.(".mwia-listprice"))) return;
-      scheduleScan9();
+      scheduleScan10();
     }).observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", onClick8, true);
     document.addEventListener("input", (event) => {
-      if (event.target.closest?.(MODAL)) scheduleScan9();
+      if (event.target.closest?.(MODAL)) scheduleScan10();
     }, true);
   }
   var POST = /^post (sell|buy) listing$/i;
@@ -11945,16 +12071,16 @@ ${triggerWindowReport()}`, false);
     }
     return [...found];
   }
-  function scheduleScan9() {
+  function scheduleScan10() {
     if (l.scanTimer) return;
     l.scanTimer = setTimeout(() => {
       l.scanTimer = null;
       try {
-        scan7();
+        scan8();
       } catch (error) {
         console.warn("[MWI Advisor] listing prices", error);
       }
-    }, SCAN_MS8);
+    }, SCAN_MS9);
   }
   function readModal(modal) {
     const header = modal.querySelector(HEADER)?.textContent || "";
@@ -11995,16 +12121,16 @@ ${triggerWindowReport()}`, false);
     return (state.character?.myMarketListings || []).filter((listing) => listing.itemHrid === hrid && (listing.enhancementLevel || 0) === level && !!listing.isSell === (side === "sell")).map((listing) => ({ price: Number(listing.price) || 0, quantity: Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0)) }));
   }
   function context(modal) {
-    const m = readModal(modal);
-    if (!m || m.error) return m;
-    const book = orderBookAt(m.hrid, m.level);
-    const range = m.range?.rounded && book?.range || m.range || book?.range || null;
-    const own = ownListings(m.hrid, m.side, m.level);
-    const key2 = JSON.stringify([m.side, m.hrid, m.level, m.quantity, m.best, range, book?.at, own, historyVersion()]);
+    const m2 = readModal(modal);
+    if (!m2 || m2.error) return m2;
+    const book = orderBookAt(m2.hrid, m2.level);
+    const range = m2.range?.rounded && book?.range || m2.range || book?.range || null;
+    const own = ownListings(m2.hrid, m2.side, m2.level);
+    const key2 = JSON.stringify([m2.side, m2.hrid, m2.level, m2.quantity, m2.best, range, book?.at, own, historyVersion()]);
     if (l.cache.key !== key2) {
-      l.cache = { key: key2, prices: listingPrices({ side: m.side, book, own, best: m.best, range, summary: priceSummary(m.hrid, m.level), hours: recentHours(m.hrid, m.level), quantity: m.quantity }) };
+      l.cache = { key: key2, prices: listingPrices({ side: m2.side, book, own, best: m2.best, range, summary: priceSummary(m2.hrid, m2.level), hours: recentHours(m2.hrid, m2.level), quantity: m2.quantity }) };
     }
-    return { ...m, book, range, ...l.cache.prices, limit: m.side === "buy" && m.level === 0 ? profitLimit(m.hrid, range, book) : null };
+    return { ...m2, book, range, ...l.cache.prices, limit: m2.side === "buy" && m2.level === 0 ? profitLimit(m2.hrid, range, book) : null };
   }
   function profitLimit(hrid, range, book) {
     const limit = buyLimit(hrid);
@@ -12016,16 +12142,16 @@ ${triggerWindowReport()}`, false);
     const listed = book ? book.asks.filter((o2) => o2.price <= price).reduce((sum, o2) => sum + o2.quantity, 0) : null;
     return { ...limit, price: under ? null : price, exact: limit.price, capped, under, listed };
   }
-  function scan7() {
+  function scan8() {
     const modals = listingModals();
     if (modals.length && !getClientData() && !l.loadError) {
-      l.loading || (l.loading = loadClientData(l.win).then(scheduleScan9, (error) => {
+      l.loading || (l.loading = loadClientData(l.win).then(scheduleScan10, (error) => {
         l.loadError = String(error?.message || error);
-        scheduleScan9();
+        scheduleScan10();
       }).finally(() => l.loading = null));
       return;
     }
-    if (modals.length) setTimeout(scheduleScan9, 700);
+    if (modals.length) setTimeout(scheduleScan10, 700);
     for (const modal of modals) {
       let c2;
       try {
@@ -12104,16 +12230,16 @@ ${triggerWindowReport()}`, false);
   function horizonTitle(s2, c2) {
     const sell = c2.side === "sell";
     const goes = sell ? "sells" : "is bought";
-    const pct5 = (share) => `${Math.round(share * 100)}%`;
+    const pct6 = (share) => `${Math.round(share * 100)}%`;
     const rate2 = c2.taken ? `${sell ? "Buyers take" : "Sellers fill"} about ${num(c2.taken.perHour)} an hour from ${sell ? "sell" : "buy"} listings.` : "How many trade an hour isn't known yet, so the quantity isn't counted.";
     if (s2.price === null) {
-      if (s2.why === "quantity") return `${num(c2.quantity)} is about ${num(c2.quantity / c2.taken.perHour)} h of what ${sell ? "buyers take" : "sellers fill"} (${num(c2.taken.perHour)} an hour): ${pct5(FILLED)} of it can't go within ${s2.horizon} h at any price.`;
+      if (s2.why === "quantity") return `${num(c2.quantity)} is about ${num(c2.quantity / c2.taken.perHour)} h of what ${sell ? "buyers take" : "sellers fill"} (${num(c2.taken.perHour)} an hour): ${pct6(FILLED)} of it can't go within ${s2.horizon} h at any price.`;
       if (s2.why === "history") return `Needs more hourly prices: ${s2.windows} of the 12 stretches of ${s2.horizon} h it looks back on so far.`;
-      if (s2.need > 1) return `${pct5(FILLED)} of ${num(c2.quantity)} takes about ${num(s2.need)} h first in line (${num(c2.taken.perHour)} an hour): no price was first in line that long in ${pct5(CONFIDENCE)} of past stretches of ${s2.horizon} h.`;
+      if (s2.need > 1) return `${pct6(FILLED)} of ${num(c2.quantity)} takes about ${num(s2.need)} h first in line (${num(c2.taken.perHour)} an hour): no price was first in line that long in ${pct6(CONFIDENCE)} of past stretches of ${s2.horizon} h.`;
       return `No price ${goes} within ${s2.horizon} h often enough.`;
     }
     const where = s2.under ? `One step ${sell ? "under" : "over"} the best offer (${num(s2.price)}): first in line now.` : `At ${num(s2.price)}.`;
-    return `${where} A ${pct5(CONFIDENCE)} chance that ${pct5(FILLED)} of ${num(c2.quantity)} ${goes} within ${s2.horizon} h \u2013 it did in ${pct5(s2.chance)} of ${s2.windows} past stretches of ${s2.horizon} h. ${rate2}`;
+    return `${where} A ${pct6(CONFIDENCE)} chance that ${pct6(FILLED)} of ${num(c2.quantity)} ${goes} within ${s2.horizon} h \u2013 it did in ${pct6(s2.chance)} of ${s2.windows} past stretches of ${s2.horizon} h. ${rate2}`;
   }
   function infoHtml(c2) {
     const sell = c2.side === "sell";
@@ -12193,7 +12319,7 @@ ${triggerWindowReport()}`, false);
     } finally {
       l.applying = false;
     }
-    scheduleScan9();
+    scheduleScan10();
   }
   function onClick8(event) {
     const button2 = event.target.closest?.(".mwia-listprice [data-listprice]");

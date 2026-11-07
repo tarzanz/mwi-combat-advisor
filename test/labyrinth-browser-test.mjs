@@ -56,9 +56,11 @@ for (const item of Object.values(clientData.itemDetailMap)) {
 const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="/advisor.user.js"></script></head>
 <body style="background:#1b1f35;color:#fff;font:14px sans-serif"><div id="game">Fake game
   <div class="LabyrinthPanel_map__x1"><div class="LabyrinthRoom_room__r1" title="Cyclops">Lv 20</div><div class="LabyrinthRoom_room__r1">?</div></div>
-  <div class="LabyrinthPanel_automation__a1"><table class="LabyrinthAutomation_table__t1"><thead><tr><th>Room Type</th><th>Loadout</th><th>Skip if room level is above my skill level by</th></tr></thead><tbody>
-    <tr><td>Milking</td><td><div class="MuiSelect-select" role="combobox">All Skills</div><input type="hidden" value="12"></td><td>≥ 100 <button>Edit</button></td></tr>
-    <tr><td>Shadow Archer</td><td><div class="MuiSelect-select" role="combobox">No Loadout</div><input type="hidden" value=""></td><td>≥ 100 <button>Edit</button></td></tr>
+  <div class="LabyrinthPanel_automationSection__a1"><table class="LabyrinthPanel_automationTable__38WwV"><thead><tr><th>Room Type</th><th>Loadout</th><th>Skip if room level is above my skill level by</th></tr></thead><tbody>
+    <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O"><svg width="16" height="16"><use href="/static/media/sprite.svg#milking"></use></svg><span>Milking</span></div></td><td><div class="Dropdown_dropdown__1E7is"><div role="combobox" class="MuiSelect-select MuiSelect-standard">All Skills</div><input aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-1k3x8v3" value="12"></div></td><td><div class="LabyrinthPanel_skipThreshold__1qXz5"><span>≥ 100</span><button>Edit</button></div></td></tr>
+    <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O"><svg width="16" height="16"><use href="/static/media/sprite.svg#cyclops"></use></svg><span>Cyclops</span></div></td><td><div class="Dropdown_dropdown__1E7is"><div role="combobox" class="MuiSelect-select MuiSelect-standard">Magic</div><input aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-1k3x8v3" value="1"></div></td><td><div class="LabyrinthPanel_skipThreshold__1qXz5"><span>≥ 100</span><button>Edit</button></div></td></tr>
+    <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O"><svg width="16" height="16"><use href="/static/media/sprite.svg#dryad"></use></svg><span>Dryad</span></div></td><td><div class="Dropdown_dropdown__1E7is"><div role="combobox" class="MuiSelect-select MuiSelect-standard">No Loadout</div><input aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-1k3x8v3" value="0"></div></td><td><div class="LabyrinthPanel_skipThreshold__1qXz5"><span>≥ 100</span><button>Edit</button></div></td></tr>
+    <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O"><svg width="16" height="16"><use href="/static/media/sprite.svg#mimic"></use></svg><span>Mimic</span></div></td><td><div class="Dropdown_dropdown__1E7is"><div role="combobox" class="MuiSelect-select MuiSelect-standard">No Loadout</div><input aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-1k3x8v3" value="0"></div></td><td><div class="LabyrinthPanel_skipThreshold__1qXz5"><span>≥ 100</span><button>Edit</button></div></td></tr>
   </tbody></table></div></div>
 <script>
   const xhr = new XMLHttpRequest(); xhr.open("GET", "/client-data.json", false); xhr.send();
@@ -121,6 +123,9 @@ try {
 
     check("both saved loadouts are listed", /Loadouts: Magic, Ranged/.test(intro), intro.match(/Loadouts:[^\n]*/)?.[0]);
 
+    await page.waitForSelector(".mwia-laby-note", { timeout: 5000 }).catch(() => {});
+    const noteBefore = await page.$eval(".mwia-laby-note", (n) => n.textContent).catch(() => "");
+    check("the game's automation table asks for a check first", /tap Check the rooms/.test(noteBefore), noteBefore);
     await page.select('[data-setting="accuracy"]', "fast");
     let t0 = Date.now();
     await page.click('[data-action="laby-check"]');
@@ -144,6 +149,17 @@ try {
     check("a lost room type's tile says shroud", tiles.some((t) => /✖ Shroud or go around best: (Magic|Ranged)/.test(t)), tiles.join(" / "));
     check("safe levels carry the guessed floor", rows.some((r) => /\((fl\. \d+|below fl\. 1)\)/.test(r[5])), rows.map((r) => r[5]).join(" / "));
     check("a verdict for each monster at the room level", rows.every((r) => /fight|risky|shroud/.test(r[7])), rows.map((r) => r[7]).join(" / "));
+    // The marks in the game's automation table, next to each monster's loadout chooser.
+    await page.waitForFunction(() => document.querySelectorAll(".mwia-laby-mark").length === 3, { timeout: 5000 }).catch(() => {});
+    const marks = await page.$$eval("table[class*=automationTable] tbody tr", (trs) => trs.map((tr) => [tr.querySelector("span")?.textContent, tr.querySelector(".mwia-laby-mark")?.textContent || ""]));
+    const markOf = (name) => marks.find((x) => x[0] === name)?.[1] ?? "";
+    check("automation: no mark on a skilling room", markOf("Milking") === "", JSON.stringify(marks));
+    check("automation: Cyclops has Magic chosen – marked right", /^✅ Magic · \d+%$/.test(markOf("Cyclops")), markOf("Cyclops"));
+    check("automation: Dryad with no loadout – pick one, or shroud", /^(👉 Pick (Magic|Ranged)|✖ Shroud or go around · best (Magic|Ranged)): \d+%$|^👉 Pick (Magic|Ranged) · \d+%$/.test(markOf("Dryad")), markOf("Dryad"));
+    check("automation: Mimic marked", /(Magic|Ranged)/.test(markOf("Mimic")), markOf("Mimic"));
+    const noteAfter = await page.$eval(".mwia-laby-note", (n) => n.textContent).catch(() => "");
+    check("automation: the note names the room level", /at room level 20 \(floor 1, a guess\)/.test(noteAfter), noteAfter);
+    check("automation: the check is kept for a reload", await page.evaluate(() => (JSON.parse(localStorage.getItem("mwia-laby-check") || "null")?.monsters || []).length === 10));
     const matrix = await domText(page);
     check("every loadout against every monster", /All your loadouts/.test(matrix));
     await page.screenshot({ path: path.join(shotDir, "laby-1-rooms.png"), fullPage: !MOBILE });
@@ -202,7 +218,7 @@ try {
     writeFileSync(path.join(shotDir, "laby-report.txt"), report);
     check("report: the Labyrinth message and its shape", /labyrinth_updated/.test(report) && /shape: \{type: "labyrinth_updated", characterLabyrinth: \{floor: 1, rooms: \[1× \{x: 0, y: 0, roomLevel: 20, monsterHrid: "\/monsters\/cyclops"/.test(report), report.slice(0, 800));
     check("report: the Labyrinth page's elements", /div\.LabyrinthPanel_map__x1/.test(report) && /LabyrinthRoom_room__r1 "Lv 20" title="Cyclops"/.test(report), report.slice(report.indexOf("page:"), report.indexOf("page:") + 400));
-    check("report: the automation table's rows and controls", /headers: Room Type \| Loadout/.test(report) && /row 2: Shadow Archer \| No Loadout \| ≥ 100 Edit ⟶ div\.MuiSelect-select role=combobox "No Loadout"/.test(report) && /last row html: <tr><td>Shadow Archer/.test(report), report.slice(report.indexOf("tables:"), report.indexOf("tables:") + 600));
+    check("report: the automation table's rows and controls", /headers: Room Type \| Loadout/.test(report) && /row 3: Dryad \| No Loadout \| ≥ 100Edit ⟶ div\.MuiSelect-select\.MuiSelect-standard role=combobox "No Loadout"/.test(report) && /last row html: <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O">/.test(report) && !/mwia/.test(report.slice(report.indexOf("tables:"), report.indexOf("page:"))), report.slice(report.indexOf("tables:"), report.indexOf("tables:") + 600));
     check("report: kept in the browser", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-log") || "[]").some((m) => m.type === "labyrinth_updated")));
 
     // Another crate needs a new check.
