@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.64.0
+// @version      0.65.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1878,8 +1878,8 @@
     const budget = coins9 * share;
     const item = entry.base.owned ? 0 : entry.base.price;
     const perHour = (entry.costPerAttempt * entry.actionsPerHour + entry.teaPerHour) * (entry.enhanceShare ?? 1);
-    const fill = item > budget ? 0 : perHour > 0 ? Math.min(1, (budget - item) / (perHour * hours)) : 1;
-    return { rating, share, budget, item, perHour, need: item + perHour * hours, fill, hours: fill * hours, plannedHours: hours };
+    const fill2 = item > budget ? 0 : perHour > 0 ? Math.min(1, (budget - item) / (perHour * hours)) : 1;
+    return { rating, share, budget, item, perHour, need: item + perHour * hours, fill: fill2, hours: fill2 * hours, plannedHours: hours };
   }
   function suggestChainCount(entry, chain, { stock, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins9 = Infinity, price = null, liquidity: liquidity2 = null, inputMarket = null }) {
     if (!chain || !entry.mainCount || chain.profitPerHour <= 0) return null;
@@ -2166,7 +2166,7 @@
       const stock = action.function === ALCHEMY_FUNCTION || recycling ? NO_STOCK : plan?.stock(shown.action);
       const suggestion = plan ? suggestCount(shown, { ...plan, stock, book: recycling ? null : plan.book(shown.action), price, liquidity: liquidity2, heldPrice }) : null;
       const budget = plan ? enhanceBudget(shown, plan) : null;
-      const fill = suggestion ? suggestion.fill : budget ? budget.fill : 1;
+      const fill2 = suggestion ? suggestion.fill : budget ? budget.fill : 1;
       const upTheBook = ((suggestion?.batch.aboveAsk || 0) - (suggestion?.batch.heldSaving || 0)) * 24 / (suggestion?.plannedHours || 1);
       const chained = recycling ? null : chain(shown);
       const entry = {
@@ -2178,12 +2178,12 @@
         budget,
         chain: chained,
         // The share of the planned hours the job runs: what the ranking goes by.
-        fill,
+        fill: fill2,
         // Gold a day over the planned hours: what the ranking goes by.
-        plannedGoldPerDay: shown.goldPerDay * fill - upTheBook,
+        plannedGoldPerDay: shown.goldPerDay * fill2 - upTheBook,
         // A train that makes the materials too, when that pays at least as well as buying them.
         chainSuggestion: plan && chained && chained.profitPerHour >= shown.profitPerHour ? suggestChainCount(shown, chained, { ...plan, stock: plan.stock(shown.action), price, liquidity: liquidity2 }) : null,
-        score: score2({ skill: shown.skill, valid: shown.valid, goldPerDay: shown.goldPerDay * fill - upTheBook, xpPerDay: shown.xpPerDay * fill }),
+        score: score2({ skill: shown.skill, valid: shown.valid, goldPerDay: shown.goldPerDay * fill2 - upTheBook, xpPerDay: shown.xpPerDay * fill2 }),
         levelsPerDay: countLevels ? levelProgress(who, data, true)(shown) : null,
         thinMargin: !!plan?.hideThinMargins && thinMargin(shown, price?.swing ?? null),
         teaSlots: who.slots[action.type],
@@ -3207,16 +3207,16 @@
     const warn = entry.warnings.length ? ` <span class="mwia-warn" title="${esc(entry.warnings.map(warningText).join(" "))}">\u26A0</span>` : "";
     const teaHint = !upcoming && entry.teaMode === "current" && entry.betterTeas ? `<span class="mwia-skill-hint">\u{1F375} ${teaGain(entry.best.result, entry.current)} with other teas</span>` : "";
     const planned = (!leveling2 || isAlchemy(entry)) && !upcoming && entry.suggestion?.count && Number.isFinite(entry.plannedGoldPerDay);
-    const fill = planned && entry.fill < 1 ? entry.fill : 1;
+    const fill2 = planned && entry.fill < 1 ? entry.fill : 1;
     const shownDay = planned ? entry.plannedGoldPerDay : day;
     const cut = planned && coins(shownDay) !== coins(day);
     const gold = entry.valid ? `<span class="${shownDay < 0 && !leveling2 ? "mwia-bad" : shownDay > 0 && (best || leveling2) ? "mwia-ok" : ""}">${coins(shownDay)}/day</span>` : `<span class="mwia-dim">\u2013</span>`;
-    const full = cut ? `<span class="mwia-skill-full${fill < SHORT_FILL ? " mwia-warn" : ""}" title="The rate while it runs, with the materials at their lowest ask">${fill < 1 ? `full ${hoursText(entry.suggestion.plannedHours)}` : "at the lowest ask"}: ${coins(day)}/day</span>` : "";
+    const full = cut ? `<span class="mwia-skill-full${fill2 < SHORT_FILL ? " mwia-warn" : ""}" title="The rate while it runs, with the materials at their lowest ask">${fill2 < 1 ? `full ${hoursText(entry.suggestion.plannedHours)}` : "at the lowest ask"}: ${coins(day)}/day</span>` : "";
     const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1 ? `<span class="mwia-skill-hint">\u26D3 ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>` : !upcoming && entry.decomposeCraft ? `<span class="mwia-skill-hint">\u{1F9EA} decompose them: ${esc(names(entry.decomposeCraft.reused.map((x) => x.itemHrid).filter((h2) => h2 !== COIN4)) || "materials")} back</span>` : !upcoming && entry.alchemyChain ? `<span class="mwia-skill-hint">\u26D3 then ${esc(entry.alchemyChain.further.slice(0, 2).map((f) => f.name).join(", "))}${entry.alchemyChain.further.length > 2 ? ` +${entry.alchemyChain.further.length - 2} more` : ""}</span>` : "";
     const faded = !entry.valid || !leveling2 && day <= 0 || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
     return `<details class="mwia-skill-row${(best || leveling2 && first) && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
       <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">\u2192 +${entry.target}${entry.finish ? " \u{1F9EA} decompose" : ""}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
-        <span class="mwia-skill-nums"><b>${gold}</b>${full}<span class="mwia-dim">${coins(entry.xpPerDay * fill)} XP/day${entry.levelsPerDay !== null && entry.levelsPerDay !== void 0 ? ` \xB7 ${dec(entry.levelsPerDay, 2)} lvl/day` : ""}</span></span></summary>
+        <span class="mwia-skill-nums"><b>${gold}</b>${full}<span class="mwia-dim">${coins(entry.xpPerDay * fill2)} XP/day${entry.levelsPerDay !== null && entry.levelsPerDay !== void 0 ? ` \xB7 ${dec(entry.levelsPerDay, 2)} lvl/day` : ""}</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
   }
   function detailHtml(e2, upcoming) {
@@ -3666,8 +3666,8 @@
     const n3 = (x) => Math.round(x).toLocaleString("en-US");
     const lines = [`Skill ${settings2.skillingSkill} \xB7 sell at ${settings2.skillingSellAt} \xB7 teas ${settings2.skillingTeas} \xB7 plan ${planMode(settings2)} (${hoursText(mode.hours)}) \xB7 focus ${goldShare(settings2)}% gold${settings2.countLevels ? " \xB7 counting levels" : ""}`];
     available.filter((e2) => e2.valid).slice(0, count3).forEach((e2, i) => {
-      const fill = e2.fill ?? 1;
-      const head3 = `${i + 1}. ${adviceName(e2)} \u2013 ${skillLabel(skillOf(e2))} ${e2.action.levelRequirement.level} \xB7 ranked on ${coins(e2.goldPerDay * fill)}/day${fill < 1 ? ` (${coins(e2.goldPerDay)}/day running all ${hoursText(mode.hours)}, the job fills ${Math.round(fill * 100)}%)` : ""} \xB7 ${coins(e2.xpPerDay * fill)} XP/day \xB7 score ${dec(e2.score, 3)}`;
+      const fill2 = e2.fill ?? 1;
+      const head3 = `${i + 1}. ${adviceName(e2)} \u2013 ${skillLabel(skillOf(e2))} ${e2.action.levelRequirement.level} \xB7 ranked on ${coins(e2.goldPerDay * fill2)}/day${fill2 < 1 ? ` (${coins(e2.goldPerDay)}/day running all ${hoursText(mode.hours)}, the job fills ${Math.round(fill2 * 100)}%)` : ""} \xB7 ${coins(e2.xpPerDay * fill2)} XP/day \xB7 score ${dec(e2.score, 3)}`;
       const parts = [`${dec(e2.actionsPerHour, 0)} actions/h`, `profit ${coins(e2.profitPerHour)}/h`, `margin ${dec((e2.margin || 0) * 100, 1)}%`];
       if (e2.teas?.length) parts.push(`teas ${e2.teas.map(itemName).join(", ")}`);
       if (e2.inputs?.length) parts.push(`buys ${e2.inputs.map((input) => `${dec(input.count, 2)} ${itemName(input.itemHrid)} @ ${coins(input.price || 0)}`).join(" + ")} per action`);
@@ -5020,7 +5020,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.64.0" : "dev";
+  var VERSION = true ? "0.65.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -6472,6 +6472,8 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-trig-line { margin-bottom: 3px; }
 .mwia-trig-bar button { padding: 3px 8px; border: 0; border-radius: 4px; background: #4f5bd5; color: #fff; font: 600 12px/1.4 sans-serif; cursor: pointer; }
 .mwia-laby-note { margin: 4px 0 6px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-laby-fill { margin-left: 6px; padding: 2px 8px; border: 1px solid #5865a8; border-radius: 4px; background: #2d3a73; color: #fff; font: 600 12px sans-serif; cursor: pointer; }
+.mwia-laby-fill:disabled { opacity: 0.5; cursor: default; }
 .mwia-laby-mark { margin-top: 3px; font: 400 11px/1.3 sans-serif; text-align: left; white-space: normal; }
 .mwia-laby-mark.mwia-laby-ok { color: #7ee2b0; }
 .mwia-laby-mark.mwia-laby-warn { color: #ffd479; }
@@ -8227,6 +8229,123 @@ i.mwia-history-bid { background: #7ee2b0; }
     };
   }
 
+  // src/trigger-fill.js
+  var ROW = '[class*="CombatTriggersSetting_combatTrigger_"]';
+  var COMBO = '[role="combobox"]';
+  var NATIVE = "input.MuiSelect-nativeInput, input[class*='nativeInput']";
+  var VALUE = 'input[type="number"]';
+  var LISTBOX = '[role="listbox"]';
+  var sleep2 = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+  var clean2 = (text) => String(text || "").replace(/\s+/g, " ").trim();
+  var isTrigger = (t4) => t4 && typeof t4 === "object" && typeof t4.conditionHrid === "string";
+  var holdsTriggers = (v) => Array.isArray(v) && v.every(isTrigger);
+  var key = (t4) => [t4.dependencyHrid, t4.conditionHrid, t4.comparatorHrid, Number(t4.value) || 0].join(":");
+  var sameTriggers = (a, b) => a.length === b.length && a.every((t4, i) => key(t4) === key(b[i]));
+  function settingFiber(box) {
+    const host = walkFibers((f) => f.stateNode === box).fiber;
+    for (let f = host?.return, i = 0; f && i < 80; f = f.return, i++) {
+      const p2 = f.memoizedProps;
+      if (typeof f.type !== "string" && p2 && typeof p2 === "object" && typeof p2.updateCombatTriggersHandler === "function" && Object.values(p2).some((v) => Array.isArray(v) && holdsTriggers(v))) return f;
+    }
+    return null;
+  }
+  function windowTarget(fiber) {
+    const p2 = fiber?.memoizedProps || {};
+    const hrid = p2.abilityHrid || p2.itemHrid || Object.values(p2).find((v) => typeof v === "string" && /^\/(abilities|items)\//.test(v));
+    return hrid || null;
+  }
+  function editHook(fiber) {
+    const found = [];
+    for (let h2 = fiber?.memoizedState, i = 0; h2 && typeof h2 === "object" && "next" in h2 && i < 40; h2 = h2.next, i++) {
+      if (Array.isArray(h2.memoizedState) && h2.memoizedState.length > 0 && holdsTriggers(h2.memoizedState) && typeof h2.queue?.dispatch === "function") found.push(h2);
+    }
+    return found[found.length - 1] || null;
+  }
+  function shownTriggers(box) {
+    return [...box.querySelectorAll(ROW)].map((row) => {
+      const natives = [...row.querySelectorAll(NATIVE)].map((input) => input.value);
+      const value = row.querySelector(VALUE);
+      return { dependencyHrid: natives[0] || "", conditionHrid: natives[1] || "", comparatorHrid: natives[2] || "", value: value ? Number(value.value) || 0 : 0 };
+    });
+  }
+  function shaped(triggers, template) {
+    const asString = typeof template?.value === "string";
+    return triggers.map((t4) => ({ ...template || {}, dependencyHrid: t4.dependencyHrid, conditionHrid: t4.conditionHrid, comparatorHrid: t4.comparatorHrid, value: asString ? String(t4.value ?? 0) : Number(t4.value ?? 0) }));
+  }
+  async function fillByState(fiber, triggers) {
+    const hook = editHook(fiber);
+    if (!hook) return "no state hook with the conditions";
+    hook.queue.dispatch(shaped(triggers, hook.memoizedState[0]));
+    await sleep2(150);
+    return null;
+  }
+  var button = (box, label3) => [...box.querySelectorAll("button")].find((b) => clean2(b.textContent) === label3);
+  async function pick(combo, value) {
+    const native = combo.parentElement?.querySelector(NATIVE);
+    if (native?.value === value) return true;
+    combo.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+    let option = null;
+    for (let i = 0; i < 20 && !option; i++) {
+      await sleep2(50);
+      option = [...document.querySelectorAll(`${LISTBOX} [data-value]`)].find((o2) => o2.getAttribute("data-value") === value && visible(o2));
+    }
+    if (!option) {
+      for (const list of document.querySelectorAll(LISTBOX)) list.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await sleep2(100);
+      if ([...document.querySelectorAll(LISTBOX)].some(visible)) document.querySelector('[class*="MuiBackdrop"]')?.click();
+      await sleep2(100);
+      return false;
+    }
+    option.click();
+    await sleep2(120);
+    return combo.parentElement?.querySelector(NATIVE)?.value === value;
+  }
+  async function fillByControls(box, triggers) {
+    for (let i = 0; i < 6 && box.querySelectorAll(ROW).length < triggers.length; i++) {
+      button(box, "+ Condition")?.click();
+      await sleep2(120);
+    }
+    for (let i = 0; i < 6 && box.querySelectorAll(ROW).length > triggers.length; i++) {
+      const rows2 = box.querySelectorAll(ROW);
+      rows2[rows2.length - 1].querySelector("button")?.click();
+      await sleep2(120);
+    }
+    const rows = [...box.querySelectorAll(ROW)];
+    if (rows.length !== triggers.length) return `rows ${rows.length}, wanted ${triggers.length}`;
+    for (let i = 0; i < triggers.length; i++) {
+      const t4 = triggers[i];
+      for (const [k, hrid] of [[0, t4.dependencyHrid], [1, t4.conditionHrid], [2, t4.comparatorHrid]]) {
+        const combo = box.querySelectorAll(ROW)[i]?.querySelectorAll(COMBO)[k];
+        if (!combo || !await pick(combo, hrid)) return `row ${i + 1}: could not pick ${hrid.split("/").pop()}`;
+      }
+      const input = box.querySelectorAll(ROW)[i]?.querySelector(VALUE);
+      if (input && Number(input.value) !== Number(t4.value)) {
+        setReactInput(input, String(t4.value));
+        await sleep2(80);
+      }
+    }
+    return null;
+  }
+  async function fillTriggerWindow(box, fiber, triggers) {
+    const steps = [];
+    if (fiber) {
+      const failed2 = await fillByState(fiber, triggers);
+      steps.push(`state: ${failed2 || "set"}`);
+      if (!failed2 && sameTriggers(shownTriggers(box), triggers)) return { ok: true, how: "state", diag: steps.join(" \xB7 ") };
+      if (!failed2) steps.push(`window shows ${JSON.stringify(shownTriggers(box).map(key))}`);
+    } else steps.push("no component found for the window");
+    let failed;
+    try {
+      failed = await fillByControls(box, triggers);
+    } catch (error) {
+      failed = `controls threw ${error?.message || error}`;
+    }
+    steps.push(`controls: ${failed || "done"}`);
+    const ok = !failed && sameTriggers(shownTriggers(box), triggers);
+    if (!ok) steps.push(`window shows ${JSON.stringify(shownTriggers(box).map(key))}, wanted ${JSON.stringify(triggers.map(key))}`);
+    return { ok, how: "controls", diag: steps.join(" \xB7 ") };
+  }
+
   // src/labyrinth-marks.js
   var SCAN_MS7 = 400;
   var STORE2 = "mwia-laby-check";
@@ -8235,7 +8354,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   var CHOSEN = 'input[class*="MuiSelect-nativeInput"], input[class*="nativeInput"]';
   var MARK = "mwia-laby-mark";
   var NOTE = "mwia-laby-note";
-  var m = { deps: null, scanTimer: null, stored: void 0 };
+  var FILL = "mwia-laby-fill";
+  var COMBO2 = '[role="combobox"]';
+  var m = { deps: null, scanTimer: null, stored: void 0, filling: false, status: "" };
   var pct4 = (x) => `${Math.round(100 * x)}%`;
   function rememberLabyrinth(lab) {
     if (!lab) return;
@@ -8266,7 +8387,55 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}`))) return;
       scheduleScan7();
     }).observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("click", onClick5, true);
     scheduleScan7();
+  }
+  function onClick5(event) {
+    const button2 = event.target.closest?.(`.${FILL}`);
+    if (!button2) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const table = button2.closest(`.${NOTE}`)?.nextElementSibling;
+    if (table?.matches(TABLE)) fill(table);
+  }
+  async function fill(table) {
+    const check = lastCheck();
+    if (!check || m.filling) return;
+    m.filling = true;
+    m.status = "Filling in\u2026";
+    scheduleScan7();
+    const data = getClientData();
+    const name = (monster) => data?.combatMonsterDetailMap?.[monster.hrid]?.name || monster.hrid.split("/").pop();
+    let changed2 = 0;
+    let right = 0;
+    const failed = [];
+    const unsaved = [];
+    try {
+      const count3 = table.querySelectorAll("tbody tr").length;
+      for (let i = 0; i < count3; i++) {
+        const row = table.querySelectorAll("tbody tr")[i];
+        const monster = row && rowMonster(row, check.monsters, data);
+        if (!monster) continue;
+        if (monster.setupId === "equipped") {
+          unsaved.push(name(monster));
+          continue;
+        }
+        const want = String(monster.setupId);
+        if (row.querySelector(CHOSEN)?.value === want) {
+          right++;
+          continue;
+        }
+        const combo = row.querySelector(COMBO2);
+        if (combo && await pick(combo, want)) changed2++;
+        else failed.push(name(monster));
+      }
+      m.status = `Filled in: ${changed2} changed, ${right} already right` + (failed.length ? `; could not pick for ${failed.join(", ")} (is the loadout still saved? check again in \u{1F9ED} \u2192 Labyrinth)` : "") + (unsaved.length ? `; ${unsaved.join(", ")}: best with what you wear now \u2013 save it as a loadout` : "") + ".";
+    } catch (error) {
+      m.status = `Filling in failed: ${error?.message || error}`;
+    } finally {
+      m.filling = false;
+      scheduleScan7();
+    }
   }
   function scheduleScan7() {
     if (m.scanTimer || !m.deps) return;
@@ -8295,7 +8464,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const chosen = saved && String(chosenId) === String(monster.setupId);
     const floor = monster.safe === null ? "never safe" : floorAt(monster.safe) ? `safe to floor ${floorAt(monster.safe)}` : `safe to level ${Math.round(monster.safe)}`;
     let text;
-    if (kind === "bad") text = `\u2716 Shroud or go around \xB7 best ${name}: ${pct4(win2)}`;
+    if (kind === "bad") text = `\u2716 Shroud or go around \xB7 best ${name}${chosen ? " (chosen)" : ""}: ${pct4(win2)}`;
     else if (!saved) text = `${kind === "ok" ? "\u2705" : "\u26A0"} What you wear now (${pct4(win2)}) \u2013 save it as a loadout to pick it`;
     else if (chosen) text = `${kind === "ok" ? "\u2705" : "\u26A0"} ${name} \xB7 ${pct4(win2)}`;
     else text = `\u{1F449} Pick ${name} \xB7 ${pct4(win2)}`;
@@ -8336,7 +8505,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       table.parentElement.insertBefore(el, table);
     }
     const floor = floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
-    const html = check ? `\u{1F9ED} MWI Advisor: the loadout to pick for each monster at room level ${level}${floor} \u2013 change it in \u{1F9ED} \u2192 Labyrinth. Checked ${new Date(check.at).toLocaleDateString()}; check again after changing gear.` : `\u{1F9ED} MWI Advisor: tap <b>Check the rooms</b> in \u{1F9ED} \u2192 Labyrinth, and each monster here gets the loadout to pick.`;
+    const html = check ? `\u{1F9ED} MWI Advisor: the loadout to pick for each monster at room level ${level}${floor} \u2013 change it in \u{1F9ED} \u2192 Labyrinth. Checked ${new Date(check.at).toLocaleDateString()}; check again after changing gear.
+           <button class="${FILL}" ${m.filling ? "disabled" : ""}>\u25B6 Fill in</button>${m.status ? `<div>${esc(m.status)}</div>` : ""}` : `\u{1F9ED} MWI Advisor: tap <b>Check the rooms</b> in \u{1F9ED} \u2192 Labyrinth, and each monster here gets the loadout to pick.`;
     if (el.dataset.html !== html) el.innerHTML = el.dataset.html = html;
   }
 
@@ -8500,7 +8670,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (records.every((r) => r.target.closest?.(".mwia-plan-box"))) return;
       scheduleScan8();
     }).observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("click", onClick5, true);
+    document.addEventListener("click", onClick6, true);
     document.addEventListener("toggle", onToggle, true);
   }
   function scheduleScan8() {
@@ -8656,7 +8826,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     );
     scheduleScan8();
   }
-  async function onClick5(event) {
+  async function onClick6(event) {
     const button2 = event.target.closest?.(".mwia-plan-box button");
     if (!button2) return;
     event.preventDefault();
@@ -9398,7 +9568,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     t3.root.innerHTML = html;
   }
-  async function onClick6(event) {
+  async function onClick7(event) {
     const button2 = event.target.closest("[data-train]");
     if (!button2) return;
     const action = button2.dataset.train;
@@ -9472,7 +9642,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     t3.win = win2;
     t3.root = document.createElement("div");
     t3.root.className = "mwia-train mwia-hidden";
-    t3.root.addEventListener("click", onClick6);
+    t3.root.addEventListener("click", onClick7);
     enableTapTips(t3.root);
     document.body.appendChild(t3.root);
     try {
@@ -9486,123 +9656,6 @@ i.mwia-history-bid { background: #7ee2b0; }
     onStateChange(onGameMessage);
     new MutationObserver(scheduleScan9).observe(document.body, { childList: true, subtree: true });
     scheduleScan9();
-  }
-
-  // src/trigger-fill.js
-  var ROW = '[class*="CombatTriggersSetting_combatTrigger_"]';
-  var COMBO = '[role="combobox"]';
-  var NATIVE = "input.MuiSelect-nativeInput, input[class*='nativeInput']";
-  var VALUE = 'input[type="number"]';
-  var LISTBOX = '[role="listbox"]';
-  var sleep2 = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
-  var clean2 = (text) => String(text || "").replace(/\s+/g, " ").trim();
-  var isTrigger = (t4) => t4 && typeof t4 === "object" && typeof t4.conditionHrid === "string";
-  var holdsTriggers = (v) => Array.isArray(v) && v.every(isTrigger);
-  var key = (t4) => [t4.dependencyHrid, t4.conditionHrid, t4.comparatorHrid, Number(t4.value) || 0].join(":");
-  var sameTriggers = (a, b) => a.length === b.length && a.every((t4, i) => key(t4) === key(b[i]));
-  function settingFiber(box) {
-    const host = walkFibers((f) => f.stateNode === box).fiber;
-    for (let f = host?.return, i = 0; f && i < 80; f = f.return, i++) {
-      const p2 = f.memoizedProps;
-      if (typeof f.type !== "string" && p2 && typeof p2 === "object" && typeof p2.updateCombatTriggersHandler === "function" && Object.values(p2).some((v) => Array.isArray(v) && holdsTriggers(v))) return f;
-    }
-    return null;
-  }
-  function windowTarget(fiber) {
-    const p2 = fiber?.memoizedProps || {};
-    const hrid = p2.abilityHrid || p2.itemHrid || Object.values(p2).find((v) => typeof v === "string" && /^\/(abilities|items)\//.test(v));
-    return hrid || null;
-  }
-  function editHook(fiber) {
-    const found = [];
-    for (let h2 = fiber?.memoizedState, i = 0; h2 && typeof h2 === "object" && "next" in h2 && i < 40; h2 = h2.next, i++) {
-      if (Array.isArray(h2.memoizedState) && h2.memoizedState.length > 0 && holdsTriggers(h2.memoizedState) && typeof h2.queue?.dispatch === "function") found.push(h2);
-    }
-    return found[found.length - 1] || null;
-  }
-  function shownTriggers(box) {
-    return [...box.querySelectorAll(ROW)].map((row) => {
-      const natives = [...row.querySelectorAll(NATIVE)].map((input) => input.value);
-      const value = row.querySelector(VALUE);
-      return { dependencyHrid: natives[0] || "", conditionHrid: natives[1] || "", comparatorHrid: natives[2] || "", value: value ? Number(value.value) || 0 : 0 };
-    });
-  }
-  function shaped(triggers, template) {
-    const asString = typeof template?.value === "string";
-    return triggers.map((t4) => ({ ...template || {}, dependencyHrid: t4.dependencyHrid, conditionHrid: t4.conditionHrid, comparatorHrid: t4.comparatorHrid, value: asString ? String(t4.value ?? 0) : Number(t4.value ?? 0) }));
-  }
-  async function fillByState(fiber, triggers) {
-    const hook = editHook(fiber);
-    if (!hook) return "no state hook with the conditions";
-    hook.queue.dispatch(shaped(triggers, hook.memoizedState[0]));
-    await sleep2(150);
-    return null;
-  }
-  var button = (box, label3) => [...box.querySelectorAll("button")].find((b) => clean2(b.textContent) === label3);
-  async function pick(combo, value) {
-    const native = combo.parentElement?.querySelector(NATIVE);
-    if (native?.value === value) return true;
-    combo.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
-    let option = null;
-    for (let i = 0; i < 20 && !option; i++) {
-      await sleep2(50);
-      option = [...document.querySelectorAll(`${LISTBOX} [data-value]`)].find((o2) => o2.getAttribute("data-value") === value && visible(o2));
-    }
-    if (!option) {
-      for (const list of document.querySelectorAll(LISTBOX)) list.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      await sleep2(100);
-      if ([...document.querySelectorAll(LISTBOX)].some(visible)) document.querySelector('[class*="MuiBackdrop"]')?.click();
-      await sleep2(100);
-      return false;
-    }
-    option.click();
-    await sleep2(120);
-    return combo.parentElement?.querySelector(NATIVE)?.value === value;
-  }
-  async function fillByControls(box, triggers) {
-    for (let i = 0; i < 6 && box.querySelectorAll(ROW).length < triggers.length; i++) {
-      button(box, "+ Condition")?.click();
-      await sleep2(120);
-    }
-    for (let i = 0; i < 6 && box.querySelectorAll(ROW).length > triggers.length; i++) {
-      const rows2 = box.querySelectorAll(ROW);
-      rows2[rows2.length - 1].querySelector("button")?.click();
-      await sleep2(120);
-    }
-    const rows = [...box.querySelectorAll(ROW)];
-    if (rows.length !== triggers.length) return `rows ${rows.length}, wanted ${triggers.length}`;
-    for (let i = 0; i < triggers.length; i++) {
-      const t4 = triggers[i];
-      for (const [k, hrid] of [[0, t4.dependencyHrid], [1, t4.conditionHrid], [2, t4.comparatorHrid]]) {
-        const combo = box.querySelectorAll(ROW)[i]?.querySelectorAll(COMBO)[k];
-        if (!combo || !await pick(combo, hrid)) return `row ${i + 1}: could not pick ${hrid.split("/").pop()}`;
-      }
-      const input = box.querySelectorAll(ROW)[i]?.querySelector(VALUE);
-      if (input && Number(input.value) !== Number(t4.value)) {
-        setReactInput(input, String(t4.value));
-        await sleep2(80);
-      }
-    }
-    return null;
-  }
-  async function fillTriggerWindow(box, fiber, triggers) {
-    const steps = [];
-    if (fiber) {
-      const failed2 = await fillByState(fiber, triggers);
-      steps.push(`state: ${failed2 || "set"}`);
-      if (!failed2 && sameTriggers(shownTriggers(box), triggers)) return { ok: true, how: "state", diag: steps.join(" \xB7 ") };
-      if (!failed2) steps.push(`window shows ${JSON.stringify(shownTriggers(box).map(key))}`);
-    } else steps.push("no component found for the window");
-    let failed;
-    try {
-      failed = await fillByControls(box, triggers);
-    } catch (error) {
-      failed = `controls threw ${error?.message || error}`;
-    }
-    steps.push(`controls: ${failed || "done"}`);
-    const ok = !failed && sameTriggers(shownTriggers(box), triggers);
-    if (!ok) steps.push(`window shows ${JSON.stringify(shownTriggers(box).map(key))}, wanted ${JSON.stringify(triggers.map(key))}`);
-    return { ok, how: "controls", diag: steps.join(" \xB7 ") };
   }
 
   // src/trigger-window.js
@@ -11706,7 +11759,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.64.0" : "dev";
+  var VERSION3 = true ? "0.65.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -11750,7 +11803,7 @@ ${triggerWindowReport()}`, false);
     }
     button2.textContent = copied ? "\u2713 Copied" : "Select the text above to copy it";
   }
-  function onClick7(event) {
+  function onClick8(event) {
     const target = event.target.closest("[data-action],[data-tab]");
     if (!target || !ui.root.contains(target)) return;
     try {
@@ -11991,7 +12044,7 @@ ${triggerWindowReport()}`, false);
       }
     });
     ui.root = root;
-    root.addEventListener("click", onClick7);
+    root.addEventListener("click", onClick8);
     root.addEventListener("change", onChange);
     root.addEventListener("toggle", rememberToggle, true);
     enableTapTips(root);
@@ -12051,7 +12104,7 @@ ${triggerWindowReport()}`, false);
       if (records.every((r) => r.target.closest?.(".mwia-listprice"))) return;
       scheduleScan10();
     }).observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("click", onClick8, true);
+    document.addEventListener("click", onClick9, true);
     document.addEventListener("input", (event) => {
       if (event.target.closest?.(MODAL)) scheduleScan10();
     }, true);
@@ -12321,7 +12374,7 @@ ${triggerWindowReport()}`, false);
     }
     scheduleScan10();
   }
-  function onClick8(event) {
+  function onClick9(event) {
     const button2 = event.target.closest?.(".mwia-listprice [data-listprice]");
     if (!button2) return;
     event.preventDefault();

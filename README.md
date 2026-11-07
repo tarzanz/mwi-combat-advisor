@@ -325,6 +325,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     above the table says which level and when the rooms were checked; the last check is kept in this browser, so the
     marks stay after a reload (check again after changing gear). Before the first check the line says to tap
     *Check the rooms*.
+    **▶ Fill in** on that line picks each monster's best loadout in the game's own dropdowns, as a tap would (also
+    for ✖ rooms, so a fight you can't avoid gets the best you have), and says how many it changed; skilling rooms
+    are left alone.
   - **📋 Read the game's Labyrinth** – the first step towards marks on the game's Labyrinth map (and its automation
     settings): the script keeps every message the game sends that mentions the Labyrinth (a few of each type, in
     this browser), and the button reports their types and the shape of their data, the character's Labyrinth

@@ -63,6 +63,21 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
     <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O"><svg width="16" height="16"><use href="/static/media/sprite.svg#mimic"></use></svg><span>Mimic</span></div></td><td><div class="Dropdown_dropdown__1E7is"><div role="combobox" class="MuiSelect-select MuiSelect-standard">No Loadout</div><input aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-1k3x8v3" value="0"></div></td><td><div class="LabyrinthPanel_skipThreshold__1qXz5"><span>≥ 100</span><button>Edit</button></div></td></tr>
   </tbody></table></div></div>
 <script>
+  // A stand-in for the game's MUI dropdowns: mousedown opens a listbox, a click on an option sets it.
+  const LOADOUTS = [["0", "No Loadout"], ["12", "All Skills"], ["1", "Magic"], ["2", "Ranged"]];
+  document.addEventListener("mousedown", (e) => {
+    const combo = e.target.closest && e.target.closest('[role="combobox"]');
+    if (!combo) return;
+    const list = document.createElement("ul");
+    list.setAttribute("role", "listbox");
+    for (const [value, label] of LOADOUTS) {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option"); li.setAttribute("data-value", value); li.textContent = label;
+      li.addEventListener("click", () => { combo.textContent = label; combo.parentElement.querySelector("input").value = value; list.remove(); });
+      list.appendChild(li);
+    }
+    document.body.appendChild(list);
+  });
   const xhr = new XMLHttpRequest(); xhr.open("GET", "/client-data.json", false); xhr.send();
   const data = JSON.parse(xhr.responseText);
   window.localStorageUtil = { getInitClientData: () => data };
@@ -160,6 +175,18 @@ try {
     const noteAfter = await page.$eval(".mwia-laby-note", (n) => n.textContent).catch(() => "");
     check("automation: the note names the room level", /at room level 20 \(floor 1, a guess\)/.test(noteAfter), noteAfter);
     check("automation: the check is kept for a reload", await page.evaluate(() => (JSON.parse(localStorage.getItem("mwia-laby-check") || "null")?.monsters || []).length === 10));
+    // ▶ Fill in: every monster's row set to its best loadout through the dropdowns.
+    await page.$eval(".mwia-laby-fill", (b) => b.click()); // the advisor panel covers the fake game page
+    await page.waitForFunction(() => /Filled in/.test(document.querySelector(".mwia-laby-note")?.textContent || ""), { timeout: 10000 }).catch(() => {});
+    const filled = await page.$$eval("table[class*=automationTable] tbody tr", (trs) => Object.fromEntries(trs.map((tr) => [tr.querySelector("span")?.textContent, tr.querySelector("input")?.value])));
+    const fillNote = await page.$$eval(".mwia-laby-note", (ns) => ns.map((n) => n.textContent.replace(/\s+/g, " ")).join(" // "));
+    const bestId = (name) => (rows.find((r) => r[0] === name)?.[3] === "Magic" ? "1" : "2");
+    check("fill in: each monster gets its best loadout", filled.Cyclops === "1" && filled.Dryad === bestId("Dryad") && filled.Mimic === bestId("Mimic"), JSON.stringify(filled));
+    check("fill in: skilling rooms untouched", filled.Milking === "12", filled.Milking);
+    check("fill in: says what it did", /Filled in: 2 changed, 1 already right\./.test(fillNote), fillNote);
+    await page.waitForFunction(() => [...document.querySelectorAll(".mwia-laby-mark")].every((n) => /^✅|\(chosen\)/.test(n.textContent)), { timeout: 5000 }).catch(() => {});
+    const marksAfter = await page.$$eval(".mwia-laby-mark", (ns) => ns.map((n) => n.textContent));
+    check("fill in: the marks now say chosen", marksAfter.every((t) => /^✅|^⚠ |\(chosen\)/.test(t)), JSON.stringify(marksAfter));
     const matrix = await domText(page);
     check("every loadout against every monster", /All your loadouts/.test(matrix));
     await page.screenshot({ path: path.join(shotDir, "laby-1-rooms.png"), fullPage: !MOBILE });
@@ -218,7 +245,7 @@ try {
     writeFileSync(path.join(shotDir, "laby-report.txt"), report);
     check("report: the Labyrinth message and its shape", /labyrinth_updated/.test(report) && /shape: \{type: "labyrinth_updated", characterLabyrinth: \{floor: 1, rooms: \[1× \{x: 0, y: 0, roomLevel: 20, monsterHrid: "\/monsters\/cyclops"/.test(report), report.slice(0, 800));
     check("report: the Labyrinth page's elements", /div\.LabyrinthPanel_map__x1/.test(report) && /LabyrinthRoom_room__r1 "Lv 20" title="Cyclops"/.test(report), report.slice(report.indexOf("page:"), report.indexOf("page:") + 400));
-    check("report: the automation table's rows and controls", /headers: Room Type \| Loadout/.test(report) && /row 3: Dryad \| No Loadout \| ≥ 100Edit ⟶ div\.MuiSelect-select\.MuiSelect-standard role=combobox "No Loadout"/.test(report) && /last row html: <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O">/.test(report) && !/mwia/.test(report.slice(report.indexOf("tables:"), report.indexOf("page:"))), report.slice(report.indexOf("tables:"), report.indexOf("tables:") + 600));
+    check("report: the automation table's rows and controls", /headers: Room Type \| Loadout/.test(report) && /row 3: Dryad \| (Ranged|Magic) \| ≥ 100Edit ⟶ div\.MuiSelect-select\.MuiSelect-standard role=combobox "(Ranged|Magic)"/.test(report) && /last row html: <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O">/.test(report) && !/mwia/.test(report.slice(report.indexOf("tables:"), report.indexOf("page:"))), report.slice(report.indexOf("tables:"), report.indexOf("tables:") + 600));
     check("report: kept in the browser", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-log") || "[]").some((m) => m.type === "labyrinth_updated")));
 
     // Another crate needs a new check.

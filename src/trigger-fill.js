@@ -75,7 +75,8 @@ async function fillByState(fiber, triggers) {
 
 const button = (box, label) => [...box.querySelectorAll("button")].find((b) => clean(b.textContent) === label);
 
-async function pick(combo, value) {
+// Picks an option of an MUI dropdown by its value: opens the menu and clicks the option.
+export async function pick(combo, value) {
     const native = combo.parentElement?.querySelector(NATIVE);
     if (native?.value === value) return true;
     combo.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));

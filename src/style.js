@@ -245,6 +245,8 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-trig-line { margin-bottom: 3px; }
 .mwia-trig-bar button { padding: 3px 8px; border: 0; border-radius: 4px; background: #4f5bd5; color: #fff; font: 600 12px/1.4 sans-serif; cursor: pointer; }
 .mwia-laby-note { margin: 4px 0 6px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-laby-fill { margin-left: 6px; padding: 2px 8px; border: 1px solid #5865a8; border-radius: 4px; background: #2d3a73; color: #fff; font: 600 12px sans-serif; cursor: pointer; }
+.mwia-laby-fill:disabled { opacity: 0.5; cursor: default; }
 .mwia-laby-mark { margin-top: 3px; font: 400 11px/1.3 sans-serif; text-align: left; white-space: normal; }
 .mwia-laby-mark.mwia-laby-ok { color: #7ee2b0; }
 .mwia-laby-mark.mwia-laby-warn { color: #ffd479; }
