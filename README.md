@@ -242,6 +242,21 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   and buys what you lack for a day. Hour buttons (0.5, 1, 2 … 12) fill in the *Fight* count for that many hours at
   the pace the analysis simulated with your current gear, and the 🛒 button then buys for those hours. They show only
   when the window's difficulty is the tier that was analysed.
+- **Enhancing plan under the Enhancing window** – for the item in the slot, enhanced to use rather than to level
+  the skill: press **🎲 Simulate** (it says *Simulating…* first – it can take a few seconds) and every target from
+  the +level the item has to +20 gets a row with what it **typically** costs (half the time less: the median), what
+  it costs with **bad luck** (9 times in 10 less) and the typical time. Thousands of tries are simulated with the
+  window's odds – your Enhancing level, tool, Observatory and the teas in your Enhancing slots, Blessed Tea's double
+  steps included; the line on top shows the success per +level and an attempt's seconds and cost to compare with the
+  game. **Protection** 🛡 is the one that costs the least on average – the cheapest of a copy, a Mirror of Protection
+  and the item's own – from the +level where it starts to pay (or none, with what it saves against going without).
+  Everything is priced at the ask, also what you already have. Tap a row for the materials, protections, teas and
+  coins it typically takes (and with bad luck) against what you have – *short* or *to spare* – with **▶ Set +N**
+  (the target, and the protection from +N when you have one) and 🛒 for what's short. *With your coins and what
+  you have* names the highest target your coins carry typically and with bad luck (that row is green, the ones past
+  it dim). Targets that take more than 100,000 attempts on average show only the average (≈). The plan is kept for
+  the item; when prices, your teas or your Enhancing change, it says so and offers to simulate again. Whether a +level
+  is worth it in combat is the Labyrinth tab's *Build a loadout* (it tests +levels you enhance yourself).
 - **Better tools on the Equipment page** – under the slots a box lists every tool slot where your skill level now
   allows a higher tier than the tool you wear (or an empty slot): the tool, its price, what it adds a day on what
   you'd make (the top of the skill's Skilling list) and when it pays back, counting a resale at the bid (gathering and production skills), with a 🛒 button each and one for
@@ -458,8 +473,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
   that sells only a few a day can still look stable. The price history saves how many were sold each hour (the market file's `v`, with the average
   trade price `p`); the sales a day cap how many to make, value what is made past them lower and, by how often
   something sells, rate the market. Until 12 hours of sales are collected nothing caps a job.
-- Enhancing: no protection (Mirror of Protection, copies) yet, and no Observatory/Enhancer
-  upgrades under *Upgrades that pay back*. Alchemy: no Unrefine.
+- Enhancing: no Observatory/Enhancer upgrades under *Upgrades that pay back*. The Enhancing plan's protection is the
+  cheapest on average, not the one with the smallest bad luck. Alchemy: no Unrefine.
   The ⛓ chain makes every material it can (by the fastest source), even where buying one of them would pay better.
 - The phone layout has been tested at iPhone size in desktop Firefox, not on a real phone. Keep the screen on while
   an analysis runs: a phone pauses the page in the background.
@@ -475,6 +490,7 @@ node test/train-browser-test.mjs /tmp                     # plan train against a
 node test/skilling-browser-test.mjs /tmp                  # Skilling tab against a mock game and market
 node test/price-history-test.mjs                          # price-history maths in Node
 node test/leveling-test.mjs                               # Enhancing and Alchemy rules in Node
+node test/enhance-plan-test.mjs                           # the Enhancing plan (simulated tries, protection, stock)
 node test/market-test.mjs                                 # Market tab rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node

@@ -867,6 +867,32 @@ try {
     const enhBox = await page.$eval(".lvl .mwia-guide-box", (n) => n.textContent).catch(() => "");
     check("Enhancing window: tea box for the item and target", /🍵 Teas/.test(enhBox) && enhBox.includes(`${topEnhance.action.name} → +${enhRow.target}`), enhBox.slice(0, 200));
 
+    // Under the window: the plan for that item. 🎲 simulates (saying so first), a row shows
+    // what it takes against what you have, ▶ sets the target in the window.
+    await page.waitForSelector(".lvl .mwia-plan-box [data-plan-run]", { timeout: 3000 }).catch(() => null);
+    const planIntro = await page.$eval(".lvl .mwia-plan-box", (n) => n.textContent).catch(() => "");
+    check("Enhancing window: plan box with 🎲 for the item", /🎯 Enhancing plan/.test(planIntro) && planIntro.includes(topEnhance.action.name) && /🎲 Simulate \+1 … \+20/.test(planIntro), planIntro.slice(0, 200));
+    await page.click(".lvl .mwia-plan-box [data-plan-run]");
+    await page.waitForSelector(".lvl .mwia-plan-busy", { timeout: 3000 }).catch(() => null);
+    check("🎲 says it is simulating before it starts", await page.$(".lvl .mwia-plan-busy").then((n) => !!n));
+    await page.waitForSelector(".lvl .mwia-plan-row", { timeout: 30000 }).catch(() => null);
+    const planRows = await page.$$eval(".lvl .mwia-plan-row > summary", (list) => list.map((n) => [...n.children].map((c) => c.textContent)));
+    check("plan: a row per target with typical and bad-luck cost and time", planRows.length === 20 && planRows[0][0] === "+1" && planRows.slice(0, 5).every((r) => r.length === 5 && r[2] && r[4]), JSON.stringify(planRows.slice(0, 3)));
+    const planNote = await page.$eval(".lvl .mwia-plan-box", (n) => n.textContent.replace(/\s+/g, " "));
+    check("plan: odds, an attempt's cost and what your coins carry", /Success per attempt: \+0 [\d.]+%/.test(planNote) && /s and [\d.,]+[kMB]? an attempt/.test(planNote) && /coins and what you have: (\+\d+|not even the next level) typically/.test(planNote), planNote.slice(0, 400));
+    await page.evaluate(() => document.querySelectorAll(".lvl .mwia-plan-row > summary")[2].click());
+    await new Promise((r) => setTimeout(r, 900));
+    const rowText = await page.$eval(".lvl .mwia-plan-row[open]", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
+    check("an open row lists the materials against what you have, and stays open", /have [\d,]+/.test(rowText) && /(short|to spare)/.test(rowText) && /▶ Set \+3/.test(rowText), rowText.slice(0, 300));
+    if (MOBILE) await page.evaluate(() => document.querySelector(".lvl .mwia-plan-box").scrollIntoView());
+    await page.screenshot({ path: path.join(shotDir, "skilling-enhance-plan.png"), fullPage: !MOBILE });
+    await page.evaluate(() => { window.enhanceTarget = undefined; document.querySelector(".lvl .mwia-plan-row[open] [data-plan-set]").click(); });
+    await page.waitForFunction(() => window.enhanceTarget !== undefined, { timeout: 3000 }).catch(() => null);
+    const planSet = await page.evaluate(() => ({ target: window.enhanceTarget, status: document.querySelector(".lvl .mwia-plan-box .mwia-guide-status")?.textContent || "" }));
+    await new Promise((r) => setTimeout(r, 600));
+    const planStatus = await page.$eval(".lvl .mwia-plan-box", (n) => n.textContent).catch(() => "");
+    check("▶ Set +3 sets the window's target", planSet.target === "3" && /Target \+3 set/.test(planStatus), JSON.stringify(planSet));
+
     // Alchemy: coinify, decompose and transmute, with the odds.
     await page.click(".mwia-launcher");
     await page.waitForSelector(".mwia-skill-row");

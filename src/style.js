@@ -177,7 +177,7 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-history-more summary { cursor: pointer; color: #9aa3cf; font-size: 11px; margin-top: 2px; }
 .mwia-history-more[open] summary { margin-bottom: 4px; }
 .mwia-history-head .mwia-history-prelim { color: #ffd479; font-weight: 600; }
-.mwia-guide-box, .mwia-tool-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-guide-box, .mwia-tool-box, .mwia-plan-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-guide-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
 .mwia-guide-head span, .mwia-guide-list li span, .mwia-guide-status { color: #8189b0; font-size: 11px; }
 .mwia-guide-sub { margin-top: 4px; color: #9aa3cf; font-size: 11px; }
@@ -209,6 +209,24 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-guide-hour.mwia-guide-picked { background: #4a5bb8; border-color: #8a98e8; }
 .mwia-guide-dim { color: #8189b0; font-size: 11px; }
 .mwia-tool-box { margin: 10px 0; }
+.mwia-plan-box { margin: 8px 0; }
+.mwia-plan-table { margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.mwia-plan-grid { display: grid; grid-template-columns: 2.6em 3.6em 1fr 1fr 1fr; gap: 0 6px; align-items: baseline; padding: 3px 2px; }
+.mwia-plan-grid span:nth-child(n+3) { text-align: right; white-space: nowrap; }
+.mwia-plan-header { color: #8189b0; font-size: 11px; border-bottom: 1px solid #3c4677; }
+.mwia-plan-row { border-bottom: 1px solid #2a3150; }
+.mwia-plan-row > summary { cursor: pointer; list-style: none; }
+.mwia-plan-row > summary::-webkit-details-marker { display: none; }
+.mwia-plan-row[open] { background: #232b4d; padding-bottom: 4px; }
+.mwia-plan-row[open] > :not(summary) { margin-left: 6px; margin-right: 6px; }
+.mwia-plan-dear > summary { color: #8189b0; }
+.mwia-plan-avg > summary span:nth-child(3) { font-style: italic; }
+.mwia-plan-reach > summary { color: #7ee2b0; }
+.mwia-plan-more > summary { cursor: pointer; color: #9aa3cf; font-size: 11px; padding: 3px 2px; }
+.mwia-plan-buttons { display: flex; flex-wrap: wrap; gap: 4px; }
+.mwia-plan-buttons .mwia-guide-cart { margin-top: 2px; }
+.mwia-plan-box .mwia-ok { color: #7ee2b0; }
+.mwia-plan-busy { color: #ffd479; }
 .mwia-tool-list { list-style: none; margin: 4px 0; padding: 0; }
 .mwia-tool-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid #2a3150; }
 .mwia-tool-list li .mwia-guide-cart { margin-top: 0; flex: 0 0 auto; }

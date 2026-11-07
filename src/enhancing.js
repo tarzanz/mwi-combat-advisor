@@ -138,7 +138,7 @@ export function cheapestProtection(detail, market) {
 }
 
 // The item's enhancing materials per attempt; null when one of them isn't for sale.
-function materials(detail, market) {
+export function materials(detail, market) {
     const inputs = [];
     for (const cost of detail.enhancementCosts || []) {
         const price = market.buy(cost.itemHrid);
@@ -204,7 +204,7 @@ function baseItem(action, market, owned) {
 
 // Success rates and speed for an item of this level with your level, gear,
 // house and these teas.
-function enhanceRates(who, data, teas, itemLevel) {
+export function enhanceRates(who, data, teas, itemLevel) {
     const buff = totals([...(who.buffs?.[TYPE] || []), ...teaBuffs(teas, who.concentration, data)]);
     const fraction = (type) => buff(type).flat + buff(type).ratio;
     const level = who.levels[SKILL] ?? 1;

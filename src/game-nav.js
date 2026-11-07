@@ -391,9 +391,14 @@ export async function openEnhancing(itemHash, target, protect = null, timeoutMs 
     steps.push(`slot held ${component.state?.primaryItemHash ? "an item" : "nothing"}`);
     if (component.state?.primaryItemHash !== itemHash && typeof component.selectEnhancingItemHandler === "function") component.selectEnhancingItemHandler(itemHash);
     await sleep(150);
+    return done(await fillEnhancing(component, target, protect, steps));
+}
+
+// The target, and the protection item and its +level, in the Enhancing window's component.
+async function fillEnhancing(component, target, protect, steps) {
     component.enhancingMaxLevelChanged({ target: { value: String(target) } });
     steps.push(`target +${target} set`);
-    if (!protect) return done("item");
+    if (!protect) return "item";
     await sleep(150);
     const slot = await fillSlot(component, /protect/i, "protection", protect.hash);
     steps.push(slot.step);
@@ -402,7 +407,21 @@ export async function openEnhancing(itemHash, target, protect = null, timeoutMs 
     await sleep(200);
     const levelSet = levelMethod && holds(component, protect.from);
     steps.push(levelMethod ? `protect from +${protect.from}: ${levelMethod} called${levelSet ? "" : " but not set"}` : `no protect-level method (${methodList(component)})`);
-    return done(slot.ok && levelSet ? "item" : "partial");
+    return slot.ok && levelSet ? "item" : "partial";
+}
+
+// In an Enhancing window already open (the item in its slot): sets the target and, with
+// protect { hash, from }, the protection. Returns "item", "partial" or false; navDiagnostics() says why.
+export async function setEnhancing(panel, target, protect = null) {
+    const steps = [];
+    const component = componentWith(panel, "enhancingMaxLevelChanged");
+    if (!component) {
+        lastDiagnostics = "no enhancing component";
+        return false;
+    }
+    const result = await fillEnhancing(component, target, protect, steps);
+    lastDiagnostics = steps.join(" · ");
+    return result;
 }
 
 // Opens Alchemy on the action's tab with the item (one you have) and the count
