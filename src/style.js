@@ -75,6 +75,13 @@ export const CSS = `
 .mwia-enh { color: #7fd0ff; }
 .mwia-tier { color: #f2a65b; font-weight: 700; }
 .mwia-error { background: #4a1f28; border: 1px solid #a03a4c; padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; }
+.mwia-laby-guide { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin: 8px 0; }
+.mwia-laby-tile { background: #1a2036; border-left: 4px solid #3c4677; border-radius: 4px; padding: 6px 8px; font-size: 12px; }
+.mwia-laby-tile-name { color: #e8ebff; font-weight: 600; }
+.mwia-laby-tile-action { font-size: 13px; margin: 2px 0; }
+.mwia-laby-ok { border-left-color: #6fdc8c; } .mwia-laby-ok .mwia-laby-tile-action { color: #6fdc8c; }
+.mwia-laby-warn { border-left-color: #f2c25b; } .mwia-laby-warn .mwia-laby-tile-action { color: #f2c25b; }
+.mwia-laby-bad { border-left-color: #ff7b7b; } .mwia-laby-bad .mwia-laby-tile-action { color: #ff7b7b; }
 .mwia-reco { background: #1d2b45; border-left: 3px solid #7c8cff; padding: 8px 10px; border-radius: 4px; margin: 8px 0; }
 .mwia-progress { margin: 6px 0 10px; }
 .mwia-progress-label { display: flex; justify-content: space-between; font-size: 12px; color: #aab2d8; }

@@ -72,6 +72,21 @@ function matchHtml(profile, data, hrid) {
     return `<span class="mwia-bad" title="Your best hit (${esc(what)}) does about ${Math.max(1, Math.round(1 / Math.max(1e-3, m.share)))}× worse than its weakness">${label} ✗</span>`;
 }
 
+// The room guide: one tile per room type with the loadout to put on, or to shroud it.
+function roomGuide(lab, data, level) {
+    const tiles = lab.monsters.map((m) => {
+        const win = winAt(m.curve, level);
+        const kind = win >= SAFE_WIN ? "ok" : win >= RISKY_WIN ? "warn" : "bad";
+        const action = kind === "bad" ? "Shroud or go around" : esc(m.setupName);
+        const reach = m.safe === null ? "never safe" : floorAt(m.safe) ? `safe to floor ${floorAt(m.safe)}` : `safe to level ${lvl(m.safe)}`;
+        return `<div class="mwia-laby-tile mwia-laby-${kind}" title="${esc(monsterName(m.hrid))}: ${pctText(win)} of the rooms won at room level ${level} with ${esc(m.setupName)}">
+          <div class="mwia-laby-tile-name">${esc(monsterName(m.hrid))}</div>
+          <div class="mwia-laby-tile-action">${kind === "bad" ? "✖" : kind === "warn" ? "⚠" : "✅"} ${action}</div>
+          <div class="mwia-dim">${kind === "bad" ? `best: ${esc(m.setupName)} · ` : ""}${pctText(win)} · ${reach}</div></div>`;
+    });
+    return `<div class="mwia-laby-guide">${tiles.join("")}</div>`;
+}
+
 function summaryHtml(lab, level) {
     const groups = { fight: [], risky: [], skip: [] };
     for (const m of lab.monsters) {
@@ -128,12 +143,17 @@ function loadoutMatrix(lab) {
 }
 
 // Per monster, an ability you know in place of one its loadout uses, if clearly better.
+// An ability in place of another only counts when it beats taking the other off (the gain
+// can be all from the old one gone, as Fireball in a crossbow loadout).
 function bestSwaps(improve) {
     const out = new Map();
+    const dropOf = (c, hrid) => improve.candidates.find((d) => d.kind === "swap" && !d.hrid && d.replaces === c.replaces && d.setupName === c.setupName)?.perMonster.find((m) => m.hrid === hrid);
     for (const c of improve.candidates) {
         if (c.kind !== "swap") continue;
         for (const m of c.perMonster) {
             if (m.levels < 1 || m.after <= m.before) continue;
+            const drop = c.hrid && c.replaces ? dropOf(c, m.hrid) : null;
+            if (drop && m.levels < drop.levels + 1) continue;
             const known = out.get(m.hrid);
             if (!known || m.levels > known.levels) out.set(m.hrid, { levels: m.levels, label: c.label });
         }
@@ -245,12 +265,18 @@ export function renderLabyrinth({ lab, improve, build, profileOf, data, settings
         const crates = Object.entries(lab.crates).filter(([, t]) => t).map(([k, t]) => `${cap(t)} ${CRATE_KINDS[k]}`);
         html += `<p class="mwia-dim">Simulated with ${crates.length ? crates.join(" and ") : "no crates"}, ${lab.rooms} rooms per monster and room level, ${lab.setups.length} loadout${lab.setups.length === 1 ? "" : "s"}.</p>`;
         html += summaryHtml(lab, level);
+        html += roomGuide(lab, data, level);
         html += monsterTable(lab, profileOf, data, level, improve);
         html += loadoutMatrix(lab);
         html += `<button class="mwia-btn" data-action="laby-improve" ${busy ? "disabled" : ""}>What should I improve?</button>`;
         if (improve) html += improveHtml(improve);
     }
     html += buildHtml(build, data, settings, busy, settingsHtml, cartButton, coins);
+    html += `<h3>On the Labyrinth map</h3>
+      <p>Next: marks on the game's Labyrinth map (and later its automation settings) saying which loadout to use in each room. For that the script
+      first has to learn how the game shows the Labyrinth: it keeps what the game sends about it while you play. After a run (or with the Labyrinth
+      open), tap this and paste the report into the chat – it only reads, nothing is changed.</p>
+      <button class="mwia-btn" data-action="laby-read">📋 Read the game's Labyrinth</button>`;
     html += `<p class="mwia-dim">Each monster hardly dodges one or two attack styles and takes far more of one damage type (<b>Weak to</b>): the Labyrinth wants
       magic for some rooms, ranged for others and melee (stab, slash or smash) for the rest. Single-target damage is what counts in a 1-against-1 room.
       Shrouds clear a room without a fight (Basic: 2% fail chance per level above 50, Advanced above 100, Expert never fails).

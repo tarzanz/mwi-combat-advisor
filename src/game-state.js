@@ -309,8 +309,60 @@ function handle(data) {
     }
 }
 
+// ---------- Labyrinth messages ----------
+// What the game sends about the Labyrinth isn't known yet (its message types and
+// fields), so every message that mentions it is kept – the last LAB_KEEP, each cut at
+// LAB_MAX characters, in this browser – for the Labyrinth tab's report. The character
+// data (sent on login) is left out: it mentions crates and is huge.
+const LAB_KEY = "mwia-laby-log";
+const LAB_KEEP = 40;
+const LAB_MAX = 30000;
+const LAB_PER_TYPE = 5;
+const LAB_SKIP = /"type":"(init_character_data|init_client_data)"/;
+let labLog = null;
+
+export function labyrinthMessages() {
+    if (!labLog) {
+        try {
+            labLog = JSON.parse(localStorage.getItem(LAB_KEY) || "[]");
+        } catch {
+            labLog = [];
+        }
+    }
+    return labLog;
+}
+
+function keepLabyrinth(raw) {
+    if (!/labyrinth/i.test(raw) || LAB_SKIP.test(raw.slice(0, 200))) return;
+    const type = /"type":"([^"]+)"/.exec(raw)?.[1] || "?";
+    const log = labyrinthMessages();
+    // A few of each type, so a busy one (crafting torches, say) can't push the rest out.
+    const same = log.filter((m) => m.type === type);
+    if (same.length >= LAB_PER_TYPE) log.splice(log.indexOf(same[0]), 1);
+    log.push({ at: Date.now(), type, size: raw.length, raw: raw.slice(0, LAB_MAX) });
+    while (log.length > LAB_KEEP) log.shift();
+    try {
+        localStorage.setItem(LAB_KEY, JSON.stringify(log));
+    } catch {
+        // full: keep the newer half
+        log.splice(0, Math.ceil(log.length / 2));
+        try {
+            localStorage.setItem(LAB_KEY, JSON.stringify(log));
+        } catch {
+            /* kept in memory only */
+        }
+    }
+}
+
 function onMessage(event) {
     const raw = event.data;
+    if (typeof raw === "string") {
+        try {
+            keepLabyrinth(raw);
+        } catch {
+            /* never in the way of the rest */
+        }
+    }
     if (typeof raw !== "string" || !INTERESTING.test(raw)) return;
     try {
         handle(JSON.parse(raw));

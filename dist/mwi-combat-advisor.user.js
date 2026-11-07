@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.62.0
+// @version      0.63.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -290,8 +290,48 @@
       }
     }
   }
+  var LAB_KEY = "mwia-laby-log";
+  var LAB_KEEP = 40;
+  var LAB_MAX = 3e4;
+  var LAB_PER_TYPE = 5;
+  var LAB_SKIP = /"type":"(init_character_data|init_client_data)"/;
+  var labLog = null;
+  function labyrinthMessages() {
+    if (!labLog) {
+      try {
+        labLog = JSON.parse(localStorage.getItem(LAB_KEY) || "[]");
+      } catch {
+        labLog = [];
+      }
+    }
+    return labLog;
+  }
+  function keepLabyrinth(raw) {
+    if (!/labyrinth/i.test(raw) || LAB_SKIP.test(raw.slice(0, 200))) return;
+    const type = /"type":"([^"]+)"/.exec(raw)?.[1] || "?";
+    const log = labyrinthMessages();
+    const same2 = log.filter((m) => m.type === type);
+    if (same2.length >= LAB_PER_TYPE) log.splice(log.indexOf(same2[0]), 1);
+    log.push({ at: Date.now(), type, size: raw.length, raw: raw.slice(0, LAB_MAX) });
+    while (log.length > LAB_KEEP) log.shift();
+    try {
+      localStorage.setItem(LAB_KEY, JSON.stringify(log));
+    } catch {
+      log.splice(0, Math.ceil(log.length / 2));
+      try {
+        localStorage.setItem(LAB_KEY, JSON.stringify(log));
+      } catch {
+      }
+    }
+  }
   function onMessage(event) {
     const raw = event.data;
+    if (typeof raw === "string") {
+      try {
+        keepLabyrinth(raw);
+      } catch {
+      }
+    }
     if (typeof raw !== "string" || !INTERESTING.test(raw)) return;
     try {
       handle(JSON.parse(raw));
@@ -1660,12 +1700,12 @@
     const held = stock.inventory + stock.listed;
     const units = unitsToMake(planned * entry.mainCount, salesDay(product), held);
     let count3 = Math.max(0, Math.ceil(units / entry.mainCount - 1e-9));
-    let short2 = units < planned * entry.mainCount ? units < plannedUnits ? "held" : "sales" : null;
+    let short3 = units < planned * entry.mainCount ? units < plannedUnits ? "held" : "sales" : null;
     const swing = swingShare(price);
     if (swing && swing.share < 1) {
       const before = count3;
       count3 = Math.ceil(count3 * swing.share);
-      if (count3 < before) short2 = "swing";
+      if (count3 < before) short3 = "swing";
     }
     const haveOf = (input) => have5(input.itemHrid, input.enhancementLevel || 0);
     const toBuy2 = (input, n3) => input.itemHrid === COIN3 ? input.count * n3 : Math.max(0, input.count * n3 - haveOf(input));
@@ -1676,7 +1716,7 @@
       const most = Math.floor(haveOf(input) / input.count + 1e-9);
       if (most < count3) {
         count3 = most;
-        short2 = "owned";
+        short3 = "owned";
       }
     }
     const bought = entry.inputs.filter((input) => input.itemHrid !== COIN3 && input.forSale !== false && input.count > 0 && input.price > 0 && toBuy2(input, count3) > 0);
@@ -1712,7 +1752,7 @@
       if (most < count3) {
         count3 = most;
         limitedByListing = input.itemHrid;
-        short2 = "onelisted";
+        short3 = "onelisted";
       }
     }
     const booked = new Map(inputs.filter((i) => i.asks).map((i) => [i.itemHrid, i.asks]));
@@ -1735,7 +1775,7 @@
       if (input.maxCount < count3) {
         count3 = input.maxCount;
         limitedByBook = input.itemHrid;
-        short2 = "book";
+        short3 = "book";
       }
     }
     let rating = product;
@@ -1759,7 +1799,7 @@
       }
       count3 = low;
       limitedByCoins = true;
-      short2 = "coins";
+      short3 = "coins";
     }
     const jobHours = count3 / entry.actionsPerHour;
     const aboveAsk = spend(count3) - entry.inputs.reduce((sum, input) => sum + (input.forSale === false ? 0 : toBuy2(input, count3) * (input.price || 0)), 0);
@@ -1786,7 +1826,7 @@
       heldOff: Math.max(0, plannedUnits - units),
       plannedHours: hours,
       plannedUnits,
-      short: short2,
+      short: short3,
       cappedBySales: plannedUnits < planned * entry.mainCount,
       liquidity: rating,
       productLiquidity: product,
@@ -4980,7 +5020,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.62.0" : "dev";
+  var VERSION = true ? "0.63.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5263,15 +5303,15 @@
       const used = telemetry.consumables[hrid]?.uses || 0;
       if (!detail || !used) continue;
       const was = consumableTriggers(profile, hrid, data);
-      for (const [condition, restore2, short2] of [
+      for (const [condition, restore2, short3] of [
         [C("missing_hp"), detail.hitpointRestore, telemetry.deaths > 0],
         [C("missing_mp"), detail.manapointRestore, blockedTotal >= SHARE * Math.max(1, castsTotal)]
       ]) {
         if (!(restore2 > 0)) continue;
         const now = valueOf(was, SELF, condition, GTE);
         if (now === null) continue;
-        const value = short2 ? whole(now / 2) : whole(now * 1.5);
-        if (value !== now) add("food", hrid, was, setCondition(was, SELF, condition, GTE, value), "food", { earlier: short2, deaths: telemetry.deaths, blocked: blockedTotal });
+        const value = short3 ? whole(now / 2) : whole(now * 1.5);
+        if (value !== now) add("food", hrid, was, setCondition(was, SELF, condition, GTE, value), "food", { earlier: short3, deaths: telemetry.deaths, blocked: blockedTotal });
       }
     }
     return out;
@@ -6262,6 +6302,13 @@
 .mwia-enh { color: #7fd0ff; }
 .mwia-tier { color: #f2a65b; font-weight: 700; }
 .mwia-error { background: #4a1f28; border: 1px solid #a03a4c; padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; }
+.mwia-laby-guide { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin: 8px 0; }
+.mwia-laby-tile { background: #1a2036; border-left: 4px solid #3c4677; border-radius: 4px; padding: 6px 8px; font-size: 12px; }
+.mwia-laby-tile-name { color: #e8ebff; font-weight: 600; }
+.mwia-laby-tile-action { font-size: 13px; margin: 2px 0; }
+.mwia-laby-ok { border-left-color: #6fdc8c; } .mwia-laby-ok .mwia-laby-tile-action { color: #6fdc8c; }
+.mwia-laby-warn { border-left-color: #f2c25b; } .mwia-laby-warn .mwia-laby-tile-action { color: #f2c25b; }
+.mwia-laby-bad { border-left-color: #ff7b7b; } .mwia-laby-bad .mwia-laby-tile-action { color: #ff7b7b; }
 .mwia-reco { background: #1d2b45; border-left: 3px solid #7c8cff; padding: 8px 10px; border-radius: 4px; margin: 8px 0; }
 .mwia-progress { margin: 6px 0 10px; }
 .mwia-progress-label { display: flex; justify-content: space-between; font-size: 12px; color: #aab2d8; }
@@ -10044,7 +10091,9 @@ ${triggerWindowReport()}`, false);
       const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open.map((c2) => ({ profile: applyCandidate(built, c2), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
       open.forEach((c2, i) => c2.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
       lastRound = open;
-      const worth = (c2) => c2.roundLevels >= MIN_LEVELS && (c2.cost === 0 || c2.roundLevels / (c2.cost / 1e6) >= minPerMillion);
+      const dropOf = (c2) => c2.kind === "ability" && c2.replaces ? open.find((d) => d.kind === "drop" && d.hrid === c2.replaces) : null;
+      const beatsDrop = (c2) => !dropOf(c2) || c2.roundLevels >= dropOf(c2).roundLevels + MIN_LEVELS;
+      const worth = (c2) => c2.roundLevels >= MIN_LEVELS && beatsDrop(c2) && (c2.cost === 0 || c2.roundLevels / (c2.cost / 1e6) >= minPerMillion);
       const good = open.filter(worth);
       const order = [...good.filter((c2) => c2.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c2) => c2.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
       let pick2 = null;
@@ -10127,6 +10176,19 @@ ${triggerWindowReport()}`, false);
     if (m.share >= 0.5) return `<span class="mwia-ok" title="Your best hit against it: ${esc(what)}">${label3} \u2713</span>`;
     return `<span class="mwia-bad" title="Your best hit (${esc(what)}) does about ${Math.max(1, Math.round(1 / Math.max(1e-3, m.share)))}\xD7 worse than its weakness">${label3} \u2717</span>`;
   }
+  function roomGuide(lab, data, level) {
+    const tiles = lab.monsters.map((m) => {
+      const win2 = winAt(m.curve, level);
+      const kind = win2 >= SAFE_WIN ? "ok" : win2 >= RISKY_WIN ? "warn" : "bad";
+      const action = kind === "bad" ? "Shroud or go around" : esc(m.setupName);
+      const reach = m.safe === null ? "never safe" : floorAt(m.safe) ? `safe to floor ${floorAt(m.safe)}` : `safe to level ${lvl(m.safe)}`;
+      return `<div class="mwia-laby-tile mwia-laby-${kind}" title="${esc(monsterName(m.hrid))}: ${pctText(win2)} of the rooms won at room level ${level} with ${esc(m.setupName)}">
+          <div class="mwia-laby-tile-name">${esc(monsterName(m.hrid))}</div>
+          <div class="mwia-laby-tile-action">${kind === "bad" ? "\u2716" : kind === "warn" ? "\u26A0" : "\u2705"} ${action}</div>
+          <div class="mwia-dim">${kind === "bad" ? `best: ${esc(m.setupName)} \xB7 ` : ""}${pctText(win2)} \xB7 ${reach}</div></div>`;
+    });
+    return `<div class="mwia-laby-guide">${tiles.join("")}</div>`;
+  }
   function summaryHtml2(lab, level) {
     const groups = { fight: [], risky: [], skip: [] };
     for (const m of lab.monsters) {
@@ -10178,10 +10240,13 @@ ${triggerWindowReport()}`, false);
   }
   function bestSwaps(improve) {
     const out = /* @__PURE__ */ new Map();
+    const dropOf = (c2, hrid) => improve.candidates.find((d) => d.kind === "swap" && !d.hrid && d.replaces === c2.replaces && d.setupName === c2.setupName)?.perMonster.find((m) => m.hrid === hrid);
     for (const c2 of improve.candidates) {
       if (c2.kind !== "swap") continue;
       for (const m of c2.perMonster) {
         if (m.levels < 1 || m.after <= m.before) continue;
+        const drop = c2.hrid && c2.replaces ? dropOf(c2, m.hrid) : null;
+        if (drop && m.levels < drop.levels + 1) continue;
         const known = out.get(m.hrid);
         if (!known || m.levels > known.levels) out.set(m.hrid, { levels: m.levels, label: c2.label });
       }
@@ -10283,12 +10348,18 @@ ${triggerWindowReport()}`, false);
       const crates = Object.entries(lab.crates).filter(([, t4]) => t4).map(([k, t4]) => `${cap2(t4)} ${CRATE_KINDS[k]}`);
       html += `<p class="mwia-dim">Simulated with ${crates.length ? crates.join(" and ") : "no crates"}, ${lab.rooms} rooms per monster and room level, ${lab.setups.length} loadout${lab.setups.length === 1 ? "" : "s"}.</p>`;
       html += summaryHtml2(lab, level);
+      html += roomGuide(lab, data, level);
       html += monsterTable(lab, profileOf, data, level, improve);
       html += loadoutMatrix(lab);
       html += `<button class="mwia-btn" data-action="laby-improve" ${busy ? "disabled" : ""}>What should I improve?</button>`;
       if (improve) html += improveHtml(improve);
     }
     html += buildHtml(build, data, settings2, busy, settingsHtml2, cartButton4, coins9);
+    html += `<h3>On the Labyrinth map</h3>
+      <p>Next: marks on the game's Labyrinth map (and later its automation settings) saying which loadout to use in each room. For that the script
+      first has to learn how the game shows the Labyrinth: it keeps what the game sends about it while you play. After a run (or with the Labyrinth
+      open), tap this and paste the report into the chat \u2013 it only reads, nothing is changed.</p>
+      <button class="mwia-btn" data-action="laby-read">\u{1F4CB} Read the game's Labyrinth</button>`;
     html += `<p class="mwia-dim">Each monster hardly dodges one or two attack styles and takes far more of one damage type (<b>Weak to</b>): the Labyrinth wants
       magic for some rooms, ranged for others and melee (stab, slash or smash) for the rest. Single-target damage is what counts in a 1-against-1 room.
       Shrouds clear a room without a fight (Basic: 2% fail chance per level above 50, Advanced above 100, Expert never fails).
@@ -10310,6 +10381,108 @@ ${triggerWindowReport()}`, false);
       for (const m of build.after) lines.push(`  ${monsterName(m.hrid)}: 50% at ${m.half === null ? "<5" : Math.round(m.half)}`);
     }
     return lines;
+  }
+
+  // src/labyrinth-read.js
+  var MAX_LINES2 = 400;
+  var attempt3 = (read, fallback = null) => {
+    try {
+      return read();
+    } catch {
+      return fallback;
+    }
+  };
+  var clean4 = (text) => String(text || "").replace(/\s+/g, " ").trim();
+  var short2 = (text, n3 = 60) => text.length > n3 ? text.slice(0, n3) + "\u2026" : text;
+  var LAB_WORDS = /labyrinth|maze|room|floor|beacon|torch|shroud|crate|automation/i;
+  function shapeOf(value, depth = 0) {
+    if (value === null || value === void 0) return String(value);
+    if (typeof value === "string") return JSON.stringify(short2(value, 40));
+    if (typeof value !== "object") return String(value);
+    if (depth >= 5) return Array.isArray(value) ? `[${value.length}]` : "{\u2026}";
+    if (Array.isArray(value)) return value.length ? `[${value.length}\xD7 ${shapeOf(value[0], depth + 1)}]` : "[]";
+    const entries = Object.entries(value);
+    if (entries.length > 12 && entries.every(([, v]) => v && typeof v === "object")) return `{${entries.length} keys like ${JSON.stringify(short2(entries[0][0], 40))}: ${shapeOf(entries[0][1], depth + 1)}}`;
+    return `{${entries.slice(0, 30).map(([k, v]) => `${k}: ${shapeOf(v, depth + 1)}`).join(", ")}${entries.length > 30 ? ", \u2026" : ""}}`;
+  }
+  function messageLines(lines) {
+    const log = labyrinthMessages();
+    if (!log.length) {
+      lines.push("messages: none mentioning the Labyrinth yet \u2013 open the Labyrinth (and a run, if you can) with the script on, then read again");
+      return;
+    }
+    lines.push(`messages: ${log.length} kept (${[...new Set(log.map((m) => m.type))].join(", ")})`);
+    const latest = /* @__PURE__ */ new Map();
+    for (const m of log) latest.set(m.type, m);
+    for (const m of latest.values()) {
+      const data = attempt3(() => JSON.parse(m.raw));
+      lines.push(`\u2014 ${m.type} (${m.size} chars, ${new Date(m.at).toISOString().slice(0, 16)}Z)`);
+      lines.push(`  shape: ${data ? shapeOf(data) : "(cut \u2013 not whole JSON)"}`);
+      lines.push(`  text: ${short2(m.raw, 1500)}`);
+    }
+  }
+  function characterLines(lines) {
+    const character = state.character;
+    if (!character) {
+      lines.push("character: not seen yet");
+      return;
+    }
+    const fields = Object.keys(character).filter((k) => /labyrinth|maze/i.test(k));
+    lines.push(`character fields: ${fields.join(", ") || "none with labyrinth in the name"}`);
+    for (const key2 of fields) lines.push(`  ${key2}: ${short2(shapeOf(character[key2]), 1200)}`);
+  }
+  function ownText3(el) {
+    return clean4([...el.childNodes].filter((n3) => n3.nodeType === 3).map((n3) => n3.textContent).join(" "));
+  }
+  function pageLines(lines) {
+    const all = [...document.querySelectorAll('[class*="abyrinth"]')].filter((el) => !el.closest('[class*="mwia"]'));
+    const tops = all.filter((el) => !all.some((other) => other !== el && other.contains(el)));
+    lines.push(`page: ${all.length} elements with "Labyrinth" in a class, ${tops.length} outermost (${tops.filter(visible).length} visible)`);
+    const walk = (el, depth) => {
+      if (lines.length >= MAX_LINES2 || depth > 9) return;
+      const text = ownText3(el);
+      const title = el.getAttribute("title") || el.getAttribute("aria-label");
+      const icons = el.tagName.toLowerCase() === "use" ? ` #${(el.getAttribute("href") || el.getAttribute("xlink:href") || "").split("#")[1] || ""}` : "";
+      const style = el.getAttribute("style");
+      lines.push(`${"  ".repeat(depth + 1)}${describe(el)}${text ? ` "${short2(text, 40)}"` : ""}${title ? ` title="${short2(title, 40)}"` : ""}${style && /grid|left|top/.test(style) ? ` style="${short2(style, 60)}"` : ""}${icons}`);
+      const children = [...el.children];
+      children.slice(0, 6).forEach((child) => walk(child, depth + 1));
+      if (children.length > 6) lines.push(`${"  ".repeat(depth + 2)}\u2026 ${children.length - 6} more like ${describe(children[6])}`);
+    };
+    for (const top of tops.slice(0, 4)) walk(top, 0);
+  }
+  var typeName2 = (f) => attempt3(() => typeof f.type === "string" ? f.type : f.type?.displayName || f.type?.name || "?", "?");
+  function componentLines(lines) {
+    const seen = /* @__PURE__ */ new Set();
+    let count3 = 0;
+    walkFibers((f) => {
+      if (count3 >= 20 || lines.length >= MAX_LINES2) return true;
+      if (typeof f.type === "string") return false;
+      const props = f.memoizedProps;
+      const keys = props && typeof props === "object" ? Object.keys(props).filter((k) => k !== "children" && LAB_WORDS.test(k)) : [];
+      const stateKeys = f.stateNode && typeof f.stateNode === "object" && f.stateNode.state && typeof f.stateNode.state === "object" ? Object.keys(f.stateNode.state).filter((k) => LAB_WORDS.test(k)) : [];
+      if (!keys.length && !stateKeys.length) return false;
+      const name = typeName2(f);
+      const id = `${name}:${keys.join(",")}:${stateKeys.join(",")}`;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      count3++;
+      lines.push(`component ${name}: ${[...keys.map((k) => `${k}=${short2(shapeOf(props[k]), 400)}`), ...stateKeys.map((k) => `state.${k}=${short2(shapeOf(f.stateNode.state[k]), 400)}`)].join("; ")}`);
+      return false;
+    });
+    if (!count3) lines.push("components: none with labyrinth/room/floor data in their props");
+  }
+  function labyrinthReport() {
+    const lines = [`world: ${attempt3(worldReport, "?")}`];
+    for (const part of [messageLines, characterLines, pageLines, componentLines]) {
+      try {
+        part(lines);
+      } catch (error) {
+        lines.push(`(${part.name} failed: ${error?.message || error})`);
+      }
+    }
+    if (lines.length > MAX_LINES2) lines.splice(MAX_LINES2, lines.length - MAX_LINES2, `\u2026 cut at ${MAX_LINES2} lines`);
+    return lines.join("\n");
   }
 
   // src/ui.js
@@ -10630,7 +10803,7 @@ ${triggerWindowReport()}`, false);
     ui.cartItems = /* @__PURE__ */ new Map();
     let html = "";
     if (ui.error) html += `<div class="mwia-error">${esc(ui.error)}</div>`;
-    if (ui.notice && (ui.tab === "upgrades" || ui.tab === "skilling" || ui.tab === "market")) html += noticeHtml(ui.notice);
+    if (ui.notice && ["upgrades", "skilling", "market", "labyrinth"].includes(ui.tab)) html += noticeHtml(ui.notice);
     if (ui.busy) html += progressHtml();
     if (ui.tab === "overview") html += renderOverview();
     else if (ui.tab === "zones") html += renderZones();
@@ -10874,7 +11047,7 @@ ${triggerWindowReport()}`, false);
       box.innerHTML = html;
       return [...box.querySelectorAll(selector)].map((node) => (node.tagName === "TR" ? [...node.children].map((cell) => cell.textContent.trim()).join(" | ") : node.textContent).replace(/\s+/g, " ").trim()).filter(Boolean);
     };
-    const attempt3 = (title, lines) => {
+    const attempt4 = (title, lines) => {
       try {
         const got = lines();
         if (got.length) sections.push({ title, lines: got });
@@ -10882,10 +11055,10 @@ ${triggerWindowReport()}`, false);
         sections.push({ title, lines: [`(not available: ${error?.message || error})`] });
       }
     };
-    attempt3("Skilling: best now", () => getClientData() ? skillingExportLines(ui.settings) : []);
-    if (ui.zoneResults) attempt3("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
-    if (ui.labResult || ui.labBuild) attempt3("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.labBuild, ui.settings));
-    if (ui.upgradeResult) attempt3("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
+    attempt4("Skilling: best now", () => getClientData() ? skillingExportLines(ui.settings) : []);
+    if (ui.zoneResults) attempt4("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
+    if (ui.labResult || ui.labBuild) attempt4("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.labBuild, ui.settings));
+    if (ui.upgradeResult) attempt4("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
     return { settings: ui.settings, sections };
   }
   var CAPPED_TITLE = "You kill faster than new monsters appear (one encounter per 3 s at most), so more damage barely helps here";
@@ -11382,7 +11555,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.62.0" : "dev";
+  var VERSION3 = true ? "0.63.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -11431,12 +11604,12 @@ ${triggerWindowReport()}`, false);
     if (!target || !ui.root.contains(target)) return;
     try {
       const running2 = act(target);
-      running2?.catch?.((error) => buttonFailed(clean4(target.textContent) || target.dataset.action, error));
+      running2?.catch?.((error) => buttonFailed(clean5(target.textContent) || target.dataset.action, error));
     } catch (error) {
-      buttonFailed(clean4(target.textContent) || target.dataset.action, error);
+      buttonFailed(clean5(target.textContent) || target.dataset.action, error);
     }
   }
-  var clean4 = (text) => String(text || "").replace(/\s+/g, " ").trim();
+  var clean5 = (text) => String(text || "").replace(/\s+/g, " ").trim();
   function act(target) {
     if (target.dataset.tab) {
       if (ui.tab !== target.dataset.tab) ui.notice = null;
@@ -11462,6 +11635,11 @@ ${triggerWindowReport()}`, false);
         break;
       case "laby-build":
         runTask(doLabBuild);
+        break;
+      case "laby-read":
+        ui.notice = { level: "info", text: "The game's Labyrinth, read (nothing changed). Copy it and paste it into the chat.", diag: labyrinthReport() };
+        ui.showNotice = true;
+        render2();
         break;
       case "upgrades-abilities":
         runTask(() => doUpgrades("abilities"));

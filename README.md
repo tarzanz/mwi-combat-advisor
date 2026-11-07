@@ -291,6 +291,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   to the room level (its stats are built for level 100 and grow in proportion), from full HP and mana, no food or
   drinks – only the coffee and food crate opened on entry (*Your Labyrinth slots*, none, or a tier) – and 2 minutes to
   win. The game's Labyrinth automation can put on a loadout for each room type, so the tab works per room type.
+  - **Room guide** – one tile per room type: the loadout to put on (✅ / ⚠) or *Shroud or go around* (✖, with the
+    best loadout and its win rate), at the floor or room level you pick, and the deepest floor where it is safe.
   - **Check the rooms** – every saved combat (and Labyrinth) loadout, and what you wear now if no loadout matches it,
     against all ten monsters at room levels 5, 10, 20 … 200, then every 2 levels where you go from winning safely to
     hardly ever. Per monster: its attack, what it is weak to as the wiki puts it (the attack styles it hardly dodges
@@ -313,7 +315,14 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     1M, Balanced 0.5, All in anything) – after a second check with other seeds, and the rest are measured again from
     there, until nothing takes you half a level further. Nothing is sold: what the loadout replaces is still worn in
     your other loadouts. Shows the list with 🛒, the safe and 50% levels before and after, and the closest changes
-    that didn't make it. Ranked for winning 2-minute duels, not for XP or loot.
+    that didn't make it. Ranked for winning 2-minute duels, not for XP or loot. An ability in place of another only
+    counts when it beats simply taking the other off (here and under *Better with*): the gain of, say, Scratch in
+    place of Fireball in a crossbow loadout is all Fireball gone.
+  - **📋 Read the game's Labyrinth** – the first step towards marks on the game's Labyrinth map (and its automation
+    settings): the script keeps every message the game sends that mentions the Labyrinth (a few of each type, in
+    this browser), and the button reports their types and the shape of their data, the character's Labyrinth
+    fields, the Labyrinth page's elements and the React components with room or floor data – to paste into the chat.
+    It only reads.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the
   plan's goals (house level / item quantity) and the Full chain / One step / Buy choice of every step-2 row, works out

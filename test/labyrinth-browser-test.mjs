@@ -54,7 +54,8 @@ for (const item of Object.values(clientData.itemDetailMap)) {
 }
 
 const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="/advisor.user.js"></script></head>
-<body style="background:#1b1f35;color:#fff;font:14px sans-serif"><div id="game">Fake game</div>
+<body style="background:#1b1f35;color:#fff;font:14px sans-serif"><div id="game">Fake game
+  <div class="LabyrinthPanel_map__x1"><div class="LabyrinthRoom_room__r1" title="Cyclops">Lv 20</div><div class="LabyrinthRoom_room__r1">?</div></div></div>
 <script>
   const xhr = new XMLHttpRequest(); xhr.open("GET", "/client-data.json", false); xhr.send();
   const data = JSON.parse(xhr.responseText);
@@ -81,7 +82,12 @@ const server = http.createServer((req, res) => {
         res.end();
     }
 });
-new WebSocketServer({ server }).on("connection", (socket) => socket.send(JSON.stringify(character)));
+// A made-up Labyrinth message: what the game really sends is what the report is for.
+const labMessage = { type: "labyrinth_updated", characterLabyrinth: { floor: 1, rooms: [{ x: 0, y: 0, roomLevel: 20, monsterHrid: "/monsters/cyclops", isCleared: false }] } };
+new WebSocketServer({ server }).on("connection", (socket) => {
+    socket.send(JSON.stringify(character));
+    setTimeout(() => socket.send(JSON.stringify(labMessage)), 200);
+});
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
@@ -128,6 +134,10 @@ try {
     check("Shadow Archer stab and slash, Pyre Hunter slash and smash, Frost Sniper smash and stab", /Stab · Slash/.test(row("Shadow Archer")[2]) && /Slash · Smash/.test(row("Pyre Hunter")[2]) && /Smash · Stab/.test(row("Frost Sniper")[2]), [row("Shadow Archer")[2], row("Pyre Hunter")[2], row("Frost Sniper")[2]].join(" / "));
     check("Mimic: Thorns / Retaliation", /Thorns \/ Retaliation/.test(row("Mimic")[2]), row("Mimic")[2]);
     check("each room type names a loadout", rows.every((r) => r[3] === "Magic" || r[3] === "Ranged"), rows.map((r) => r[3]).join(", "));
+    const tiles = await page.$$eval(".mwia-laby-tile", (ts) => ts.map((t) => t.innerText.replace(/\s+/g, " ")));
+    check("a room guide: one tile per room type", tiles.length === 10, tiles.join(" / "));
+    check("Cyclops tile: put on Magic", tiles.some((t) => /^Cyclops ✅ Magic/.test(t)), tiles.find((t) => t.startsWith("Cyclops")));
+    check("a lost room type's tile says shroud", tiles.some((t) => /✖ Shroud or go around best: (Magic|Ranged)/.test(t)), tiles.join(" / "));
     check("safe levels carry the guessed floor", rows.some((r) => /\((fl\. \d+|below fl\. 1)\)/.test(r[5])), rows.map((r) => r[5]).join(" / "));
     check("a verdict for each monster at the room level", rows.every((r) => /fight|risky|shroud/.test(r[7])), rows.map((r) => r[7]).join(" / "));
     const matrix = await domText(page);
@@ -181,6 +191,14 @@ try {
         const scroll = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
         check("phone: no sideways scrolling", scroll);
     }
+
+    // The report on the game's Labyrinth: the message the game sent, the page's elements.
+    await page.click('[data-action="laby-read"]');
+    const report = await page.$eval(".mwia-notice-diag", (n) => n.textContent).catch(() => "");
+    writeFileSync(path.join(shotDir, "laby-report.txt"), report);
+    check("report: the Labyrinth message and its shape", /labyrinth_updated/.test(report) && /shape: \{type: "labyrinth_updated", characterLabyrinth: \{floor: 1, rooms: \[1× \{x: 0, y: 0, roomLevel: 20, monsterHrid: "\/monsters\/cyclops"/.test(report), report.slice(0, 800));
+    check("report: the Labyrinth page's elements", /div\.LabyrinthPanel_map__x1/.test(report) && /LabyrinthRoom_room__r1 "Lv 20" title="Cyclops"/.test(report), report.slice(report.indexOf("page:"), report.indexOf("page:") + 400));
+    check("report: kept in the browser", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-log") || "[]").some((m) => m.type === "labyrinth_updated")));
 
     // Another crate needs a new check.
     await page.select('[data-setting="labyCoffee"]', "expert");

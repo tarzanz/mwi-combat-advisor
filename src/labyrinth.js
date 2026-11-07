@@ -572,7 +572,11 @@ export async function buildLoadout(pool, profile, data, settings, opts, onProgre
         lastRound = open;
         // Free changes first, then the most room levels per coin; each must hold up in a
         // second measurement with other random numbers, or the next in line is tried.
-        const worth = (c) => c.roundLevels >= MIN_LEVELS && (c.cost === 0 || c.roundLevels / (c.cost / 1e6) >= minPerMillion);
+        // An ability in place of another must beat simply taking the other off: much of
+        // what a swap gains can be the old one gone (Fireball in a crossbow loadout).
+        const dropOf = (c) => (c.kind === "ability" && c.replaces ? open.find((d) => d.kind === "drop" && d.hrid === c.replaces) : null);
+        const beatsDrop = (c) => !dropOf(c) || c.roundLevels >= dropOf(c).roundLevels + MIN_LEVELS;
+        const worth = (c) => c.roundLevels >= MIN_LEVELS && beatsDrop(c) && (c.cost === 0 || c.roundLevels / (c.cost / 1e6) >= minPerMillion);
         const good = open.filter(worth);
         const order = [...good.filter((c) => c.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c) => c.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
         let pick = null;

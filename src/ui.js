@@ -59,6 +59,7 @@ import { startTriggerWindow, triggerWindowReport, watchTriggerClicks } from "./t
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 import { analyzeImprovements, analyzeLabyrinth, buildLoadout, chosenCrates, floorLevel, labyrinthLoadouts, slottedCrate } from "./labyrinth.js";
 import { buildStyleSetting, labyrinthExportLines, renderLabyrinth } from "./labyrinth-ui.js";
+import { labyrinthReport } from "./labyrinth-read.js";
 
 const SETTINGS_KEY = "mwia-settings";
 const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 20 };
@@ -421,7 +422,7 @@ function render() {
     ui.cartItems = new Map();
     let html = "";
     if (ui.error) html += `<div class="mwia-error">${esc(ui.error)}</div>`;
-    if (ui.notice && (ui.tab === "upgrades" || ui.tab === "skilling" || ui.tab === "market")) html += noticeHtml(ui.notice);
+    if (ui.notice && ["upgrades", "skilling", "market", "labyrinth"].includes(ui.tab)) html += noticeHtml(ui.notice);
     if (ui.busy) html += progressHtml();
     if (ui.tab === "overview") html += renderOverview();
     else if (ui.tab === "zones") html += renderZones();
@@ -1402,6 +1403,11 @@ function act(target) {
             break;
         case "laby-build":
             runTask(doLabBuild);
+            break;
+        case "laby-read":
+            ui.notice = { level: "info", text: "The game's Labyrinth, read (nothing changed). Copy it and paste it into the chat.", diag: labyrinthReport() };
+            ui.showNotice = true;
+            render();
             break;
         case "upgrades-abilities":
             runTask(() => doUpgrades("abilities"));
