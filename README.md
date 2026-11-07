@@ -339,6 +339,18 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     the Moo Pass, the run's tea crate and the shop's skilling upgrades – not teas (none in the Labyrinth); the
     equipment is what you wear, not the loadout set for the room. Tap-and-hold a room for the details.
     Fog and cleared rooms are left alone. Combat rooms need a *Check the rooms* in the Labyrinth tab first.
+  - **Your attempts** – every room you fight or skill in the Labyrinth is logged, from the game's own Labyrinth
+    messages as each room changes: *won* (cleared), *lost* (its fail count went up, one attempt per fail) or
+    *shrouded* (cleared as a shroud went; with more rooms cleared than shrouds used at once it says *cleared*). Each
+    attempt keeps the floor, the room and its level, your levels (combat skills, or the room's skill), the loadout
+    chosen for that room in the game's automation (its gear, abilities, food and drinks) and what you wore, the
+    run's crates, the shop's upgrades and the chance the advisor gave the room (combat: from the last *Check the
+    rooms*, with the loadout it found best – `forChosen` says whether that was the one chosen; skilling: worked out).
+    What you have is taken 2 s after anything changes, so an attempt keeps what you had just before it. Rooms that
+    changed while the game was closed are found on the next login, marked *late*. The tab sums it up per monster or
+    skill – tries, the share won, what the advisor said – with the latest 15; the 📋 export has it too. Kept in this
+    browser (the newest 600) and, when your Pi takes them (`MWIA_ORDERS=1`), sent there and shared between your
+    devices.
   - **📋 Read the game's Labyrinth** – the first step towards marks on the game's Labyrinth map (and its automation
     settings): the script keeps every message the game sends that mentions the Labyrinth (a few of each type, in
     this browser), and the button reports their types and the shape of their data, the character's Labyrinth
@@ -391,7 +403,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   prices come from, with **Read the Pi now** and **Unlink the Pi**. Switched on there (`MWIA_ORDERS=1`), each device
   also sends what it sees of your own market orders – placed, filled, done, and for one placed from a listing
   window what its price buttons said – so the listing prices can be judged later; the box says whether they're all
-  on the Pi. Setup: [pi/README.md](pi/README.md).
+  on the Pi. Your Labyrinth attempts go there too. Setup: [pi/README.md](pi/README.md).
 - **Listing prices** – the game's *Sell Listing* and *Buy Listing* windows get price buttons under the price box:
   **Match** (the best offer now), **Wall** (one price step in front of the first level in the order book holding a
   fifth of everything others offer within the tradable range – passing the small undercuts, staying in front of the
@@ -488,6 +500,9 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
   rooms. The room rules (no food or drinks, crates, 2 minutes, full HP each room) are the community simulator's, and
   the floors' room levels are a guess. The shop's combat upgrades (+% damage, speed, crit) are not counted. The
   loadout builder adds one change at a time; combinations are only found that way.
+- Labyrinth attempt log: how the game reports a lost room isn't seen yet – the log counts a room's fields named
+  fail-something (the map shows "Fail: N"), and finds an attempt only when the game sends the room's new state. If
+  losses don't show up, a 📋 *Read the game's Labyrinth* after a run shows what the game sends.
 - *Fight as* picks one starter weapon; other weapons of the style are tested as upgrades within the budget left after
   it. Levels are counted over a day at today's rate, so a skill you would level past in an hour is still worth a lot.
 - At most five enhancement levels per item are tested (those where a higher level also costs more, bought or
@@ -526,11 +541,12 @@ node test/enhance-plan-test.mjs                           # the Enhancing plan (
 node test/market-test.mjs                                 # Market tab rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
-node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, Pi down, unlink
+node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts, Pi down, unlink
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
 node test/export-browser-test.mjs /tmp                    # Export for chat: under the inventory, share sheet or download
 node test/labyrinth-browser-test.mjs /tmp                 # Labyrinth tab: loadouts per room type, floors, improvements, builder
 node test/labyrinth-skilling-test.mjs                      # Labyrinth skilling rooms: exact clear chance against a simulation
+node test/labyrinth-log-test.mjs                           # Labyrinth attempt log: won, lost, shrouded, the loadout chosen, the summary
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox
 ```

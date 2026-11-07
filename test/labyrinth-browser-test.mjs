@@ -95,7 +95,9 @@ const combatRoom = (monster, level) => ({ roomType: "/labyrinth_room_types/comba
 const labMessage = { type: "labyrinth_updated", labyrinth: { characterID: 1, isActive: true, currentFloor: 1,
     roomData: [[{ roomType: "", recommendedLevel: 0, isCleared: true }, combatRoom("cyclops", 20), { roomType: "/labyrinth_room_types/skilling", skillHrid: "/skills/milking", recommendedLevel: 20 }, null], [combatRoom("dryad", 21), null, null, null], [null, null, null, null], [null, null, null, null]],
     pathData: "[]", totalTreasureRooms: 1, remainingTreasureRooms: 1 } };
+let gameSocket = null;
 new WebSocketServer({ server }).on("connection", (socket) => {
+    gameSocket = socket;
     socket.send(JSON.stringify(character));
     setTimeout(() => socket.send(JSON.stringify(labMessage)), 200);
 });
@@ -174,6 +176,29 @@ try {
     await page.$eval(".mwia-panel", (p) => (p.style.visibility = "hidden"));
     await page.screenshot({ path: path.join(shotDir, "laby-map.png"), clip: await page.$eval("[class*=LabyrinthPanel_roomGrid]", (g) => { const r = g.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }) }).catch(() => {});
     await page.$eval(".mwia-panel", (p) => (p.style.visibility = ""));
+
+    // The attempt log: the Cyclops room lost once, then won; the milking room cleared.
+    const withRooms = (cyclops, milking) => {
+        const m = JSON.parse(JSON.stringify(labMessage));
+        Object.assign(m.labyrinth.roomData[0][1], cyclops);
+        Object.assign(m.labyrinth.roomData[0][2], milking);
+        return m;
+    };
+    gameSocket.send(JSON.stringify({ type: "setting_updated", characterSetting: { labyrinthLoadoutCyclops: 1, labyrinthLoadoutMilking: 0 } }));
+    // (what you have is taken 2 s after a change: the check and the loadout chosen)
+    for (const m of [withRooms({ failCount: 1 }, {}), withRooms({ failCount: 1, isCleared: true }, { isCleared: true })]) {
+        await new Promise((r) => setTimeout(r, 2500));
+        gameSocket.send(JSON.stringify(m));
+    }
+    await page.waitForFunction(() => (JSON.parse(localStorage.getItem("mwia-laby-attempts") || "null")?.list || []).length >= 3, { timeout: 5000 }).catch(() => {});
+    const attempts = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-attempts") || "null"));
+    const brief = (attempts?.list || []).map((a) => [a.what, a.outcome, a.fails, a.level, a.loadout?.name ?? null, a.predicted?.how ?? null]);
+    check("log: a loss and a win against the Cyclops, the milking room cleared", JSON.stringify(brief) === JSON.stringify([["cyclops", "loss", 1, 20, "Magic", "check"], ["cyclops", "win", 1, 20, "Magic", "check"], ["milking", "win", 0, 20, null, "formula"]]), JSON.stringify(brief));
+    const first = attempts?.list?.[0] || {};
+    check("log: your levels, gear, shop and the advisor's chance with each", first.levels?.magic > 0 && Object.keys(first.worn || {}).length > 0 && first.predicted?.forChosen === true && first.predicted.win >= 0 && first.predicted.win <= 1 && attempts.unsent.length === 3 && !first.late, JSON.stringify(first).slice(0, 600));
+    await page.waitForFunction(() => /Your attempts/.test(document.querySelector(".mwia-body")?.textContent || ""), { timeout: 3000 }).catch(() => {});
+    const logged = await domText(page);
+    check("log: the tab sums it up", /Your attempts/.test(logged) && /Cyclops.*50%\s*\(1\/2\)/s.test(logged.slice(logged.indexOf("Your attempts"))), logged.slice(logged.indexOf("Your attempts"), logged.indexOf("Your attempts") + 300));
 
     const matrix = await domText(page);
     check("every loadout against every monster", /All your loadouts/.test(matrix));

@@ -5,4 +5,5 @@
 !pi/history-store.mjs
 !pi/order-store.mjs
 !pi/job-store.mjs
+!pi/labyrinth-store.mjs
 !pi/server.mjs

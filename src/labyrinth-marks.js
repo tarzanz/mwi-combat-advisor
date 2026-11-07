@@ -223,6 +223,21 @@ function combatMark(room, check, data) {
     return { win, kind, title: `MWI Advisor: Lv.${room.level} ${who} – ${kind === "bad" ? "shroud it or go around; best" : "take"} ${loadout}: ${pct(win)} won` };
 }
 
+// The advisor's chance for a room, for the attempt log: a combat room's from the last
+// check (with the loadout it found best), a skilling room's worked out.
+export function roomPrediction(room, labyrinth) {
+    if (room.skillHrid) {
+        const data = getClientData();
+        if (!state.character || !data) return null;
+        const r = skillingRoomChance({ skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel }, skillingWho(state.character, data, room.skillHrid.split("/").pop(), labyrinth.teaCrateItemHrid));
+        return { win: Math.round(1000 * r.chance) / 1000, how: "formula", success: Math.round(1000 * r.success) / 1000, tries: r.tries, needed: Number.isFinite(r.needed) ? r.needed : null };
+    }
+    const check = lastCheck();
+    const monster = check?.monsters.find((x) => x.hrid === room.monsterHrid);
+    if (!monster) return null;
+    return { win: Math.round(1000 * (winAt(monster.curve, room.recommendedLevel) ?? 0)) / 1000, how: "check", best: monster.setupId, bestName: monster.setupName, checkedAt: check.at };
+}
+
 // A skilling room: the chance to fill its progress bar in 2 minutes, worked out from your level and buffs.
 function skillingMark(room, labyrinth, data) {
     if (!state.character || !data) return null;

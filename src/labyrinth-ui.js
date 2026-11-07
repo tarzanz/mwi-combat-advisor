@@ -251,7 +251,30 @@ function buildHtml(build, data, settings, busy, settingsHtml, cartButton, coins)
     return html;
 }
 
-export function renderLabyrinth({ lab, improve, build, profileOf, data, settings, busy, settingsHtml, slotted, setupsNote, cartButton, coins = shortCoins }) {
+// Your attempts, as the log kept them (labyrinth-log.js): per monster or skill how often you
+// won against the chance the advisor gave, and the latest few.
+const OUTCOME = { win: "✅ won", loss: "✖ lost", shroud: "🌫 shrouded", cleared: "cleared" };
+function attemptName(a) {
+    return a.type === "combat" ? monsterName(`/monsters/${a.what}`) : cap(a.what);
+}
+export function attemptsHtml(summary, recent) {
+    let html = `<h3>Your attempts</h3>`;
+    if (!summary.length) {
+        return html + `<p class="mwia-dim">Each room you fight or skill in the Labyrinth is logged here from now on (and sent to your Pi when it takes them):
+          won, lost or shrouded, at what room level, with your levels, the loadout chosen for it, crates and shop upgrades, and the chance the advisor gave it.</p>`;
+    }
+    const levels = (s) => (s.minLevel === null ? "–" : s.minLevel === s.maxLevel ? String(s.minLevel) : `${s.minLevel}–${s.maxLevel}`);
+    html += `<table class="mwia-table"><thead><tr><th>Room</th><th title="Room levels tried">Level</th><th title="Fights or skilling tries (shrouds not counted)">Tries</th>
+      <th title="Share of the tries won">Won</th><th title="The advisor's average chance for those tries (combat: with the loadout the last check found best)">Advisor said</th><th title="Rooms shrouded">🌫</th></tr></thead><tbody>
+      ${summary.map((s) => `<tr><td>${esc(attemptName(s))}</td><td>${levels(s)}</td><td>${s.tries}</td><td>${s.won === null ? "–" : `${pctText(s.won)} <span class="mwia-dim">(${s.wins}/${s.tries})</span>`}</td>
+        <td>${s.predicted === null ? "–" : pctText(s.predicted)}</td><td>${s.shrouds || ""}</td></tr>`).join("")}</tbody></table>`;
+    html += `<details class="mwia-skill-sec"><summary>The latest ${recent.length}</summary><ol class="mwia-plan">${recent
+        .map((a) => `<li>${new Date(a.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · floor ${a.floor} · Lv.${a.level} ${esc(attemptName(a))}: ${OUTCOME[a.outcome] || a.outcome}${a.loadout?.name ? ` · ${esc(a.loadout.name)}` : ""}${a.predicted ? ` · advisor ${pctText(a.predicted.win)}${a.predicted.forChosen === false ? " (another loadout)" : ""}` : ""}${a.late ? ` <span class="mwia-dim" title="Found on login: it happened while the game was closed">(late)</span>` : ""}</li>`)
+        .join("")}</ol></details>`;
+    return html;
+}
+
+export function renderLabyrinth({ lab, improve, build, profileOf, data, settings, busy, settingsHtml, slotted, setupsNote, cartButton, coins = shortCoins, attempts = "" }) {
     const level = roomLevelSetting(settings);
     let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
       1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
@@ -272,6 +295,7 @@ export function renderLabyrinth({ lab, improve, build, profileOf, data, settings
         if (improve) html += improveHtml(improve);
     }
     html += buildHtml(build, data, settings, busy, settingsHtml, cartButton, coins);
+    html += attempts;
     html += `<h3>On the Labyrinth map</h3>
       <p>Next: marks on the game's Labyrinth map (and later its automation settings) saying which loadout to use in each room. For that the script
       first has to learn how the game shows the Labyrinth: it keeps what the game sends about it while you play. After a run (or with the Labyrinth

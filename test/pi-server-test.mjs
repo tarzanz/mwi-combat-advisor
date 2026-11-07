@@ -13,6 +13,7 @@ import { gunzipSync } from "node:zlib";
 import { openStore } from "../pi/history-store.mjs";
 import { openOrderStore } from "../pi/order-store.mjs";
 import { openJobStore } from "../pi/job-store.mjs";
+import { openLabyrinthStore } from "../pi/labyrinth-store.mjs";
 import { DAILY_FIELDS, HOURLY_FIELDS, decodeRecords } from "../src/price-history.js";
 import { unpackRecord } from "../src/history-wire.js";
 
@@ -139,6 +140,25 @@ try {
     check("jobs: read again after a restart, the same", reread.seq === 3 && reread.purchases[0].purchase.filled === 10 && reread.reports[0].report.actions === 5, JSON.stringify(reread));
     const withJobs = await fetch(base + "/history?epoch=" + all.epoch, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
     check("the history says jobs are taken", withJobs.status.jobs?.reports === 1 && withJobs.status.jobs.purchases === 1, JSON.stringify(withJobs.status));
+
+    // Labyrinth attempts from every device, each kept once.
+    const postLab = (body, key = KEY) => fetch(base + "/labyrinth", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Origin: "https://www.milkywayidle.com" }, body: JSON.stringify(body) });
+    const getLab = (after = 0, key = KEY) => fetch(`${base}/labyrinth?after=${after}`, { headers: { Authorization: `Bearer ${key}` } });
+    const attempt = (uid, outcome = "loss") => ({ uid, at: 1000, outcome, what: "cyclops", type: "combat", level: 30, levels: { magic: 68 } });
+    check("labyrinth: no key, nothing written or read", (await postLab({ device: "phone", attempts: [attempt("a")] }, "nope")).status === 401 && (await getLab(0, "nope")).status === 401);
+    const sentLab = await postLab({ device: "phone", attempts: [attempt("1|t|1|0|1|loss|1"), attempt("1|t|1|0|1|end|1", "win"), { uid: "bad" }] }).then((r) => r.json());
+    check("labyrinth: sane ones kept, the rest refused", sentLab.accepted === 2 && sentLab.rejected === 1, JSON.stringify(sentLab));
+    const pcLab = await postLab({ device: "pc", attempts: [attempt("1|t|1|0|1|loss|1"), attempt("1|t|1|0|2|end|0", "win")] }).then((r) => r.json());
+    check("labyrinth: what another device sent already is kept once", pcLab.accepted === 1 && pcLab.duplicates === 1, JSON.stringify(pcLab));
+    const allLab = await getLab(0).then((r) => r.json());
+    const newLab = await getLab(2).then((r) => r.json());
+    const noneLab = await getLab(3).then((r) => r.json());
+    check("labyrinth: everything, then only what is new", allLab.seq === 3 && allLab.attempts.length === 3 && !allLab.more && newLab.attempts.length === 1 && newLab.attempts[0].attempt.uid === "1|t|1|0|2|end|0" && noneLab.attempts.length === 0 && noneLab.seq === 3, JSON.stringify(newLab));
+    check("labyrinth: too many at once refused", (await postLab({ device: "phone", attempts: Array.from({ length: 301 }, (_, i) => attempt(String(i))) })).status === 400);
+    const rereadLab = openLabyrinthStore(dataDir).since(0);
+    check("labyrinth: read again after a restart, the same", rereadLab.seq === 3 && rereadLab.attempts[2].attempt.levels.magic === 68, JSON.stringify(rereadLab));
+    const withLab = await fetch(base + "/history?epoch=" + all.epoch, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
+    check("the history says Labyrinth attempts are taken", withLab.status.labyrinth?.attempts === 3, JSON.stringify(withLab.status));
 } finally {
     server.kill();
     market.close();
@@ -155,7 +175,7 @@ try {
     }
     const history = await fetch(`http://127.0.0.1:${PORT2}/history`, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
     const jobsAnswer = await fetch(`http://127.0.0.1:${PORT2}/jobs`, { headers: { Authorization: `Bearer ${KEY}` } });
-    check("orders off (the default): posting refused, and the history says so", answer?.status === 405 && history.status.orders === null && history.status.jobs === null && jobsAnswer.status === 404, String(answer?.status));
+    check("orders off (the default): posting refused, and the history says so", answer?.status === 405 && history.status.orders === null && history.status.jobs === null && history.status.labyrinth === null && jobsAnswer.status === 404, String(answer?.status));
 } finally {
     plain.kill();
 }

@@ -18,7 +18,9 @@ and purchases between your devices (see *Job results*).
   and how new its prices are. Nothing is written from outside – except, when you
   switch it on, `POST /orders` (the same key, the same sites; only order events,
   at most 500 a request, kept apart from the prices) and `POST /jobs` (job results
-  and purchases, at most 300 a request); `GET /jobs` then reads them back.
+  and purchases, at most 300 a request); `GET /jobs` then reads them back; and
+  `POST /labyrinth` (Labyrinth attempts, at most 300 a request), read back with
+  `GET /labyrinth`.
 - **Secrets** stay on the Pi: the key in `pi/.env` (not in git). Each browser gets
   it once from a link and keeps it in its own storage for the game's site.
 
@@ -109,3 +111,27 @@ Each line in `data/jobs/<month>.jsonl` is one record, as the device sent it plus
 For a log entry the result that saw more of the job wins (more actions, a later end);
 for a buy order the one that saw more of it filled. `GET /jobs?after=<seq>` sends the
 ones kept since (each kept record gets the next `seq`).
+
+## Labyrinth attempts
+
+Switched on with the orders (`MWIA_ORDERS=1`). Every room you fight or skill in the
+Labyrinth, as the userscript saw it change; each line in `data/labyrinth/<month>.jsonl`
+is `{ attempt, device, received }`, with `attempt`:
+
+- `uid` (the same on every device: character, run start, floor, row, column, and
+  `loss` and the fail count, or `end`), `at`, `late` (found on login: it happened
+  while the game was closed, so what you had is the last seen before), `run`.
+- `floor`, `row`, `col`, `type` (`combat` or `skilling`), `what` (the monster or
+  skill), `level` (the room's), `outcome` (`win`, `loss`, `shroud`, or `cleared`
+  when it can't be told from a shroud), `fails` (the room's fail count then).
+- `levels` (combat skills, or the room's skill), `loadout` (the one the game's
+  automation puts on for this room: `id`, `name`, `gear` per slot as
+  `item+level`, `abilities`, `food`, `drinks`), `worn` (what you wore), `crates`
+  (tea, coffee, food), `shop` (the Labyrinth upgrades' levels).
+- `predicted`: the advisor's chance – combat `{ win, how: "check", best,
+  bestName, checkedAt, forChosen }` (from its last check, with the loadout it
+  found best; `forChosen`: the one chosen), skilling `{ win, how: "formula",
+  success, tries, needed }`.
+
+Each `uid` is kept once. `GET /labyrinth?after=<seq>` sends the ones kept since, a
+thousand at a time (`more` when there are others).

@@ -2,7 +2,8 @@
 // fetches the game's market file every 10 minutes, keeps every new one, and
 // sends the userscript the hours and days it lacks. With MWIA_ORDERS=1 it also
 // keeps what your devices send about your own market orders (order-store.mjs),
-// and your job results and purchases, shared between your devices (job-store.mjs).
+// and your job results and purchases, shared between your devices (job-store.mjs),
+// and your Labyrinth attempts (labyrinth-store.mjs).
 // No dependencies.
 //
 //   node pi/server.mjs              serve (the default)
@@ -14,7 +15,7 @@
 // Settings (environment): MWIA_KEY (required to serve, at least 24 characters),
 // MWIA_DATA (default /data), PORT (default 8787), MWIA_MARKET_URL, MWIA_ORIGINS
 // (the game's sites allowed to read, comma separated), MWIA_ORDERS (1: take your
-// devices' order events, job results and purchases), MWIA_LOG_REQUESTS (0: don't log each request; the key is never logged).
+// devices' order events, job results and purchases, and Labyrinth attempts), MWIA_LOG_REQUESTS (0: don't log each request; the key is never logged).
 
 import http from "node:http";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -22,6 +23,7 @@ import { gzipSync } from "node:zlib";
 import { openStore } from "./history-store.mjs";
 import { MAX_EVENTS, openOrderStore } from "./order-store.mjs";
 import { MAX_JOB_RECORDS, openJobStore } from "./job-store.mjs";
+import { MAX_ATTEMPTS, openLabyrinthStore } from "./labyrinth-store.mjs";
 
 const DATA = process.env.MWIA_DATA || "/data";
 const PORT = Number(process.env.PORT || 8787);
@@ -85,6 +87,7 @@ function serve() {
     const store = openStore(DATA);
     const orders = ORDERS ? openOrderStore(DATA) : null;
     const jobs = ORDERS ? openJobStore(DATA) : null;
+    const labyrinth = ORDERS ? openLabyrinthStore(DATA) : null;
     const health = { lastFetch: null, lastError: null };
 
     async function poll() {
@@ -169,7 +172,21 @@ function serve() {
                 res.mwiaEvents = `${result.accepted}+${result.kept}kept${result.rejected ? `+${result.rejected}bad` : ""}`;
                 return send(200, { ...result, seq: jobs.since(Infinity).seq });
             }
-            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders or /jobs" : "GET only" });
+            // Your Labyrinth attempts from a device (switched on with the orders).
+            if (req.method === "POST" && url.pathname === "/labyrinth" && labyrinth) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                const body = await readJson(req);
+                if (!body) return send(413, { error: "too big" });
+                if (!Array.isArray(body.attempts) || body.attempts.length > MAX_ATTEMPTS) return send(400, { error: `attempts: a list of at most ${MAX_ATTEMPTS}` });
+                const result = labyrinth.add(body.device, body.attempts);
+                res.mwiaEvents = `${result.accepted}+${result.duplicates}dup${result.rejected ? `+${result.rejected}bad` : ""}`;
+                return send(200, result);
+            }
+            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders, /jobs or /labyrinth" : "GET only" });
+            if (url.pathname === "/labyrinth" && labyrinth) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                return send(200, labyrinth.since(url.searchParams.get("after")));
+            }
             if (url.pathname === "/jobs" && jobs) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
                 return send(200, jobs.since(url.searchParams.get("after")));
@@ -178,12 +195,12 @@ function serve() {
             if (url.pathname === "/status") return send(200, { ok: true, newest: store.status().newest, lastError: health.lastError });
             if (url.pathname !== "/history") return send(404, { error: "not found" });
             if (!authorized(req)) return send(401, { error: "wrong or missing key" });
-            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health, orders: orders ? orders.status() : null, jobs: jobs ? jobs.status() : null } });
+            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health, orders: orders ? orders.status() : null, jobs: jobs ? jobs.status() : null, labyrinth: labyrinth ? labyrinth.status() : null } });
         } catch (error) {
             if (error.status === 400) return send(400, { error: "not JSON" });
             log("request failed:", error);
             return send(500, { error: "server error" });
         }
     });
-    server.listen(PORT, () => log(`listening on ${PORT}, data in ${DATA}`, store.status(), orders ? { orders: orders.status(), jobs: jobs.status() } : "orders and jobs off"));
+    server.listen(PORT, () => log(`listening on ${PORT}, data in ${DATA}`, store.status(), orders ? { orders: orders.status(), jobs: jobs.status(), labyrinth: labyrinth.status() } : "orders and jobs off"));
 }

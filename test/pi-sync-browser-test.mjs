@@ -225,6 +225,27 @@ try {
     await page.waitForFunction(() => /Job results synced \d/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     check("the box says the job results are synced", /Job results synced \d\d?:\d\d/.test(await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "")));
 
+    // Labyrinth attempts: a room lost here goes to the Pi; one another device sent comes here.
+    const room = (extra) => ({ type: "labyrinth_updated", labyrinth: { characterID: 1, isActive: true, currentFloor: 1, startedAt: "t0", roomData: [[{ roomType: "/labyrinth_room_types/combat", monsterHrid: "/monsters/cyclops", recommendedLevel: 30, ...extra }]] } });
+    const pcAttempt = { uid: "1|t0|1|0|5|end|0", at: Date.now() - 60000, outcome: "win", what: "dryad", type: "combat", level: 31, floor: 1 };
+    const postedLab = await fetch(`${piUrl}/labyrinth`, { method: "POST", headers: { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ device: "pc", attempts: [pcAttempt] }) }).then((r) => r.json());
+    sendAll(room({}));
+    await new Promise((r) => setTimeout(r, 300));
+    sendAll(room({ failCount: 1 }));
+    await page.waitForFunction(() => (JSON.parse(localStorage.getItem("mwia-laby-attempts") || "null")?.list || []).length >= 1, { timeout: 4000 }).catch(() => null);
+    await page.$eval('.mwia-history [data-history-pi="sync"]', (b) => b.click());
+    const piLab = () => fetch(`${piUrl}/labyrinth?after=0`, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
+    let labOnPi = await piLab();
+    for (let k = 0; k < 40 && labOnPi.attempts.length < 2; k++) {
+        await new Promise((r) => setTimeout(r, 200));
+        labOnPi = await piLab();
+    }
+    const labHere = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-attempts") || "null"));
+    check("labyrinth: this device's lost room is on the Pi", postedLab.accepted === 1 && labOnPi.attempts.some((x) => x.attempt.uid === "1|t0|1|0|0|loss|1" && x.attempt.what === "cyclops"), JSON.stringify(labOnPi));
+    check("labyrinth: the other device's attempt is here, nothing left to send", labHere?.list?.some((a) => a.uid === pcAttempt.uid) && labHere.unsent.length === 0 && labHere.piSeq >= 1, JSON.stringify(labHere && { list: labHere.list.map((a) => a.uid), unsent: labHere.unsent, seq: labHere.piSeq }));
+    await page.waitForFunction(() => /Labyrinth attempts synced \d/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
+    check("the box says the Labyrinth attempts are synced", /Labyrinth attempts synced \d\d?:\d\d/.test(await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "")));
+
     // The next hour: only it is sent.
     await stopPi();
     fileHour = H + 1;

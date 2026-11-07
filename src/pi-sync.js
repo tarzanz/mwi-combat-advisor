@@ -8,12 +8,14 @@
 // takes them (MWIA_ORDERS=1), the events of your own market orders go to it
 // too (order-log.js): after each sync, and a minute after a change. So do your
 // job results and purchases (job-log.js), read back by every device: after each
-// sync, a minute after a change, and when the Loot & XP Log opens.
+// sync, a minute after a change, and when the Loot & XP Log opens. And your
+// Labyrinth attempts (labyrinth-log.js): sent and read back the same way.
 
 import { loadHistory, mergeFromPi, piReceived } from "./price-history.js";
 import { unpackRecord } from "./history-wire.js";
 import { deviceName, dropQueued, onOrderEvents, queuedOrders } from "./order-log.js";
 import { jobsForPi, jobsFromPi, jobsPiSeq, jobsSentToPi, onJobsChanged, useJobSync } from "./job-log.js";
+import { attemptsForPi, attemptsFromPi, attemptsPiSeq, attemptsSentToPi, onAttemptsChanged } from "./labyrinth-log.js";
 
 const CONFIG_KEY = "mwia-pi";
 const SYNC_EVERY_MS = 15 * 60 * 1000;
@@ -24,12 +26,14 @@ const ORDER_BATCH = 100;
 const ORDER_BATCHES = 10;
 // Job results and purchases per request.
 const JOB_BATCH = 25;
+// Labyrinth attempts per request.
+const ATTEMPT_BATCH = 100;
 
 // status: ok (null before the first try), at: the last good sync, error, newest: the Pi's newest file, piError: its own last fetch error,
 // orders: null (the Pi doesn't take them) or { at: the last send, sent: in it, waiting, error }.
-// jobs: null (the Pi doesn't take them) or { at: the last sync, error }.
-const NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null };
-const p = { running: null, sending: null, jobSync: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: new Set() };
+// jobs, labyrinth: null (the Pi doesn't take them) or { at: the last sync, error }.
+const NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null, labyrinth: null };
+const p = { running: null, sending: null, jobSync: null, labSync: null, labTimer: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: new Set() };
 
 // A link from the server: saves its address and key, then takes them out of the address bar.
 export function readPairing(win) {
@@ -75,6 +79,10 @@ export function startPiSync() {
         clearTimeout(p.jobsTimer);
         if (p.status.jobs) p.jobsTimer = setTimeout(syncJobs, ORDERS_AFTER_MS);
     });
+    onAttemptsChanged(() => {
+        clearTimeout(p.labTimer);
+        if (p.status.labyrinth && attemptsForPi().length) p.labTimer = setTimeout(syncLabyrinth, ORDERS_AFTER_MS);
+    });
     // The Loot & XP Log reads the Pi first, when it takes jobs.
     useJobSync(() => (piConfig() && p.status.jobs ? syncJobs() : Promise.resolve()));
     setTimeout(syncNow, FIRST_SYNC_MS);
@@ -107,9 +115,11 @@ export function syncNow() {
             added = result.hours > 0 || result.days > 0;
             const takesOrders = !!wire.status?.orders;
             const takesJobs = !!wire.status?.jobs;
-            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null };
+            const takesLabyrinth = !!wire.status?.labyrinth;
+            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? p.status.labyrinth || { at: null, error: "" } : null };
             if (takesOrders) await sendOrders();
             if (takesJobs) await syncJobs();
+            if (takesLabyrinth) await syncLabyrinth();
         } catch (error) {
             p.status = { ...p.status, ok: false, error: error.message || String(error) };
         } finally {
@@ -189,4 +199,43 @@ export function syncJobs() {
         notify(false);
     })();
     return p.jobSync;
+}
+
+// Labyrinth attempts: reads what is new on the Pi (other devices'), then sends what it lacks.
+export function syncLabyrinth() {
+    const config = piConfig();
+    if (!config || !p.status.labyrinth) return Promise.resolve();
+    p.labSync ||= (async () => {
+        let error = "";
+        const headers = { Authorization: `Bearer ${config.key}` };
+        try {
+            for (let k = 0; k < ORDER_BATCHES; k++) {
+                const response = await fetch(`${config.url}/labyrinth?after=${attemptsPiSeq()}`, { headers, cache: "no-store", signal: AbortSignal.timeout?.(30000) });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const wire = await response.json();
+                attemptsFromPi(wire);
+                if (!wire.more) break;
+            }
+            for (let k = 0; k < ORDER_BATCHES; k++) {
+                const attempts = attemptsForPi().slice(0, ATTEMPT_BATCH);
+                if (!attempts.length) break;
+                const sent = await fetch(`${config.url}/labyrinth`, {
+                    method: "POST",
+                    headers: { ...headers, "Content-Type": "application/json" },
+                    body: JSON.stringify({ device: deviceName(), attempts }),
+                    cache: "no-store",
+                    signal: AbortSignal.timeout?.(30000),
+                });
+                if (!sent.ok) throw new Error(`HTTP ${sent.status}`);
+                attemptsSentToPi(attempts.map((a) => a.uid));
+            }
+        } catch (e) {
+            error = e.message || String(e);
+        } finally {
+            p.labSync = null;
+        }
+        p.status = { ...p.status, labyrinth: { at: Date.now(), error } };
+        notify(false);
+    })();
+    return p.labSync;
 }

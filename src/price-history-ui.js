@@ -168,7 +168,9 @@ function sourceHtml() {
     // Job results and purchases, when the Pi takes them.
     const jobs = st.jobs;
     const jobsText = !jobs ? "" : jobs.error ? ` Job results couldn't be synced (${jobs.error}).` : jobs.at ? ` Job results synced ${time(jobs.at)}.` : "";
-    return `<div class="mwia-history-note">${esc(text + ordersText + jobsText)}</div>
+    const lab = st.labyrinth;
+    const labText = !lab ? "" : lab.error ? ` Labyrinth attempts couldn't be synced (${lab.error}).` : lab.at ? ` Labyrinth attempts synced ${time(lab.at)}.` : "";
+    return `<div class="mwia-history-note">${esc(text + ordersText + jobsText + labText)}</div>
         <div class="mwia-history-ranges"><button data-history-pi="sync">↻ Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
 }
 

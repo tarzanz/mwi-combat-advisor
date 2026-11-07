@@ -50,7 +50,8 @@ import { onHistoryChange } from "./price-history-ui.js";
 import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js";
 import { startToolNotice } from "./tool-notice.js";
 import { startTeaSlots } from "./tea-slots.js";
-import { rememberLabyrinth, scheduleScan as refreshLabyrinthMarks, startLabyrinthMarks } from "./labyrinth-marks.js";
+import { rememberLabyrinth, roomPrediction, scheduleScan as refreshLabyrinthMarks, startLabyrinthMarks } from "./labyrinth-marks.js";
+import { attemptSummary, labyrinthAttempts, labyrinthCheckChanged, onAttemptsChanged, startLabyrinthLog } from "./labyrinth-log.js";
 import { startEnhancePlan } from "./enhance-plan-ui.js";
 import { findActionPanel, inventoryItemHash, navDiagnostics, openAction, openAlchemy, openEnhancing, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
@@ -59,7 +60,7 @@ import { describeTriggers } from "./triggers.js";
 import { startTriggerWindow, triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 import { analyzeImprovements, analyzeLabyrinth, buildLoadout, chosenCrates, floorLevel, labyrinthLoadouts, slottedCrate } from "./labyrinth.js";
-import { buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSetting } from "./labyrinth-ui.js";
+import { attemptsHtml, buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSetting } from "./labyrinth-ui.js";
 import { labyrinthReport } from "./labyrinth-read.js";
 
 const SETTINGS_KEY = "mwia-settings";
@@ -293,6 +294,7 @@ async function doLabyrinth() {
     ui.labSetups = labyrinthSetups();
     ui.labResult = await analyzeLabyrinth(ui.pool, ui.labSetups, getClientData(), ui.settings, state.character, progress("Simulating Labyrinth rooms"));
     rememberLabyrinth(ui.labResult);
+    labyrinthCheckChanged();
 }
 
 async function doLabImprove() {
@@ -329,6 +331,7 @@ function renderLabyrinthTab() {
         setupsNote: `<p class="mwia-dim">Loadouts: ${setups.map((s) => `<b>${esc(s.name)}</b>`).join(", ")}${setups.length < 2 ? " – save a loadout per combat style in the game to compare them here" : ""}.</p>`,
         cartButton,
         coins,
+        attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse()),
     });
 }
 
@@ -730,6 +733,12 @@ function exportContext() {
     attempt("Skilling: best now", () => (getClientData() ? skillingExportLines(ui.settings) : []));
     if (ui.zoneResults) attempt("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
     if (ui.labResult || ui.labBuild) attempt("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.labBuild, ui.settings));
+    if (labyrinthAttempts().length) {
+        attempt("Labyrinth attempts", () => [
+            ...attemptSummary().map((x) => `${x.type === "combat" ? x.what : x.what + " (skilling)"} Lv.${x.minLevel ?? "–"}–${x.maxLevel ?? "–"}: won ${x.wins}/${x.tries}${x.predicted === null ? "" : ` · advisor ${Math.round(100 * x.predicted)}%`}${x.shrouds ? ` · ${x.shrouds} shrouded` : ""}`),
+            ...labyrinthAttempts().slice(-10).map((a) => JSON.stringify(a)),
+        ]);
+    }
     if (ui.upgradeResult) attempt("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
     return { settings: ui.settings, sections };
 }
@@ -1606,6 +1615,7 @@ export function mountUI(win, workerSource) {
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
+    startLabyrinthLog({ predict: roomPrediction });
     startEnhancePlan(gameDeps);
     watchTriggerClicks();
     startTriggerWindow({
@@ -1648,6 +1658,9 @@ export function mountUI(win, workerSource) {
     // New price history can change the Skilling tab's price warnings.
     onHistoryChange(() => {
         if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "skilling") render();
+    });
+    onAttemptsChanged(() => {
+        if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "labyrinth") render();
     });
     onStateChange(() => {
         if (!root.classList.contains("mwia-hidden") && !ui.busy) {

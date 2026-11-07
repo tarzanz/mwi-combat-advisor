@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.67.0
+// @version      0.68.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -48,7 +48,8 @@
       "loot_log_updated",
       "loadouts_updated",
       "labyrinth_updated",
-      "character_info_updated"
+      "character_info_updated",
+      "setting_updated"
     ].join("|") + ')"'
   );
   var BUFF_MAPS = [
@@ -275,6 +276,9 @@
         case "character_info_updated":
           copyFields(data, ["characterInfo"]);
           break;
+        case "setting_updated":
+          copyFields(data, ["characterSetting"]);
+          break;
         case "labyrinth_updated":
           state.labyrinth = data.labyrinth || null;
           break;
@@ -320,17 +324,17 @@
   function keepLabyrinth(raw) {
     if (!/labyrinth/i.test(raw) || LAB_SKIP.test(raw.slice(0, 200))) return;
     const type = /"type":"([^"]+)"/.exec(raw)?.[1] || "?";
-    const log = labyrinthMessages();
-    const same2 = log.filter((m2) => m2.type === type);
-    if (same2.length >= LAB_PER_TYPE) log.splice(log.indexOf(same2[0]), 1);
-    log.push({ at: Date.now(), type, size: raw.length, raw: raw.slice(0, LAB_MAX) });
-    while (log.length > LAB_KEEP) log.shift();
+    const log2 = labyrinthMessages();
+    const same2 = log2.filter((m2) => m2.type === type);
+    if (same2.length >= LAB_PER_TYPE) log2.splice(log2.indexOf(same2[0]), 1);
+    log2.push({ at: Date.now(), type, size: raw.length, raw: raw.slice(0, LAB_MAX) });
+    while (log2.length > LAB_KEEP) log2.shift();
     try {
-      localStorage.setItem(LAB_KEY, JSON.stringify(log));
+      localStorage.setItem(LAB_KEY, JSON.stringify(log2));
     } catch {
-      log.splice(0, Math.ceil(log.length / 2));
+      log2.splice(0, Math.ceil(log2.length / 2));
       try {
-        localStorage.setItem(LAB_KEY, JSON.stringify(log));
+        localStorage.setItem(LAB_KEY, JSON.stringify(log2));
       } catch {
       }
     }
@@ -1203,11 +1207,11 @@
       for (const h2 of items) {
         const step = choice.get(h2);
         if (!step) continue;
-        const g2 = (step.outputs.reduce((sum, o2) => sum + o2.count * val(gold, o2.itemHrid, sell), 0) - step.paid) / step.net;
+        const g3 = (step.outputs.reduce((sum, o2) => sum + o2.count * val(gold, o2.itemHrid, sell), 0) - step.paid) / step.net;
         const t4 = (step.hours + step.outputs.reduce((sum, o2) => sum + o2.count * val(hours, o2.itemHrid, none), 0)) / step.net;
         const x = (step.xp + step.outputs.reduce((sum, o2) => sum + o2.count * val(xp, o2.itemHrid, none), 0)) / step.net;
-        moved = Math.max(moved, Math.abs(g2 - gold.get(h2)) / Math.max(1, Math.abs(g2)), Math.abs(t4 - hours.get(h2)) / Math.max(1e-9, t4));
-        gold.set(h2, g2);
+        moved = Math.max(moved, Math.abs(g3 - gold.get(h2)) / Math.max(1, Math.abs(g3)), Math.abs(t4 - hours.get(h2)) / Math.max(1e-9, t4));
+        gold.set(h2, g3);
         hours.set(h2, t4);
         xp.set(h2, x);
       }
@@ -2494,19 +2498,19 @@
   var same = (x, y) => x === y || Number.isNaN(x) && Number.isNaN(y);
   var emptyOf = (field, count3) => COUNTS.has(field) ? new Uint8Array(count3) : new Float32Array(count3).fill(NaN);
   var fieldAt = (array, field, i) => array && i < array.length ? array[i] : COUNTS.has(field) ? 0 : NaN;
-  function encodeRecord(record, previous, fields, keyOf2) {
-    const count3 = Math.max(0, ...fields.map((f) => record[f]?.length || 0));
-    const key2 = !previous || keyOf2(previous) !== keyOf2(record);
+  function encodeRecord(record2, previous, fields, keyOf2) {
+    const count3 = Math.max(0, ...fields.map((f) => record2[f]?.length || 0));
+    const key2 = !previous || keyOf2(previous) !== keyOf2(record2);
     const idx = [];
     for (let i = 0; i < count3; i++) {
-      const changed2 = key2 ? fields.some((f) => hasValue(fieldAt(record[f], f, i))) : fields.some((f) => !same(fieldAt(record[f], f, i), fieldAt(previous[f], f, i)));
+      const changed2 = key2 ? fields.some((f) => hasValue(fieldAt(record2[f], f, i))) : fields.some((f) => !same(fieldAt(record2[f], f, i), fieldAt(previous[f], f, i)));
       if (changed2) idx.push(i);
     }
     const out = { count: count3, key: key2, idx: count3 < 65536 ? Uint16Array.from(idx) : Uint32Array.from(idx) };
-    for (const [k, v] of Object.entries(record)) if (!fields.includes(k)) out[k] = v;
+    for (const [k, v] of Object.entries(record2)) if (!fields.includes(k)) out[k] = v;
     for (const f of fields) {
       const values = emptyOf(f, idx.length);
-      idx.forEach((i, j2) => values[j2] = fieldAt(record[f], f, i));
+      idx.forEach((i, j2) => values[j2] = fieldAt(record2[f], f, i));
       out[f] = values;
     }
     return out;
@@ -2556,14 +2560,14 @@
       }
     }
     const count3 = items.length;
-    const record = { hour, a: new Float32Array(count3).fill(NaN), b: new Float32Array(count3).fill(NaN), p: new Float32Array(count3).fill(NaN), v: new Float32Array(count3).fill(NaN), sold: true };
+    const record2 = { hour, a: new Float32Array(count3).fill(NaN), b: new Float32Array(count3).fill(NaN), p: new Float32Array(count3).fill(NaN), v: new Float32Array(count3).fill(NaN), sold: true };
     for (const [i, entry] of entries) {
-      if (entry?.a > 0) record.a[i] = entry.a;
-      if (entry?.b > 0) record.b[i] = entry.b;
-      if (entry?.p > 0) record.p[i] = entry.p;
-      if (entry?.v > 0) record.v[i] = entry.v;
+      if (entry?.a > 0) record2.a[i] = entry.a;
+      if (entry?.b > 0) record2.b[i] = entry.b;
+      if (entry?.p > 0) record2.p[i] = entry.p;
+      if (entry?.v > 0) record2.v[i] = entry.v;
     }
-    return record;
+    return record2;
   }
   function itemMap(keys, items, index) {
     return keys.map((key2) => {
@@ -2574,12 +2578,12 @@
       return index.get(key2);
     });
   }
-  function remapRecord(record, map, count3, fields) {
+  function remapRecord(record2, map, count3, fields) {
     const out = {};
-    for (const [k, v] of Object.entries(record)) if (!fields.includes(k)) out[k] = v;
+    for (const [k, v] of Object.entries(record2)) if (!fields.includes(k)) out[k] = v;
     for (const f of fields) {
       const values = emptyOf(f, count3);
-      const from = record[f];
+      const from = record2[f];
       if (from) for (let j2 = 0; j2 < from.length && j2 < map.length; j2++) values[map[j2]] = from[j2];
       out[f] = values;
     }
@@ -2615,10 +2619,10 @@
   }
   function rollUpDays(hourlyRecords, itemCount) {
     const byDay = /* @__PURE__ */ new Map();
-    for (const record of hourlyRecords) {
-      const day = Math.floor(record.hour / 24);
+    for (const record2 of hourlyRecords) {
+      const day = Math.floor(record2.hour / 24);
       if (!byDay.has(day)) byDay.set(day, []);
-      byDay.get(day).push(record);
+      byDay.get(day).push(record2);
     }
     return [...byDay].map(([day, records]) => {
       const out = { day, a: new Float32Array(itemCount), b: new Float32Array(itemCount), aLow: new Float32Array(itemCount), aHigh: new Float32Array(itemCount), bLow: new Float32Array(itemCount), bHigh: new Float32Array(itemCount), n: new Uint8Array(itemCount), p: new Float32Array(itemCount), v: new Float32Array(itemCount), vn: new Uint8Array(itemCount) };
@@ -2835,8 +2839,8 @@
       const stamped = Math.abs(timestamp * 1e3 - Date.now()) < 3 * HOUR_MS;
       const hour = Math.floor((stamped ? timestamp * 1e3 : Date.now()) / HOUR_MS);
       if (store2.pi?.hour >= hour) return false;
-      const record = snapshotRecord(marketData, hour, store2.items, store2.index);
-      await commit([record], [], { last: timestamp ?? null });
+      const record2 = snapshotRecord(marketData, hour, store2.items, store2.index);
+      await commit([record2], [], { last: timestamp ?? null });
       store2.last = timestamp ?? null;
       return true;
     });
@@ -4487,8 +4491,8 @@
   }
   function reportLog() {
     const L = j.ledger;
-    const log = (state.lootLog || []).filter((e2) => counted(e2.actionHrid) && time(e2.startTime) !== null);
-    const todo = log.filter((e2) => running(e2) ? ended(e2) : ended(e2) && (!L.history[entryKey(e2)] || stale(L.history[entryKey(e2)], e2)));
+    const log2 = (state.lootLog || []).filter((e2) => counted(e2.actionHrid) && time(e2.startTime) !== null);
+    const todo = log2.filter((e2) => running(e2) ? ended(e2) : ended(e2) && (!L.history[entryKey(e2)] || stale(L.history[entryKey(e2)], e2)));
     if (!todo.length || !whenReady(() => (reportLog(), schedule()))) return;
     const data = getClientData();
     for (const e2 of todo.sort((a, b) => time(a.endTime) - time(b.endTime))) {
@@ -4906,8 +4910,8 @@
       inventory.set(key2, entry);
     };
     for (const item of owned) {
-      const worn = item.itemLocationHrid !== INVENTORY3;
-      if (worn && !GEAR_TYPES.includes(item.itemLocationHrid?.split("/").pop())) continue;
+      const worn2 = item.itemLocationHrid !== INVENTORY3;
+      if (worn2 && !GEAR_TYPES.includes(item.itemLocationHrid?.split("/").pop())) continue;
       const left = (item.count ?? 1) - (taken.get(item) ?? 0);
       if (left > 0) stash(item.itemHrid, item.enhancementLevel || 0, left);
     }
@@ -5031,7 +5035,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.67.0" : "dev";
+  var VERSION = true ? "0.68.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5554,10 +5558,10 @@
       }
       if (type === "off_hand" && profile.equipment.two_hand) continue;
       const current = profile.equipment[type];
-      const worn = current?.hrid === item.hrid && !(starter && weapon) ? current : null;
+      const worn2 = current?.hrid === item.hrid && !(starter && weapon) ? current : null;
       const taken = displaced(profile, type, starter);
       const resale = taken.reduce((sum, gear) => sum + resaleOf(gear, data), 0);
-      let options = gearOptions(profile, item.hrid, budget, { worn, enhanceCost, resale });
+      let options = gearOptions(profile, item.hrid, budget, { worn: worn2, enhanceCost, resale });
       if (type === "pouch") options = options.slice(0, 1);
       for (const option of options) {
         if (current && current.hrid === item.hrid && current.enhancementLevel >= option.enhancementLevel) continue;
@@ -5599,7 +5603,7 @@
     return candidates;
   }
   var MAX_LEVELS = 5;
-  function gearOptions(profile, hrid, budget, { worn = null, enhanceCost = null, resale = 0 } = {}) {
+  function gearOptions(profile, hrid, budget, { worn: worn2 = null, enhanceCost = null, resale = 0 } = {}) {
     const owned = profile.inventory.filter((i) => i.hrid === hrid).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
     const options = owned ? [{ enhancementLevel: owned.enhancementLevel, price: 0, resale, cost: 0, owned: true }] : [];
     const cheapest = /* @__PURE__ */ new Map();
@@ -5614,7 +5618,7 @@
     for (const listing of marketListings(hrid)) offer({ enhancementLevel: listing.enhancementLevel, cost: listing.price, owned: false });
     if (enhanceCost) {
       const starts = [];
-      if (worn) starts.push({ from: worn.enhancementLevel, base: 0, start: "worn" });
+      if (worn2) starts.push({ from: worn2.enhancementLevel, base: 0, start: "worn" });
       if (owned) starts.push({ from: owned.enhancementLevel, base: 0, start: "owned" });
       const ask = askPrice(hrid, 0);
       if (ask !== null) starts.push({ from: 0, base: ask, start: "buy" });
@@ -6689,8 +6693,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     const total = (s2) => s2.skillHrid.endsWith("/total_level");
     const skills = (c2.characterSkills || []).filter((s2) => s2.skillHrid).sort((a, b) => total(b) - total(a) || b.level - a.level || (b.experience || 0) - (a.experience || 0)).map((s2) => `${words(s2.skillHrid)} ${s2.level}${s2.experience !== void 0 && s2.experience !== null ? ` (${n(s2.experience)} XP)` : ""}`);
     section("Levels", [skills.join(" \xB7 ")]);
-    const worn = items.filter((i) => i.itemHrid && i.itemLocationHrid && i.itemLocationHrid !== INVENTORY_LOCATION);
-    section("Equipment", worn.map((i) => `${words(i.itemLocationHrid)}: ${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`));
+    const worn2 = items.filter((i) => i.itemHrid && i.itemLocationHrid && i.itemLocationHrid !== INVENTORY_LOCATION);
+    section("Equipment", worn2.map((i) => `${words(i.itemLocationHrid)}: ${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`));
     const drinks = Object.entries(c2.actionTypeDrinkSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
     section("Drinks in slots", drinks);
     const food = Object.entries(c2.actionTypeFoodSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
@@ -6796,8 +6800,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return { events, seen: next };
   }
-  function notePrediction(snapshot, now = Date.now()) {
-    o.shown.set(`${snapshot.side}|${snapshot.item}|${snapshot.level}`, { ...snapshot, shownAt: now });
+  function notePrediction(snapshot2, now = Date.now()) {
+    o.shown.set(`${snapshot2.side}|${snapshot2.item}|${snapshot2.level}`, { ...snapshot2, shownAt: now });
   }
   function predictionFor(order, now = Date.now()) {
     const shown = o.shown.get(`${order.side}|${order.item}|${order.level}`);
@@ -6851,6 +6855,265 @@ i.mwia-history-bid { background: #7ee2b0; }
     });
   }
 
+  // src/labyrinth-log.js
+  var KEY2 = "mwia-laby-attempts";
+  var PREV_KEY = "mwia-laby-prev";
+  var MAX_KEPT = 600;
+  var SKILLING = "/labyrinth_room_types/skilling";
+  var FAIL = /fail/i;
+  var REFRESH_MS = 2e3;
+  var g = { log: null, prev: void 0, predict: null, timer: null, listeners: /* @__PURE__ */ new Set() };
+  function failsOf(room) {
+    let n3 = 0;
+    for (const [k, v] of Object.entries(room || {})) if (FAIL.test(k) && Number.isFinite(v)) n3 += v;
+    return n3;
+  }
+  var roomKey = (room) => room?.monsterHrid || room?.skillHrid || "";
+  function roomOutcomes(before, after) {
+    if (!before?.roomData || !after?.roomData) return [];
+    if (before.currentFloor !== after.currentFloor || before.startedAt && after.startedAt && before.startedAt !== after.startedAt) return [];
+    const out = [];
+    after.roomData.forEach((row, r) => (row || []).forEach((room, c2) => {
+      const was = before.roomData[r]?.[c2];
+      if (!room || !was || !roomKey(room) || roomKey(room) !== roomKey(was) || was.isCleared) return;
+      const failsBefore = failsOf(was);
+      const fails = failsOf(room);
+      for (let f = failsBefore + 1; f <= fails; f++) out.push({ row: r, col: c2, room, outcome: "loss", fails: f, failsBefore: f - 1 });
+      if (room.isCleared) out.push({ row: r, col: c2, room, outcome: "win", fails, failsBefore });
+    }));
+    const used = (Number(before.shroudCount) || 0) - (Number(after.shroudCount) || 0);
+    const cleared = out.filter((x) => x.outcome === "win");
+    if (used > 0) for (const x of cleared) x.outcome = cleared.length <= used ? "shroud" : "cleared";
+    return out;
+  }
+  var normal = (s2) => String(s2 || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  function roomLoadoutId(setting, room) {
+    const name = normal(roomKey(room).split("/").pop());
+    if (!name || !setting) return null;
+    for (const [k, v] of Object.entries(setting)) if (k.startsWith("labyrinthLoadout") && normal(k.slice(16)) === name) return v;
+    return null;
+  }
+  function hashItem(hash2) {
+    const parts = String(hash2 || "").split("::");
+    const hrid = parts.find((p2) => p2.startsWith("/items/"));
+    if (!hrid) return null;
+    const last = parts[parts.length - 1];
+    return `${hrid}+${/^\d+$/.test(last) ? last : 0}`;
+  }
+  function loadoutOf(character, id) {
+    const l2 = id ? character?.characterLoadoutMap?.[id] : null;
+    if (!l2) return null;
+    const gear = {};
+    for (const [location2, hash2] of Object.entries(l2.wearableMap || {})) {
+      const item = hashItem(hash2);
+      if (item) gear[location2.split("/").pop()] = item;
+    }
+    return { id: String(id), name: l2.name || "Loadout", gear, abilities: Object.values(l2.abilityMap || {}).filter(Boolean), food: (l2.foodItemHrids || []).filter(Boolean), drinks: (l2.drinkItemHrids || []).filter(Boolean) };
+  }
+  function worn(character) {
+    const gear = {};
+    for (const item of character?.characterItems || []) {
+      const at2 = item.itemLocationHrid;
+      if (!at2 || at2 === "/item_locations/inventory" || !(item.count ?? 1)) continue;
+      gear[at2.split("/").pop()] = `${item.itemHrid}+${item.enhancementLevel || 0}`;
+    }
+    return gear;
+  }
+  function snapshot(labyrinth, character) {
+    const levels = {};
+    for (const s2 of character?.characterSkills || []) levels[s2.skillHrid.split("/").pop()] = s2.level;
+    const info = character?.characterInfo || {};
+    const shop = {};
+    for (const [k, v] of Object.entries(info)) if (/^labyrinth/.test(k) && Number.isFinite(v)) shop[k.slice(9)] = v;
+    const predictions = {};
+    if (g.predict) {
+      labyrinth.roomData.forEach((row, r) => (row || []).forEach((room, c2) => {
+        if (!room || room.isCleared || !roomKey(room)) return;
+        try {
+          const p2 = g.predict(room, labyrinth);
+          if (p2) predictions[`${r},${c2}`] = p2;
+        } catch {
+        }
+      }));
+    }
+    return {
+      at: Date.now(),
+      labyrinth,
+      levels,
+      worn: worn(character),
+      setting: character?.characterSetting || null,
+      loadouts: character?.characterLoadoutMap || null,
+      shop,
+      predictions
+    };
+  }
+  function record(x, snap, now, late) {
+    const lab = snap.labyrinth;
+    const skilling = x.room.roomType === SKILLING || !!x.room.skillHrid;
+    const skill = skilling ? x.room.skillHrid.split("/").pop() : null;
+    const levels = {};
+    for (const s2 of skilling ? [skill] : COMBAT_SKILLS) if (snap.levels[s2] !== void 0) levels[s2] = snap.levels[s2];
+    const loadoutId = roomLoadoutId(snap.setting, x.room);
+    const predicted = snap.predictions[`${x.row},${x.col}`] || null;
+    return {
+      uid: [lab.characterID, lab.startedAt || "", lab.currentFloor, x.row, x.col, x.outcome === "loss" ? "loss" : "end", x.fails].join("|"),
+      at: now,
+      late: !!late,
+      floor: lab.currentFloor,
+      row: x.row,
+      col: x.col,
+      type: skilling ? "skilling" : "combat",
+      what: skilling ? skill : x.room.monsterHrid.split("/").pop(),
+      level: x.room.recommendedLevel,
+      outcome: x.outcome,
+      fails: x.fails,
+      levels,
+      loadout: loadoutId ? loadoutOf({ characterLoadoutMap: snap.loadouts }, loadoutId) || { id: String(loadoutId) } : null,
+      worn: snap.worn,
+      crates: { tea: lab.teaCrateItemHrid || null, coffee: lab.coffeeCrateItemHrid || null, food: lab.foodCrateItemHrid || null },
+      shop: snap.shop,
+      predicted: predicted && predicted.how === "check" ? { ...predicted, forChosen: String(predicted.best) === String(loadoutId) } : predicted,
+      run: lab.startedAt || null
+    };
+  }
+  function load3() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY2) || "null");
+      if (saved && Array.isArray(saved.list)) return { list: saved.list, unsent: saved.unsent || [], piSeq: saved.piSeq || 0 };
+    } catch {
+    }
+    return { list: [], unsent: [], piSeq: 0 };
+  }
+  var log = () => g.log || (g.log = load3());
+  function save3() {
+    const L = log();
+    try {
+      localStorage.setItem(KEY2, JSON.stringify(L));
+    } catch {
+      L.list.splice(0, Math.ceil(L.list.length / 3));
+      try {
+        localStorage.setItem(KEY2, JSON.stringify(L));
+      } catch {
+      }
+    }
+  }
+  function addAttempts(attempts, { fromPi = false } = {}) {
+    const L = log();
+    const have5 = new Set(L.list.map((a) => a.uid));
+    let added = 0;
+    for (const a of attempts) {
+      if (!a?.uid || have5.has(a.uid)) continue;
+      have5.add(a.uid);
+      L.list.push(a);
+      if (!fromPi) L.unsent.push(a.uid);
+      added++;
+    }
+    if (!added) return 0;
+    L.list.sort((a, b) => a.at - b.at);
+    if (L.list.length > MAX_KEPT) L.list.splice(0, L.list.length - MAX_KEPT);
+    const kept = new Set(L.list.map((a) => a.uid));
+    L.unsent = L.unsent.filter((u) => kept.has(u));
+    save3();
+    for (const fn of g.listeners) fn();
+    return added;
+  }
+  var labyrinthAttempts = () => log().list;
+  var onAttemptsChanged = (fn) => g.listeners.add(fn);
+  function attemptsForPi() {
+    const L = log();
+    const unsent = new Set(L.unsent);
+    return L.list.filter((a) => unsent.has(a.uid));
+  }
+  function attemptsSentToPi(uids) {
+    const L = log();
+    const sent = new Set(uids);
+    L.unsent = L.unsent.filter((u) => !sent.has(u));
+    save3();
+  }
+  var attemptsPiSeq = () => log().piSeq;
+  function attemptsFromPi(wire) {
+    if (!Array.isArray(wire?.attempts)) return;
+    addAttempts(wire.attempts.map((x) => x.attempt).filter(Boolean), { fromPi: true });
+    const L = log();
+    if (Number.isFinite(wire.seq)) {
+      L.piSeq = wire.seq;
+      save3();
+    }
+  }
+  function loadPrev() {
+    if (g.prev === void 0) {
+      try {
+        g.prev = JSON.parse(localStorage.getItem(PREV_KEY) || "null");
+      } catch {
+        g.prev = null;
+      }
+    }
+    return g.prev;
+  }
+  function keepPrev(snap) {
+    g.prev = snap;
+    try {
+      if (snap) localStorage.setItem(PREV_KEY, JSON.stringify(snap));
+      else localStorage.removeItem(PREV_KEY);
+    } catch {
+    }
+  }
+  function onLabyrinth(labyrinth, late) {
+    const prev = loadPrev();
+    if (prev?.labyrinth && labyrinth) {
+      const now = Date.now();
+      const found = roomOutcomes(prev.labyrinth, labyrinth).map((x) => record(x, prev, now, late));
+      if (found.length) addAttempts(found);
+    }
+    keepPrev(labyrinth?.isActive && Array.isArray(labyrinth.roomData) ? snapshot(labyrinth, state.character) : null);
+  }
+  function refreshSoon() {
+    clearTimeout(g.timer);
+    g.timer = setTimeout(() => {
+      try {
+        const lab = state.labyrinth;
+        if (lab?.isActive && Array.isArray(lab.roomData) && loadPrev()?.labyrinth) keepPrev(snapshot(lab, state.character));
+      } catch (error) {
+        console.warn("[MWI Advisor] labyrinth log", error);
+      }
+    }, REFRESH_MS);
+  }
+  function startLabyrinthLog(deps) {
+    g.predict = deps.predict;
+    onStateChange((type) => {
+      try {
+        if (type === "init_character_data") onLabyrinth(state.labyrinth, true);
+        else if (type === "labyrinth_updated") onLabyrinth(state.labyrinth, false);
+        else if (state.labyrinth?.isActive) refreshSoon();
+      } catch (error) {
+        console.warn("[MWI Advisor] labyrinth log", error);
+      }
+    });
+    if (state.character) onLabyrinth(state.labyrinth, true);
+  }
+  var labyrinthCheckChanged = () => state.labyrinth?.isActive && refreshSoon();
+  function attemptSummary(list = labyrinthAttempts()) {
+    const by = /* @__PURE__ */ new Map();
+    for (const a of list) {
+      const k = `${a.type}|${a.what}`;
+      const s2 = by.get(k) || { type: a.type, what: a.what, tries: 0, wins: 0, losses: 0, shrouds: 0, predicted: 0, predictedN: 0, levels: [], last: 0 };
+      if (a.outcome === "loss") s2.losses++;
+      else if (a.outcome === "win") s2.wins++;
+      else s2.shrouds++;
+      if (a.outcome === "loss" || a.outcome === "win") {
+        s2.tries++;
+        s2.levels.push(a.level);
+        if (Number.isFinite(a.predicted?.win)) {
+          s2.predicted += a.predicted.win;
+          s2.predictedN++;
+        }
+      }
+      s2.last = Math.max(s2.last, a.at);
+      by.set(k, s2);
+    }
+    return [...by.values()].map((s2) => ({ ...s2, won: s2.tries ? s2.wins / s2.tries : null, predicted: s2.predictedN ? s2.predicted / s2.predictedN : null, minLevel: s2.levels.length ? Math.min(...s2.levels) : null, maxLevel: s2.levels.length ? Math.max(...s2.levels) : null })).sort((a, b) => b.tries - a.tries || b.last - a.last);
+  }
+
   // src/pi-sync.js
   var CONFIG_KEY = "mwia-pi";
   var SYNC_EVERY_MS = 15 * 60 * 1e3;
@@ -6859,8 +7122,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   var ORDER_BATCH = 100;
   var ORDER_BATCHES = 10;
   var JOB_BATCH = 25;
-  var NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null };
-  var p = { running: null, sending: null, jobSync: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: /* @__PURE__ */ new Set() };
+  var ATTEMPT_BATCH = 100;
+  var NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null, labyrinth: null };
+  var p = { running: null, sending: null, jobSync: null, labSync: null, labTimer: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: /* @__PURE__ */ new Set() };
   function readPairing(win2) {
     const match = /(?:^#|&)mwia-pi=([A-Za-z0-9_-]+)/.exec(win2.location.hash);
     if (!match) return;
@@ -6898,6 +7162,10 @@ i.mwia-history-bid { background: #7ee2b0; }
       clearTimeout(p.jobsTimer);
       if (p.status.jobs) p.jobsTimer = setTimeout(syncJobs, ORDERS_AFTER_MS);
     });
+    onAttemptsChanged(() => {
+      clearTimeout(p.labTimer);
+      if (p.status.labyrinth && attemptsForPi().length) p.labTimer = setTimeout(syncLabyrinth, ORDERS_AFTER_MS);
+    });
     useJobSync(() => piConfig() && p.status.jobs ? syncJobs() : Promise.resolve());
     setTimeout(syncNow, FIRST_SYNC_MS);
     setInterval(syncNow, SYNC_EVERY_MS);
@@ -6926,9 +7194,11 @@ i.mwia-history-bid { background: #7ee2b0; }
         added = result.hours > 0 || result.days > 0;
         const takesOrders = !!wire.status?.orders;
         const takesJobs = !!wire.status?.jobs;
-        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null };
+        const takesLabyrinth = !!wire.status?.labyrinth;
+        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? p.status.labyrinth || { at: null, error: "" } : null };
         if (takesOrders) await sendOrders();
         if (takesJobs) await syncJobs();
+        if (takesLabyrinth) await syncLabyrinth();
       } catch (error) {
         p.status = { ...p.status, ok: false, error: error.message || String(error) };
       } finally {
@@ -7003,6 +7273,43 @@ i.mwia-history-bid { background: #7ee2b0; }
       notify(false);
     })());
     return p.jobSync;
+  }
+  function syncLabyrinth() {
+    const config = piConfig();
+    if (!config || !p.status.labyrinth) return Promise.resolve();
+    p.labSync || (p.labSync = (async () => {
+      let error = "";
+      const headers = { Authorization: `Bearer ${config.key}` };
+      try {
+        for (let k = 0; k < ORDER_BATCHES; k++) {
+          const response = await fetch(`${config.url}/labyrinth?after=${attemptsPiSeq()}`, { headers, cache: "no-store", signal: AbortSignal.timeout?.(3e4) });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const wire = await response.json();
+          attemptsFromPi(wire);
+          if (!wire.more) break;
+        }
+        for (let k = 0; k < ORDER_BATCHES; k++) {
+          const attempts = attemptsForPi().slice(0, ATTEMPT_BATCH);
+          if (!attempts.length) break;
+          const sent = await fetch(`${config.url}/labyrinth`, {
+            method: "POST",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ device: deviceName(), attempts }),
+            cache: "no-store",
+            signal: AbortSignal.timeout?.(3e4)
+          });
+          if (!sent.ok) throw new Error(`HTTP ${sent.status}`);
+          attemptsSentToPi(attempts.map((a) => a.uid));
+        }
+      } catch (e2) {
+        error = e2.message || String(e2);
+      } finally {
+        p.labSync = null;
+      }
+      p.status = { ...p.status, labyrinth: { at: Date.now(), error } };
+      notify(false);
+    })());
+    return p.labSync;
   }
 
   // src/price-history-ui.js
@@ -7135,7 +7442,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const ordersText = !orders ? "" : orders.error ? ` Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.` : orders.at ? ` Your orders: ${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"}, sent ${time2(orders.at)}.` : "";
     const jobs = st.jobs;
     const jobsText = !jobs ? "" : jobs.error ? ` Job results couldn't be synced (${jobs.error}).` : jobs.at ? ` Job results synced ${time2(jobs.at)}.` : "";
-    return `<div class="mwia-history-note">${esc(text + ordersText + jobsText)}</div>
+    const lab = st.labyrinth;
+    const labText = !lab ? "" : lab.error ? ` Labyrinth attempts couldn't be synced (${lab.error}).` : lab.at ? ` Labyrinth attempts synced ${time2(lab.at)}.` : "";
+    return `<div class="mwia-history-note">${esc(text + ordersText + jobsText + labText)}</div>
         <div class="mwia-history-ranges"><button data-history-pi="sync">\u21BB Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
   }
   function onClick(event) {
@@ -7242,7 +7551,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var SETUPS_KEY = "mwia-combat-setups";
   var HOURS_PER_DAY2 = 24;
   var FIGHT_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-  var g = { deps: null, scanTimer: null, loading: null, statuses: /* @__PURE__ */ new Map(), hours: /* @__PURE__ */ new Map() };
+  var g2 = { deps: null, scanTimer: null, loading: null, statuses: /* @__PURE__ */ new Map(), hours: /* @__PURE__ */ new Map() };
   var coins4 = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
   var have2 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
   var slotItems = (map, type) => (state.character?.[map]?.[type] || []).map((slot) => slot?.itemHrid).filter(Boolean);
@@ -7269,7 +7578,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   function startConsumableGuide(deps) {
-    g.deps = deps;
+    g2.deps = deps;
     onStateChange(() => scheduleScan4());
     new MutationObserver((records) => {
       if (records.every((r) => r.target.closest?.(".mwia-guide-box"))) return;
@@ -7278,9 +7587,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     document.addEventListener("click", onClick2, true);
   }
   function scheduleScan4() {
-    if (g.scanTimer) return;
-    g.scanTimer = setTimeout(() => {
-      g.scanTimer = null;
+    if (g2.scanTimer) return;
+    g2.scanTimer = setTimeout(() => {
+      g2.scanTimer = null;
       try {
         scan3();
       } catch (error) {
@@ -7298,20 +7607,20 @@ i.mwia-history-bid { background: #7ee2b0; }
     const panels = openActionPanels();
     const leveling2 = levelingPanels();
     if ((panels.length || leveling2.length) && (!getClientData() || !pricesStamp())) {
-      g.loading || (g.loading = g.deps.prepare().then(scheduleScan4, (error) => console.warn("[MWI Advisor] action window", error)).finally(() => g.loading = null));
+      g2.loading || (g2.loading = g2.deps.prepare().then(scheduleScan4, (error) => console.warn("[MWI Advisor] action window", error)).finally(() => g2.loading = null));
       return;
     }
     for (const { panel, name, buttons } of panels) {
       const action = actionByName(name);
       if (!action) continue;
-      const html = action.type === COMBAT2 ? combatHtml(action, panelTier(panel)) : skillingHtml(state.character ? skillingAdvice(action.hrid, g.deps.settings()) : null);
+      const html = action.type === COMBAT2 ? combatHtml(action, panelTier(panel)) : skillingHtml(state.character ? skillingAdvice(action.hrid, g2.deps.settings()) : null);
       if (html) shown.add(placeBox(panel, buttons, action.hrid, html));
     }
     for (const { panel, kind, itemHash, target, tab, buttons } of leveling2) {
       const itemHrid = itemOfHash(itemHash);
       if (!itemHrid || !state.character || kind === "alchemy" && !tab) continue;
       const actionHrid = kind === "enhancing" ? "/actions/enhancing/enhance" : `/actions/alchemy/${tab.toLowerCase()}`;
-      const html = skillingHtml(skillingAdvice(actionHrid, g.deps.settings(), { itemHrid, target, level: levelOfHash(itemHash) }));
+      const html = skillingHtml(skillingAdvice(actionHrid, g2.deps.settings(), { itemHrid, target, level: levelOfHash(itemHash) }));
       if (html) shown.add(placeBox(panel, buttons, `${actionHrid}#${itemHrid}+${target ?? ""}`, html));
     }
     document.querySelectorAll(".mwia-guide-box").forEach((box) => shown.has(box) || box.remove());
@@ -7324,7 +7633,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (buttons) buttons.insertAdjacentElement("beforebegin", box);
       else panel.appendChild(box);
     }
-    const status = g.statuses.get(key2);
+    const status = g2.statuses.get(key2);
     const full = html + (status ? `<div class="mwia-guide-status">${esc(status)}</div>` : "");
     if (box.dataset.action !== key2 || box.dataset.html !== full) {
       box.dataset.action = key2;
@@ -7344,7 +7653,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     return `<button class="mwia-guide-cart" data-guide-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(title)}">${label3}</button>`;
   }
   function skillingHtml(entry) {
-    const settings2 = g.deps.settings();
+    const settings2 = g2.deps.settings();
     if (!entry) return "";
     const best = entry.betterTeas ? entry.best.result.teas : entry.current.teas;
     const current = entry.current.teas;
@@ -7381,7 +7690,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!(rate2 > 0)) return `<div class="mwia-guide-note mwia-guide-dim">Press <b>Analyze upgrades</b> again for this zone to get buttons that fill in the fights for a number of hours.</div>`;
     const analysed = setup.tier || 0;
     if (tier !== null && tier !== analysed) return `<div class="mwia-guide-note mwia-guide-dim">The advice is for T${analysed}. Pick T${tier} as the zone's tier under <b>Upgrades</b> and analyze it for drinks, food and fight counts at T${tier}.</div>`;
-    const picked = g.hours.get(action.hrid);
+    const picked = g2.hours.get(action.hrid);
     const buttons = FIGHT_HOURS.map((h2) => `<button class="mwia-guide-hour${h2 === picked ? " mwia-guide-picked" : ""}" data-guide-hours="${h2}" title="${Math.max(1, Math.round(rate2 * h2)).toLocaleString("en-US")} fights">${h2}</button>`).join("");
     return `<div class="mwia-guide-sub">Fights for hours <span>\xB7 ${Math.round(rate2).toLocaleString("en-US")} an hour</span></div><div class="mwia-guide-hours">${buttons}</div>`;
   }
@@ -7408,7 +7717,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const foodNow = slotItems("actionTypeFoodSlotsMap", COMBAT2);
     const all = [...setup.drinks, ...setup.food].filter(Boolean);
     const done2 = all.every((hrid) => drinksNow.includes(hrid) || foodNow.includes(hrid)) && [...drinksNow, ...foodNow].every((hrid) => all.includes(hrid));
-    const picked = setup.encountersPerHour > 0 && (tier === null || tier === (setup.tier || 0)) ? g.hours.get(action.hrid) : null;
+    const picked = setup.encountersPerHour > 0 && (tier === null || tier === (setup.tier || 0)) ? g2.hours.get(action.hrid) : null;
     const need = (hrid) => picked ? Math.ceil((setup.perHour?.[hrid] || 0) * picked) : perDay2(hrid);
     const items = all.filter((hrid) => have2(hrid) < need(hrid)).map((hrid) => ({ hrid, quantity: need(hrid) - have2(hrid) }));
     return head("\u2615 Drinks and food", `MWI Advisor \xB7 ${esc(actionName(action.hrid))}${setup.tier ? ` T${setup.tier}` : ""}, analysed ${age}`) + part("Drinks", setup.drinks, drinksNow) + part("Food", setup.food, foodNow) + `<div class="mwia-guide-note">${done2 ? "\u2713 Your slots match the advice." : "Set your slots as above before you start."}</div>` + fightsHtml(action, setup, tier) + cartButton(items, `\u{1F6D2} What's missing for ${picked ? `${picked} h` : "1 day"}`);
@@ -7422,9 +7731,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const hours = Number(button2.dataset.guideHours);
     const fights = Math.max(1, Math.round(rate2 * hours));
     const input = findActionPanel(action.name)?.input;
-    g.hours.set(actionHrid, hours);
+    g2.hours.set(actionHrid, hours);
     if (input) setReactInput(input, fights);
-    g.statuses.set(actionHrid, input ? `${fights.toLocaleString("en-US")} fights \u2248 ${hours} h.` : `Could not find the Fight box: enter ${fights.toLocaleString("en-US")} yourself.`);
+    g2.statuses.set(actionHrid, input ? `${fights.toLocaleString("en-US")} fights \u2248 ${hours} h.` : `Could not find the Fight box: enter ${fights.toLocaleString("en-US")} yourself.`);
     scheduleScan4();
   }
   async function onClick2(event) {
@@ -7442,15 +7751,15 @@ i.mwia-history-bid { background: #7ee2b0; }
     const actionHrid = button2.closest(".mwia-guide-box").dataset.action;
     const label3 = (list) => list.map((i) => itemName(i.hrid)).join(", ");
     try {
-      const outcome = await g.deps.addToCart(JSON.parse(button2.dataset.guideCart));
+      const outcome = await g2.deps.addToCart(JSON.parse(button2.dataset.guideCart));
       const parts = [];
       if (outcome.added.length) parts.push(`added ${label3(outcome.added)}`);
       if (outcome.updated.length) parts.push(`topped up ${label3(outcome.updated)}`);
       if (outcome.present.length) parts.push(`${label3(outcome.present)} already in the cart`);
       if (outcome.failed.length) parts.push(`could not add ${label3(outcome.failed)}`);
-      g.statuses.set(actionHrid, "Cart: " + parts.join("; ") + ".");
+      g2.statuses.set(actionHrid, "Cart: " + parts.join("; ") + ".");
     } catch (error) {
-      g.statuses.set(actionHrid, error.message);
+      g2.statuses.set(actionHrid, error.message);
     }
     scheduleScan4();
   }
@@ -7575,7 +7884,7 @@ i.mwia-history-bid { background: #7ee2b0; }
 
   // src/tea-slots.js
   var SCAN_MS6 = 300;
-  var REFRESH_MS = 5 * 60 * 1e3;
+  var REFRESH_MS2 = 5 * 60 * 1e3;
   var TEA_HOURS = 8;
   var LABEL = /^consumables$/i;
   var SLOTS = '[class*="ActionTypeConsumableSlots_consumableSlots"], [class*="BattlePanel_combatConsumableGrid"]';
@@ -7663,7 +7972,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const drinks = (state.character.actionTypeDrinkSlotsMap?.[type] || []).map((slot) => slot?.itemHrid || null);
     const item = LEVELING_SKILLS.includes(skill) ? { itemHrid: itemOfHash(job.primaryItemHash), target: job.enhancingMaxLevel, level: levelOfHash(job.primaryItemHash) } : null;
     const key2 = [job.actionHrid, JSON.stringify(item), JSON.stringify(drinks), pricesStamp(), topActionKey(settings2)].join("|");
-    if (t2.key !== key2 || Date.now() - t2.at > REFRESH_MS) {
+    if (t2.key !== key2 || Date.now() - t2.at > REFRESH_MS2) {
       const entry = skillingAdvice(job.actionHrid, settings2, item);
       t2.advice = entry && { action: entry.action, name: adviceName(entry), entry, teas: entry.betterTeas ? entry.best.result.teas : entry.current.teas, drinks };
       t2.key = key2;
@@ -8503,6 +8812,18 @@ i.mwia-history-bid { background: #7ee2b0; }
     const who = data?.combatMonsterDetailMap?.[room.hrid]?.name || room.hrid.split("/").pop();
     return { win: win2, kind, title: `MWI Advisor: Lv.${room.level} ${who} \u2013 ${kind === "bad" ? "shroud it or go around; best" : "take"} ${loadout}: ${pct4(win2)} won` };
   }
+  function roomPrediction(room, labyrinth) {
+    if (room.skillHrid) {
+      const data = getClientData();
+      if (!state.character || !data) return null;
+      const r = skillingRoomChance({ skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel }, skillingWho(state.character, data, room.skillHrid.split("/").pop(), labyrinth.teaCrateItemHrid));
+      return { win: Math.round(1e3 * r.chance) / 1e3, how: "formula", success: Math.round(1e3 * r.success) / 1e3, tries: r.tries, needed: Number.isFinite(r.needed) ? r.needed : null };
+    }
+    const check = lastCheck();
+    const monster = check?.monsters.find((x) => x.hrid === room.monsterHrid);
+    if (!monster) return null;
+    return { win: Math.round(1e3 * (winAt(monster.curve, room.recommendedLevel) ?? 0)) / 1e3, how: "check", best: monster.setupId, bestName: monster.setupName, checkedAt: check.at };
+  }
   function skillingMark(room, labyrinth, data) {
     if (!state.character || !data) return null;
     const result = skillingRoomChance({ skill: room.skill, level: room.level }, skillingWho(state.character, data, room.skill, labyrinth.teaCrateItemHrid));
@@ -8540,24 +8861,24 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (let r = 0; r < runs; r++) {
       let level = start;
       let a = 0;
-      let g2 = 0;
+      let g3 = 0;
       let next = 0;
       while (level < top && a < cap3) {
         a++;
         if (random() < p2[level]) level += blessed > 0 && random() < blessed ? 2 : 1;
         else if (level >= from) {
-          g2++;
+          g3++;
           level--;
         } else level = 0;
         while (next < targets.length && level >= targets[next]) {
           out[targets[next]].attempts[r] = a;
-          out[targets[next]].protections[r] = g2;
+          out[targets[next]].protections[r] = g3;
           next++;
         }
       }
       for (; next < targets.length; next++) {
         out[targets[next]].attempts[r] = a;
-        out[targets[next]].protections[r] = g2;
+        out[targets[next]].protections[r] = g3;
       }
     }
     return out;
@@ -8913,7 +9234,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       } catch {
       }
     };
-    const save4 = () => {
+    const save5 = () => {
       const box = button2.getBoundingClientRect();
       try {
         localStorage.setItem(POSITION_KEY, JSON.stringify({ x: box.left / innerWidth, y: box.top / innerHeight }));
@@ -8936,7 +9257,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       place2(start.left + dx, start.top + dy);
     });
     const end = () => {
-      if (start && moved) save4();
+      if (start && moved) save5();
       start = null;
     };
     button2.addEventListener("pointerup", end);
@@ -9366,7 +9687,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var n2 = (value) => Math.ceil(value).toLocaleString("en-US");
   var characterId = () => state.character?.character?.id ?? null;
   var storeKey = () => STORE_PREFIX + (characterId() ?? "unknown");
-  function save3() {
+  function save4() {
     try {
       if (t3.train) localStorage.setItem(storeKey(), JSON.stringify(t3.train));
       else localStorage.removeItem(storeKey());
@@ -9417,7 +9738,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       t3.collapsed = isNarrow();
       t3.notice = null;
       rememberQueuedActions();
-      save3();
+      save4();
       render();
       if (train.stops.length) goToCurrent();
     } catch (error) {
@@ -9443,7 +9764,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     clearTimeout(t3.queueClickTimer);
     t3.train.index = Math.max(0, Math.min(t3.train.stops.length, t3.train.index + step));
     t3.notice = null;
-    save3();
+    save4();
     render();
     if (currentStop()) goToCurrent();
   }
@@ -9457,7 +9778,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     t3.train.stops = [...passed, ...all.filter((stop) => !done2.has(stop.actionHrid))];
     t3.train.index = passed.length;
     t3.notice = null;
-    save3();
+    save4();
     render();
   }
   function endTrain() {
@@ -9465,7 +9786,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     document.querySelectorAll(".mwia-train-target").forEach((node) => node.classList.remove("mwia-train-target"));
     t3.train = null;
     t3.notice = null;
-    save3();
+    save4();
     render();
   }
   function fillPanel() {
@@ -10626,7 +10947,25 @@ ${triggerWindowReport()}`, false);
       (and a purchase, under <b>Spending</b>, Frugal: 2 levels per 1M, Balanced: 0.5, All in: anything within the budget).</p>`;
     return html;
   }
-  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml2, slotted, setupsNote, cartButton: cartButton4, coins: coins9 = shortCoins }) {
+  var OUTCOME = { win: "\u2705 won", loss: "\u2716 lost", shroud: "\u{1F32B} shrouded", cleared: "cleared" };
+  function attemptName(a) {
+    return a.type === "combat" ? monsterName(`/monsters/${a.what}`) : cap2(a.what);
+  }
+  function attemptsHtml(summary, recent) {
+    let html = `<h3>Your attempts</h3>`;
+    if (!summary.length) {
+      return html + `<p class="mwia-dim">Each room you fight or skill in the Labyrinth is logged here from now on (and sent to your Pi when it takes them):
+          won, lost or shrouded, at what room level, with your levels, the loadout chosen for it, crates and shop upgrades, and the chance the advisor gave it.</p>`;
+    }
+    const levels = (s2) => s2.minLevel === null ? "\u2013" : s2.minLevel === s2.maxLevel ? String(s2.minLevel) : `${s2.minLevel}\u2013${s2.maxLevel}`;
+    html += `<table class="mwia-table"><thead><tr><th>Room</th><th title="Room levels tried">Level</th><th title="Fights or skilling tries (shrouds not counted)">Tries</th>
+      <th title="Share of the tries won">Won</th><th title="The advisor's average chance for those tries (combat: with the loadout the last check found best)">Advisor said</th><th title="Rooms shrouded">\u{1F32B}</th></tr></thead><tbody>
+      ${summary.map((s2) => `<tr><td>${esc(attemptName(s2))}</td><td>${levels(s2)}</td><td>${s2.tries}</td><td>${s2.won === null ? "\u2013" : `${pctText(s2.won)} <span class="mwia-dim">(${s2.wins}/${s2.tries})</span>`}</td>
+        <td>${s2.predicted === null ? "\u2013" : pctText(s2.predicted)}</td><td>${s2.shrouds || ""}</td></tr>`).join("")}</tbody></table>`;
+    html += `<details class="mwia-skill-sec"><summary>The latest ${recent.length}</summary><ol class="mwia-plan">${recent.map((a) => `<li>${new Date(a.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} \xB7 floor ${a.floor} \xB7 Lv.${a.level} ${esc(attemptName(a))}: ${OUTCOME[a.outcome] || a.outcome}${a.loadout?.name ? ` \xB7 ${esc(a.loadout.name)}` : ""}${a.predicted ? ` \xB7 advisor ${pctText(a.predicted.win)}${a.predicted.forChosen === false ? " (another loadout)" : ""}` : ""}${a.late ? ` <span class="mwia-dim" title="Found on login: it happened while the game was closed">(late)</span>` : ""}</li>`).join("")}</ol></details>`;
+    return html;
+  }
+  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml2, slotted, setupsNote, cartButton: cartButton4, coins: coins9 = shortCoins, attempts = "" }) {
     const level = roomLevelSetting(settings2);
     let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
       1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
@@ -10647,6 +10986,7 @@ ${triggerWindowReport()}`, false);
       if (improve) html += improveHtml(improve);
     }
     html += buildHtml(build, data, settings2, busy, settingsHtml2, cartButton4, coins9);
+    html += attempts;
     html += `<h3>On the Labyrinth map</h3>
       <p>Next: marks on the game's Labyrinth map (and later its automation settings) saying which loadout to use in each room. For that the script
       first has to learn how the game shows the Labyrinth: it keeps what the game sends about it while you play. After a run (or with the Labyrinth
@@ -10698,14 +11038,14 @@ ${triggerWindowReport()}`, false);
     return `{${entries.slice(0, 30).map(([k, v]) => `${k}: ${shapeOf(v, depth + 1)}`).join(", ")}${entries.length > 30 ? ", \u2026" : ""}}`;
   }
   function messageLines(lines) {
-    const log = labyrinthMessages();
-    if (!log.length) {
+    const log2 = labyrinthMessages();
+    if (!log2.length) {
       lines.push("messages: none mentioning the Labyrinth yet \u2013 open the Labyrinth (and a run, if you can) with the script on, then read again");
       return;
     }
-    lines.push(`messages: ${log.length} kept (${[...new Set(log.map((m2) => m2.type))].join(", ")})`);
+    lines.push(`messages: ${log2.length} kept (${[...new Set(log2.map((m2) => m2.type))].join(", ")})`);
     const latest = /* @__PURE__ */ new Map();
-    for (const m2 of log) latest.set(m2.type, m2);
+    for (const m2 of log2) latest.set(m2.type, m2);
     for (const m2 of latest.values()) {
       const data = attempt3(() => JSON.parse(m2.raw));
       lines.push(`\u2014 ${m2.type} (${m2.size} chars, ${new Date(m2.at).toISOString().slice(0, 16)}Z)`);
@@ -11017,6 +11357,7 @@ ${triggerWindowReport()}`, false);
     ui.labSetups = labyrinthSetups();
     ui.labResult = await analyzeLabyrinth(ui.pool, ui.labSetups, getClientData(), ui.settings, state.character, progress("Simulating Labyrinth rooms"));
     rememberLabyrinth(ui.labResult);
+    labyrinthCheckChanged();
   }
   async function doLabImprove() {
     if (!ui.labResult) await doLabyrinth();
@@ -11049,7 +11390,8 @@ ${triggerWindowReport()}`, false);
       slotted: { coffee: slottedCrate(state.character, "coffee"), food: slottedCrate(state.character, "food") },
       setupsNote: `<p class="mwia-dim">Loadouts: ${setups.map((s2) => `<b>${esc(s2.name)}</b>`).join(", ")}${setups.length < 2 ? " \u2013 save a loadout per combat style in the game to compare them here" : ""}.</p>`,
       cartButton: cartButton3,
-      coins: coins8
+      coins: coins8,
+      attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse())
     });
   }
   function rerateUpgrades() {
@@ -11382,6 +11724,12 @@ ${triggerWindowReport()}`, false);
     attempt4("Skilling: best now", () => getClientData() ? skillingExportLines(ui.settings) : []);
     if (ui.zoneResults) attempt4("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
     if (ui.labResult || ui.labBuild) attempt4("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.labBuild, ui.settings));
+    if (labyrinthAttempts().length) {
+      attempt4("Labyrinth attempts", () => [
+        ...attemptSummary().map((x) => `${x.type === "combat" ? x.what : x.what + " (skilling)"} Lv.${x.minLevel ?? "\u2013"}\u2013${x.maxLevel ?? "\u2013"}: won ${x.wins}/${x.tries}${x.predicted === null ? "" : ` \xB7 advisor ${Math.round(100 * x.predicted)}%`}${x.shrouds ? ` \xB7 ${x.shrouds} shrouded` : ""}`),
+        ...labyrinthAttempts().slice(-10).map((a) => JSON.stringify(a))
+      ]);
+    }
     if (ui.upgradeResult) attempt4("Upgrades (last run)", () => textOf(renderUpgrades(), "p, ol.mwia-plan > li").filter((line) => !line.startsWith("Tests one change")).slice(0, 20));
     return { settings: ui.settings, sections };
   }
@@ -11482,7 +11830,7 @@ ${triggerWindowReport()}`, false);
   }
   function costText2(c2) {
     if (!c2.cost && !c2.resale) return "(free)";
-    const sold = c2.resale ? ` (${coins8(c2.price)} \u2212 ${coins8(c2.resale)} selling your ${c2.sold.map((g2) => gearLabel(g2)).join(" and ")})` : "";
+    const sold = c2.resale ? ` (${coins8(c2.price)} \u2212 ${coins8(c2.resale)} selling your ${c2.sold.map((g3) => gearLabel(g3)).join(" and ")})` : "";
     return `for ${c2.cost ? coins8(c2.cost) : "nothing"}${sold}`;
   }
   var starterCart = (w) => w?.cost ? [{ hrid: w.hrid, quantity: 1, enhancementLevel: w.enhancementLevel }] : [];
@@ -11804,11 +12152,11 @@ ${triggerWindowReport()}`, false);
       return `<p>The script hasn't seen your character yet. It reads it when the game connects, so <b>reload the page (F5)</b> with the script enabled.</p>`;
     }
     if (getClientData() && pricesAge() !== null) return renderSkilling(ui.settings);
-    const load3 = ui.skillingLoad;
-    if (load3?.error) {
-      return `<div class="mwia-error">${esc(load3.error)}</div><button class="mwia-btn" data-action="skilling-load">Try again</button>`;
+    const load4 = ui.skillingLoad;
+    if (load4?.error) {
+      return `<div class="mwia-error">${esc(load4.error)}</div><button class="mwia-btn" data-action="skilling-load">Try again</button>`;
     }
-    if (!load3?.loading) {
+    if (!load4?.loading) {
       ui.skillingLoad = { loading: true };
       Promise.all([loadClientData(ui.win), loadPrices()]).then(() => ui.skillingLoad = null).catch((error) => ui.skillingLoad = { error: error.message || String(error) }).finally(() => ui.tab === "skilling" && render2());
     }
@@ -11879,7 +12227,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.67.0" : "dev";
+  var VERSION3 = true ? "0.68.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -12151,6 +12499,7 @@ ${triggerWindowReport()}`, false);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
+    startLabyrinthLog({ predict: roomPrediction });
     startEnhancePlan(gameDeps);
     watchTriggerClicks();
     startTriggerWindow({
@@ -12190,6 +12539,9 @@ ${triggerWindowReport()}`, false);
     });
     onHistoryChange(() => {
       if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "skilling") render2();
+    });
+    onAttemptsChanged(() => {
+      if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "labyrinth") render2();
     });
     onStateChange(() => {
       if (!root.classList.contains("mwia-hidden") && !ui.busy) {
