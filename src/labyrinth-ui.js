@@ -41,7 +41,7 @@ function crateSelect(settings, kind, slotted) {
 function floorSelect(level) {
     const options = Array.from({ length: FLOORS }, (_, i) => i + 1).map((f) => `<option value="${f}" ${floorLevel(f) === level ? "selected" : ""}>Floor ${f} (≈ level ${floorLevel(f)})</option>`);
     const custom = !options.some((o) => o.includes("selected"));
-    return `<label title="A guess: floor 1 at room level ${FLOOR_ONE_LEVEL} and about ${FLOOR_STEP} levels more per floor (a community guide). Type the room level if the game shows it.">Floor
+    return `<label title="Roughly: floor 1 at room level ${FLOOR_ONE_LEVEL} and about ${FLOOR_STEP} levels more per floor (in the game floor 1 had rooms at 23–40, floor 2 at 57–60). Type the room level the game shows for a room.">Floor
       <select data-setting="labyFloor">${custom ? `<option selected value="">Room level ${level}</option>` : ""}${options.join("")}</select></label>`;
 }
 
@@ -94,7 +94,7 @@ function summaryHtml(lab, level) {
         (win >= SAFE_WIN ? groups.fight : win >= RISKY_WIN ? groups.risky : groups.skip).push(esc(monsterName(m.hrid)));
     }
     const line = (label, list, cls) => (list.length ? `<br><span class="${cls}">${label}</span> ${list.join(", ")}` : "");
-    const floor = floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
+    const floor = floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, roughly)` : "";
     return `<div class="mwia-reco"><b>At room level ${level}${floor}</b>, each room type with its best loadout:
       ${line("✅ Fight:", groups.fight, "mwia-ok")}${line("⚠ Risky:", groups.risky, "mwia-warn")}${line("✖ Shroud or go around:", groups.skip, "mwia-bad")}
       ${groups.fight.length === lab.monsters.length ? "<br>You win every room type here safely – try a deeper floor." : ""}</div>`;
@@ -107,7 +107,7 @@ function monsterTable(lab, profileOf, data, level, improve) {
       <th title="The attack styles (and damage types) that hurt it most: the styles it hardly dodges and what its resistances let through">Weak to</th>
       ${several ? `<th title="Your saved loadout that goes furthest against it – set it for this room type in the game's Labyrinth automation">Loadout</th>` : ""}
       <th title="That loadout's best way of hitting it: ✓ when it is (close to) its weakness">Your hit</th>
-      <th class="mwia-num" title="Highest room level where you win at least ${pctText(SAFE_WIN)} of the rooms (the floor is a guess)">Safe up to</th>
+      <th class="mwia-num" title="Highest room level where you win at least ${pctText(SAFE_WIN)} of the rooms (the floor is rough)">Safe up to</th>
       <th class="mwia-num" title="Room level where you win half the rooms">50% at</th>
       <th>At level ${level}</th><th class="mwia-num" title="Typical time to win a room at this level (the limit is 2 minutes)">Win time</th>
       ${improve ? "<th>Better with</th>" : ""}</tr></thead><tbody>`;
@@ -280,7 +280,7 @@ export function renderLabyrinth({ lab, improve, build, profileOf, data, settings
     html += `<p class="mwia-dim">Each monster hardly dodges one or two attack styles and takes far more of one damage type (<b>Weak to</b>): the Labyrinth wants
       magic for some rooms, ranged for others and melee (stab, slash or smash) for the rest. Single-target damage is what counts in a 1-against-1 room.
       Shrouds clear a room without a fight (Basic: 2% fail chance per level above 50, Advanced above 100, Expert never fails).
-      Floors are a guess (floor 1 ≈ room level ${FLOOR_ONE_LEVEL}, +${FLOOR_STEP} a floor). Estimates from the community simulator's Labyrinth rules – the game can differ.</p>`;
+      Floors are rough (floor 1 ≈ room level ${FLOOR_ONE_LEVEL}, +${FLOOR_STEP} a floor; rooms on a floor differ). Estimates from the community simulator's Labyrinth rules – the game can differ.</p>`;
     return html;
 }
 

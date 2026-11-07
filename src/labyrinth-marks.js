@@ -3,7 +3,6 @@
 // furthest against it, whether it is the one chosen, and how often it wins at the room
 // level set in the advisor's Labyrinth tab – or "Shroud or go around" when even the best
 // loses. The last check is kept in this browser, so the marks stay after a reload.
-// ▶ Fill in picks each monster's loadout in the game's own dropdowns, as a tap would.
 // On the Labyrinth map, each room with a monster in sight gets the same mark at its own
 // room level (the game sends each room's monster and level).
 
@@ -12,7 +11,6 @@ import { esc } from "./format.js";
 import { onStateChange, state } from "./game-state.js";
 import { visible } from "./game-nav.js";
 import { RISKY_WIN, SAFE_WIN, floorAt, floorLevel, winAt } from "./labyrinth.js";
-import { pick } from "./trigger-fill.js";
 
 const SCAN_MS = 400;
 const STORE = "mwia-laby-check";
@@ -24,12 +22,9 @@ const NOTE = "mwia-laby-note";
 const GRID = '[class*="LabyrinthPanel_roomGrid"]';
 const CELL = '[class*="LabyrinthPanel_roomCell"]';
 const CELL_MARK = "mwia-laby-cellmark";
-const LEGEND = "mwia-laby-legend";
 
-const FILL = "mwia-laby-fill";
-const COMBO = '[role="combobox"]';
 
-const m = { deps: null, scanTimer: null, stored: undefined, filling: false, status: "" };
+const m = { deps: null, scanTimer: null, stored: undefined };
 const pct = (x) => `${Math.round(100 * x)}%`;
 
 // The check, small enough to keep: per monster its best loadout and the win curve.
@@ -63,65 +58,11 @@ function lastCheck() {
 export function startLabyrinthMarks(deps) {
     m.deps = deps;
     new MutationObserver((records) => {
-        if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}, .${CELL_MARK}, .${LEGEND}`))) return; // our own marks
+        if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}, .${CELL_MARK}`))) return; // our own marks
         scheduleScan();
     }).observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("click", onClick, true);
     onStateChange(() => scheduleScan());
     scheduleScan();
-}
-
-function onClick(event) {
-    const button = event.target.closest?.(`.${FILL}`);
-    if (!button) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const table = button.closest(`.${NOTE}`)?.nextElementSibling;
-    if (table?.matches(TABLE)) fill(table);
-}
-
-// Each monster's row set to the loadout that goes furthest against it – also where the advice is
-// to shroud the room, so a fight you can't avoid is fought with the best you have.
-async function fill(table) {
-    const check = lastCheck();
-    if (!check || m.filling) return;
-    m.filling = true;
-    m.status = "Filling in…";
-    scheduleScan();
-    const data = getClientData();
-    const name = (monster) => data?.combatMonsterDetailMap?.[monster.hrid]?.name || monster.hrid.split("/").pop();
-    let changed = 0;
-    let right = 0;
-    const failed = [];
-    const unsaved = [];
-    try {
-        const count = table.querySelectorAll("tbody tr").length;
-        for (let i = 0; i < count; i++) {
-            const row = table.querySelectorAll("tbody tr")[i];
-            const monster = row && rowMonster(row, check.monsters, data);
-            if (!monster) continue;
-            if (monster.setupId === "equipped") {
-                unsaved.push(name(monster));
-                continue;
-            }
-            const want = String(monster.setupId);
-            if (row.querySelector(CHOSEN)?.value === want) {
-                right++;
-                continue;
-            }
-            const combo = row.querySelector(COMBO);
-            if (combo && (await pick(combo, want))) changed++;
-            else failed.push(name(monster));
-        }
-        m.status = `Filled in: ${changed} changed, ${right} already right` +
-            (failed.length ? `; could not pick for ${failed.join(", ")} (is the loadout still saved? check again in 🧭 → Labyrinth)` : "") +
-            (unsaved.length ? `; ${unsaved.join(", ")}: best with what you wear now – save it as a loadout` : "") + ".";
-    } catch (error) {
-        m.status = `Filling in failed: ${error?.message || error}`;
-    } finally {
-        m.filling = false;
-        scheduleScan();
-    }
 }
 
 export function scheduleScan() {
@@ -215,33 +156,27 @@ function note(table, check, level, run) {
         el.className = NOTE;
         table.parentElement.insertBefore(el, table);
     }
-    const floor = run ? ` (the rooms of floor ${state.labyrinth.currentFloor} you can see)` : floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
+    const floor = run ? ` (the rooms of floor ${state.labyrinth.currentFloor} you can see)` : floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, roughly)` : "";
     const html = check
-        ? `🧭 MWI Advisor: the loadout to pick for each monster at room level ${level}${floor} – change it in 🧭 → Labyrinth. Checked ${new Date(check.at).toLocaleDateString()}; check again after changing gear.
-           <button class="${FILL}" ${m.filling ? "disabled" : ""}>▶ Fill in</button>${m.status ? `<div>${esc(m.status)}</div>` : ""}`
+        ? `🧭 MWI Advisor: the loadout to pick for each monster at room level ${level}${floor} – change it in 🧭 → Labyrinth. Checked ${new Date(check.at).toLocaleDateString()}; check again after changing gear.`
         : `🧭 MWI Advisor: tap <b>Check the rooms</b> in 🧭 → Labyrinth, and each monster here gets the loadout to pick.`;
     if (el.dataset.html !== html) el.innerHTML = el.dataset.html = html;
 }
 
 // The Labyrinth map: a frame in the verdict's colour on every room with a monster in sight,
-// at that room's own level, with the share won tiny in the top right corner (the rest of the
-// cell is the game's: level top left, fails and progress below). Under the map, a line per room: the loadout and the share won.
-// The cells are the grid's children, row by row, as in the game's room data.
+// at that room's own level, with the share won tiny at the right, halfway down (the rest of
+// the cell is the game's: level top left, fails and progress below). The cells are the
+// grid's children, row by row, as in the game's room data.
 function mapMarks() {
     const grid = [...document.querySelectorAll(GRID)].find(visible);
     const labyrinth = state.labyrinth;
-    const old = document.querySelector(`.${LEGEND}`);
-    if (!grid || !labyrinth?.isActive) {
-        old?.remove();
-        return;
-    }
+    if (!grid || !labyrinth?.isActive) return;
     const cols = labyrinth.roomData?.[0]?.length || 0;
     const cells = [...grid.children].filter((el) => el.matches(CELL));
     if (!cols || cells.length !== cols * labyrinth.roomData.length) return;
     const check = lastCheck();
     const data = getClientData();
     const rooms = new Map(runRooms(labyrinth).map((x) => [x.row * cols + x.col, x]));
-    const lines = [];
     cells.forEach((cell, i) => {
         const room = rooms.get(i);
         const monster = room && !room.cleared && check ? check.monsters.find((x) => x.hrid === room.hrid) : null;
@@ -252,45 +187,20 @@ function mapMarks() {
         }
         const win = winAt(monster.curve, room.level) ?? 0;
         const kind = win >= SAFE_WIN ? "ok" : win >= RISKY_WIN ? "warn" : "bad";
-        const loadout = esc(monster.setupId === "equipped" ? "what you wear now" : monster.setupName);
-        const who = esc(data?.combatMonsterDetailMap?.[room.hrid]?.name || room.hrid.split("/").pop());
-        const verdict = kind === "bad" ? `✖ shroud or go around (best: ${loadout}, ${pct(win)})` : `${kind === "ok" ? "✅" : "⚠"} ${loadout} · ${pct(win)}`;
-        lines.push({ kind, at: i, html: `<div class="mwia-laby-${kind}">Lv.${room.level} ${who}: ${verdict}</div>` });
+        const loadout = monster.setupId === "equipped" ? "what you wear now" : monster.setupName;
+        const who = data?.combatMonsterDetailMap?.[room.hrid]?.name || room.hrid.split("/").pop();
         if (!el) {
             el = document.createElement("div");
             cell.appendChild(el);
         }
         const cls = `${CELL_MARK} mwia-laby-${kind}`;
         if (el.className !== cls) el.className = cls;
-        // The share won, tiny, in the top right corner (the game writes the level top left, fails and progress below).
         const corner = `<span>${pct(win)}</span>`;
         if (el.dataset.html !== corner) {
             el.dataset.html = corner;
             el.innerHTML = corner;
         }
-        const title = `MWI Advisor: Lv.${room.level} ${who} – ${verdict}`;
+        const title = `MWI Advisor: Lv.${room.level} ${who} – ${kind === "bad" ? "shroud it or go around; best" : "take"} ${loadout}: ${pct(win)} won`;
         if (el.title !== title) el.title = title;
     });
-    // The list, below the map.
-    const anchor = grid.closest('[class*="LabyrinthPanel_gridContainer"]') || grid;
-    const html = check
-        ? lines.length
-            ? `<b>🧭 Rooms in sight</b> (frame: green win ≥ 90%, yellow ≥ 50%, red less)${lines.map((l) => l.html).join("")}`
-            : ""
-        : `🧭 MWI Advisor: tap <b>Check the rooms</b> in 🧭 → Labyrinth to get the loadout for each room here.`;
-    let legend = old;
-    if (!html) {
-        legend?.remove();
-        return;
-    }
-    if (!legend || legend.previousElementSibling !== anchor) {
-        legend?.remove();
-        legend = document.createElement("div");
-        legend.className = LEGEND;
-        anchor.insertAdjacentElement("afterend", legend);
-    }
-    if (legend.dataset.html !== html) {
-        legend.dataset.html = html;
-        legend.innerHTML = html;
-    }
 }

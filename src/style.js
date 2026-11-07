@@ -247,13 +247,10 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-laby-note { margin: 4px 0 6px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 [class*="LabyrinthPanel_roomCell"] { position: relative; }
 .mwia-laby-cellmark { position: absolute; inset: 0; box-sizing: border-box; border: 3px solid currentColor; border-radius: 3px; pointer-events: none; }
-.mwia-laby-cellmark span { position: absolute; top: 0; right: 0; padding: 0 1px; border-bottom-left-radius: 2px; background: rgba(16, 20, 40, 0.8); font: 700 7px/1.1 sans-serif; }
-.mwia-laby-cellmark.mwia-laby-ok, .mwia-laby-legend .mwia-laby-ok { color: #7ee2b0; }
-.mwia-laby-cellmark.mwia-laby-warn, .mwia-laby-legend .mwia-laby-warn { color: #ffd479; }
-.mwia-laby-cellmark.mwia-laby-bad, .mwia-laby-legend .mwia-laby-bad { color: #ff8f8f; }
-.mwia-laby-legend { box-sizing: border-box; max-width: 360px; margin: 8px auto; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.45 sans-serif; text-align: left; }
-.mwia-laby-fill { margin-left: 6px; padding: 2px 8px; border: 1px solid #5865a8; border-radius: 4px; background: #2d3a73; color: #fff; font: 600 12px sans-serif; cursor: pointer; }
-.mwia-laby-fill:disabled { opacity: 0.5; cursor: default; }
+.mwia-laby-cellmark span { position: absolute; top: 50%; right: 0; transform: translateY(-50%); padding: 0 1px; border-radius: 2px 0 0 2px; background: rgba(16, 20, 40, 0.8); font: 700 7px/1.1 sans-serif; }
+.mwia-laby-cellmark.mwia-laby-ok { color: #7ee2b0; }
+.mwia-laby-cellmark.mwia-laby-warn { color: #ffd479; }
+.mwia-laby-cellmark.mwia-laby-bad { color: #ff8f8f; }
 .mwia-laby-mark { margin-top: 3px; font: 400 11px/1.3 sans-serif; text-align: left; white-space: normal; }
 .mwia-laby-mark.mwia-laby-ok { color: #7ee2b0; }
 .mwia-laby-mark.mwia-laby-warn { color: #ffd479; }
