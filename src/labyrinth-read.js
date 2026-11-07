@@ -85,6 +85,38 @@ function pageLines(lines) {
     for (const top of tops.slice(0, 4)) walk(top, 0);
 }
 
+// The tables on the Labyrinth page (the automation tab's per-room settings above all): every
+// row's text with its controls (the loadout chooser, the Edit button) and one row as HTML, so
+// that marks can go next to the right control later.
+const CONTROLS = 'select, input, button, [role="button"], [role="combobox"], [aria-haspopup], [class*="elect"]';
+function controlText(el) {
+    const value = el.tagName === "SELECT" ? ` value="${el.value}" options: ${[...el.options].map((o) => clean(o.textContent)).join(" / ")}` : "value" in el && el.value ? ` value="${short(String(el.value), 40)}"` : "";
+    const role = el.getAttribute("role") ? ` role=${el.getAttribute("role")}` : "";
+    return `${describe(el)}${role}${value} "${short(clean(el.textContent), 30)}"`;
+}
+function tableLines(lines) {
+    const inLab = (el) => el.closest('[class*="abyrinth"]') || /Room Type/i.test(el.textContent);
+    const tables = [...document.querySelectorAll('table, [role="table"], [role="grid"]')].filter((t) => !t.closest('[class*="mwia"]') && inLab(t));
+    lines.push(`tables: ${tables.length} on the Labyrinth page (${tables.filter(visible).length} visible)`);
+    for (const table of tables.slice(0, 3)) {
+        const chain = [];
+        for (let node = table.parentElement; node && node !== document.body && chain.length < 5; node = node.parentElement) chain.push(describe(node));
+        lines.push(`— ${describe(table)} in ${chain.join(" < ")}`);
+        const heads = [...table.querySelectorAll("th, [role=columnheader]")].map((h) => clean(h.textContent));
+        if (heads.length) lines.push(`  headers: ${heads.join(" | ")}`);
+        const rows = [...table.querySelectorAll('tr, [role="row"]')].filter((r) => !r.querySelector("th"));
+        rows.slice(0, 30).forEach((row, i) => {
+            const cells = [...row.querySelectorAll('td, [role="cell"]')].map((c) => short(clean(c.textContent), 30));
+            const controls = [...row.querySelectorAll(CONTROLS)].filter((c, _, all) => !all.some((o) => o !== c && o.contains(c)));
+            lines.push(`  row ${i + 1}: ${cells.join(" | ")}${controls.length ? ` ⟶ ${controls.map(controlText).join(" ; ")}` : ""}`);
+        });
+        if (rows.length > 30) lines.push(`  … ${rows.length - 30} more rows`);
+        // The last row as HTML (a combat room, at the end of the list), without long icon paths.
+        const last = rows[rows.length - 1];
+        if (last) lines.push(`  last row html: ${short(last.outerHTML.replace(/\s(d|points)="[^"]{40,}"/g, ' $1="…"').replace(/\s+/g, " "), 2000)}`);
+    }
+}
+
 const typeName = (f) => attempt(() => (typeof f.type === "string" ? f.type : f.type?.displayName || f.type?.name || "?"), "?");
 
 // React components whose props or state hold Labyrinth data: their names and its shape.
@@ -111,7 +143,7 @@ function componentLines(lines) {
 
 export function labyrinthReport() {
     const lines = [`world: ${attempt(worldReport, "?")}`];
-    for (const part of [messageLines, characterLines, pageLines, componentLines]) {
+    for (const part of [messageLines, characterLines, tableLines, pageLines, componentLines]) {
         try {
             part(lines);
         } catch (error) {

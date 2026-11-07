@@ -275,7 +275,7 @@ export function renderLabyrinth({ lab, improve, build, profileOf, data, settings
     html += `<h3>On the Labyrinth map</h3>
       <p>Next: marks on the game's Labyrinth map (and later its automation settings) saying which loadout to use in each room. For that the script
       first has to learn how the game shows the Labyrinth: it keeps what the game sends about it while you play. After a run (or with the Labyrinth
-      open), tap this and paste the report into the chat – it only reads, nothing is changed.</p>
+      open – on its Automation tab for the per-room settings), tap this and paste the report into the chat – it only reads, nothing is changed.</p>
       <button class="mwia-btn" data-action="laby-read">📋 Read the game's Labyrinth</button>`;
     html += `<p class="mwia-dim">Each monster hardly dodges one or two attack styles and takes far more of one damage type (<b>Weak to</b>): the Labyrinth wants
       magic for some rooms, ranged for others and melee (stab, slash or smash) for the rest. Single-target damage is what counts in a 1-against-1 room.

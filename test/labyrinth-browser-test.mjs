@@ -55,7 +55,11 @@ for (const item of Object.values(clientData.itemDetailMap)) {
 
 const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="/advisor.user.js"></script></head>
 <body style="background:#1b1f35;color:#fff;font:14px sans-serif"><div id="game">Fake game
-  <div class="LabyrinthPanel_map__x1"><div class="LabyrinthRoom_room__r1" title="Cyclops">Lv 20</div><div class="LabyrinthRoom_room__r1">?</div></div></div>
+  <div class="LabyrinthPanel_map__x1"><div class="LabyrinthRoom_room__r1" title="Cyclops">Lv 20</div><div class="LabyrinthRoom_room__r1">?</div></div>
+  <div class="LabyrinthPanel_automation__a1"><table class="LabyrinthAutomation_table__t1"><thead><tr><th>Room Type</th><th>Loadout</th><th>Skip if room level is above my skill level by</th></tr></thead><tbody>
+    <tr><td>Milking</td><td><div class="MuiSelect-select" role="combobox">All Skills</div><input type="hidden" value="12"></td><td>≥ 100 <button>Edit</button></td></tr>
+    <tr><td>Shadow Archer</td><td><div class="MuiSelect-select" role="combobox">No Loadout</div><input type="hidden" value=""></td><td>≥ 100 <button>Edit</button></td></tr>
+  </tbody></table></div></div>
 <script>
   const xhr = new XMLHttpRequest(); xhr.open("GET", "/client-data.json", false); xhr.send();
   const data = JSON.parse(xhr.responseText);
@@ -198,6 +202,7 @@ try {
     writeFileSync(path.join(shotDir, "laby-report.txt"), report);
     check("report: the Labyrinth message and its shape", /labyrinth_updated/.test(report) && /shape: \{type: "labyrinth_updated", characterLabyrinth: \{floor: 1, rooms: \[1× \{x: 0, y: 0, roomLevel: 20, monsterHrid: "\/monsters\/cyclops"/.test(report), report.slice(0, 800));
     check("report: the Labyrinth page's elements", /div\.LabyrinthPanel_map__x1/.test(report) && /LabyrinthRoom_room__r1 "Lv 20" title="Cyclops"/.test(report), report.slice(report.indexOf("page:"), report.indexOf("page:") + 400));
+    check("report: the automation table's rows and controls", /headers: Room Type \| Loadout/.test(report) && /row 2: Shadow Archer \| No Loadout \| ≥ 100 Edit ⟶ div\.MuiSelect-select role=combobox "No Loadout"/.test(report) && /last row html: <tr><td>Shadow Archer/.test(report), report.slice(report.indexOf("tables:"), report.indexOf("tables:") + 600));
     check("report: kept in the browser", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-log") || "[]").some((m) => m.type === "labyrinth_updated")));
 
     // Another crate needs a new check.

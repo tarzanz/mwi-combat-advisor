@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.63.0
+// @version      0.63.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5020,7 +5020,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.63.0" : "dev";
+  var VERSION = true ? "0.63.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -10358,7 +10358,7 @@ ${triggerWindowReport()}`, false);
     html += `<h3>On the Labyrinth map</h3>
       <p>Next: marks on the game's Labyrinth map (and later its automation settings) saying which loadout to use in each room. For that the script
       first has to learn how the game shows the Labyrinth: it keeps what the game sends about it while you play. After a run (or with the Labyrinth
-      open), tap this and paste the report into the chat \u2013 it only reads, nothing is changed.</p>
+      open \u2013 on its Automation tab for the per-room settings), tap this and paste the report into the chat \u2013 it only reads, nothing is changed.</p>
       <button class="mwia-btn" data-action="laby-read">\u{1F4CB} Read the game's Labyrinth</button>`;
     html += `<p class="mwia-dim">Each monster hardly dodges one or two attack styles and takes far more of one damage type (<b>Weak to</b>): the Labyrinth wants
       magic for some rooms, ranged for others and melee (stab, slash or smash) for the rest. Single-target damage is what counts in a 1-against-1 room.
@@ -10451,6 +10451,33 @@ ${triggerWindowReport()}`, false);
     };
     for (const top of tops.slice(0, 4)) walk(top, 0);
   }
+  var CONTROLS = 'select, input, button, [role="button"], [role="combobox"], [aria-haspopup], [class*="elect"]';
+  function controlText(el) {
+    const value = el.tagName === "SELECT" ? ` value="${el.value}" options: ${[...el.options].map((o2) => clean4(o2.textContent)).join(" / ")}` : "value" in el && el.value ? ` value="${short2(String(el.value), 40)}"` : "";
+    const role = el.getAttribute("role") ? ` role=${el.getAttribute("role")}` : "";
+    return `${describe(el)}${role}${value} "${short2(clean4(el.textContent), 30)}"`;
+  }
+  function tableLines(lines) {
+    const inLab = (el) => el.closest('[class*="abyrinth"]') || /Room Type/i.test(el.textContent);
+    const tables = [...document.querySelectorAll('table, [role="table"], [role="grid"]')].filter((t4) => !t4.closest('[class*="mwia"]') && inLab(t4));
+    lines.push(`tables: ${tables.length} on the Labyrinth page (${tables.filter(visible).length} visible)`);
+    for (const table of tables.slice(0, 3)) {
+      const chain = [];
+      for (let node = table.parentElement; node && node !== document.body && chain.length < 5; node = node.parentElement) chain.push(describe(node));
+      lines.push(`\u2014 ${describe(table)} in ${chain.join(" < ")}`);
+      const heads = [...table.querySelectorAll("th, [role=columnheader]")].map((h2) => clean4(h2.textContent));
+      if (heads.length) lines.push(`  headers: ${heads.join(" | ")}`);
+      const rows = [...table.querySelectorAll('tr, [role="row"]')].filter((r) => !r.querySelector("th"));
+      rows.slice(0, 30).forEach((row, i) => {
+        const cells = [...row.querySelectorAll('td, [role="cell"]')].map((c2) => short2(clean4(c2.textContent), 30));
+        const controls2 = [...row.querySelectorAll(CONTROLS)].filter((c2, _, all) => !all.some((o2) => o2 !== c2 && o2.contains(c2)));
+        lines.push(`  row ${i + 1}: ${cells.join(" | ")}${controls2.length ? ` \u27F6 ${controls2.map(controlText).join(" ; ")}` : ""}`);
+      });
+      if (rows.length > 30) lines.push(`  \u2026 ${rows.length - 30} more rows`);
+      const last = rows[rows.length - 1];
+      if (last) lines.push(`  last row html: ${short2(last.outerHTML.replace(/\s(d|points)="[^"]{40,}"/g, ' $1="\u2026"').replace(/\s+/g, " "), 2e3)}`);
+    }
+  }
   var typeName2 = (f) => attempt3(() => typeof f.type === "string" ? f.type : f.type?.displayName || f.type?.name || "?", "?");
   function componentLines(lines) {
     const seen = /* @__PURE__ */ new Set();
@@ -10474,7 +10501,7 @@ ${triggerWindowReport()}`, false);
   }
   function labyrinthReport() {
     const lines = [`world: ${attempt3(worldReport, "?")}`];
-    for (const part of [messageLines, characterLines, pageLines, componentLines]) {
+    for (const part of [messageLines, characterLines, tableLines, pageLines, componentLines]) {
       try {
         part(lines);
       } catch (error) {
@@ -11555,7 +11582,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.63.0" : "dev";
+  var VERSION3 = true ? "0.63.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

@@ -321,7 +321,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   - **📋 Read the game's Labyrinth** – the first step towards marks on the game's Labyrinth map (and its automation
     settings): the script keeps every message the game sends that mentions the Labyrinth (a few of each type, in
     this browser), and the button reports their types and the shape of their data, the character's Labyrinth
-    fields, the Labyrinth page's elements and the React components with room or floor data – to paste into the chat.
+    fields, the tables on the Labyrinth page (every row of the Automation tab's per-room settings with its loadout
+    chooser and Edit button, and one row as HTML), the page's elements and the React components with room or floor
+    data – to paste into the chat.
     It only reads.
 - **Guide** – short explanation of how combat XP, skills, abilities and consumables work.
 - **Plan train** – a **🚂 Plan train** button next to *Calculate Step 3* in the MWITools planning tab. It reads the
