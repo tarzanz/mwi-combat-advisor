@@ -4,9 +4,12 @@
 // level set in the advisor's Labyrinth tab – or "Shroud or go around" when even the best
 // loses. The last check is kept in this browser, so the marks stay after a reload.
 // ▶ Fill in picks each monster's loadout in the game's own dropdowns, as a tap would.
+// On the Labyrinth map, each room with a monster in sight gets the same mark at its own
+// room level (the game sends each room's monster and level).
 
 import { getClientData } from "./game-data.js";
 import { esc } from "./format.js";
+import { onStateChange, state } from "./game-state.js";
 import { visible } from "./game-nav.js";
 import { RISKY_WIN, SAFE_WIN, floorAt, floorLevel, winAt } from "./labyrinth.js";
 import { pick } from "./trigger-fill.js";
@@ -18,6 +21,10 @@ const LABEL = '[class*="LabyrinthPanel_roomLabel"]';
 const CHOSEN = 'input[class*="MuiSelect-nativeInput"], input[class*="nativeInput"]';
 const MARK = "mwia-laby-mark";
 const NOTE = "mwia-laby-note";
+const GRID = '[class*="LabyrinthPanel_roomGrid"]';
+const CELL = '[class*="LabyrinthPanel_roomCell"]';
+const CELL_MARK = "mwia-laby-cellmark";
+const LEGEND = "mwia-laby-legend";
 
 const FILL = "mwia-laby-fill";
 const COMBO = '[role="combobox"]';
@@ -56,10 +63,11 @@ function lastCheck() {
 export function startLabyrinthMarks(deps) {
     m.deps = deps;
     new MutationObserver((records) => {
-        if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}`))) return; // our own marks
+        if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}, .${CELL_MARK}, .${LEGEND}`))) return; // our own marks
         scheduleScan();
     }).observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", onClick, true);
+    onStateChange(() => scheduleScan());
     scheduleScan();
 }
 
@@ -154,12 +162,30 @@ export function markFor(monster, chosenId, level) {
     return { kind, chosen, text, title };
 }
 
+// The rooms of the run you are in that hold a monster: { row, col, hrid, level }.
+export function runRooms(labyrinth = state.labyrinth) {
+    if (!labyrinth?.isActive || !Array.isArray(labyrinth.roomData)) return [];
+    const rooms = [];
+    labyrinth.roomData.forEach((row, r) => (row || []).forEach((room, c) => {
+        if (room?.monsterHrid && room.recommendedLevel) rooms.push({ row: r, col: c, hrid: room.monsterHrid, level: room.recommendedLevel, cleared: !!room.isCleared });
+    }));
+    return rooms;
+}
+
+// The room level the automation marks are for: this floor's rooms while in a run, else the Labyrinth tab's.
+function automationLevel() {
+    const levels = runRooms().map((x) => x.level).sort((a, b) => a - b);
+    if (levels.length) return { level: levels[Math.floor(levels.length / 2)], run: true };
+    return { level: m.deps.level(), run: false };
+}
+
 function scan() {
+    mapMarks();
     const tables = [...document.querySelectorAll(TABLE)].filter(visible);
     const check = lastCheck();
-    const level = m.deps.level();
+    const { level, run } = automationLevel();
     for (const table of tables) {
-        note(table, check, level);
+        note(table, check, level, run);
         if (!check) continue;
         const data = getClientData();
         for (const row of table.querySelectorAll("tbody tr")) {
@@ -182,17 +208,89 @@ function scan() {
 }
 
 // A line above the table: what the marks are, or how to get them.
-function note(table, check, level) {
+function note(table, check, level, run) {
     let el = table.previousElementSibling?.classList?.contains(NOTE) ? table.previousElementSibling : null;
     if (!el) {
         el = document.createElement("div");
         el.className = NOTE;
         table.parentElement.insertBefore(el, table);
     }
-    const floor = floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
+    const floor = run ? ` (the rooms of floor ${state.labyrinth.currentFloor} you can see)` : floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
     const html = check
         ? `🧭 MWI Advisor: the loadout to pick for each monster at room level ${level}${floor} – change it in 🧭 → Labyrinth. Checked ${new Date(check.at).toLocaleDateString()}; check again after changing gear.
            <button class="${FILL}" ${m.filling ? "disabled" : ""}>▶ Fill in</button>${m.status ? `<div>${esc(m.status)}</div>` : ""}`
         : `🧭 MWI Advisor: tap <b>Check the rooms</b> in 🧭 → Labyrinth, and each monster here gets the loadout to pick.`;
     if (el.dataset.html !== html) el.innerHTML = el.dataset.html = html;
+}
+
+// The Labyrinth map: a frame in the verdict's colour on every room with a monster in sight,
+// at that room's own level, with the share won tiny in the top right corner (the rest of the
+// cell is the game's: level top left, fails and progress below). Under the map, a line per room: the loadout and the share won.
+// The cells are the grid's children, row by row, as in the game's room data.
+function mapMarks() {
+    const grid = [...document.querySelectorAll(GRID)].find(visible);
+    const labyrinth = state.labyrinth;
+    const old = document.querySelector(`.${LEGEND}`);
+    if (!grid || !labyrinth?.isActive) {
+        old?.remove();
+        return;
+    }
+    const cols = labyrinth.roomData?.[0]?.length || 0;
+    const cells = [...grid.children].filter((el) => el.matches(CELL));
+    if (!cols || cells.length !== cols * labyrinth.roomData.length) return;
+    const check = lastCheck();
+    const data = getClientData();
+    const rooms = new Map(runRooms(labyrinth).map((x) => [x.row * cols + x.col, x]));
+    const lines = [];
+    cells.forEach((cell, i) => {
+        const room = rooms.get(i);
+        const monster = room && !room.cleared && check ? check.monsters.find((x) => x.hrid === room.hrid) : null;
+        let el = cell.querySelector(`.${CELL_MARK}`);
+        if (!monster) {
+            el?.remove();
+            return;
+        }
+        const win = winAt(monster.curve, room.level) ?? 0;
+        const kind = win >= SAFE_WIN ? "ok" : win >= RISKY_WIN ? "warn" : "bad";
+        const loadout = esc(monster.setupId === "equipped" ? "what you wear now" : monster.setupName);
+        const who = esc(data?.combatMonsterDetailMap?.[room.hrid]?.name || room.hrid.split("/").pop());
+        const verdict = kind === "bad" ? `✖ shroud or go around (best: ${loadout}, ${pct(win)})` : `${kind === "ok" ? "✅" : "⚠"} ${loadout} · ${pct(win)}`;
+        lines.push({ kind, at: i, html: `<div class="mwia-laby-${kind}">Lv.${room.level} ${who}: ${verdict}</div>` });
+        if (!el) {
+            el = document.createElement("div");
+            cell.appendChild(el);
+        }
+        const cls = `${CELL_MARK} mwia-laby-${kind}`;
+        if (el.className !== cls) el.className = cls;
+        // The share won, tiny, in the top right corner (the game writes the level top left, fails and progress below).
+        const corner = `<span>${pct(win)}</span>`;
+        if (el.dataset.html !== corner) {
+            el.dataset.html = corner;
+            el.innerHTML = corner;
+        }
+        const title = `MWI Advisor: Lv.${room.level} ${who} – ${verdict}`;
+        if (el.title !== title) el.title = title;
+    });
+    // The list, below the map.
+    const anchor = grid.closest('[class*="LabyrinthPanel_gridContainer"]') || grid;
+    const html = check
+        ? lines.length
+            ? `<b>🧭 Rooms in sight</b> (frame: green win ≥ 90%, yellow ≥ 50%, red less)${lines.map((l) => l.html).join("")}`
+            : ""
+        : `🧭 MWI Advisor: tap <b>Check the rooms</b> in 🧭 → Labyrinth to get the loadout for each room here.`;
+    let legend = old;
+    if (!html) {
+        legend?.remove();
+        return;
+    }
+    if (!legend || legend.previousElementSibling !== anchor) {
+        legend?.remove();
+        legend = document.createElement("div");
+        legend.className = LEGEND;
+        anchor.insertAdjacentElement("afterend", legend);
+    }
+    if (legend.dataset.html !== html) {
+        legend.dataset.html = html;
+        legend.innerHTML = html;
+    }
 }

@@ -63,7 +63,7 @@ import { buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSett
 import { labyrinthReport } from "./labyrinth-read.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 20 };
+const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30 };
 
 const SKILL_NAMES = {
     stamina: "Stamina",

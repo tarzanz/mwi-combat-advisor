@@ -55,7 +55,7 @@ for (const item of Object.values(clientData.itemDetailMap)) {
 
 const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="/advisor.user.js"></script></head>
 <body style="background:#1b1f35;color:#fff;font:14px sans-serif"><div id="game">Fake game
-  <div class="LabyrinthPanel_map__x1"><div class="LabyrinthRoom_room__r1" title="Cyclops">Lv 20</div><div class="LabyrinthRoom_room__r1">?</div></div>
+  <div class="LabyrinthPanel_roomGrid__1I6LU" style="display:grid; grid-template-columns: repeat(4, 2.875rem); grid-template-rows: repeat(4, 2.875rem); gap: 2px"><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_clearedRoom__ljpjJ"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_visibleRoom__32sJ4">Lv.20</div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_visibleRoom__32sJ4">Lv.21</div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div><div class="LabyrinthPanel_roomCell__3CSgp LabyrinthPanel_fogRoom__3mk6e"></div></div>
   <div class="LabyrinthPanel_automationSection__a1"><table class="LabyrinthPanel_automationTable__38WwV"><thead><tr><th>Room Type</th><th>Loadout</th><th>Skip if room level is above my skill level by</th></tr></thead><tbody>
     <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O"><svg width="16" height="16"><use href="/static/media/sprite.svg#milking"></use></svg><span>Milking</span></div></td><td><div class="Dropdown_dropdown__1E7is"><div role="combobox" class="MuiSelect-select MuiSelect-standard">All Skills</div><input aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-1k3x8v3" value="12"></div></td><td><div class="LabyrinthPanel_skipThreshold__1qXz5"><span>≥ 100</span><button>Edit</button></div></td></tr>
     <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O"><svg width="16" height="16"><use href="/static/media/sprite.svg#cyclops"></use></svg><span>Cyclops</span></div></td><td><div class="Dropdown_dropdown__1E7is"><div role="combobox" class="MuiSelect-select MuiSelect-standard">Magic</div><input aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-1k3x8v3" value="1"></div></td><td><div class="LabyrinthPanel_skipThreshold__1qXz5"><span>≥ 100</span><button>Edit</button></div></td></tr>
@@ -104,7 +104,12 @@ const server = http.createServer((req, res) => {
     }
 });
 // A made-up Labyrinth message: what the game really sends is what the report is for.
-const labMessage = { type: "labyrinth_updated", characterLabyrinth: { floor: 1, rooms: [{ x: 0, y: 0, roomLevel: 20, monsterHrid: "/monsters/cyclops", isCleared: false }] } };
+// Shaped as the game sent it on floor 1 (the start cleared, a Cyclops and a Dryad in sight, the rest
+// in fog) – with the rooms at level 20 and 21 instead of 30 and 31, where the test's mage wins some.
+const combatRoom = (monster, level) => ({ roomType: "/labyrinth_room_types/combat", monsterHrid: "/monsters/" + monster, recommendedLevel: level });
+const labMessage = { type: "labyrinth_updated", labyrinth: { characterID: 1, isActive: true, currentFloor: 1,
+    roomData: [[{ roomType: "", recommendedLevel: 0, isCleared: true }, combatRoom("cyclops", 20), null, null], [combatRoom("dryad", 21), null, null, null], [null, null, null, null], [null, null, null, null]],
+    pathData: "[]", totalTreasureRooms: 1, remainingTreasureRooms: 1 } };
 new WebSocketServer({ server }).on("connection", (socket) => {
     socket.send(JSON.stringify(character));
     setTimeout(() => socket.send(JSON.stringify(labMessage)), 200);
@@ -144,11 +149,11 @@ try {
     await page.select('[data-setting="accuracy"]', "fast");
     let t0 = Date.now();
     await page.click('[data-action="laby-check"]');
-    await idle(page, "At room level 20");
+    await idle(page, "At room level 30");
     console.log(`room check took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     let text = await body(page);
     check("simulated with the slotted crate and both loadouts", /Simulated with Basic Coffee crate, 20 rooms per monster and room level, 2 loadouts/.test(text), text.match(/Simulated with[^\n]*/)?.[0]);
-    check("room level 20 is floor 1 (a guess)", /At room level 20 \(floor 1, a guess\)/.test(text));
+    check("room level 30 is floor 1 (a guess)", /At room level 30 \(floor 1, a guess\)/.test(text));
     const rows = await page.$$eval(".mwia-laby-rooms tbody tr", (trs) => trs.map((tr) => [...tr.cells].map((c) => c.innerText.trim())));
     check("one row per Labyrinth monster", rows.length === 10 && rows.some((r) => r[0] === "Cyclops") && rows.some((r) => r[0] === "Mimic"), rows.map((r) => r[0]).join(", "));
     const row = (name) => rows.find((r) => r[0] === name) || [];
@@ -160,7 +165,7 @@ try {
     check("each room type names a loadout", rows.every((r) => r[3] === "Magic" || r[3] === "Ranged"), rows.map((r) => r[3]).join(", "));
     const tiles = await page.$$eval(".mwia-laby-tile", (ts) => ts.map((t) => t.innerText.replace(/\s+/g, " ")));
     check("a room guide: one tile per room type", tiles.length === 10, tiles.join(" / "));
-    check("Cyclops tile: put on Magic", tiles.some((t) => /^Cyclops ✅ Magic/.test(t)), tiles.find((t) => t.startsWith("Cyclops")));
+    check("Cyclops tile: put on Magic", tiles.some((t) => /^Cyclops (✅|⚠) Magic|^Cyclops ✖ Shroud or go around best: Magic/.test(t)), tiles.find((t) => t.startsWith("Cyclops")));
     check("a lost room type's tile says shroud", tiles.some((t) => /✖ Shroud or go around best: (Magic|Ranged)/.test(t)), tiles.join(" / "));
     check("safe levels carry the guessed floor", rows.some((r) => /\((fl\. \d+|below fl\. 1)\)/.test(r[5])), rows.map((r) => r[5]).join(" / "));
     check("a verdict for each monster at the room level", rows.every((r) => /fight|risky|shroud/.test(r[7])), rows.map((r) => r[7]).join(" / "));
@@ -173,8 +178,19 @@ try {
     check("automation: Dryad with no loadout – pick one, or shroud", /^(👉 Pick (Magic|Ranged)|✖ Shroud or go around · best (Magic|Ranged)): \d+%$|^👉 Pick (Magic|Ranged) · \d+%$/.test(markOf("Dryad")), markOf("Dryad"));
     check("automation: Mimic marked", /(Magic|Ranged)/.test(markOf("Mimic")), markOf("Mimic"));
     const noteAfter = await page.$eval(".mwia-laby-note", (n) => n.textContent).catch(() => "");
-    check("automation: the note names the room level", /at room level 20 \(floor 1, a guess\)/.test(noteAfter), noteAfter);
+    check("automation: the note names the room level", /at room level 21 \(the rooms of floor 1 you can see\)/.test(noteAfter), noteAfter);
     check("automation: the check is kept for a reload", await page.evaluate(() => (JSON.parse(localStorage.getItem("mwia-laby-check") || "null")?.monsters || []).length === 10));
+    // The map: the rooms in sight get a frame and the loadout, at their own level.
+    await page.waitForFunction(() => document.querySelectorAll(".mwia-laby-cellmark").length === 2, { timeout: 5000 }).catch(() => {});
+    const cellMarks = await page.$$eval("[class*=LabyrinthPanel_roomCell]", (cs) => cs.map((c, i) => [i, c.querySelector(".mwia-laby-cellmark")?.className || "", c.querySelector(".mwia-laby-cellmark")?.textContent || ""]).filter((x) => x[1]));
+    check("map: a mark on the two rooms in sight, none on fog or the start", cellMarks.map((x) => x[0]).join() === "1,4", JSON.stringify(cellMarks));
+    check("map: a frame and the share won in the corner", /mwia-laby-(ok|warn)/.test(cellMarks[0]?.[1]) && cellMarks.every((x) => /^\d+%$/.test(x[2])), JSON.stringify(cellMarks));
+    const legend = await page.$eval(".mwia-laby-legend", (n) => [...n.children].filter((c) => c.tagName === "DIV").map((c) => c.textContent)).catch(() => []);
+    check("map: a line per room under the map", legend.length === 2 && /^Lv\.20 Cyclops: (✅|⚠) Magic · \d+%$/.test(legend[0]) && /^Lv\.21 Dryad: (✖ shroud or go around \(best: (Magic|Ranged), \d+%\)|(✅|⚠) (Magic|Ranged) · \d+%)$/.test(legend[1]), JSON.stringify(legend));
+    await page.$eval(".mwia-panel", (p) => (p.style.visibility = "hidden"));
+    await page.screenshot({ path: path.join(shotDir, "laby-map.png"), clip: await page.$eval("[class*=LabyrinthPanel_roomGrid]", (g) => { const r = g.getBoundingClientRect(); const l = document.querySelector(".mwia-laby-legend").getBoundingClientRect(); return { x: 0, y: r.y, width: Math.max(r.right, l.right) + 4, height: l.bottom - r.y + 4 }; }) }).catch(() => {});
+    await page.$eval(".mwia-panel", (p) => (p.style.visibility = ""));
+
     // ▶ Fill in: every monster's row set to its best loadout through the dropdowns.
     await page.$eval(".mwia-laby-fill", (b) => b.click()); // the advisor panel covers the fake game page
     await page.waitForFunction(() => /Filled in/.test(document.querySelector(".mwia-laby-note")?.textContent || ""), { timeout: 10000 }).catch(() => {});
@@ -194,7 +210,7 @@ try {
     // Another floor and room level: read off the curves, no new simulation.
     await page.select('[data-setting="labyFloor"]', "2");
     let shown = await domText(page);
-    check("floor 2 means room level 40", /At room level 40 \(floor 2, a guess\)/.test(shown) && (await page.$eval('[data-setting="labyLevel"]', (n) => n.value)) === "40");
+    check("floor 2 means room level 50", /At room level 50 \(floor 2, a guess\)/.test(shown) && (await page.$eval('[data-setting="labyLevel"]', (n) => n.value)) === "50");
     await page.$eval('[data-setting="labyLevel"]', (n) => { n.value = "5"; n.dispatchEvent(new Event("change", { bubbles: true })); });
     shown = await domText(page);
     check("room level 5 re-reads without simulating", /At room level 5/.test(shown) && !/Simulating/.test(shown) && /At level 5/.test(shown));
@@ -243,8 +259,8 @@ try {
     await page.click('[data-action="laby-read"]');
     const report = await page.$eval(".mwia-notice-diag", (n) => n.textContent).catch(() => "");
     writeFileSync(path.join(shotDir, "laby-report.txt"), report);
-    check("report: the Labyrinth message and its shape", /labyrinth_updated/.test(report) && /shape: \{type: "labyrinth_updated", characterLabyrinth: \{floor: 1, rooms: \[1× \{x: 0, y: 0, roomLevel: 20, monsterHrid: "\/monsters\/cyclops"/.test(report), report.slice(0, 800));
-    check("report: the Labyrinth page's elements", /div\.LabyrinthPanel_map__x1/.test(report) && /LabyrinthRoom_room__r1 "Lv 20" title="Cyclops"/.test(report), report.slice(report.indexOf("page:"), report.indexOf("page:") + 400));
+    check("report: the Labyrinth message and its shape", /labyrinth_updated/.test(report) && /shape: \{type: "labyrinth_updated", labyrinth: \{characterID: 1, isActive: true, currentFloor: 1, roomData: \[4× \[4× /.test(report), report.slice(0, 800));
+    check("report: the Labyrinth page's elements", /div\.LabyrinthPanel_roomGrid__1I6LU/.test(report) && /LabyrinthPanel_visibleRoom__32sJ4 "Lv\.20"/.test(report), report.slice(report.indexOf("page:"), report.indexOf("page:") + 400));
     check("report: the automation table's rows and controls", /headers: Room Type \| Loadout/.test(report) && /row 3: Dryad \| (Ranged|Magic) \| ≥ 100Edit ⟶ div\.MuiSelect-select\.MuiSelect-standard role=combobox "(Ranged|Magic)"/.test(report) && /last row html: <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O">/.test(report) && !/mwia/.test(report.slice(report.indexOf("tables:"), report.indexOf("page:"))), report.slice(report.indexOf("tables:"), report.indexOf("tables:") + 600));
     check("report: kept in the browser", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-log") || "[]").some((m) => m.type === "labyrinth_updated")));
 

@@ -17,10 +17,10 @@ const COARSE_LEVELS = [5, ...Array.from({ length: 20 }, (_, i) => 10 * (i + 1))]
 const FINE_STEP = 2;
 const MAX_FINE = 12;
 
-// Floors: a community guide says each floor is about 20 room levels harder. Where floor 1
-// starts is not written anywhere we know of; 20 is our guess.
+// Floors: floor 1's rooms were at room level 23–40 in the game (30 in the middle);
+// a community guide says each floor is about 20 room levels harder – still a guess.
 export const FLOOR_STEP = 20;
-export const FLOOR_ONE_LEVEL = 20;
+export const FLOOR_ONE_LEVEL = 30;
 export const floorLevel = (floor) => FLOOR_ONE_LEVEL + (floor - 1) * FLOOR_STEP;
 // The deepest floor whose rooms are at or below a room level (0: not even floor 1).
 export const floorAt = (level) => (level === null || level < FLOOR_ONE_LEVEL ? 0 : 1 + Math.floor((level - FLOOR_ONE_LEVEL) / FLOOR_STEP));

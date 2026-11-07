@@ -28,6 +28,7 @@ const INTERESTING = new RegExp(
             "market_item_order_books_updated",
             "loot_log_updated",
             "loadouts_updated",
+            "labyrinth_updated",
         ].join("|") +
         ')"'
 );
@@ -138,6 +139,7 @@ export const state = {
     character: null, // the latest init_character_data, patched by later messages
     items: new Map(), // hash/id -> character item
     lootLog: null, // the game's Loot & XP Log, as last sent
+    labyrinth: null, // the Labyrinth run, as last sent: { isActive, currentFloor, roomData: rows of { roomType, monsterHrid, recommendedLevel, isCleared } or null (fog) }
     orderBooks: loadOrderBooks(), // itemHrid -> { at, asks, bids (+0), levels: { level: { asks, bids } }, seen: [levels sent], bands: { level: { min, max } } }, from viewing it on the market
     updatedAt: 0,
 };
@@ -220,6 +222,7 @@ function handle(data) {
     const extra = {};
     if (data.type === "init_character_data") {
         state.character = data;
+        state.labyrinth = data.labyrinth || null;
         state.items = new Map();
         applyItems(data.characterItems);
     } else if (data.type === "market_item_order_books_updated") {
@@ -283,6 +286,9 @@ function handle(data) {
                 break;
             case "achievements_updated":
                 copyFields(data, ["characterAchievements"]);
+                break;
+            case "labyrinth_updated":
+                state.labyrinth = data.labyrinth || null;
                 break;
             case "loadouts_updated":
                 // The saved loadouts, whole (an empty map when the last one is deleted).

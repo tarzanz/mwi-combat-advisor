@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.65.0
+// @version      0.66.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -46,7 +46,8 @@
       "market_listings_updated",
       "market_item_order_books_updated",
       "loot_log_updated",
-      "loadouts_updated"
+      "loadouts_updated",
+      "labyrinth_updated"
     ].join("|") + ')"'
   );
   var BUFF_MAPS = [
@@ -132,6 +133,8 @@
     // hash/id -> character item
     lootLog: null,
     // the game's Loot & XP Log, as last sent
+    labyrinth: null,
+    // the Labyrinth run, as last sent: { isActive, currentFloor, roomData: rows of { roomType, monsterHrid, recommendedLevel, isCleared } or null (fog) }
     orderBooks: loadOrderBooks(),
     // itemHrid -> { at, asks, bids (+0), levels: { level: { asks, bids } }, seen: [levels sent], bands: { level: { min, max } } }, from viewing it on the market
     updatedAt: 0
@@ -204,6 +207,7 @@
     const extra = {};
     if (data.type === "init_character_data") {
       state.character = data;
+      state.labyrinth = data.labyrinth || null;
       state.items = /* @__PURE__ */ new Map();
       applyItems(data.characterItems);
     } else if (data.type === "market_item_order_books_updated") {
@@ -266,6 +270,9 @@
           break;
         case "achievements_updated":
           copyFields(data, ["characterAchievements"]);
+          break;
+        case "labyrinth_updated":
+          state.labyrinth = data.labyrinth || null;
           break;
         case "loadouts_updated":
           copyFields(data, ["characterLoadoutMap"]);
@@ -5020,7 +5027,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.65.0" : "dev";
+  var VERSION = true ? "0.66.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -6472,6 +6479,13 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-trig-line { margin-bottom: 3px; }
 .mwia-trig-bar button { padding: 3px 8px; border: 0; border-radius: 4px; background: #4f5bd5; color: #fff; font: 600 12px/1.4 sans-serif; cursor: pointer; }
 .mwia-laby-note { margin: 4px 0 6px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+[class*="LabyrinthPanel_roomCell"] { position: relative; }
+.mwia-laby-cellmark { position: absolute; inset: 0; box-sizing: border-box; border: 3px solid currentColor; border-radius: 3px; pointer-events: none; }
+.mwia-laby-cellmark span { position: absolute; top: 0; right: 0; padding: 0 1px; border-bottom-left-radius: 2px; background: rgba(16, 20, 40, 0.8); font: 700 7px/1.1 sans-serif; }
+.mwia-laby-cellmark.mwia-laby-ok, .mwia-laby-legend .mwia-laby-ok { color: #7ee2b0; }
+.mwia-laby-cellmark.mwia-laby-warn, .mwia-laby-legend .mwia-laby-warn { color: #ffd479; }
+.mwia-laby-cellmark.mwia-laby-bad, .mwia-laby-legend .mwia-laby-bad { color: #ff8f8f; }
+.mwia-laby-legend { box-sizing: border-box; max-width: 360px; margin: 8px auto; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.45 sans-serif; text-align: left; }
 .mwia-laby-fill { margin-left: 6px; padding: 2px 8px; border: 1px solid #5865a8; border-radius: 4px; background: #2d3a73; color: #fff; font: 600 12px sans-serif; cursor: pointer; }
 .mwia-laby-fill:disabled { opacity: 0.5; cursor: default; }
 .mwia-laby-mark { margin-top: 3px; font: 400 11px/1.3 sans-serif; text-align: left; white-space: normal; }
@@ -7769,7 +7783,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var FINE_STEP = 2;
   var MAX_FINE = 12;
   var FLOOR_STEP = 20;
-  var FLOOR_ONE_LEVEL = 20;
+  var FLOOR_ONE_LEVEL = 30;
   var floorLevel = (floor) => FLOOR_ONE_LEVEL + (floor - 1) * FLOOR_STEP;
   var floorAt = (level) => level === null || level < FLOOR_ONE_LEVEL ? 0 : 1 + Math.floor((level - FLOOR_ONE_LEVEL) / FLOOR_STEP);
   var LAB_ACCURACY = {
@@ -8354,6 +8368,10 @@ i.mwia-history-bid { background: #7ee2b0; }
   var CHOSEN = 'input[class*="MuiSelect-nativeInput"], input[class*="nativeInput"]';
   var MARK = "mwia-laby-mark";
   var NOTE = "mwia-laby-note";
+  var GRID = '[class*="LabyrinthPanel_roomGrid"]';
+  var CELL = '[class*="LabyrinthPanel_roomCell"]';
+  var CELL_MARK = "mwia-laby-cellmark";
+  var LEGEND = "mwia-laby-legend";
   var FILL = "mwia-laby-fill";
   var COMBO2 = '[role="combobox"]';
   var m = { deps: null, scanTimer: null, stored: void 0, filling: false, status: "" };
@@ -8384,10 +8402,11 @@ i.mwia-history-bid { background: #7ee2b0; }
   function startLabyrinthMarks(deps) {
     m.deps = deps;
     new MutationObserver((records) => {
-      if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}`))) return;
+      if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}, .${CELL_MARK}, .${LEGEND}`))) return;
       scheduleScan7();
     }).observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", onClick5, true);
+    onStateChange(() => scheduleScan7());
     scheduleScan7();
   }
   function onClick5(event) {
@@ -8471,12 +8490,26 @@ i.mwia-history-bid { background: #7ee2b0; }
     const title = `MWI Advisor: ${pct4(win2)} of the rooms won at room level ${level} with ${monster.setupName} (${floor})`;
     return { kind, chosen, text, title };
   }
+  function runRooms(labyrinth = state.labyrinth) {
+    if (!labyrinth?.isActive || !Array.isArray(labyrinth.roomData)) return [];
+    const rooms = [];
+    labyrinth.roomData.forEach((row, r) => (row || []).forEach((room, c2) => {
+      if (room?.monsterHrid && room.recommendedLevel) rooms.push({ row: r, col: c2, hrid: room.monsterHrid, level: room.recommendedLevel, cleared: !!room.isCleared });
+    }));
+    return rooms;
+  }
+  function automationLevel() {
+    const levels = runRooms().map((x) => x.level).sort((a, b) => a - b);
+    if (levels.length) return { level: levels[Math.floor(levels.length / 2)], run: true };
+    return { level: m.deps.level(), run: false };
+  }
   function scan6() {
+    mapMarks();
     const tables = [...document.querySelectorAll(TABLE)].filter(visible);
     const check = lastCheck();
-    const level = m.deps.level();
+    const { level, run } = automationLevel();
     for (const table of tables) {
-      note(table, check, level);
+      note(table, check, level, run);
       if (!check) continue;
       const data = getClientData();
       for (const row of table.querySelectorAll("tbody tr")) {
@@ -8497,17 +8530,78 @@ i.mwia-history-bid { background: #7ee2b0; }
       }
     }
   }
-  function note(table, check, level) {
+  function note(table, check, level, run) {
     let el = table.previousElementSibling?.classList?.contains(NOTE) ? table.previousElementSibling : null;
     if (!el) {
       el = document.createElement("div");
       el.className = NOTE;
       table.parentElement.insertBefore(el, table);
     }
-    const floor = floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
+    const floor = run ? ` (the rooms of floor ${state.labyrinth.currentFloor} you can see)` : floorAt(level) && floorLevel(floorAt(level)) === level ? ` (floor ${floorAt(level)}, a guess)` : "";
     const html = check ? `\u{1F9ED} MWI Advisor: the loadout to pick for each monster at room level ${level}${floor} \u2013 change it in \u{1F9ED} \u2192 Labyrinth. Checked ${new Date(check.at).toLocaleDateString()}; check again after changing gear.
            <button class="${FILL}" ${m.filling ? "disabled" : ""}>\u25B6 Fill in</button>${m.status ? `<div>${esc(m.status)}</div>` : ""}` : `\u{1F9ED} MWI Advisor: tap <b>Check the rooms</b> in \u{1F9ED} \u2192 Labyrinth, and each monster here gets the loadout to pick.`;
     if (el.dataset.html !== html) el.innerHTML = el.dataset.html = html;
+  }
+  function mapMarks() {
+    const grid = [...document.querySelectorAll(GRID)].find(visible);
+    const labyrinth = state.labyrinth;
+    const old = document.querySelector(`.${LEGEND}`);
+    if (!grid || !labyrinth?.isActive) {
+      old?.remove();
+      return;
+    }
+    const cols = labyrinth.roomData?.[0]?.length || 0;
+    const cells = [...grid.children].filter((el) => el.matches(CELL));
+    if (!cols || cells.length !== cols * labyrinth.roomData.length) return;
+    const check = lastCheck();
+    const data = getClientData();
+    const rooms = new Map(runRooms(labyrinth).map((x) => [x.row * cols + x.col, x]));
+    const lines = [];
+    cells.forEach((cell, i) => {
+      const room = rooms.get(i);
+      const monster = room && !room.cleared && check ? check.monsters.find((x) => x.hrid === room.hrid) : null;
+      let el = cell.querySelector(`.${CELL_MARK}`);
+      if (!monster) {
+        el?.remove();
+        return;
+      }
+      const win2 = winAt(monster.curve, room.level) ?? 0;
+      const kind = win2 >= SAFE_WIN ? "ok" : win2 >= RISKY_WIN ? "warn" : "bad";
+      const loadout = esc(monster.setupId === "equipped" ? "what you wear now" : monster.setupName);
+      const who = esc(data?.combatMonsterDetailMap?.[room.hrid]?.name || room.hrid.split("/").pop());
+      const verdict2 = kind === "bad" ? `\u2716 shroud or go around (best: ${loadout}, ${pct4(win2)})` : `${kind === "ok" ? "\u2705" : "\u26A0"} ${loadout} \xB7 ${pct4(win2)}`;
+      lines.push({ kind, at: i, html: `<div class="mwia-laby-${kind}">Lv.${room.level} ${who}: ${verdict2}</div>` });
+      if (!el) {
+        el = document.createElement("div");
+        cell.appendChild(el);
+      }
+      const cls = `${CELL_MARK} mwia-laby-${kind}`;
+      if (el.className !== cls) el.className = cls;
+      const corner = `<span>${pct4(win2)}</span>`;
+      if (el.dataset.html !== corner) {
+        el.dataset.html = corner;
+        el.innerHTML = corner;
+      }
+      const title = `MWI Advisor: Lv.${room.level} ${who} \u2013 ${verdict2}`;
+      if (el.title !== title) el.title = title;
+    });
+    const anchor = grid.closest('[class*="LabyrinthPanel_gridContainer"]') || grid;
+    const html = check ? lines.length ? `<b>\u{1F9ED} Rooms in sight</b> (frame: green win \u2265 90%, yellow \u2265 50%, red less)${lines.map((l2) => l2.html).join("")}` : "" : `\u{1F9ED} MWI Advisor: tap <b>Check the rooms</b> in \u{1F9ED} \u2192 Labyrinth to get the loadout for each room here.`;
+    let legend = old;
+    if (!html) {
+      legend?.remove();
+      return;
+    }
+    if (!legend || legend.previousElementSibling !== anchor) {
+      legend?.remove();
+      legend = document.createElement("div");
+      legend.className = LEGEND;
+      anchor.insertAdjacentElement("afterend", legend);
+    }
+    if (legend.dataset.html !== html) {
+      legend.dataset.html = html;
+      legend.innerHTML = html;
+    }
   }
 
   // src/enhance-plan.js
@@ -10690,7 +10784,7 @@ ${triggerWindowReport()}`, false);
 
   // src/ui.js
   var SETTINGS_KEY = "mwia-settings";
-  var DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 20 };
+  var DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30 };
   var SKILL_NAMES = {
     stamina: "Stamina",
     intelligence: "Intelligence",
@@ -11759,7 +11853,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.65.0" : "dev";
+  var VERSION3 = true ? "0.66.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

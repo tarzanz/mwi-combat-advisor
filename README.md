@@ -301,8 +301,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     for the room type in the automation), how that loadout hits it, *Safe up to* (≥ 90% of the rooms won), *50% at*,
     and at a **floor** or **room level** (re-read without simulating again): ✅ fight, ⚠ risky or ✖ shroud or go
     around, with why rooms are lost (*you die* or *too slow*) and the typical time to win. *All your loadouts* shows
-    every loadout against every monster. Floors are a guess: floor 1 ≈ room level 20 and about 20 levels a floor (a
-    community guide says ~20 a floor; where floor 1 starts isn't written anywhere we found).
+    every loadout against every monster. Floor 1 ≈ room level 30 (its rooms were at level 23–40 in the game) and about 20
+    levels a floor after that – the step is still a guess from a community guide.
   - **What should I improve?** – the next coffee and food crates, +5 in each combat skill, +5 levels in each ability,
     taking an ability off and an ability you know in place of one you use – each against every monster with the
     loadout you'd use for it, at the room level where you win about half the rooms; the gain is shown as room levels.
@@ -325,9 +325,16 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     above the table says which level and when the rooms were checked; the last check is kept in this browser, so the
     marks stay after a reload (check again after changing gear). Before the first check the line says to tap
     *Check the rooms*.
+    While you are in a run, the marks are for the rooms of the floor you can see (their middle level), not the
+    Labyrinth tab's level.
     **▶ Fill in** on that line picks each monster's best loadout in the game's own dropdowns, as a tap would (also
     for ✖ rooms, so a fight you can't avoid gets the best you have), and says how many it changed; skilling rooms
     are left alone.
+  - **Marks on the Labyrinth map** – in a run, every room with a monster in sight gets a frame in the verdict's
+    colour (green: you win at least 90% of such rooms, yellow: at least half, red: less), at that room's own level as
+    the game sends it, and the share won in tiny type in its top right corner (the rest of the cell is the game's). Under the map, a line per room:
+    level, monster, the loadout to take and the share won (✖ shroud it or go around when you'd lose). Fog and cleared
+    rooms are left alone. Needs a *Check the rooms* in the Labyrinth tab first.
   - **📋 Read the game's Labyrinth** – the first step towards marks on the game's Labyrinth map (and its automation
     settings): the script keeps every message the game sends that mentions the Labyrinth (a few of each type, in
     this browser), and the button reports their types and the shape of their data, the character's Labyrinth
