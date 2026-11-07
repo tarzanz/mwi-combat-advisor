@@ -1605,7 +1605,7 @@ export function mountUI(win, workerSource) {
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
-    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings) });
+    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
     startEnhancePlan(gameDeps);
     watchTriggerClicks();
     startTriggerWindow({

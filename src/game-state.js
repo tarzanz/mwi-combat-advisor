@@ -29,6 +29,7 @@ const INTERESTING = new RegExp(
             "loot_log_updated",
             "loadouts_updated",
             "labyrinth_updated",
+            "character_info_updated",
         ].join("|") +
         ')"'
 );
@@ -286,6 +287,10 @@ function handle(data) {
                 break;
             case "achievements_updated":
                 copyFields(data, ["characterAchievements"]);
+                break;
+            case "character_info_updated":
+                // The Labyrinth shop's upgrades (skilling speed, success …) among the rest.
+                copyFields(data, ["characterInfo"]);
                 break;
             case "labyrinth_updated":
                 state.labyrinth = data.labyrinth || null;

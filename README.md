@@ -330,7 +330,15 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   - **Marks on the Labyrinth map** – in a run, every room with a monster in sight gets a frame in the verdict's
     colour (green: you win at least 90% of such rooms, yellow: at least half, red: less), at that room's own level as
     the game sends it, and the share won in tiny type at its right, halfway down (the rest of the cell is the game's).
-    Fog and cleared rooms are left alone. Needs a *Check the rooms* in the Labyrinth tab first.
+    Skilling rooms get their chance to be cleared the same way, worked out exactly (no simulation) with the rules of
+    the community's Labyrinth Clear Rate Calculator: 2 minutes of 10 s actions (Enhancing 8 s) sped up by action
+    speed; each try succeeds at 80% × (1 + 0.5% a level above the room, −1% a level below, + success bonuses) and adds
+    your effective level × (1 + efficiency) progress (twice with double progress: crate, shop, Gathering for
+    milking/foraging/woodcutting, Gourmet for cooking/brewing) towards room level × 10; Enhancing goes +1 a success
+    and −1 a failure up to +5. Your level and buffs come from your equipment, house, community buffs, achievements,
+    the Moo Pass, the run's tea crate and the shop's skilling upgrades – not teas (none in the Labyrinth); the
+    equipment is what you wear, not the loadout set for the room. Tap-and-hold a room for the details.
+    Fog and cleared rooms are left alone. Combat rooms need a *Check the rooms* in the Labyrinth tab first.
   - **📋 Read the game's Labyrinth** – the first step towards marks on the game's Labyrinth map (and its automation
     settings): the script keeps every message the game sends that mentions the Labyrinth (a few of each type, in
     this browser), and the button reports their types and the shape of their data, the character's Labyrinth
@@ -522,6 +530,7 @@ node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to 
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
 node test/export-browser-test.mjs /tmp                    # Export for chat: under the inventory, share sheet or download
 node test/labyrinth-browser-test.mjs /tmp                 # Labyrinth tab: loadouts per room type, floors, improvements, builder
+node test/labyrinth-skilling-test.mjs                      # Labyrinth skilling rooms: exact clear chance against a simulation
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox
 ```

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.66.1
+// @version      0.67.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -47,7 +47,8 @@
       "market_item_order_books_updated",
       "loot_log_updated",
       "loadouts_updated",
-      "labyrinth_updated"
+      "labyrinth_updated",
+      "character_info_updated"
     ].join("|") + ')"'
   );
   var BUFF_MAPS = [
@@ -270,6 +271,9 @@
           break;
         case "achievements_updated":
           copyFields(data, ["characterAchievements"]);
+          break;
+        case "character_info_updated":
+          copyFields(data, ["characterInfo"]);
           break;
         case "labyrinth_updated":
           state.labyrinth = data.labyrinth || null;
@@ -1212,16 +1216,16 @@
     return { gold: (h2) => val(gold, h2, sell), hours: (h2) => val(hours, h2, none), xp: (h2) => val(xp, h2, none) };
   }
   function flows(entry, items, choice) {
-    const amount = /* @__PURE__ */ new Map();
-    for (const o2 of entry.outputs) if (o2.itemHrid !== COIN2) amount.set(o2.itemHrid, (amount.get(o2.itemHrid) || 0) + o2.count);
+    const amount2 = /* @__PURE__ */ new Map();
+    for (const o2 of entry.outputs) if (o2.itemHrid !== COIN2) amount2.set(o2.itemHrid, (amount2.get(o2.itemHrid) || 0) + o2.count);
     const actions = /* @__PURE__ */ new Map();
     const sold = /* @__PURE__ */ new Map();
     for (let sweep = 0; sweep < SWEEPS * 4; sweep++) {
       let pushed = false;
-      for (const h2 of [...amount.keys()]) {
-        const n3 = amount.get(h2);
+      for (const h2 of [...amount2.keys()]) {
+        const n3 = amount2.get(h2);
         if (n3 < 1e-12) continue;
-        amount.set(h2, 0);
+        amount2.set(h2, 0);
         const step = choice.get(h2);
         if (!step) {
           sold.set(h2, (sold.get(h2) || 0) + n3);
@@ -1230,7 +1234,7 @@
         pushed = true;
         const times = n3 / step.net;
         actions.set(h2, { step, count: (actions.get(h2)?.count || 0) + times });
-        for (const o2 of step.outputs) if (o2.itemHrid !== COIN2) amount.set(o2.itemHrid, (amount.get(o2.itemHrid) || 0) + o2.count * times);
+        for (const o2 of step.outputs) if (o2.itemHrid !== COIN2) amount2.set(o2.itemHrid, (amount2.get(o2.itemHrid) || 0) + o2.count * times);
       }
       if (!pushed) break;
     }
@@ -2259,7 +2263,7 @@
     const multiplier = data.enhancementLevelTotalBonusMultiplierTable?.[enhancementLevel || 0] || 0;
     const value = (stat) => (stats[stat] || 0) + (bonuses[stat] || 0) * multiplier;
     const buffs = [];
-    const add = (typeHrid, amount) => amount && buffs.push({ typeHrid, flatBoost: amount, ratioBoost: 0 });
+    const add = (typeHrid, amount2) => amount2 && buffs.push({ typeHrid, flatBoost: amount2, ratioBoost: 0 });
     add("/buff_types/action_speed", value(skill + "Speed") + value("skillingSpeed"));
     add("/buff_types/efficiency", value(skill + "Efficiency") + value("skillingEfficiency"));
     add("/buff_types/wisdom", value(skill + "Experience") + value("skillingExperience"));
@@ -5027,7 +5031,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.66.1" : "dev";
+  var VERSION = true ? "0.67.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -7359,12 +7363,12 @@ i.mwia-history-bid { background: #7ee2b0; }
       ...best.map((hrid) => itemLine(current.includes(hrid) ? "keep" : "add", hrid, stock(hrid) + gain(hrid))),
       ...current.filter((hrid) => !best.includes(hrid)).map((hrid) => itemLine("remove", hrid))
     ];
-    const verdict2 = !entry.betterTeas ? best.length ? "\u2713 Your teas are the best ones for this." : current.length ? "No tea earns back its cost here." : "\u2713 No tea earns back its cost here." : `Best teas: <b class="mwia-ok">${entry.best.result.goldPerDay >= entry.current.goldPerDay ? `+${coins4(entry.best.result.goldPerDay - entry.current.goldPerDay)}/day` : `+${coins4(entry.best.result.xpPerDay - entry.current.xpPerDay)} XP/day`}</b> over the ones in your slots now.`;
+    const verdict3 = !entry.betterTeas ? best.length ? "\u2713 Your teas are the best ones for this." : current.length ? "No tea earns back its cost here." : "\u2713 No tea earns back its cost here." : `Best teas: <b class="mwia-ok">${entry.best.result.goldPerDay >= entry.current.goldPerDay ? `+${coins4(entry.best.result.goldPerDay - entry.current.goldPerDay)}/day` : `+${coins4(entry.best.result.xpPerDay - entry.current.xpPerDay)} XP/day`}</b> over the ones in your slots now.`;
     const plan = entry.teaPlan;
     const items = plan?.items.length ? plan.items.map(({ hrid, quantity }) => ({ hrid, quantity })) : best.filter((hrid) => have2(hrid) < perDay2).map((hrid) => ({ hrid, quantity: perDay2 - have2(hrid) }));
     const label3 = plan?.items.length ? `\u{1F6D2} Teas for ${plan.hours < 1 ? Math.max(1, Math.round(plan.hours * 60)) + " min" : Math.round(plan.hours * 10) / 10 + " h"}` : "\u{1F6D2} Teas for 1 day";
     const focus = Number(settings2.skillingGold ?? 100);
-    return head("\u{1F375} Teas", `MWI Advisor${entry.action.itemHrid ? ` \xB7 ${esc(adviceName(entry))}` : ""} \xB7 ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP \xB7 ${focus}% gold`}`) + (lines.length ? `<ul class="mwia-guide-list">${lines.join("")}</ul>` : "") + `<div class="mwia-guide-note">${verdict2} ${slotsLine(entry)}</div>` + cartButton(items, label3);
+    return head("\u{1F375} Teas", `MWI Advisor${entry.action.itemHrid ? ` \xB7 ${esc(adviceName(entry))}` : ""} \xB7 ${focus === 100 ? "gold" : focus === 0 ? "XP" : `${100 - focus}% XP \xB7 ${focus}% gold`}`) + (lines.length ? `<ul class="mwia-guide-list">${lines.join("")}</ul>` : "") + `<div class="mwia-guide-note">${verdict3} ${slotsLine(entry)}</div>` + cartButton(items, label3);
   }
   function panelTier(panel) {
     const select = [...panel.querySelectorAll("select")].find((el) => /^T\d+$/.test(el.selectedOptions?.[0]?.textContent.trim() || ""));
@@ -8240,6 +8244,86 @@ i.mwia-history-bid { background: #7ee2b0; }
     };
   }
 
+  // src/labyrinth-skilling.js
+  var ROOM_SECONDS = 120;
+  var ACTION_SECONDS = 10;
+  var ENHANCING_SECONDS = 8;
+  var ENHANCING_TARGET = 5;
+  var BUFF_MAPS2 = ["equipmentActionTypeBuffsMap", "houseActionTypeBuffsMap", "communityActionTypeBuffsMap", "achievementActionTypeBuffsMap", "mooPassActionTypeBuffsMap"];
+  var GATHERING = ["milking", "foraging", "woodcutting"];
+  var GOURMET = ["cooking", "brewing"];
+  var amount = (b) => (Number(b.flatBoost) || 0) + (Number(b.flatBoostLevelBonus) || 0) + (Number(b.ratioBoost) || 0) + (Number(b.ratioBoostLevelBonus) || 0);
+  function skillingBuffs(skill, buffs) {
+    const out = { level: 0, efficiency: 0, speed: 0, success: 0, double: 0 };
+    for (const b of buffs || []) {
+      if (!b?.typeHrid) continue;
+      const t4 = b.typeHrid;
+      const x = amount(b);
+      if (t4 === `/buff_types/${skill}_level`) out.level += x;
+      else if (t4 === "/buff_types/efficiency") out.efficiency += x;
+      else if (t4 === "/buff_types/action_speed") out.speed += x;
+      else if (t4 === "/buff_types/labyrinth_double_progress") out.double += x;
+      else if (t4 === "/buff_types/gathering" && GATHERING.includes(skill)) out.double += x;
+      else if (t4 === "/buff_types/gourmet" && GOURMET.includes(skill)) out.double += x;
+      else if (t4 === "/buff_types/success_rate" || t4 === `/buff_types/${skill}_success`) out.success += x;
+    }
+    return out;
+  }
+  function reachChance(tries, units, success, double, fallBack) {
+    if (units <= 0) return 1;
+    if (success <= 0 || units > tries * 2) return 0;
+    const q0 = 1 - success;
+    const q1 = success * (1 - double);
+    const q2 = success * double;
+    let dist = new Float64Array(units + 1);
+    dist[0] = 1;
+    for (let t4 = 0; t4 < tries; t4++) {
+      const next = new Float64Array(units + 1);
+      next[units] = dist[units];
+      for (let u = 0; u < units; u++) {
+        const p2 = dist[u];
+        if (!p2) continue;
+        next[fallBack ? Math.max(0, u - 1) : u] += p2 * q0;
+        next[Math.min(units, u + 1)] += p2 * q1;
+        next[Math.min(units, u + 2)] += p2 * q2;
+      }
+      dist = next;
+    }
+    return Math.min(1, Math.max(0, dist[units]));
+  }
+  function skillingRoomChance(room, who) {
+    const b = { level: 0, efficiency: 0, speed: 0, success: 0, double: 0 };
+    for (const list of [...who.buffs || [], who.crateBuffs || []]) {
+      const x = skillingBuffs(room.skill, list);
+      for (const k in b) b[k] += x[k];
+    }
+    const shop = who.shop || {};
+    b.speed += 0.01 * (shop.speed || 0);
+    b.efficiency += 0.01 * (shop.efficiency || 0);
+    b.success += 5e-3 * (shop.success || 0);
+    b.double += 0.01 * (shop.double || 0);
+    const level = (who.level || 0) + b.level;
+    const delta = level - room.level;
+    const success = Math.min(1, Math.max(0, 0.8 * (1 + (delta >= 0 ? 5e-3 : 0.01) * delta + b.success)));
+    const double = Math.min(1, Math.max(0, b.double));
+    const enhancing = room.skill === "enhancing";
+    const seconds = (enhancing ? ENHANCING_SECONDS : ACTION_SECONDS) / Math.max(0.05, 1 + b.speed);
+    const tries = Math.max(1, Math.floor(ROOM_SECONDS / seconds));
+    if (enhancing) return { chance: reachChance(tries, ENHANCING_TARGET, success, double, true), level, success, double, tries, needed: ENHANCING_TARGET };
+    const perSuccess = Math.max(0, Math.floor(level * (1 + b.efficiency)));
+    const needed = perSuccess > 0 ? Math.ceil(room.level * 10 / perSuccess - 1e-9) : Infinity;
+    return { chance: Number.isFinite(needed) ? reachChance(tries, needed, success, double, false) : 0, level, success, double, tries, needed };
+  }
+  function skillingWho(character, data, skill, teaCrateHrid) {
+    const actionType = `/action_types/${skill}`;
+    const level = (character?.characterSkills || []).find((s2) => s2.skillHrid === `/skills/${skill}`)?.level || 1;
+    const buffs = BUFF_MAPS2.map((key2) => character?.[key2]?.[actionType] || []);
+    const crateBuffs2 = teaCrateHrid && data?.labyrinthCrateDetailMap?.[teaCrateHrid] || [];
+    const info = character?.characterInfo || {};
+    const shop = { speed: info.labyrinthSkillActionSpeedLevel, efficiency: info.labyrinthSkillingEfficiencyLevel, success: info.labyrinthSkillingSuccessLevel, double: info.labyrinthSkillingDoubleProgressLevel };
+    return { level, buffs, crateBuffs: crateBuffs2, shop };
+  }
+
   // src/labyrinth-marks.js
   var SCAN_MS7 = 400;
   var STORE2 = "mwia-laby-check";
@@ -8324,11 +8408,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const rooms = [];
     labyrinth.roomData.forEach((row, r) => (row || []).forEach((room, c2) => {
       if (room?.monsterHrid && room.recommendedLevel) rooms.push({ row: r, col: c2, hrid: room.monsterHrid, level: room.recommendedLevel, cleared: !!room.isCleared });
+      else if (room?.skillHrid && room.recommendedLevel) rooms.push({ row: r, col: c2, skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel, cleared: !!room.isCleared });
     }));
     return rooms;
   }
   function automationLevel() {
-    const levels = runRooms().map((x) => x.level).sort((a, b) => a - b);
+    const levels = runRooms().filter((x) => x.hrid).map((x) => x.level).sort((a, b) => a - b);
     if (levels.length) return { level: levels[Math.floor(levels.length / 2)], run: true };
     return { level: m.deps.level(), run: false };
   }
@@ -8380,18 +8465,18 @@ i.mwia-history-bid { background: #7ee2b0; }
     const check = lastCheck();
     const data = getClientData();
     const rooms = new Map(runRooms(labyrinth).map((x) => [x.row * cols + x.col, x]));
+    if (!data && [...rooms.values()].some((x) => x.skill) && m.deps.prepare && !m.loading) {
+      m.loading = m.deps.prepare().then(scheduleScan7, (error) => console.warn("[MWI Advisor] labyrinth marks", error)).finally(() => m.loading = null);
+    }
     cells.forEach((cell, i) => {
       const room = rooms.get(i);
-      const monster = room && !room.cleared && check ? check.monsters.find((x) => x.hrid === room.hrid) : null;
       let el = cell.querySelector(`.${CELL_MARK}`);
-      if (!monster) {
+      const mark3 = room && !room.cleared ? room.skill ? skillingMark(room, labyrinth, data) : combatMark(room, check, data) : null;
+      if (!mark3) {
         el?.remove();
         return;
       }
-      const win2 = winAt(monster.curve, room.level) ?? 0;
-      const kind = win2 >= SAFE_WIN ? "ok" : win2 >= RISKY_WIN ? "warn" : "bad";
-      const loadout = monster.setupId === "equipped" ? "what you wear now" : monster.setupName;
-      const who = data?.combatMonsterDetailMap?.[room.hrid]?.name || room.hrid.split("/").pop();
+      const { win: win2, kind, title } = mark3;
       if (!el) {
         el = document.createElement("div");
         cell.appendChild(el);
@@ -8403,9 +8488,29 @@ i.mwia-history-bid { background: #7ee2b0; }
         el.dataset.html = corner;
         el.innerHTML = corner;
       }
-      const title = `MWI Advisor: Lv.${room.level} ${who} \u2013 ${kind === "bad" ? "shroud it or go around; best" : "take"} ${loadout}: ${pct4(win2)} won`;
       if (el.title !== title) el.title = title;
     });
+  }
+  function verdict(win2) {
+    return win2 >= SAFE_WIN ? "ok" : win2 >= RISKY_WIN ? "warn" : "bad";
+  }
+  function combatMark(room, check, data) {
+    const monster = check?.monsters.find((x) => x.hrid === room.hrid);
+    if (!monster) return null;
+    const win2 = winAt(monster.curve, room.level) ?? 0;
+    const kind = verdict(win2);
+    const loadout = monster.setupId === "equipped" ? "what you wear now" : monster.setupName;
+    const who = data?.combatMonsterDetailMap?.[room.hrid]?.name || room.hrid.split("/").pop();
+    return { win: win2, kind, title: `MWI Advisor: Lv.${room.level} ${who} \u2013 ${kind === "bad" ? "shroud it or go around; best" : "take"} ${loadout}: ${pct4(win2)} won` };
+  }
+  function skillingMark(room, labyrinth, data) {
+    if (!state.character || !data) return null;
+    const result = skillingRoomChance({ skill: room.skill, level: room.level }, skillingWho(state.character, data, room.skill, labyrinth.teaCrateItemHrid));
+    const win2 = result.chance;
+    const kind = verdict(win2);
+    const skill = room.skill.charAt(0).toUpperCase() + room.skill.slice(1);
+    const how = room.skill === "enhancing" ? `+${result.needed} in ${result.tries} tries` : `${result.needed} successes needed in ${result.tries} tries`;
+    return { win: win2, kind, title: `MWI Advisor: Lv.${room.level} ${skill} \u2013 ${pct4(win2)} to clear (your level ${Math.round(result.level)}, ${pct4(result.success)} a try, ${how})` };
   }
 
   // src/enhance-plan.js
@@ -8681,9 +8786,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const bad = t4.unlucky;
     const items = base.list.map((n3, i) => {
       const b = bad?.list[i];
-      const amount = `${count2(n3.count)}${b ? ` (bad luck ${count2(b.count)})` : ""}`;
-      const verdict2 = n3.short > 0 ? `<b class="mwia-guide-low">${count2(n3.short)} short</b>` : b?.short > 0 ? `enough typically, ${count2(b.short)} short with bad luck` : `<span class="mwia-ok">\u2713 ${count2(n3.have - (b || n3).count)} to spare</span>`;
-      return `<li>${esc(n3.itemHrid === COIN9 ? "Coins" : itemName(n3.itemHrid))}${n3.protection ? " (protection)" : ""}${n3.tea ? " (tea)" : ""}: ${amount} \xB7 have ${count2(n3.have)} \xB7 ${verdict2}</li>`;
+      const amount2 = `${count2(n3.count)}${b ? ` (bad luck ${count2(b.count)})` : ""}`;
+      const verdict3 = n3.short > 0 ? `<b class="mwia-guide-low">${count2(n3.short)} short</b>` : b?.short > 0 ? `enough typically, ${count2(b.short)} short with bad luck` : `<span class="mwia-ok">\u2713 ${count2(n3.have - (b || n3).count)} to spare</span>`;
+      return `<li>${esc(n3.itemHrid === COIN9 ? "Coins" : itemName(n3.itemHrid))}${n3.protection ? " (protection)" : ""}${n3.tea ? " (tea)" : ""}: ${amount2} \xB7 have ${count2(n3.have)} \xB7 ${verdict3}</li>`;
     });
     const cart = (outcome, label3) => {
       const list = outcome ? outcome.list.filter((n3) => n3.itemHrid !== COIN9 && n3.short > 0).map((n3) => ({ hrid: n3.itemHrid, quantity: n3.short })) : [];
@@ -10341,7 +10446,7 @@ ${triggerWindowReport()}`, false);
       <select data-setting="labyFloor">${custom ? `<option selected value="">Room level ${level}</option>` : ""}${options.join("")}</select></label>`;
   }
   var floorText = (level) => level === null ? "" : floorAt(level) ? ` <span class="mwia-dim">(fl. ${floorAt(level)})</span>` : ` <span class="mwia-dim">(below fl. 1)</span>`;
-  function verdict(win2, point) {
+  function verdict2(win2, point) {
     if (win2 === null) return "\u2013";
     if (win2 >= SAFE_WIN) return `<span class="mwia-ok" title="You win ${pctText(win2)} of these rooms">\u2705 fight \xB7 ${pctText(win2)}</span>`;
     const dies = point && point.deaths >= point.timeouts;
@@ -10407,7 +10512,7 @@ ${triggerWindowReport()}`, false);
           ${several ? `<td>${esc(m2.setupName)}</td>` : ""}<td>${matchHtml(profileOf(m2.setupId), data, m2.hrid)}</td>
           <td class="mwia-num">${m2.safe === null ? '<span class="mwia-bad">below 5</span>' : `<span>${lvl(m2.safe)}${floorText(m2.safe)}</span>`}</td>
           <td class="mwia-num">${m2.half === null ? '<span class="mwia-bad">below 5</span>' : lvl(m2.half)}</td>
-          <td>${verdict(winAt(m2.curve, level), point)}</td><td class="mwia-num">${time2 ? `${Math.round(time2)} s` : "\u2013"}</td>
+          <td>${verdict2(winAt(m2.curve, level), point)}</td><td class="mwia-num">${time2 ? `${Math.round(time2)} s` : "\u2013"}</td>
           ${improve ? `<td><span>${swaps.get(m2.hrid) || '<span class="mwia-dim">\u2013</span>'}</span></td>` : ""}</tr>`;
     }
     return html + `</tbody></table>`;
@@ -11774,7 +11879,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.66.1" : "dev";
+  var VERSION3 = true ? "0.67.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -12045,7 +12150,7 @@ ${triggerWindowReport()}`, false);
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
-    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings) });
+    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
     startEnhancePlan(gameDeps);
     watchTriggerClicks();
     startTriggerWindow({

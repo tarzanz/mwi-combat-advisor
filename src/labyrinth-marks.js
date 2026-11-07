@@ -4,13 +4,15 @@
 // level set in the advisor's Labyrinth tab – or "Shroud or go around" when even the best
 // loses. The last check is kept in this browser, so the marks stay after a reload.
 // On the Labyrinth map, each room with a monster in sight gets the same mark at its own
-// room level (the game sends each room's monster and level).
+// room level (the game sends each room's monster and level), and each skilling room its
+// chance to be cleared (labyrinth-skilling.js).
 
 import { getClientData } from "./game-data.js";
 import { esc } from "./format.js";
 import { onStateChange, state } from "./game-state.js";
 import { visible } from "./game-nav.js";
 import { RISKY_WIN, SAFE_WIN, floorAt, floorLevel, winAt } from "./labyrinth.js";
+import { skillingRoomChance, skillingWho } from "./labyrinth-skilling.js";
 
 const SCAN_MS = 400;
 const STORE = "mwia-laby-check";
@@ -54,7 +56,7 @@ function lastCheck() {
     return m.stored;
 }
 
-// deps: level() -> the room level set in the Labyrinth tab.
+// deps: level() -> the room level set in the Labyrinth tab; prepare() -> loads the game data.
 export function startLabyrinthMarks(deps) {
     m.deps = deps;
     new MutationObserver((records) => {
@@ -109,13 +111,14 @@ export function runRooms(labyrinth = state.labyrinth) {
     const rooms = [];
     labyrinth.roomData.forEach((row, r) => (row || []).forEach((room, c) => {
         if (room?.monsterHrid && room.recommendedLevel) rooms.push({ row: r, col: c, hrid: room.monsterHrid, level: room.recommendedLevel, cleared: !!room.isCleared });
+        else if (room?.skillHrid && room.recommendedLevel) rooms.push({ row: r, col: c, skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel, cleared: !!room.isCleared });
     }));
     return rooms;
 }
 
 // The room level the automation marks are for: this floor's rooms while in a run, else the Labyrinth tab's.
 function automationLevel() {
-    const levels = runRooms().map((x) => x.level).sort((a, b) => a - b);
+    const levels = runRooms().filter((x) => x.hrid).map((x) => x.level).sort((a, b) => a - b);
     if (levels.length) return { level: levels[Math.floor(levels.length / 2)], run: true };
     return { level: m.deps.level(), run: false };
 }
@@ -177,18 +180,19 @@ function mapMarks() {
     const check = lastCheck();
     const data = getClientData();
     const rooms = new Map(runRooms(labyrinth).map((x) => [x.row * cols + x.col, x]));
+    // Skilling rooms need the game data (the tea crate's buffs): loaded once, then marked.
+    if (!data && [...rooms.values()].some((x) => x.skill) && m.deps.prepare && !m.loading) {
+        m.loading = m.deps.prepare().then(scheduleScan, (error) => console.warn("[MWI Advisor] labyrinth marks", error)).finally(() => (m.loading = null));
+    }
     cells.forEach((cell, i) => {
         const room = rooms.get(i);
-        const monster = room && !room.cleared && check ? check.monsters.find((x) => x.hrid === room.hrid) : null;
         let el = cell.querySelector(`.${CELL_MARK}`);
-        if (!monster) {
+        const mark = room && !room.cleared ? (room.skill ? skillingMark(room, labyrinth, data) : combatMark(room, check, data)) : null;
+        if (!mark) {
             el?.remove();
             return;
         }
-        const win = winAt(monster.curve, room.level) ?? 0;
-        const kind = win >= SAFE_WIN ? "ok" : win >= RISKY_WIN ? "warn" : "bad";
-        const loadout = monster.setupId === "equipped" ? "what you wear now" : monster.setupName;
-        const who = data?.combatMonsterDetailMap?.[room.hrid]?.name || room.hrid.split("/").pop();
+        const { win, kind, title } = mark;
         if (!el) {
             el = document.createElement("div");
             cell.appendChild(el);
@@ -200,7 +204,32 @@ function mapMarks() {
             el.dataset.html = corner;
             el.innerHTML = corner;
         }
-        const title = `MWI Advisor: Lv.${room.level} ${who} – ${kind === "bad" ? "shroud it or go around; best" : "take"} ${loadout}: ${pct(win)} won`;
         if (el.title !== title) el.title = title;
     });
+}
+
+function verdict(win) {
+    return win >= SAFE_WIN ? "ok" : win >= RISKY_WIN ? "warn" : "bad";
+}
+
+// A combat room: the share won with the loadout that goes furthest against its monster (from the last check).
+function combatMark(room, check, data) {
+    const monster = check?.monsters.find((x) => x.hrid === room.hrid);
+    if (!monster) return null;
+    const win = winAt(monster.curve, room.level) ?? 0;
+    const kind = verdict(win);
+    const loadout = monster.setupId === "equipped" ? "what you wear now" : monster.setupName;
+    const who = data?.combatMonsterDetailMap?.[room.hrid]?.name || room.hrid.split("/").pop();
+    return { win, kind, title: `MWI Advisor: Lv.${room.level} ${who} – ${kind === "bad" ? "shroud it or go around; best" : "take"} ${loadout}: ${pct(win)} won` };
+}
+
+// A skilling room: the chance to fill its progress bar in 2 minutes, worked out from your level and buffs.
+function skillingMark(room, labyrinth, data) {
+    if (!state.character || !data) return null;
+    const result = skillingRoomChance({ skill: room.skill, level: room.level }, skillingWho(state.character, data, room.skill, labyrinth.teaCrateItemHrid));
+    const win = result.chance;
+    const kind = verdict(win);
+    const skill = room.skill.charAt(0).toUpperCase() + room.skill.slice(1);
+    const how = room.skill === "enhancing" ? `+${result.needed} in ${result.tries} tries` : `${result.needed} successes needed in ${result.tries} tries`;
+    return { win, kind, title: `MWI Advisor: Lv.${room.level} ${skill} – ${pct(win)} to clear (your level ${Math.round(result.level)}, ${pct(result.success)} a try, ${how})` };
 }
