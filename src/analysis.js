@@ -406,7 +406,8 @@ function combatConsumables(kind) {
         .map((item) => item.hrid);
 }
 
-export function abilityCandidates(profile, budget) {
+// replace: with no empty slot, try a new ability only in that slot (else in every slot).
+export function abilityCandidates(profile, budget, replace = null) {
     const data = getClientData();
     const slots = slotCounts(profile, data);
     if (slots.abilities === 0) return [];
@@ -418,7 +419,7 @@ export function abilityCandidates(profile, budget) {
     const indices = [];
     for (let i = 1; i <= slots.abilities; i++) indices.push(i);
     const empty = indices.filter((i) => !profile.abilities[i]);
-    const placements = empty.length ? [empty[0]] : indices;
+    const placements = empty.length ? [empty[0]] : replace && profile.abilities[replace] ? [replace] : indices;
 
     const candidates = [];
     for (const ability of Object.values(data.abilityDetailMap)) {
@@ -494,18 +495,40 @@ function abilityLevelCandidates(profile, budget, books) {
     return candidates;
 }
 
-export function consumableCandidates(profile, kind) {
+// The styles a setup can hit with: its weapon's and those of the abilities it knows.
+function stylesInUse(profile, data) {
+    const styles = new Set([weaponStyle(profile, data)]);
+    const ofHrid = (hrid) => (hrid === "/combat_styles/ranged" ? "ranged" : hrid === "/combat_styles/magic" ? "magic" : hrid ? "melee" : null);
+    for (const hrid of Object.keys(profile.learnedAbilities || {})) {
+        for (const effect of data.abilityDetailMap[hrid]?.abilityEffects || []) if (ofHrid(effect.combatStyleHrid)) styles.add(ofHrid(effect.combatStyleHrid));
+    }
+    return styles;
+}
+
+// A drink whose every buff is the level of a style the setup never hits with (Magic Coffee
+// with a bow and no magic abilities) can't change a fight: the style levels only count for
+// that style's accuracy and damage.
+function useless(hrid, styles, data) {
+    const buffs = data.itemDetailMap[hrid]?.consumableDetail?.buffs || [];
+    const style = (b) => /\/buff_types\/(melee|ranged|magic)_level$/.exec(b.typeHrid || "")?.[1];
+    return buffs.length > 0 && buffs.every((b) => style(b) && !styles.has(style(b)));
+}
+
+// onlyUseful: leave out drinks that can't change the fight (see useless). replace: with no
+// empty slot, try a new one only in that slot (else in every slot).
+export function consumableCandidates(profile, kind, { onlyUseful = false, replace = null } = {}) {
     const data = getClientData();
+    const styles = onlyUseful ? stylesInUse(profile, data) : null;
     const slots = slotCounts(profile, data);
     const count = kind === "food" ? slots.food : slots.drinks;
     const current = (kind === "food" ? profile.food : profile.drinks).slice(0, count);
     while (current.length < count) current.push(null);
     const empty = current.findIndex((h) => !h);
-    const placements = empty !== -1 ? [empty] : current.map((_, i) => i);
+    const placements = empty !== -1 ? [empty] : replace !== null && current[replace] ? [replace] : current.map((_, i) => i);
 
     const candidates = [];
     for (const hrid of combatConsumables(kind)) {
-        if (current.includes(hrid)) continue;
+        if (current.includes(hrid) || (styles && useless(hrid, styles, data))) continue;
         // One of each kind: next to one of its kind it can only take that one's place.
         const clash = current.findIndex((had) => sameKind(had, hrid, data));
         for (const index of clash !== -1 ? [clash] : placements) {
@@ -640,14 +663,9 @@ const TUNED_ABILITIES = 3; // new abilities that get a round with their own trig
 
 // settings.scope "abilities": only abilities, their levels, order and triggers (and food
 // triggers) – no gear, house rooms, skill levels, drinks or food to buy.
-// "loadout": only what a loadout's slots take from what you have – abilities you know, their
-// order, drinks and food – with no books to buy and no triggers (quick enough to run by itself).
 export async function analyzeUpgrades(pool, profile, zone, settings, onProgress, onRefineProgress) {
-    const scope = settings.scope === "abilities" || settings.scope === "loadout" ? settings.scope : "all";
-    const all = scope === "all";
-    const consumablesToo = scope !== "abilities";
-    const triggersToo = scope !== "loadout";
-    const budget = scope === "loadout" ? 0 : settings.budget;
+    const budget = settings.budget;
+    const all = settings.scope !== "abilities";
     const seeds = (n) => Array.from({ length: n }, (_, i) => i);
     const candidates = [
         ...(all ? gearCandidates(profile, settings) : []),
@@ -655,20 +673,20 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
         ...abilityOrderCandidates(profile),
         ...(all ? houseCandidates(profile, budget) : []),
         ...(all ? skillLevelCandidates(profile) : []),
-        ...(consumablesToo ? consumableCandidates(profile, "drinks") : []),
-        ...(consumablesToo ? consumableCandidates(profile, "food") : []),
+        ...(all ? consumableCandidates(profile, "drinks") : []),
+        ...(all ? consumableCandidates(profile, "food") : []),
     ];
     // The setup as it is, measured: what its triggers get wrong decides which trigger changes to try.
-    const baseItem = { profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR), telemetry: triggersToo };
+    const baseItem = { profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR), telemetry: true };
     const planned = baseItem.seeds.length + candidates.length * settings.seeds;
     const [baseRuns] = await simulateRuns(pool, [baseItem], zone, settings.hours, (done) => onProgress?.(done, planned));
-    const telemetry = triggersToo ? mergeTelemetry(baseItem.telemetryOut) : null;
-    if (triggersToo) {
-        for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) candidates.push(triggerCandidate(change, variant));
+    const telemetry = mergeTelemetry(baseItem.telemetryOut);
+    for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) {
+        candidates.push(triggerCandidate(change, variant));
     }
     candidates.forEach((c, id) => (c.id = id));
     // New abilities are measured too, to give the most promising ones their own triggers.
-    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds), telemetry: triggersToo && c.kind === "ability", cache: c.kind === "trigger" }));
+    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds), telemetry: c.kind === "ability", cache: c.kind === "trigger" }));
     const done0 = baseItem.seeds.length;
     const total = done0 + items.reduce((sum, item) => sum + item.seeds.length, 0);
     const runs = await simulateRuns(pool, items, zone, settings.hours, (done) => onProgress?.(done0 + done, total));
@@ -680,16 +698,16 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
         zone,
         hours: settings.hours,
         seedsPerRound: settings.seeds,
-        scope,
+        scope: all ? "all" : "abilities",
         emptyAbilitySlots,
         starter: settings.starter || null,
         baseProfile: profile,
         base: summarize(baseRuns, zone.tier, profile),
         baseRuns,
-        telemetry: telemetry ? summaryOfTelemetry(telemetry) : null,
+        telemetry: summaryOfTelemetry(telemetry),
         candidates: simulated,
     };
-    if (triggersToo) await tuneNewAbilities(pool, raw, settings, onRefineProgress);
+    await tuneNewAbilities(pool, raw, settings, onRefineProgress);
     for (const c of raw.candidates) delete c.telemetry;
     // Two automatic rounds of extra runs for promising but uncertain suggestions.
     for (let round = 0; round < 2; round++) {
@@ -1025,23 +1043,21 @@ export async function verifyPlan(pool, profile, plan, zone, settings, onProgress
 }
 
 // ---------- a loadout's slots for the next fight ----------
-// Rounds of the "loadout" analysis: the best sure change to the abilities you know, their
-// order, the drinks and the food is put in, and the next round starts from there, until
-// nothing more is sure to help (at most LOADOUT_ROUNDS). settings: the advisor's settings
-// with the accuracy's hours and seeds. onProgress(done, total, round).
-// Returns { zone, start, final, rounds, before, after } – before/after: the setup as it is
-// and as advised (after.consumables: how many of each drink and food an hour).
+// Rounds: the best sure change to the abilities you know, their order, the drinks and the food
+// is put in, and the next round starts from there, until nothing more is sure to help (at most
+// LOADOUT_ROUNDS). settings: the advisor's settings with the accuracy's hours and seeds.
+// onProgress(done, total, round). Returns { zone, start, final, rounds, before, after } –
+// before/after: the setup as it is and as advised (after.consumables: drinks and food an hour).
 export const LOADOUT_ROUNDS = 3;
 
 export async function analyzeLoadout(pool, profile, zone, settings, onProgress) {
-    const run = { ...settings, budget: 0, scope: "loadout" };
+    const run = { ...settings, budget: 0 };
     let current = profile;
     let before = null;
     let last = null;
     let rounds = 0;
     for (let round = 1; round <= LOADOUT_ROUNDS; round++) {
-        const report = (done, total) => onProgress?.(done, total, round);
-        const raw = await analyzeUpgrades(pool, current, zone, run, report, report);
+        const raw = await loadoutRound(pool, current, zone, run, (done, total) => onProgress?.(done, total, round));
         before ||= raw.base;
         last = raw.base;
         const plan = buildPlan(rateUpgrades(raw, run), 0, run.spending);
@@ -1053,4 +1069,60 @@ export async function analyzeLoadout(pool, profile, zone, settings, onProgress) 
     // The advised setup measured on its own, for its gain and how fast it uses drinks and food.
     if (!last) [{ result: last }] = await simulateVariants(pool, [{ profile: current }], zone, run, (done, total) => onProgress?.(done, total, rounds + 1));
     return { zone, start: profile, final: current, rounds, before, after: last };
+}
+
+// One round, in two steps so a full loadout isn't tried slot by slot: first the setup and
+// the setup without each of its abilities, drinks and food – the one whose loss hurts least
+// is the weakest of its kind; then the abilities you know (no books to buy), the drinks and
+// food in an empty slot, else in place of one of their kind, else in place of the weakest
+// one, and the abilities' order. No triggers. Returns a raw analysis as analyzeUpgrades does.
+async function loadoutRound(pool, profile, zone, settings, onProgress) {
+    const data = getClientData();
+    const slots = slotCounts(profile, data);
+    const seeds = (n) => Array.from({ length: n }, (_, i) => i);
+    const drinks = profile.drinks.slice(0, slots.drinks);
+    const food = profile.food.slice(0, slots.food);
+    const without = [];
+    for (let i = 1; i <= slots.abilities; i++) {
+        if (!profile.abilities[i]) continue;
+        const variant = cloneProfile(profile);
+        variant.abilities[i] = null;
+        without.push({ kind: "ability", index: i, profile: variant });
+    }
+    // Taking a drink or food out is also a change to offer (it saves its cost).
+    const removals = [...consumableCandidates(profile, "drinks", { onlyUseful: true }), ...consumableCandidates(profile, "food", { onlyUseful: true })].filter((c) => c.remove);
+    const baseItem = { profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR) };
+    const first = [baseItem, ...[...without, ...removals].map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds) }))];
+    // A guess at the whole round for the progress: the second step is about four times the first.
+    const firstRuns = first.reduce((sum, item) => sum + item.seeds.length, 0);
+    let planned = firstRuns * 5;
+    const [baseRuns, ...stepOne] = await simulateRuns(pool, first, zone, settings.hours, (done) => onProgress?.(done, planned));
+    const base = summarize(baseRuns, zone.tier, profile);
+    const goal = makeGoal(settings, { xp: xpValue(base, settings), gold: base.loot });
+    const scored = [...without, ...removals].map((c, i) => ({ ...c, score: score(summarize(stepOne[i], zone.tier, c.profile), goal), runs: stepOne[i] }));
+    const weakest = (pick) => scored.filter(pick).sort((a, b) => b.score - a.score)[0] || null;
+    const ability = weakest((c) => c.kind === "ability");
+    const drink = weakest((c) => c.kind === "drinks");
+    const meal = weakest((c) => c.kind === "food");
+    const index = (c) => (c ? Number(c.slot.replace(/\D+/g, "")) : null);
+
+    const candidates = [
+        ...abilityCandidates(profile, 0, ability?.index ?? null),
+        ...abilityOrderCandidates(profile),
+        ...consumableCandidates(profile, "drinks", { onlyUseful: true, replace: drinks.every(Boolean) ? index(drink) : null }).filter((c) => !c.remove),
+        ...consumableCandidates(profile, "food", { onlyUseful: true, replace: food.every(Boolean) ? index(meal) : null }).filter((c) => !c.remove),
+    ];
+    planned = firstRuns + candidates.length * settings.seeds;
+    const runs = await simulateRuns(pool, candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds) })), zone, settings.hours, (done) => onProgress?.(firstRuns + done, planned));
+    const simulated = [
+        ...candidates.map((c, i) => ({ ...c, result: summarize(runs[i], zone.tier, c.profile), runs: runs[i] })),
+        ...scored.filter((c) => c.remove).map(({ score: _, ...c }) => ({ ...c, result: summarize(c.runs, zone.tier, c.profile) })),
+    ];
+    simulated.forEach((c, id) => (c.id = id));
+    const emptyAbilitySlots = [];
+    for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
+    const raw = { zone, hours: settings.hours, seedsPerRound: settings.seeds, scope: "loadout", emptyAbilitySlots, starter: null, baseProfile: profile, base, baseRuns, telemetry: null, candidates: simulated };
+    // One round of extra runs for promising but uncertain changes.
+    await refineUncertain(pool, raw, settings, (done, total) => onProgress?.(planned + done, planned + total));
+    return raw;
 }

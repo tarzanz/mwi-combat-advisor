@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.69.0
+// @version      0.69.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5035,7 +5035,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.69.0" : "dev";
+  var VERSION = true ? "0.69.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5646,7 +5646,7 @@
     const category = kind === "food" ? "/item_categories/food" : "/item_categories/drink";
     return Object.values(getClientData().itemDetailMap).filter((item) => item.categoryHrid === category && item.consumableDetail?.usableInActionTypeMap?.["/action_types/combat"]).filter((item) => askPrice(item.hrid, 0) !== null).map((item) => item.hrid);
   }
-  function abilityCandidates(profile, budget) {
+  function abilityCandidates(profile, budget, replace = null) {
     const data = getClientData();
     const slots = slotCounts(profile, data);
     if (slots.abilities === 0) return [];
@@ -5658,7 +5658,7 @@
     const indices = [];
     for (let i = 1; i <= slots.abilities; i++) indices.push(i);
     const empty = indices.filter((i) => !profile.abilities[i]);
-    const placements = empty.length ? [empty[0]] : indices;
+    const placements = empty.length ? [empty[0]] : replace && profile.abilities[replace] ? [replace] : indices;
     const candidates = [];
     for (const ability of Object.values(data.abilityDetailMap)) {
       if (ability.isSpecialAbility || equipped.has(ability.hrid)) continue;
@@ -5728,17 +5728,31 @@
     });
     return candidates;
   }
-  function consumableCandidates(profile, kind) {
+  function stylesInUse(profile, data) {
+    const styles = /* @__PURE__ */ new Set([weaponStyle(profile, data)]);
+    const ofHrid = (hrid) => hrid === "/combat_styles/ranged" ? "ranged" : hrid === "/combat_styles/magic" ? "magic" : hrid ? "melee" : null;
+    for (const hrid of Object.keys(profile.learnedAbilities || {})) {
+      for (const effect of data.abilityDetailMap[hrid]?.abilityEffects || []) if (ofHrid(effect.combatStyleHrid)) styles.add(ofHrid(effect.combatStyleHrid));
+    }
+    return styles;
+  }
+  function useless(hrid, styles, data) {
+    const buffs = data.itemDetailMap[hrid]?.consumableDetail?.buffs || [];
+    const style = (b) => /\/buff_types\/(melee|ranged|magic)_level$/.exec(b.typeHrid || "")?.[1];
+    return buffs.length > 0 && buffs.every((b) => style(b) && !styles.has(style(b)));
+  }
+  function consumableCandidates(profile, kind, { onlyUseful = false, replace = null } = {}) {
     const data = getClientData();
+    const styles = onlyUseful ? stylesInUse(profile, data) : null;
     const slots = slotCounts(profile, data);
     const count3 = kind === "food" ? slots.food : slots.drinks;
     const current = (kind === "food" ? profile.food : profile.drinks).slice(0, count3);
     while (current.length < count3) current.push(null);
     const empty = current.findIndex((h2) => !h2);
-    const placements = empty !== -1 ? [empty] : current.map((_, i) => i);
+    const placements = empty !== -1 ? [empty] : replace !== null && current[replace] ? [replace] : current.map((_, i) => i);
     const candidates = [];
     for (const hrid of combatConsumables(kind)) {
-      if (current.includes(hrid)) continue;
+      if (current.includes(hrid) || styles && useless(hrid, styles, data)) continue;
       const clash = current.findIndex((had) => sameKind(had, hrid, data));
       for (const index of clash !== -1 ? [clash] : placements) {
         const variant = cloneProfile(profile);
@@ -5846,11 +5860,8 @@
   }
   var TUNED_ABILITIES = 3;
   async function analyzeUpgrades(pool, profile, zone, settings2, onProgress, onRefineProgress) {
-    const scope = settings2.scope === "abilities" || settings2.scope === "loadout" ? settings2.scope : "all";
-    const all = scope === "all";
-    const consumablesToo = scope !== "abilities";
-    const triggersToo = scope !== "loadout";
-    const budget = scope === "loadout" ? 0 : settings2.budget;
+    const budget = settings2.budget;
+    const all = settings2.scope !== "abilities";
     const seeds = (n4) => Array.from({ length: n4 }, (_, i) => i);
     const candidates = [
       ...all ? gearCandidates(profile, settings2) : [],
@@ -5858,18 +5869,18 @@
       ...abilityOrderCandidates(profile),
       ...all ? houseCandidates(profile, budget) : [],
       ...all ? skillLevelCandidates(profile) : [],
-      ...consumablesToo ? consumableCandidates(profile, "drinks") : [],
-      ...consumablesToo ? consumableCandidates(profile, "food") : []
+      ...all ? consumableCandidates(profile, "drinks") : [],
+      ...all ? consumableCandidates(profile, "food") : []
     ];
-    const baseItem2 = { profile, seeds: seeds(settings2.seeds * BASE_SEED_FACTOR), telemetry: triggersToo };
+    const baseItem2 = { profile, seeds: seeds(settings2.seeds * BASE_SEED_FACTOR), telemetry: true };
     const planned = baseItem2.seeds.length + candidates.length * settings2.seeds;
     const [baseRuns] = await simulateRuns(pool, [baseItem2], zone, settings2.hours, (done2) => onProgress?.(done2, planned));
-    const telemetry = triggersToo ? mergeTelemetry(baseItem2.telemetryOut) : null;
-    if (triggersToo) {
-      for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) candidates.push(triggerCandidate(change, variant));
+    const telemetry = mergeTelemetry(baseItem2.telemetryOut);
+    for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) {
+      candidates.push(triggerCandidate(change, variant));
     }
     candidates.forEach((c2, id) => c2.id = id);
-    const items = candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds), telemetry: triggersToo && c2.kind === "ability", cache: c2.kind === "trigger" }));
+    const items = candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds), telemetry: c2.kind === "ability", cache: c2.kind === "trigger" }));
     const done0 = baseItem2.seeds.length;
     const total = done0 + items.reduce((sum, item) => sum + item.seeds.length, 0);
     const runs = await simulateRuns(pool, items, zone, settings2.hours, (done2) => onProgress?.(done0 + done2, total));
@@ -5881,16 +5892,16 @@
       zone,
       hours: settings2.hours,
       seedsPerRound: settings2.seeds,
-      scope,
+      scope: all ? "all" : "abilities",
       emptyAbilitySlots,
       starter: settings2.starter || null,
       baseProfile: profile,
       base: summarize3(baseRuns, zone.tier, profile),
       baseRuns,
-      telemetry: telemetry ? summaryOfTelemetry(telemetry) : null,
+      telemetry: summaryOfTelemetry(telemetry),
       candidates: simulated
     };
-    if (triggersToo) await tuneNewAbilities(pool, raw, settings2, onRefineProgress);
+    await tuneNewAbilities(pool, raw, settings2, onRefineProgress);
     for (const c2 of raw.candidates) delete c2.telemetry;
     for (let round = 0; round < 2; round++) {
       if (!await refineUncertain(pool, raw, settings2, onRefineProgress)) break;
@@ -6159,14 +6170,13 @@
   }
   var LOADOUT_ROUNDS = 3;
   async function analyzeLoadout(pool, profile, zone, settings2, onProgress) {
-    const run = { ...settings2, budget: 0, scope: "loadout" };
+    const run = { ...settings2, budget: 0 };
     let current = profile;
     let before = null;
     let last = null;
     let rounds = 0;
     for (let round = 1; round <= LOADOUT_ROUNDS; round++) {
-      const report = (done2, total) => onProgress?.(done2, total, round);
-      const raw = await analyzeUpgrades(pool, current, zone, run, report, report);
+      const raw = await loadoutRound(pool, current, zone, run, (done2, total) => onProgress?.(done2, total, round));
       before || (before = raw.base);
       last = raw.base;
       const plan = buildPlan(rateUpgrades(raw, run), 0, run.spending);
@@ -6177,6 +6187,52 @@
     }
     if (!last) [{ result: last }] = await simulateVariants(pool, [{ profile: current }], zone, run, (done2, total) => onProgress?.(done2, total, rounds + 1));
     return { zone, start: profile, final: current, rounds, before, after: last };
+  }
+  async function loadoutRound(pool, profile, zone, settings2, onProgress) {
+    const data = getClientData();
+    const slots = slotCounts(profile, data);
+    const seeds = (n4) => Array.from({ length: n4 }, (_, i) => i);
+    const drinks = profile.drinks.slice(0, slots.drinks);
+    const food = profile.food.slice(0, slots.food);
+    const without = [];
+    for (let i = 1; i <= slots.abilities; i++) {
+      if (!profile.abilities[i]) continue;
+      const variant = cloneProfile(profile);
+      variant.abilities[i] = null;
+      without.push({ kind: "ability", index: i, profile: variant });
+    }
+    const removals = [...consumableCandidates(profile, "drinks", { onlyUseful: true }), ...consumableCandidates(profile, "food", { onlyUseful: true })].filter((c2) => c2.remove);
+    const baseItem2 = { profile, seeds: seeds(settings2.seeds * BASE_SEED_FACTOR) };
+    const first = [baseItem2, ...[...without, ...removals].map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds) }))];
+    const firstRuns = first.reduce((sum, item) => sum + item.seeds.length, 0);
+    let planned = firstRuns * 5;
+    const [baseRuns, ...stepOne] = await simulateRuns(pool, first, zone, settings2.hours, (done2) => onProgress?.(done2, planned));
+    const base = summarize3(baseRuns, zone.tier, profile);
+    const goal = makeGoal(settings2, { xp: xpValue(base, settings2), gold: base.loot });
+    const scored = [...without, ...removals].map((c2, i) => ({ ...c2, score: score(summarize3(stepOne[i], zone.tier, c2.profile), goal), runs: stepOne[i] }));
+    const weakest = (pick2) => scored.filter(pick2).sort((a, b) => b.score - a.score)[0] || null;
+    const ability = weakest((c2) => c2.kind === "ability");
+    const drink = weakest((c2) => c2.kind === "drinks");
+    const meal = weakest((c2) => c2.kind === "food");
+    const index = (c2) => c2 ? Number(c2.slot.replace(/\D+/g, "")) : null;
+    const candidates = [
+      ...abilityCandidates(profile, 0, ability?.index ?? null),
+      ...abilityOrderCandidates(profile),
+      ...consumableCandidates(profile, "drinks", { onlyUseful: true, replace: drinks.every(Boolean) ? index(drink) : null }).filter((c2) => !c2.remove),
+      ...consumableCandidates(profile, "food", { onlyUseful: true, replace: food.every(Boolean) ? index(meal) : null }).filter((c2) => !c2.remove)
+    ];
+    planned = firstRuns + candidates.length * settings2.seeds;
+    const runs = await simulateRuns(pool, candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds) })), zone, settings2.hours, (done2) => onProgress?.(firstRuns + done2, planned));
+    const simulated = [
+      ...candidates.map((c2, i) => ({ ...c2, result: summarize3(runs[i], zone.tier, c2.profile), runs: runs[i] })),
+      ...scored.filter((c2) => c2.remove).map(({ score: _, ...c2 }) => ({ ...c2, result: summarize3(c2.runs, zone.tier, c2.profile) }))
+    ];
+    simulated.forEach((c2, id) => c2.id = id);
+    const emptyAbilitySlots = [];
+    for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
+    const raw = { zone, hours: settings2.hours, seedsPerRound: settings2.seeds, scope: "loadout", emptyAbilitySlots, starter: null, baseProfile: profile, base, baseRuns, telemetry: null, candidates: simulated };
+    await refineUncertain(pool, raw, settings2, (done2, total) => onProgress?.(planned + done2, planned + total));
+    return raw;
   }
 
   // src/pool.js
@@ -6450,7 +6506,7 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-history-more summary { cursor: pointer; color: #9aa3cf; font-size: 11px; margin-top: 2px; }
 .mwia-history-more[open] summary { margin-bottom: 4px; }
 .mwia-history-head .mwia-history-prelim { color: #ffd479; font-weight: 600; }
-.mwia-guide-box, .mwia-tool-box, .mwia-plan-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-guide-box, .mwia-loadout-box, .mwia-tool-box, .mwia-plan-box { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-guide-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
 .mwia-guide-head span, .mwia-guide-list li span, .mwia-guide-status { color: #8189b0; font-size: 11px; }
 .mwia-guide-sub { margin-top: 4px; color: #9aa3cf; font-size: 11px; }
@@ -8157,10 +8213,6 @@ i.mwia-history-bid { background: #7ee2b0; }
     const fallback = loadouts.find((l2) => l2.isDefault && l2.actionTypeHrid === "/action_types/combat") || loadouts.find((l2) => l2.isDefault);
     return fallback ? { loadout: fallback, why: "your default combat loadout" } : { loadout: loadouts[0], why: "your first combat loadout" };
   }
-  var iconId = (el) => {
-    const use = el.querySelector("svg use");
-    return (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1] || null;
-  };
   function findLoadoutPanel(doc = document) {
     const button2 = [...doc.querySelectorAll("button")].find((b) => /^equip loadout$/i.test(b.textContent.trim()) && visible(b) && !ours2(b));
     if (!button2) return null;
@@ -8168,20 +8220,25 @@ i.mwia-history-bid { background: #7ee2b0; }
     let panel = button2.parentElement;
     while (panel && panel !== doc.body && !(heading(panel, "abilities") && heading(panel, "consumables"))) panel = panel.parentElement;
     if (!panel || panel === doc.body) return null;
+    const abilitiesHead = heading(panel, "abilities");
+    const consumablesHead = heading(panel, "consumables");
     const data = getClientData();
-    const row = (label3, kind) => {
-      const head4 = heading(panel, label3);
-      const el = head4?.nextElementSibling || head4?.parentElement?.nextElementSibling;
-      if (!el) return { el: null, slots: [] };
-      const slots = [...el.children].filter((child) => !ours2(child)).map((child) => {
-        const id = iconId(child);
-        const hrid = id ? `/${kind}/${id}` : null;
-        const known = hrid && (kind === "abilities" ? data?.abilityDetailMap?.[hrid] : data?.itemDetailMap?.[hrid]);
-        return { el: child, hrid: known || !data ? hrid : null };
-      });
-      return { el, slots };
-    };
-    return { panel, abilities: row("abilities", "abilities"), consumables: row("consumables", "items") };
+    const follows = (a, b) => !!(a.compareDocumentPosition(b) & 4);
+    const known = (kind, hrid) => !data || (kind === "abilities" ? data.abilityDetailMap?.[hrid] : data.itemDetailMap?.[hrid]);
+    const icons = [];
+    for (const use of panel.querySelectorAll("svg use")) {
+      if (ours2(use)) continue;
+      const id = (use.getAttribute("href") || use.getAttribute("xlink:href") || "").split("#")[1];
+      if (!id) continue;
+      const kind = follows(consumablesHead, use) ? "items" : follows(abilitiesHead, use) ? "abilities" : null;
+      if (kind && known(kind, `/${kind}/${id}`)) icons.push({ use, kind, hrid: `/${kind}/${id}` });
+    }
+    const slots = (kind) => icons.filter((icon) => icon.kind === kind).map(({ use, hrid }) => {
+      let el = use.closest("svg");
+      for (let up = el.parentElement; up && up !== panel && !up.contains(abilitiesHead) && !up.contains(consumablesHead) && up.querySelectorAll("svg").length === 1; up = up.parentElement) el = up;
+      return { el, hrid };
+    });
+    return { panel, abilities: { slots: slots("abilities") }, consumables: { slots: slots("items") } };
   }
   var loadoutContent = (l2) => [...Object.values(l2.abilityMap || {}), ...l2.foodItemHrids || [], ...l2.drinkItemHrids || []].filter(Boolean).sort().join(",");
   function shownLoadout(found, character, prefer = null) {
@@ -8199,8 +8256,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       fight.tier,
       Number(settings2.goldWeight) || 0,
       !!settings2.acceptRareDeaths,
-      !!settings2.countLevels,
-      settings2.accuracy || "normal"
+      !!settings2.countLevels
     ]);
   }
   function stored() {
@@ -8225,11 +8281,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     const reached = list.find((e2) => e2.finalSig === sig);
     return reached ? { entry: reached, done: true } : null;
   }
-  var slotsOf = (profile) => ({
-    special: profile.abilities?.[0]?.hrid || null,
-    abilities: (profile.abilities || []).slice(1).map((a) => a?.hrid || null),
-    drinks: [...profile.drinks || []],
-    food: [...profile.food || []]
+  var slotsOf = (profile, counts) => ({
+    special: counts.special ? profile.abilities?.[0]?.hrid || null : null,
+    abilities: (profile.abilities || []).slice(1, counts.abilities + 1).map((a) => a?.hrid || null),
+    drinks: (profile.drinks || []).slice(0, counts.drinks),
+    food: (profile.food || []).slice(0, counts.food)
   });
   var summary = (r) => r && { xp: r.xpTotal || 0, profit: r.profit || 0, deaths: r.deaths || 0, encounters: r.encounters || 0, consumables: r.consumables || {} };
   function adviceEntry(result, fight, loadout, settings2) {
@@ -8242,8 +8298,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       loadoutId: loadout.id,
       loadoutName: loadout.name || "Loadout",
       rounds: result.rounds,
-      start: slotsOf(result.start),
-      final: slotsOf(result.final),
+      start: slotsOf(result.start, slotCounts(result.start, getClientData())),
+      final: slotsOf(result.final, slotCounts(result.final, getClientData())),
       before: summary(result.before),
       after: summary(result.after)
     };
@@ -8272,10 +8328,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     let box = found.panel.querySelector(".mwia-loadout-box");
     if (!box) {
       box = document.createElement("div");
-      box.className = "mwia-guide-box mwia-loadout-box";
-      const anchor = found.consumables.el || found.abilities.el;
-      if (anchor) anchor.insertAdjacentElement("afterend", box);
-      else found.panel.appendChild(box);
+      box.className = "mwia-loadout-box";
+      found.panel.appendChild(box);
     }
     if (box.dataset.html !== html) {
       box.dataset.html = html;
@@ -8298,12 +8352,13 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const sig = setupSig(profile, fight, settings2);
     const known = adviceFor2(sig);
-    const unsure = shown ? "" : `<div class="mwia-guide-note mwia-guide-dim">Can't tell which loadout this is; the advice is for <b>${name}</b>.</div>`;
+    const read = [...found.abilities.slots.map((s2) => abilityName(s2.hrid)), ...found.consumables.slots.map((s2) => itemName(s2.hrid))];
+    const unsure = shown ? "" : `<div class="mwia-guide-note mwia-guide-dim">Can't tell which saved loadout this is (read: ${esc(read.join(", ") || "nothing")}); the advice is for <b>${name}</b> as saved.</div>`;
     const intro = `<div class="mwia-guide-note">Next fight: <b>${fightName(fight)}</b> with <b>${name}</b> <span class="mwia-guide-dim">(${why})</span></div>`;
     if (!known) {
       if (g3.running?.sig === sig) {
         const pct6 = g3.running.total ? Math.round(100 * g3.running.done / g3.running.total) : 0;
-        return head2("simulating") + intro + unsure + `<div class="mwia-guide-note">Simulating this loadout in ${fightName(fight)}\u2026 round ${g3.running.round}, ${pct6}%</div>`;
+        return head2("simulating") + intro + unsure + `<div class="mwia-guide-note">Simulating this loadout in ${fightName(fight)}\u2026 round ${Math.min(g3.running.round, LOADOUT_ROUNDS)} of at most ${LOADOUT_ROUNDS}, ${pct6}%</div><div class="mwia-guide-note mwia-guide-dim">A round stops early once nothing more helps. You can keep playing meanwhile.</div>`;
       }
       const failed = g3.failed.get(sig);
       if (failed) return head2("") + intro + unsure + `<div class="mwia-guide-note mwia-guide-low">Could not work it out: ${esc(failed)}</div>` + againButton("Try again");
@@ -11707,7 +11762,7 @@ ${triggerWindowReport()}`, false);
       const profile = loadoutProfile(loadout);
       if (!profile) throw new Error("No character data yet.");
       const label3 = (round) => `Loadout ${loadout.name || ""} for ${actionName(zone.zoneHrid) || zone.zoneHrid}, round ${round}`;
-      result = await analyzeLoadout(ui.pool, profile, zone, { ...ui.settings, ...runSettings() }, (done2, total, round) => {
+      result = await analyzeLoadout(ui.pool, profile, zone, { ...ui.settings, ...runSettings(), ...ACCURACY.fast }, (done2, total, round) => {
         progress(label3(round))(done2, total);
         onProgress(done2, total, round);
       });
@@ -12608,7 +12663,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.69.0" : "dev";
+  var VERSION3 = true ? "0.69.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

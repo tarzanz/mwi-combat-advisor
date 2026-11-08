@@ -42,18 +42,21 @@ for (const item of Object.values(clientData.itemDetailMap)) {
     marketData[item.hrid] = { 0: { a: 3 * vendor, b: 2.5 * vendor } };
 }
 
-// The game's Loadouts panel, as far as the box needs it: Equip Loadout, Abilities and Consumables rows.
-const slot = (sprite, id) => `<div class="slot"><svg width="40" height="40"><use href="/static/media/${sprite}_sprite.svg#${id}"></use></svg></div>`;
+// The game's Loadouts panel, as far as the box needs it: Equip Loadout, and the Abilities and
+// Consumables headings in the same grid as their slots (as the game's seemed to be: the box once
+// landed after the first slot), each slot with its ⚙ (an icon the game data doesn't know).
+const gear = `<button class="Loadouts_gear"><svg width="16" height="16"><use href="/static/media/misc_sprite.svg#settings"></use></svg></button>`;
+const slot = (sprite, id) => `<div class="Loadouts_slotWrap"><div class="slot"><svg width="40" height="40"><use href="/static/media/${sprite}_sprite.svg#${id}"></use></svg><span class="count">1</span></div>${gear}</div>`;
 const panelRows = (loadout) => `
   <div class="Loadouts_buttons"><button>Import Current Setup</button><button>Equip Loadout</button></div>
-  <div class="Loadouts_label">Equipment</div><div class="Loadouts_equipment">…</div>
+  <div class="Loadouts_grid"><div class="Loadouts_label">Equipment</div><div class="slot">…</div>
   <div class="Loadouts_label">Abilities</div>
-  <div class="Loadouts_abilities"><div class="slot">Special Ability</div>${Object.values(loadout.abilityMap).map((h) => slot("abilities", h.split("/").pop())).join("")}</div>
+  <div class="Loadouts_slotWrap"><div class="slot">Special Ability</div></div>${Object.values(loadout.abilityMap).map((h) => slot("abilities", h.split("/").pop())).join("")}
   <div class="Loadouts_label">Consumables</div>
-  <div class="Loadouts_consumables">${[...loadout.foodItemHrids, ...loadout.drinkItemHrids].filter(Boolean).map((h) => slot("items", h.split("/").pop())).join("")}</div>`;
+  ${[...loadout.foodItemHrids, ...loadout.drinkItemHrids].filter(Boolean).map((h) => slot("items", h.split("/").pop())).join("")}</div>`;
 
 const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<style>.slot { display: inline-block; width: 44px; height: 44px; margin: 2px; border: 1px solid #556; font-size: 9px } .Loadouts_abilities, .Loadouts_consumables { display: flex; flex-wrap: wrap }</style>
+<style>.slot { width: 44px; height: 44px; border: 1px solid #556; font-size: 9px } .Loadouts_grid { display: grid; grid-template-columns: repeat(5, 50px); gap: 4px } .Loadouts_label { grid-column: 1 / -1 }</style>
 <script>
   // A stand-in for MWITools' shopping cart API.
   window.MWITools = { shopping: { ready: true, cart: [],
@@ -134,6 +137,24 @@ try {
     check("a verdict or the gain is given", /best the advisor found|over the loadout as it is/.test(text), text);
     check("8 h and 24 h cart buttons", /8 h/.test(text) && /24 h/.test(text), text);
     await shot(page, `loadout-advice${MOBILE ? "-mobile" : ""}.png`);
+
+    check("the panel's loadout is recognised", !/Can't tell/.test(text), text);
+    const below = await page.$eval(".mwia-loadout-box", (box) => [...document.querySelectorAll(".Loadouts_slotWrap")].every((s) => s.compareDocumentPosition(box) & 4) && !box.closest(".Loadouts_grid"));
+    check("the box is below every slot, not inside the grid", below);
+    // The game updates the panel (item counts) now and then: the box must stay put, not be taken
+    // away and put back (the action window's box once took it away on every change: it flickered).
+    const inserted = await page.evaluate(async () => {
+        let count = 0;
+        const observer = new MutationObserver((records) => records.forEach((r) => r.addedNodes.forEach((n) => n.classList?.contains("mwia-loadout-box") && count++)));
+        observer.observe(document.body, { childList: true, subtree: true });
+        for (let i = 0; i < 6; i++) {
+            document.querySelectorAll(".count").forEach((c) => (c.textContent = String(Number(c.textContent) + 1)));
+            await new Promise((r) => setTimeout(r, 500));
+        }
+        observer.disconnect();
+        return count;
+    });
+    check("the box stays while the game updates the panel", inserted === 0, `put in ${inserted} times in 3 s`);
 
     const entry = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-loadout-advice") || "[]")[0]);
     check("the advice is kept in the browser", !!entry && entry.loadoutName === "Ranged" && entry.zoneHrid === "/actions/combat/fly", JSON.stringify(entry)?.slice(0, 200));

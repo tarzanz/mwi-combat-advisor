@@ -277,7 +277,10 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   fight names, else your default combat loadout. With another loadout open the box says which one to open. With
   that loadout open it simulates it in the queued zone and tier by itself – abilities you know (no books to buy),
   their order, drinks and food, a round at a time: each round puts in what is sure to help and the next starts from
-  there, at most 3 rounds, with the Upgrades tab's focus, *Accept rare deaths* and accuracy. It lists what to keep
+  there, at most 3 rounds, with the Upgrades tab's focus and *Accept rare deaths*, always at the *Fast* accuracy.
+  To keep a full loadout quick, a round first measures the loadout without each of its abilities, drinks and food,
+  and then tries new ones in an empty slot, in place of one of their kind, or in place of the weakest; drinks that
+  only raise another style's level (Magic Coffee with a bow and no magic abilities) are left out. It lists what to keep
   (✓), put in (➕) and take out (➖), the casting order when it changes, and the gain in XP/h and profit over the
   loadout as it is; slots in the panel the advice takes out glow red. **🛒 8 h** and **🛒 24 h** top every advised
   drink and food up to that many hours in the MWITools cart, at the pace the simulation used them, less what you

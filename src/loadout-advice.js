@@ -10,7 +10,8 @@ import { abilityName, actionName, getClientData, itemName } from "./game-data.js
 import { onStateChange, state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
 import { visible } from "./game-nav.js";
-import { combatLoadouts } from "./profile.js";
+import { LOADOUT_ROUNDS } from "./analysis.js";
+import { combatLoadouts, slotCounts } from "./profile.js";
 import { heldStock } from "./skilling.js";
 
 const SCAN_MS = 400;
@@ -81,8 +82,10 @@ const iconId = (el) => {
     return (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1] || null;
 };
 
-// The game's Loadouts panel, when it is open: its element, the Abilities and Consumables
-// rows' slots (each with the ability or item it shows) and where the box goes. null otherwise.
+// The game's Loadouts panel, when it is open: its element and the abilities and items it
+// shows under "Abilities" and "Consumables", each with its slot (the biggest element around
+// its icon that holds no other icon, so not its ⚙). The icons are read in page order between the headings,
+// so it doesn't matter how the game nests its rows. null when the panel isn't open.
 export function findLoadoutPanel(doc = document) {
     const button = [...doc.querySelectorAll("button")].find((b) => /^equip loadout$/i.test(b.textContent.trim()) && visible(b) && !ours(b));
     if (!button) return null;
@@ -90,22 +93,28 @@ export function findLoadoutPanel(doc = document) {
     let panel = button.parentElement;
     while (panel && panel !== doc.body && !(heading(panel, "abilities") && heading(panel, "consumables"))) panel = panel.parentElement;
     if (!panel || panel === doc.body) return null;
+    const abilitiesHead = heading(panel, "abilities");
+    const consumablesHead = heading(panel, "consumables");
     const data = getClientData();
-    const row = (label, kind) => {
-        const head = heading(panel, label);
-        const el = head?.nextElementSibling || head?.parentElement?.nextElementSibling;
-        if (!el) return { el: null, slots: [] };
-        const slots = [...el.children]
-            .filter((child) => !ours(child))
-            .map((child) => {
-                const id = iconId(child);
-                const hrid = id ? `/${kind}/${id}` : null;
-                const known = hrid && (kind === "abilities" ? data?.abilityDetailMap?.[hrid] : data?.itemDetailMap?.[hrid]);
-                return { el: child, hrid: known || !data ? hrid : null };
+    const follows = (a, b) => !!(a.compareDocumentPosition(b) & 4); // b comes after a
+    const known = (kind, hrid) => !data || (kind === "abilities" ? data.abilityDetailMap?.[hrid] : data.itemDetailMap?.[hrid]);
+    const icons = [];
+    for (const use of panel.querySelectorAll("svg use")) {
+        if (ours(use)) continue;
+        const id = (use.getAttribute("href") || use.getAttribute("xlink:href") || "").split("#")[1];
+        if (!id) continue;
+        const kind = follows(consumablesHead, use) ? "items" : follows(abilitiesHead, use) ? "abilities" : null;
+        if (kind && known(kind, `/${kind}/${id}`)) icons.push({ use, kind, hrid: `/${kind}/${id}` });
+    }
+    const slots = (kind) =>
+        icons
+            .filter((icon) => icon.kind === kind)
+            .map(({ use, hrid }) => {
+                let el = use.closest("svg");
+                for (let up = el.parentElement; up && up !== panel && !up.contains(abilitiesHead) && !up.contains(consumablesHead) && up.querySelectorAll("svg").length === 1; up = up.parentElement) el = up;
+                return { el, hrid };
             });
-        return { el, slots };
-    };
-    return { panel, abilities: row("abilities", "abilities"), consumables: row("consumables", "items") };
+    return { panel, abilities: { slots: slots("abilities") }, consumables: { slots: slots("items") } };
 }
 
 // What a loadout puts in its ability and consumable slots, sorted, to compare with the panel.
@@ -135,7 +144,6 @@ export function setupSig(profile, fight, settings) {
         Number(settings.goldWeight) || 0,
         !!settings.acceptRareDeaths,
         !!settings.countLevels,
-        settings.accuracy || "normal",
     ]);
 }
 
@@ -166,11 +174,13 @@ export function adviceFor(sig) {
     return reached ? { entry: reached, done: true } : null;
 }
 
-const slotsOf = (profile) => ({
-    special: profile.abilities?.[0]?.hrid || null,
-    abilities: (profile.abilities || []).slice(1).map((a) => a?.hrid || null),
-    drinks: [...(profile.drinks || [])],
-    food: [...(profile.food || [])],
+// What the slots hold, as far as your pouch and Intelligence open them: a drink saved in a
+// slot you don't have does nothing in a fight, so it isn't listed as kept.
+const slotsOf = (profile, counts) => ({
+    special: counts.special ? profile.abilities?.[0]?.hrid || null : null,
+    abilities: (profile.abilities || []).slice(1, counts.abilities + 1).map((a) => a?.hrid || null),
+    drinks: (profile.drinks || []).slice(0, counts.drinks),
+    food: (profile.food || []).slice(0, counts.food),
 });
 
 const summary = (r) => r && { xp: r.xpTotal || 0, profit: r.profit || 0, deaths: r.deaths || 0, encounters: r.encounters || 0, consumables: r.consumables || {} };
@@ -186,8 +196,8 @@ export function adviceEntry(result, fight, loadout, settings) {
         loadoutId: loadout.id,
         loadoutName: loadout.name || "Loadout",
         rounds: result.rounds,
-        start: slotsOf(result.start),
-        final: slotsOf(result.final),
+        start: slotsOf(result.start, slotCounts(result.start, getClientData())),
+        final: slotsOf(result.final, slotCounts(result.final, getClientData())),
         before: summary(result.before),
         after: summary(result.after),
     };
@@ -222,12 +232,12 @@ function scan() {
     document.querySelectorAll(".mwia-loadout-box").forEach((box) => (html && at && found.panel.contains(box)) || box.remove());
     if (!html || !at) return;
     let box = found.panel.querySelector(".mwia-loadout-box");
+    // At the end of the panel, below the consumables. Not "mwia-guide-box": the action
+    // window's box takes every one of those it didn't put there away.
     if (!box) {
         box = document.createElement("div");
-        box.className = "mwia-guide-box mwia-loadout-box";
-        const anchor = found.consumables.el || found.abilities.el;
-        if (anchor) anchor.insertAdjacentElement("afterend", box);
-        else found.panel.appendChild(box);
+        box.className = "mwia-loadout-box";
+        found.panel.appendChild(box);
     }
     if (box.dataset.html !== html) {
         box.dataset.html = html;
@@ -253,12 +263,14 @@ function boxHtml(found, fight, chosen, shown, marked) {
     }
     const sig = setupSig(profile, fight, settings);
     const known = adviceFor(sig);
-    const unsure = shown ? "" : `<div class="mwia-guide-note mwia-guide-dim">Can't tell which loadout this is; the advice is for <b>${name}</b>.</div>`;
+    // What was read in the panel, to tell why it matched no loadout.
+    const read = [...found.abilities.slots.map((s) => abilityName(s.hrid)), ...found.consumables.slots.map((s) => itemName(s.hrid))];
+    const unsure = shown ? "" : `<div class="mwia-guide-note mwia-guide-dim">Can't tell which saved loadout this is (read: ${esc(read.join(", ") || "nothing")}); the advice is for <b>${name}</b> as saved.</div>`;
     const intro = `<div class="mwia-guide-note">Next fight: <b>${fightName(fight)}</b> with <b>${name}</b> <span class="mwia-guide-dim">(${why})</span></div>`;
     if (!known) {
         if (g.running?.sig === sig) {
             const pct = g.running.total ? Math.round((100 * g.running.done) / g.running.total) : 0;
-            return head("simulating") + intro + unsure + `<div class="mwia-guide-note">Simulating this loadout in ${fightName(fight)}… round ${g.running.round}, ${pct}%</div>`;
+            return head("simulating") + intro + unsure + `<div class="mwia-guide-note">Simulating this loadout in ${fightName(fight)}… round ${Math.min(g.running.round, LOADOUT_ROUNDS)} of at most ${LOADOUT_ROUNDS}, ${pct}%</div><div class="mwia-guide-note mwia-guide-dim">A round stops early once nothing more helps. You can keep playing meanwhile.</div>`;
         }
         const failed = g.failed.get(sig);
         if (failed) return head("") + intro + unsure + `<div class="mwia-guide-note mwia-guide-low">Could not work it out: ${esc(failed)}</div>` + againButton("Try again");

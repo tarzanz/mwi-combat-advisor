@@ -284,7 +284,8 @@ async function adviseLoadout(loadout, zone, onProgress) {
         const profile = loadoutProfile(loadout);
         if (!profile) throw new Error("No character data yet.");
         const label = (round) => `Loadout ${loadout.name || ""} for ${actionName(zone.zoneHrid) || zone.zoneHrid}, round ${round}`;
-        result = await analyzeLoadout(ui.pool, profile, zone, { ...ui.settings, ...runSettings() }, (done, total, round) => {
+        // Always at the fast accuracy: it runs by itself, on phones too.
+        result = await analyzeLoadout(ui.pool, profile, zone, { ...ui.settings, ...runSettings(), ...ACCURACY.fast }, (done, total, round) => {
             progress(label(round))(done, total);
             onProgress(done, total, round);
         });
