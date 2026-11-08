@@ -1310,13 +1310,16 @@ async function openWithCount(actionHrid, count) {
 // When it doesn't get there, the notice lists what each step found.
 async function openLeveling(dataset) {
     const { item, kind, label } = dataset;
-    const value = Number(dataset.value) || 0;
     // Decomposing an enhanced item: the one at that +level.
     const level = Number(dataset.level) || 0;
-    const steps = [`${kind} ${item}${level ? ` +${level}` : ""} ${kind === "enhance" ? `→ +${value}` : `${label} ×${value}`}`];
     const stacks = [...state.items.values()].filter((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory");
+    const held = stacks.filter((i) => (i.enhancementLevel || 0) === level).reduce((sum, i) => sum + (i.count || 0), 0);
+    // 🧪 Decompose N: all you hold at that +level now (data-all: the bulk size), not what the row counted.
+    const all = Number(dataset.all) || 0;
+    const value = (all && Math.floor(held / all)) || Number(dataset.value) || 0;
+    const steps = [`${kind} ${item}${level ? ` +${level}` : ""} ${kind === "enhance" ? `→ +${value}` : `${label} ×${value}`}`];
     steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
-    const owned = stacks.some((i) => (i.enhancementLevel || 0) === level && i.count > 0);
+    const owned = held > 0;
     const characterId = state.character?.character?.id;
     if (owned && !characterId) steps.push("no character id");
     const hash = owned && characterId ? inventoryItemHash(characterId, item, level) : null;

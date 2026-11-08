@@ -7,7 +7,7 @@ import { orderBookAt, state } from "./game-state.js";
 import { esc, shortCoins } from "./format.js";
 import { ASK_WINDOW, CALM_SWING, LEVELING_SKILLS, LIQUIDITY, MARKET_TAX, NEAR_LEVELS, PLAN_MODES, SKILLING_SKILLS, WIDE_SPREAD, heldStock, liquidityRating, marketPricer, rankSkilling, skillingCharacter } from "./skilling.js";
 import { ENHANCE_FUNCTION, MIN_PROTECT } from "./enhancing.js";
-import { ALCHEMY_FUNCTION, ALCHEMY_KINDS, decomposeEssence } from "./alchemy.js";
+import { ALCHEMY_FUNCTION, ALCHEMY_KINDS, bulkOf, decomposeEssence } from "./alchemy.js";
 import { UPGRADES_SHOWN, rankUpgrades } from "./skilling-upgrades.js";
 import { MIN_HOURS, historyVersion, priceSummary, versusUsual } from "./price-history.js";
 
@@ -352,10 +352,13 @@ function rowHtml(entry, best, upcoming = false, first = false) {
         : !upcoming && entry.alchemyChain
         ? `<span class="mwia-skill-hint">⛓ then ${esc(entry.alchemyChain.further.slice(0, 2).map((f) => f.name).join(", "))}${entry.alchemyChain.further.length > 2 ? ` +${entry.alchemyChain.further.length - 2} more` : ""}</span>`
         : "";
+    // What the job made and you hold, waiting to be decomposed.
+    const waiting = !upcoming ? decomposeHeld(entry) : null;
+    const heldHint = waiting?.held ? `<span class="mwia-skill-hint">🧪 ${waiting.held.toLocaleString("en-US")}${waiting.level ? ` × +${waiting.level}` : ""} in your inventory to decompose</span>` : "";
     // Levelling costs gold by design: only an invalid row or one you can't afford fades.
     const faded = !entry.valid || (!leveling && day <= 0) || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
     return `<details class="mwia-skill-row${(best || (leveling && first)) && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
-      <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">→ +${entry.target}${entry.finish ? " 🧪 decompose" : ""}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
+      <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">→ +${entry.target}${entry.finish ? " 🧪 decompose" : ""}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}${heldHint}</span>
         <span class="mwia-skill-nums"><b>${gold}</b>${full}<span class="mwia-dim">${coins(entry.xpPerDay * fill)} XP/day${entry.levelsPerDay !== null && entry.levelsPerDay !== undefined ? ` · ${dec(entry.levelsPerDay, 2)} lvl/day` : ""}</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
 }
@@ -534,13 +537,18 @@ function levelingButtons(e) {
     let buy;
     if (isEnhance(e)) {
         const guard = e.protect ? ` data-protect="${esc(e.protect.itemHrid)}" data-protect-from="${e.protect.from}"` : "";
-        open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e.target}${e.protect ? `, protected from +${e.protect.from} with ${esc(itemName(e.protect.itemHrid))}` : ""}">▶ Enhance to +${e.target}</button>`;
-        const attempts = Math.ceil(e.actionsPerHour * hours);
+        open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e.target}${e.protect ? `, protected from +${e.protect.from} with ${esc(itemName(e.protect.itemHrid))}` : ""}">▶ Enhance to +${e.target}</button>${decomposeButton(decomposeHeld(e))}`;
+        // Decomposing the +target (finish) takes part of the hours: fewer attempts in them.
+        const attempts = Math.ceil(e.actionsPerHour * hours * (e.enhanceShare ?? 1));
         const items = e.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN);
         // Copies of the item: one per +target, plus those used up as protection.
         const guards = e.protect?.itemHrid === item ? (attempts * e.protect.protections) / e.attempts : 0;
         const copies = Math.max(e.base.owned ? 0 : 1, Math.ceil(attempts / e.attempts + guards) - have(item));
         if (copies > 0) items.unshift({ hrid: item, quantity: copies });
+        // Decomposing each +target: the catalyst it counts on (used up on a success).
+        const catalyst = e.finish?.entry?.inputs.find((i) => i.catalyst);
+        const catalysts = catalyst ? Math.ceil((attempts / e.attempts) * catalyst.count - 1e-9) - have(catalyst.itemHrid) : 0;
+        if (catalysts > 0) items.push({ hrid: catalyst.itemHrid, quantity: catalysts });
         buy = items.length ? { items, title: `Adds what ${hoursText(hours)} of enhancing uses: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
     } else {
         const k = ALCHEMY_KINDS[e.action.kind];
@@ -560,13 +568,38 @@ function levelingButtons(e) {
     return `<div class="mwia-skill-buttons">${open}${cart}${teas}${market}</div>`;
 }
 
+// What a job makes and decomposes instead of selling – an enhancing job's
+// +target, or a craft's item – and how many of them you hold now: { item,
+// level, held, actions (decomposes, each takes the bulk size), bulk, catalyst
+// (the row's, or null) }, or null for a job that doesn't decompose.
+function decomposeHeld(e) {
+    const r = isEnhance(e) ? e.finish?.entry : e.decomposeCraft?.decompose;
+    if (!r) return null;
+    const item = isEnhance(e) ? e.action.itemHrid : e.action.outputItems?.[0]?.itemHrid;
+    const detail = item && getClientData()?.itemDetailMap[item];
+    if (!detail) return null;
+    const level = isEnhance(e) ? e.target : 0;
+    const bulk = bulkOf(detail);
+    const held = have(item, level);
+    return { item, level, held, bulk, actions: Math.floor(held / bulk), catalyst: r.catalyst?.itemHrid || null };
+}
+
+// 🧪 Decompose N: opens Alchemy's Decompose tab with what you hold of it (counted
+// again on the click) and the catalyst the row counts on; the player starts it.
+function decomposeButton(d) {
+    if (!d?.actions) return "";
+    const name = `${esc(itemName(d.item))}${d.level ? ` +${d.level}` : ""}`;
+    const catalyst = d.catalyst ? ` data-catalyst="${esc(d.catalyst)}"` : "";
+    return `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(d.item)}"${d.level ? ` data-level="${d.level}"` : ""} data-label="Decompose" data-value="${d.actions}" data-all="${d.bulk}"${catalyst} title="Opens Decompose with the ${d.held.toLocaleString("en-US")} ${name} you have${d.catalyst ? `, with ${esc(itemName(d.catalyst))}` : ""}">🧪 Decompose ${d.actions.toLocaleString("en-US")}${d.level ? ` × +${d.level}` : ""}</button>`;
+}
+
 // ▶ Make N, 🍵 Buy teas and 🏪 Market, always in view when a row is open.
 function actionButtons(e) {
     if (isEnhance(e) || isAlchemy(e)) return levelingButtons(e);
     const crafted = e.action.function === "/action_functions/production";
     const productHrid = e.action.outputItems?.[0]?.itemHrid;
     const s = e.suggestion;
-    const make = crafted && s?.count ? `<button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">▶ Make ${s.count.toLocaleString("en-US")}</button>` : "";
+    const make = (crafted && s?.count ? `<button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e.hrid)}" data-count="${s.count}">▶ Make ${s.count.toLocaleString("en-US")}</button>` : "") + decomposeButton(decomposeHeld(e));
     const plan = e.teaPlan;
     const teas = plan?.items.length
         ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart: ${esc(plan.items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">🍵 Buy teas</button>`

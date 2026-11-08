@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.70.0
+// @version      0.71.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -3228,9 +3228,11 @@
     const gold = entry.valid ? `<span class="${shownDay < 0 && !leveling2 ? "mwia-bad" : shownDay > 0 && (best || leveling2) ? "mwia-ok" : ""}">${coins(shownDay)}/day</span>` : `<span class="mwia-dim">\u2013</span>`;
     const full = cut ? `<span class="mwia-skill-full${fill < SHORT_FILL ? " mwia-warn" : ""}" title="The rate while it runs, with the materials at their lowest ask">${fill < 1 ? `full ${hoursText(entry.suggestion.plannedHours)}` : "at the lowest ask"}: ${coins(day)}/day</span>` : "";
     const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1 ? `<span class="mwia-skill-hint">\u26D3 ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>` : !upcoming && entry.decomposeCraft ? `<span class="mwia-skill-hint">\u{1F9EA} decompose them: ${esc(names(entry.decomposeCraft.reused.map((x) => x.itemHrid).filter((h2) => h2 !== COIN4)) || "materials")} back</span>` : !upcoming && entry.alchemyChain ? `<span class="mwia-skill-hint">\u26D3 then ${esc(entry.alchemyChain.further.slice(0, 2).map((f) => f.name).join(", "))}${entry.alchemyChain.further.length > 2 ? ` +${entry.alchemyChain.further.length - 2} more` : ""}</span>` : "";
+    const waiting = !upcoming ? decomposeHeld(entry) : null;
+    const heldHint = waiting?.held ? `<span class="mwia-skill-hint">\u{1F9EA} ${waiting.held.toLocaleString("en-US")}${waiting.level ? ` \xD7 +${waiting.level}` : ""} in your inventory to decompose</span>` : "";
     const faded = !entry.valid || !leveling2 && day <= 0 || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
     return `<details class="mwia-skill-row${(best || leveling2 && first) && !faded ? " mwia-best" : ""}${faded ? " mwia-faded" : ""}" data-hrid="${esc(entry.hrid)}" data-open="${esc(entry.hrid)}"${view.open.has(entry.hrid) ? " open" : ""}>
-      <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">\u2192 +${entry.target}${entry.finish ? " \u{1F9EA} decompose" : ""}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}</span>
+      <summary><span class="mwia-skill-name">${esc(entry.action.name)}${isEnhance(entry) ? ` <span class="mwia-enh">\u2192 +${entry.target}${entry.finish ? " \u{1F9EA} decompose" : ""}</span>` : ""}${warn}<small>${sub}</small>${teaHint}${chainHint}${heldHint}</span>
         <span class="mwia-skill-nums"><b>${gold}</b>${full}<span class="mwia-dim">${coins(entry.xpPerDay * fill)} XP/day${entry.levelsPerDay !== null && entry.levelsPerDay !== void 0 ? ` \xB7 ${dec(entry.levelsPerDay, 2)} lvl/day` : ""}</span></span></summary>
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
   }
@@ -3382,12 +3384,15 @@
     let buy;
     if (isEnhance(e2)) {
       const guard = e2.protect ? ` data-protect="${esc(e2.protect.itemHrid)}" data-protect-from="${e2.protect.from}"` : "";
-      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e2.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e2.target}${e2.protect ? `, protected from +${e2.protect.from} with ${esc(itemName(e2.protect.itemHrid))}` : ""}">\u25B6 Enhance to +${e2.target}</button>`;
-      const attempts = Math.ceil(e2.actionsPerHour * hours);
+      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e2.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e2.target}${e2.protect ? `, protected from +${e2.protect.from} with ${esc(itemName(e2.protect.itemHrid))}` : ""}">\u25B6 Enhance to +${e2.target}</button>${decomposeButton(decomposeHeld(e2))}`;
+      const attempts = Math.ceil(e2.actionsPerHour * hours * (e2.enhanceShare ?? 1));
       const items = e2.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN4);
       const guards = e2.protect?.itemHrid === item ? attempts * e2.protect.protections / e2.attempts : 0;
       const copies = Math.max(e2.base.owned ? 0 : 1, Math.ceil(attempts / e2.attempts + guards) - have(item));
       if (copies > 0) items.unshift({ hrid: item, quantity: copies });
+      const catalyst = e2.finish?.entry?.inputs.find((i) => i.catalyst);
+      const catalysts = catalyst ? Math.ceil(attempts / e2.attempts * catalyst.count - 1e-9) - have(catalyst.itemHrid) : 0;
+      if (catalysts > 0) items.push({ hrid: catalyst.itemHrid, quantity: catalysts });
       buy = items.length ? { items, title: `Adds what ${hoursText(hours)} of enhancing uses: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
     } else {
       const k = ALCHEMY_KINDS[e2.action.kind];
@@ -3405,12 +3410,29 @@
     const market = `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(item)}"${plusLevel ? ` data-level="${plusLevel}"` : ""} title="Opens ${esc(itemName(item))}${plusLevel ? ` +${plusLevel}` : ""} on the market">\u{1F3EA} Market</button>`;
     return `<div class="mwia-skill-buttons">${open2}${cart}${teas}${market}</div>`;
   }
+  function decomposeHeld(e2) {
+    const r = isEnhance(e2) ? e2.finish?.entry : e2.decomposeCraft?.decompose;
+    if (!r) return null;
+    const item = isEnhance(e2) ? e2.action.itemHrid : e2.action.outputItems?.[0]?.itemHrid;
+    const detail = item && getClientData()?.itemDetailMap[item];
+    if (!detail) return null;
+    const level = isEnhance(e2) ? e2.target : 0;
+    const bulk = bulkOf(detail);
+    const held = have(item, level);
+    return { item, level, held, bulk, actions: Math.floor(held / bulk), catalyst: r.catalyst?.itemHrid || null };
+  }
+  function decomposeButton(d) {
+    if (!d?.actions) return "";
+    const name = `${esc(itemName(d.item))}${d.level ? ` +${d.level}` : ""}`;
+    const catalyst = d.catalyst ? ` data-catalyst="${esc(d.catalyst)}"` : "";
+    return `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(d.item)}"${d.level ? ` data-level="${d.level}"` : ""} data-label="Decompose" data-value="${d.actions}" data-all="${d.bulk}"${catalyst} title="Opens Decompose with the ${d.held.toLocaleString("en-US")} ${name} you have${d.catalyst ? `, with ${esc(itemName(d.catalyst))}` : ""}">\u{1F9EA} Decompose ${d.actions.toLocaleString("en-US")}${d.level ? ` \xD7 +${d.level}` : ""}</button>`;
+  }
   function actionButtons(e2) {
     if (isEnhance(e2) || isAlchemy(e2)) return levelingButtons(e2);
     const crafted = e2.action.function === "/action_functions/production";
     const productHrid = e2.action.outputItems?.[0]?.itemHrid;
     const s2 = e2.suggestion;
-    const make = crafted && s2?.count ? `<button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e2.hrid)}" data-count="${s2.count}">\u25B6 Make ${s2.count.toLocaleString("en-US")}</button>` : "";
+    const make = (crafted && s2?.count ? `<button class="mwia-btn" data-action="skilling-make" data-hrid="${esc(e2.hrid)}" data-count="${s2.count}">\u25B6 Make ${s2.count.toLocaleString("en-US")}</button>` : "") + decomposeButton(decomposeHeld(e2));
     const plan = e2.teaPlan;
     const teas = plan?.items.length ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart: ${esc(plan.items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">\u{1F375} Buy teas</button>` : "";
     const train = trainButton(e2);
@@ -5044,7 +5066,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.70.0" : "dev";
+  var VERSION = true ? "0.71.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -12769,12 +12791,14 @@ ${triggerWindowReport()}`, false);
   }
   async function openLeveling(dataset) {
     const { item, kind, label: label3 } = dataset;
-    const value = Number(dataset.value) || 0;
     const level = Number(dataset.level) || 0;
-    const steps = [`${kind} ${item}${level ? ` +${level}` : ""} ${kind === "enhance" ? `\u2192 +${value}` : `${label3} \xD7${value}`}`];
     const stacks = [...state.items.values()].filter((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory");
+    const held = stacks.filter((i) => (i.enhancementLevel || 0) === level).reduce((sum, i) => sum + (i.count || 0), 0);
+    const all = Number(dataset.all) || 0;
+    const value = all && Math.floor(held / all) || Number(dataset.value) || 0;
+    const steps = [`${kind} ${item}${level ? ` +${level}` : ""} ${kind === "enhance" ? `\u2192 +${value}` : `${label3} \xD7${value}`}`];
     steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
-    const owned = stacks.some((i) => (i.enhancementLevel || 0) === level && i.count > 0);
+    const owned = held > 0;
     const characterId2 = state.character?.character?.id;
     if (owned && !characterId2) steps.push("no character id");
     const hash2 = owned && characterId2 ? inventoryItemHash(characterId2, item, level) : null;
@@ -12797,7 +12821,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.70.0" : "dev";
+  var VERSION3 = true ? "0.71.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

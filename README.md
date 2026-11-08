@@ -160,7 +160,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   to buy, valued at their ask), the rest is sold, the decompose's coins and catalyst are paid, and gold and XP are
   per hour of both skills (the XP is the craft's; Alchemy's is named). The row says *🧪 decompose them: … back*, and
   *🧪 Decompose* shows what one is worth decomposed against selling it. Nothing of the item is sold, so its stock and
-  buyers don't limit the job. ▶ makes the items; decompose them and craft again with what comes back.
+  buyers don't limit the job. ▶ makes the items; with some of them in your inventory the row says *🧪 N in your
+  inventory to decompose* and **🧪 Decompose N** opens Alchemy's Decompose tab with all of them and the row's
+  catalyst (counted again on the click); then craft again with what comes back.
   *Unlocks soon* lists the actions within 10 levels, with how long it takes to get there
   using the skill's fastest XP action you have now. The same formulas as MWITools.
 - **Levelling Enhancing and Alchemy** – two more choices in the Skilling tab's *Skill* list (not part of *All
@@ -192,7 +194,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     teas in your Alchemy slots: its odds, coins, catalyst, the materials and the Enhancing Essence a +level gives);
     when that gives more for the item than selling it and suits the focus better, the row says *→ +N 🧪 decompose*
     and its gold and XP are per hour of both skills – the hours split between enhancing and decomposing (the Alchemy
-    XP is named, not counted). A job that decomposes only a few is marked ⚠: each is one roll.
+    XP is named, not counted). A job that decomposes only a few is marked ⚠: each is one roll. With some of the
+    +target in your inventory the row says *🧪 N × +6 in your inventory to decompose* and **🧪 Decompose N × +6**
+    opens Alchemy's Decompose tab with all of them (counted again on the click) and the catalyst the row counts on; you
+    start it in the game. Its 🛒 Materials then plans the attempts the enhancing share of the hours allows, and adds
+    that catalyst for the +levels they make.
   - **Alchemy:** every coinify, decompose and transmute of an item on the market, bought at the ask. Success = base
     (70%, 60%, the item's transmute rate) × (1 + catalyst + Catalytic Tea + 0.9 / item level per level below the item);
     20 s / (1 + speed) with efficiency +1% per level above the item; the bulk size (10 essences at once), the coins it

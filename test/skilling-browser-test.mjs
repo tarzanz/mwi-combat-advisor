@@ -493,6 +493,20 @@ try {
     const recycledHtml = recycledRow && (await page.$eval(`.mwia-skill-row[data-hrid="${recycledRow.hrid}"]`, (row) => { row.open = true; return { hint: [...row.querySelectorAll(".mwia-skill-hint")].map((n) => n.textContent).join(" | "), detail: row.querySelector(".mwia-skill-detail").textContent }; }).catch(() => null));
     if (recycledHtml) {
         check("a craft decomposed instead of sold says 🧪 and what comes back", recycledHtml.hint.includes("🧪 decompose them:") && recycledHtml.detail.includes("🧪 Decompose") && recycledHtml.detail.includes("decomposed, not sold") && recycledHtml.detail.includes(`against ${coinText(recycledRow.decomposeCraft.singleGoldPerDay)}/day selling them`), recycledHtml.hint + " " + recycledHtml.detail.slice(recycledHtml.detail.indexOf("🧪 Decompose"), recycledHtml.detail.indexOf("🧪 Decompose") + 300));
+        // With some of the item in the inventory: 🧪 Decompose N opens the Decompose tab with them.
+        const product = recycledRow.action.outputItems[0].itemHrid;
+        const productItem = (count) => JSON.stringify({ type: "items_updated", endCharacterItems: [{ itemHrid: product, itemLocationHrid: "/item_locations/inventory", count, enhancementLevel: 0, hash: `1::/item_locations/inventory::${product}::0` }] });
+        const skillNow = await page.$eval('[data-setting="skillingSkill"]', (n) => n.value);
+        for (const socket of sockets) socket.send(productItem(4));
+        await new Promise((r) => setTimeout(r, 300));
+        await select(page, "skillingSkill", "alchemy");
+        await select(page, "skillingSkill", skillNow);
+        const craftDec = await page.$eval(`.mwia-skill-row[data-hrid="${recycledRow.hrid}"]`, (row) => { row.open = true; return { button: [...row.querySelectorAll('[data-action="skilling-level"]')].find((b) => b.textContent.startsWith("🧪"))?.textContent || "", hints: [...row.querySelectorAll(".mwia-skill-hint")].map((n) => n.textContent) }; }).catch(() => null);
+        check("a craft that decomposes its items: 🧪 Decompose with the ones you have", craftDec?.button === "🧪 Decompose 4" && craftDec.hints.includes("🧪 4 in your inventory to decompose"), JSON.stringify(craftDec));
+        for (const socket of sockets) socket.send(productItem(0));
+        await new Promise((r) => setTimeout(r, 300));
+        await select(page, "skillingSkill", "alchemy");
+        await select(page, "skillingSkill", skillNow);
         await page.$eval(`.mwia-skill-row[data-hrid="${recycledRow.hrid}"]`, (row) => { row.open = false; });
     } else console.log(`NOTE no decomposed craft shown${recycledRow ? ` (${recycledRow.hrid} not in view)` : ""}`);
     check("chain shown in the row", chainText.includes(`${coinText(linenFabric.chain.profitPerHour)}/h`) && /Of each hour: \d+% Linen Fabric · \d+% Flax/.test(chainText), chainText.slice(0, 160));
@@ -892,6 +906,40 @@ try {
     await new Promise((r) => setTimeout(r, 600));
     const planStatus = await page.$eval(".lvl .mwia-plan-box", (n) => n.textContent).catch(() => "");
     check("▶ Set +3 sets the window's target", planSet.target === "3" && /Target \+3 set/.test(planStatus), JSON.stringify(planSet));
+
+    // 🧪 Decompose N × +target: a row that decomposes its +target, with some of them in the inventory,
+    // gets a button that opens Decompose with all of them (counted again on the click).
+    const decRow = expEnh.find((e) => e.finish);
+    if (decRow) {
+        const plusItem = (count) => JSON.stringify({ type: "items_updated", endCharacterItems: [{ itemHrid: decRow.action.itemHrid, itemLocationHrid: "/item_locations/inventory", count, enhancementLevel: decRow.target, hash: `1::/item_locations/inventory::${decRow.action.itemHrid}::${decRow.target}` }] });
+        for (const socket of sockets) socket.send(plusItem(3));
+        await new Promise((r) => setTimeout(r, 300));
+        await page.evaluate(() => document.querySelector(".lvl")?.remove());
+        if (await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden")).catch(() => false)) await page.click(".mwia-launcher");
+        await select(page, "skillingSkill", "alchemy");
+        await select(page, "skillingSkill", "enhancing");
+        const decInfo = await page.evaluate((h) => {
+            const r = [...document.querySelectorAll(".mwia-skill-row")].find((x) => x.dataset.hrid === h);
+            if (!r) return null;
+            r.open = true;
+            const b = [...r.querySelectorAll('[data-action="skilling-level"]')].find((x) => x.textContent.startsWith("🧪"));
+            return { button: b?.textContent || "", hints: [...r.querySelectorAll(".mwia-skill-hint")].map((n) => n.textContent) };
+        }, decRow.hrid);
+        check("a row that decomposes its +target: 🧪 Decompose with the ones you have", decInfo?.button === `🧪 Decompose 3 × +${decRow.target}` && decInfo.hints.includes(`🧪 3 × +${decRow.target} in your inventory to decompose`), JSON.stringify(decInfo));
+        await page.screenshot({ path: path.join(shotDir, "skilling-12c-enhance-decompose.png") });
+        // Two more made since the list was drawn: the click takes all five.
+        for (const socket of sockets) socket.send(plusItem(5));
+        await new Promise((r) => setTimeout(r, 300));
+        await page.evaluate(() => { for (const k of ["alchemyCall", "alchemyItem", "alchemyCount"]) window[k] = undefined; });
+        await page.evaluate((h) => [...[...document.querySelectorAll(".mwia-skill-row")].find((x) => x.dataset.hrid === h).querySelectorAll('[data-action="skilling-level"]')].find((x) => x.textContent.startsWith("🧪")).click(), decRow.hrid);
+        await page.waitForFunction(() => window.alchemyCount !== undefined, { timeout: 5000 }).catch(() => null);
+        const decSt = await page.evaluate(() => ({ call: window.alchemyCall, item: window.alchemyItem, tab: document.querySelector('.lvl [aria-selected="true"]')?.textContent, count: window.alchemyCount }));
+        const plusHash = `1::/item_locations/inventory::${decRow.action.itemHrid}::${decRow.target}`;
+        check("🧪 Decompose opens the +target on the Decompose tab with all you hold", decSt.call === plusHash && decSt.item === plusHash && decSt.tab === "Decompose" && decSt.count === "5", JSON.stringify(decSt));
+        for (const socket of sockets) socket.send(plusItem(0));
+        await new Promise((r) => setTimeout(r, 300));
+        await page.evaluate(() => document.querySelector(".lvl")?.remove());
+    } else console.log("NOTE no enhancing row decomposes its +target");
 
     // Alchemy: coinify, decompose and transmute, with the odds.
     await page.click(".mwia-launcher");
