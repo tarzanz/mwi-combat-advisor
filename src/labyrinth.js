@@ -8,6 +8,7 @@
 import { abilityCandidates, gearCandidates } from "./analysis.js";
 import { askPrice } from "./game-data.js";
 import { cloneProfile, equip, meetsRequirements, slotCounts, toDTO, weaponOf } from "./profile.js";
+import { runCached } from "./sim-cache.js";
 
 export const SAFE_WIN = 0.9; // "safe": you win at least this share of the rooms
 export const RISKY_WIN = 0.5;
@@ -268,7 +269,7 @@ async function simulateCurves(pool, fighter, monsters, rooms, onProgress) {
     const coarse = monsters.flatMap((monster) => COARSE_LEVELS.map((level, i) => ({ monster, level, seed: i })));
     const fine = [];
     let before = 0; // jobs of the earlier round, for the progress bar
-    const run = (points) => pool.runAll(pointsToJobs(fighter, points, rooms), (done) => onProgress?.(before + done, coarse.length + fine.length));
+    const run = (points) => runCached(pool, pointsToJobs(fighter, points, rooms), (done) => onProgress?.(before + done, coarse.length + fine.length));
     const coarseResults = await run(coarse);
     before = coarse.length;
 
@@ -392,7 +393,7 @@ async function atEdges(pool, data, setups, rooms, seedShift, onProgress) {
             for (const edge of setup.edges) jobs.push({ ...fighter, monsterHrid: edge.hrid, roomLevel: edge.level, attempts: rooms, seed: seedFor(edge.seed + seedShift + 7919 * k) });
         }
     }
-    const results = await pool.runAll(jobs, onProgress);
+    const results = await runCached(pool, jobs, onProgress);
     let next = 0;
     return setups.map((setup) => {
         const sums = setup.edges.map(() => ({ attempts: 0, wins: 0, deaths: 0, timeouts: 0 }));

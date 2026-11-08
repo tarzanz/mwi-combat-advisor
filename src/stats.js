@@ -84,3 +84,16 @@ export function confidenceGreater(a, b) {
     const df = (va + vb) ** 2 / ((va * va) / (A.n - 1) + (vb * vb) / (B.n - 1));
     return studentTCdf(diff / Math.sqrt(va + vb), df);
 }
+
+// How likely it is that a setup measured by one run beats the reference by more than
+// margin, taking the reference's spread for both (one run has none of its own): a
+// prediction-interval t-test against the reference sample. null with too few to say.
+export function confidenceOneRun(value, reference, margin = 0) {
+    const n = reference.length;
+    if (n < 2) return null;
+    const mean = reference.reduce((s, v) => s + v, 0) / n;
+    const sd = Math.sqrt(reference.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1));
+    const diff = value - margin - mean;
+    if (sd <= 1e-9) return diff > 0 ? 1 : diff < 0 ? 0 : 0.5;
+    return studentTCdf(diff / (sd * Math.sqrt(1 + 1 / n)), n - 1);
+}

@@ -175,6 +175,16 @@ try {
     console.log(`upgrade analysis took ${((Date.now() - t0) / 1000).toFixed(1)} s in the browser`);
     check("shopping list rendered", /Total one-time cost/.test(upgrades));
     check("combined effect verified", /Everything combined/.test(upgrades));
+    // The same analysis again comes from the runs kept in the browser (IndexedDB).
+    const firstTook = Date.now() - t0;
+    const tAgain = Date.now();
+    await page.click('[data-action="upgrades"]');
+    await page.waitForFunction(() => document.querySelector(".mwia-body")?.innerText.includes("Recommended shopping list") && !document.querySelector(".mwia-progress"), { timeout: 300000 });
+    const againTook = Date.now() - tAgain;
+    const again = await page.$eval(".mwia-body", (n) => n.innerText);
+    const listOf = (text) => text.slice(text.indexOf("Recommended shopping list"), text.indexOf("Total one-time cost"));
+    check("analysing again is quick and gives the same list", againTook < firstTook / 3 && listOf(again) === listOf(upgrades), `${(firstTook / 1000).toFixed(1)} s, then ${(againTook / 1000).toFixed(1)} s`);
+    check("the old localStorage cache is gone", await page.evaluate(() => localStorage.getItem("mwia-sim-cache") === null));
     // The plan's drinks and food are kept per zone for the game's combat window.
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-combat-setups") || "{}"));
     const savedZone = Object.values(saved)[0];

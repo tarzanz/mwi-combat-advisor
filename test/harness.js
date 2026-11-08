@@ -78,6 +78,22 @@ const levelUps = upgrades.abilities.filter((c) => c.kind === "abilityLevel");
 check("ability level-ups are tested", levelUps.length > 0, levelUps.slice(0, 3).map((c) => `${c.fromLevel}->${c.level}: ${c.books} books, ${Math.round(c.xpDelta)} xp/h`).join("; "));
 check("book count matches table", levelUps.every((c) => c.books === Math.max(1, Math.ceil((clientData.levelExperienceTable[c.level] - clientData.levelExperienceTable[6]) / 50))));
 check("owned linen gloves cost 0", upgrades.gear.some((c) => c.hrid === "/items/linen_gloves" && c.cost === 0 && c.owned));
+{
+    // Early screening: a suggestion all but sure to give < 1% stops after one run; none of those is planned.
+    const all = [...upgrades.gear, ...upgrades.abilities, ...upgrades.house, ...upgrades.orders, ...upgrades.triggers, ...upgrades.drinks, ...upgrades.food];
+    const screened = upgrades.candidates.filter((c) => c.screened);
+    check("screening: ruled-out suggestions have one run and no other has fewer than the seeds", screened.every((c) => c.runs.length === 1) && upgrades.candidates.filter((c) => !c.screened).every((c) => c.runs.length >= settings.seeds), `${screened.length} of ${upgrades.candidates.length} ruled out`);
+    check("screening: skill levels are never ruled out", !screened.some((c) => c.kind === "skillLevel"));
+    const plan = buildPlan(upgrades, settings.budget);
+    check("screening: nothing ruled out is on the plan", ![...plan.picks, plan.order, plan.drink, plan.food].filter(Boolean).some((p) => p.screened));
+    check("screening: ruled-out rows are far from sure", all.filter((c) => c.screened).every((c) => c.confidence < 0.5));
+    // The same analysis again: every run comes from the cache, with the same result.
+    let jobs = 0;
+    const counting = { runAll: (list, onProgress) => { jobs += list.length; return pool.runAll(list, onProgress); } };
+    const again = await analyzeUpgrades(counting, profile, best.zone, settings);
+    const same = again.candidates.length === upgrades.candidates.length && again.candidates.every((c, i) => c.result.xpTotal === upgrades.candidates[i].result.xpTotal && c.runs.length === upgrades.candidates[i].runs.length);
+    check("cache: the same analysis again simulates nothing and gives the same result", jobs === 0 && same, `${jobs} jobs`);
+}
 for (const [name, list] of Object.entries({ gear: upgrades.gear, abilities: upgrades.abilities, drinks: upgrades.drinks, food: upgrades.food })) {
     log(` ${name}:`);
     for (const c of list.slice(0, 8)) log(`   ${c.slot.padEnd(10)} ${(c.hrid + (c.enhancementLevel ? "+" + c.enhancementLevel : "") + (c.kind === "abilityLevel" ? " ->" + c.level : "") + (c.extraFood ? "+" + c.extraFood.split("/").pop() : "")).padEnd(40)} cost ${String(c.cost).padStart(8)} xpΔ ${Math.round(c.xpDelta)} gain ${(c.deltaPct * 100).toFixed(1)}% ${c.significant ? "" : "(noise)"}${c.safe ? "" : "(UNSAFE)"} cost/hΔ ${Math.round(c.costPerHourDelta)} deaths ${c.result.deaths.toFixed(2)}`);
@@ -158,7 +174,7 @@ check("plan does not make things worse", score(verified.planned) >= score(verifi
 }
 
 // Triggers: changes worked out from the measured runs of the setup, simulated like any suggestion,
-// free on the plan, applied to the profile; the same variants again come from the cache.
+// free on the plan, applied to the profile; the same analysis again comes from the cache.
 {
     const pt = structuredClone(profile);
     for (const skill of Object.keys(pt.levels)) pt.levels[skill] = 60;
@@ -190,8 +206,7 @@ pt.levels.intelligence = 90;
     const first = jobs;
     jobs = 0;
     await analyzeRaw(counting, pt, zoneT, quick);
-    const triggerJobs = tried.length * quick.seeds;
-    check("triggers: the same variants again come from the cache", jobs > 0 && jobs <= first - triggerJobs, `${first} sims the first time, ${jobs} the second (${triggerJobs} for trigger changes)`);
+    check("triggers: the same analysis again, trigger variants and all, comes from the cache", first > 0 && jobs === 0, `${first} sims the first time, ${jobs} the second`);
 }
 
 // Same simulations, gold focus: no re-simulation, and running costs now count against a drink.

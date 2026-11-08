@@ -141,6 +141,18 @@ try {
     let text = await body(page);
     check("simulated with the slotted crate and both loadouts", /Simulated with Basic Coffee crate, 20 rooms per monster and room level, 2 loadouts/.test(text), text.match(/Simulated with[^\n]*/)?.[0]);
     check("room level 30 is floor 1 (roughly)", /At room level 30 \(floor 1, roughly\)/.test(text));
+    {
+        // The same check again: every room run comes from the runs kept in the browser.
+        const firstTook = Date.now() - t0;
+        const tableOf = () => page.$$eval(".mwia-laby-rooms tbody tr", (trs) => trs.map((tr) => tr.innerText).join("\n"));
+        const before = await tableOf();
+        await page.$eval(".mwia-laby-rooms", (n) => (n.dataset.old = "1"));
+        const tAgain = Date.now();
+        await page.click('[data-action="laby-check"]');
+        await page.waitForFunction(() => !document.querySelector(".mwia-laby-rooms[data-old]") && document.querySelector(".mwia-laby-rooms") && !document.querySelector(".mwia-progress"), { timeout: 300000 });
+        const againTook = Date.now() - tAgain;
+        check("checking the rooms again is quick and gives the same table", againTook < firstTook / 3 && (await tableOf()) === before, `${(firstTook / 1000).toFixed(1)} s, then ${(againTook / 1000).toFixed(1)} s`);
+    }
     const rows = await page.$$eval(".mwia-laby-rooms tbody tr", (trs) => trs.map((tr) => [...tr.cells].map((c) => c.innerText.trim())));
     check("one row per Labyrinth monster", rows.length === 10 && rows.some((r) => r[0] === "Cyclops") && rows.some((r) => r[0] === "Mimic"), rows.map((r) => r[0]).join(", "));
     const row = (name) => rows.find((r) => r[0] === name) || [];

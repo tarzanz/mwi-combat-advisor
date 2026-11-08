@@ -70,8 +70,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     MP food eaten later (less food) or earlier (when you die or run dry). Buffs and coffee keep *is inactive*. The best one per ability and food that is sure
     goes on the list as a free change (*Set the triggers of Heal to own missing HP ≥ 50*). The three best new
     abilities also get a round with their own triggers, and take that setting instead of the game's default only when
-    it clearly beats it. Trigger variants' simulations are kept in the browser (up to 1,500 runs), so the same setup
-    again (same gear, zone, hours and seed) is not simulated twice.
+    it clearly beats it.
   - **Abilities & triggers only** – the button beside *Analyze upgrades* tests only new abilities, ability levels,
     their order and the triggers of your abilities and food: no gear, house rooms, drinks or food to buy, so it is
     much quicker.
@@ -507,6 +506,16 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
   list, and a pricier option must also be 90% sure to beat the cheaper one it replaces. Because ~150 suggestions are
   tested at once, some useless ones would pass 90% by luck; so everything promising below 99% automatically gets two
   more rounds of fresh runs (up to 3× the normal count), and a button runs further rounds on demand.
+- **Ruled out early:** every suggestion gets one run first. One that is all but sure (under 2%) to give less than
+  the 1% a plan step needs – at both ends of the XP–gold slider, and counting XP or levels – gets no more runs; its
+  **Sure** shows ✗. On a test character with decent gear about 30% of the suggestions went out this way (15–20% less
+  time for an analysis) and none that would have been on the plan. Skill levels are always run in full.
+- **Runs kept in the browser:** every simulation is seeded, so the same job always gives the same result. All runs –
+  Upgrades, Where to fight, the loadout box and the Labyrinth – are kept in IndexedDB (up to 20,000, the least
+  recently used go first) and taken from there instead of being simulated again: analysing the same setup again
+  (after a reload, another budget, *Abilities & triggers only* then the full analysis, the Labyrinth check again)
+  takes a second or so. Prices are applied afterwards, so new prices don't need new runs; a new script version or
+  game patch starts afresh. Once you change gear every suggestion is a new setup, so that analysis runs in full.
 
 ## Limitations
 

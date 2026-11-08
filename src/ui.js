@@ -1087,7 +1087,10 @@ function gainText(c) {
 function confidenceCell(c) {
     const value = Math.round(c.confidence * 100);
     const cls = c.confidence >= CONFIDENCE_LEVEL ? "mwia-ok" : c.confidence >= 0.7 ? "mwia-warn" : "mwia-dim";
-    return `<span class="${cls}" title="Chance that this really improves your focus, from ${c.runs.length} paired simulations">${value}%</span>`;
+    const title = c.screened
+        ? "Ruled out after one simulation: all but sure to give less than 1%, whatever the focus, so it got no more runs"
+        : `Chance that this really improves your focus, from ${c.runs.length} simulations`;
+    return `<span class="${cls}" title="${title}">${value}%${c.screened ? " ✗" : ""}</span>`;
 }
 
 const CONF_TITLE = "How sure we are that this is an improvement and not luck (paired t-test over several simulations with different random seeds). Only ≥ 90% goes on the shopping list.";

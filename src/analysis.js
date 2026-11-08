@@ -1,12 +1,12 @@
 // The actual advice: which zone to fight in and which purchases help most.
 
 import { askPrice, combatZones, expectedLootPerKill, getClientData, marketBids, marketEntry, marketListings, sellValue } from "./game-data.js";
-import { confidenceGreater } from "./stats.js";
+import { confidenceGreater, confidenceOneRun } from "./stats.js";
 import { COMBAT_SKILLS, GEAR_TYPES, battleAbilityOrder, cloneProfile, equip, meetsRequirements, sameKind, slotCounts, styleOfItem, toDTO, weaponOf, weaponStyle } from "./profile.js";
 import { experienceOf, levelsPerHour } from "./levels.js";
 import { resaleValue } from "./skilling-upgrades.js";
 import { MAX_TARGET } from "./enhancing.js";
-import { cacheResult, cachedResult, jobKey } from "./sim-cache.js";
+import { runCached } from "./sim-cache.js";
 import { mergeTelemetry, triggerChanges } from "./triggers.js";
 
 // Many short runs (each with its own random seed) rather than a few long ones: the
@@ -161,28 +161,22 @@ function enrich(result, tier, profile) {
 // part ways within a few attacks, so pairing by seed would only share one run's luck
 // (say, a rare death in the base) with every suggestion.
 // An item may ask for the runs to be measured (telemetry: true – the measurements go to
-// item.telemetryOut, one per run) or for its runs to be kept and taken from the cache (cache: true).
+// item.telemetryOut, one per run). Runs done before come from the cache (sim-cache.js).
 async function simulateRuns(pool, items, zone, hours, onProgress) {
     const data = getClientData();
     const jobs = [];
-    const slots = []; // per run: { key, cached } – cached runs need no job
     for (const item of items) {
         const player = toDTO(item.profile, data);
         for (const seed of item.seeds) {
             const job = { player, zoneHrid: zone.zoneHrid, tier: zone.tier, hours, seed: seedFor(seed), extraBuffs: item.profile.extraBuffs };
-            const key = item.cache ? jobKey(job, data) : null;
-            const cached = key && !item.telemetry ? cachedResult(key) : null;
-            slots.push({ key, cached, job: cached ? -1 : jobs.length });
-            if (!cached) jobs.push(item.telemetry ? { ...job, telemetry: true } : job);
+            jobs.push(item.telemetry ? { ...job, telemetry: true } : job);
         }
     }
-    const results = await pool.runAll(jobs, onProgress);
+    const results = await runCached(pool, jobs, onProgress);
     let next = 0;
     return items.map((item) =>
         item.seeds.map((seed) => {
-            const slot = slots[next++];
-            const { telemetry, ...result } = slot.cached || results[slot.job];
-            if (slot.key && !slot.cached) cacheResult(slot.key, result);
+            const { telemetry, ...result } = results[next++];
             if (item.telemetry) (item.telemetryOut ||= []).push(telemetry);
             return { ...enrich(result, zone.tier, item.profile), seed };
         })
@@ -208,7 +202,7 @@ export async function analyzeZones(pool, profile, settings, onProgress) {
     const player = toDTO(profile, data);
     const hours = Math.max(1, settings.hours / 2);
     const jobs = variants.map((v) => ({ player, zoneHrid: v.zone.zoneHrid, tier: v.zone.tier, hours, seed: seedFor(0), extraBuffs: profile.extraBuffs }));
-    const results = await pool.runAll(jobs, onProgress);
+    const results = await runCached(pool, jobs, onProgress);
     return variants.map((v, i) => ({ ...v, result: enrich(results[i], v.zone.tier, profile) }));
 }
 
@@ -659,6 +653,56 @@ function withTriggers(profile, change) {
     return variant;
 }
 
+// ---------- ruling out early ----------
+// Every suggestion gets one run first; one that is all but sure (< 2%) to give less than
+// the 1% a plan step needs – at both ends of the XP–gold slider, and for XP and levels
+// alike, since those are re-rated without simulating – gets no more. The rest get the
+// remaining seeds. Measured on a test character: once its gear is decent about 30% of the
+// suggestions go out after one run, and none that would have been on the plan.
+const SCREEN_MARGIN = 0.01;
+const SCREEN_BELOW = 0.02;
+const NOT_SCREENED = new Set(["skillLevel"]); // shown for what a level gives, whatever it is
+
+function screenGoals(base, settings) {
+    const ends = [{ goldWeight: 0, countLevels: false }, { goldWeight: 1, countLevels: false }];
+    if (base.levels !== null && base.levels !== undefined) ends.push({ goldWeight: 0, countLevels: true });
+    return ends.map((end) => {
+        const s = { ...settings, ...end };
+        return makeGoal(s, { xp: xpValue(base, s), gold: base.loot });
+    });
+}
+
+function ruledOut(run, baseRuns, goals) {
+    return goals.every((goal) => (confidenceOneRun(score(run, goal), baseRuns.map((r) => score(r, goal)), SCREEN_MARGIN) ?? 1) < SCREEN_BELOW);
+}
+
+// simulateRuns for suggestions (items[i] belongs to candidates[i], seeds 0..n-1), with the
+// first run as a screen; a candidate left at one run gets screened: true.
+async function simulateScreened(pool, candidates, items, baseRuns, base, zone, settings, onProgress) {
+    if (settings.seeds < 2) return simulateRuns(pool, items, zone, settings.hours, onProgress);
+    const goals = screenGoals(base, settings);
+    const firstItems = items.map((item) => ({ ...item, seeds: item.seeds.slice(0, 1) }));
+    let total = items.reduce((sum, item) => sum + item.seeds.length, 0);
+    const first = await simulateRuns(pool, firstItems, zone, settings.hours, (done) => onProgress?.(done, total));
+    const keep = items.map((item, i) => item.seeds.length < 2 || NOT_SCREENED.has(candidates[i].kind) || !ruledOut(first[i][0], baseRuns, goals));
+    const restItems = items.map((item, i) => (keep[i] ? { ...item, seeds: item.seeds.slice(1) } : null)).filter(Boolean);
+    const done0 = firstItems.length;
+    total = done0 + restItems.reduce((sum, item) => sum + item.seeds.length, 0);
+    const rest = await simulateRuns(pool, restItems, zone, settings.hours, (done) => onProgress?.(done0 + done, total));
+    let r = 0;
+    return items.map((item, i) => {
+        if (item.telemetry) item.telemetryOut = [...(firstItems[i].telemetryOut || [])];
+        if (!keep[i]) {
+            candidates[i].screened = true;
+            return first[i];
+        }
+        const restItem = restItems[r];
+        const runs = [...first[i], ...rest[r++]];
+        if (item.telemetry) item.telemetryOut.push(...(restItem.telemetryOut || []));
+        return runs;
+    });
+}
+
 const TUNED_ABILITIES = 3; // new abilities that get a round with their own triggers
 
 // settings.scope "abilities": only abilities, their levels, order and triggers (and food
@@ -686,10 +730,10 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
     }
     candidates.forEach((c, id) => (c.id = id));
     // New abilities are measured too, to give the most promising ones their own triggers.
-    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds), telemetry: c.kind === "ability", cache: c.kind === "trigger" }));
+    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds), telemetry: c.kind === "ability" }));
     const done0 = baseItem.seeds.length;
-    const total = done0 + items.reduce((sum, item) => sum + item.seeds.length, 0);
-    const runs = await simulateRuns(pool, items, zone, settings.hours, (done) => onProgress?.(done0 + done, total));
+    const base = summarize(baseRuns, zone.tier, profile);
+    const runs = await simulateScreened(pool, candidates, items, baseRuns, base, zone, settings, (done, total) => onProgress?.(done0 + done, done0 + total));
     const simulated = candidates.map((c, i) => ({ ...c, result: summarize(runs[i], zone.tier, c.profile), runs: runs[i], telemetry: items[i].telemetry ? mergeTelemetry(items[i].telemetryOut) : undefined }));
     const slots = slotCounts(profile, getClientData());
     const emptyAbilitySlots = [];
@@ -702,7 +746,7 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
         emptyAbilitySlots,
         starter: settings.starter || null,
         baseProfile: profile,
-        base: summarize(baseRuns, zone.tier, profile),
+        base,
         baseRuns,
         telemetry: summaryOfTelemetry(telemetry),
         candidates: simulated,
@@ -740,13 +784,13 @@ async function tuneNewAbilities(pool, raw, settings, onProgress) {
         const c = raw.candidates.find((x) => x.id === rated.id);
         if (!c?.telemetry) continue;
         for (const { change, profile } of triggerCandidates(c.profile, c.telemetry, [c.hrid])) {
-            const { result, runs, telemetry, id, ...rest } = c;
+            const { result, runs, telemetry, id, screened, ...rest } = c;
             tries.push({ ...rest, profile, triggers: change.triggers, was: change.was, rule: change.rule });
         }
     }
     if (!tries.length) return 0;
     const seeds = Array.from({ length: raw.seedsPerRound }, (_, i) => i);
-    const runs = await simulateRuns(pool, tries.map((t) => ({ profile: t.profile, seeds, cache: true })), raw.zone, raw.hours, onProgress);
+    const runs = await simulateRuns(pool, tries.map((t) => ({ profile: t.profile, seeds })), raw.zone, raw.hours, onProgress);
     // The best of a few noisy variants looks better than it is: one only takes the plain
     // ability's place when it beats it clearly, and then replaces it, so re-runs and the
     // shopping list see one row for that ability.
@@ -787,10 +831,11 @@ export async function refineUncertain(pool, raw, settings, onProgress) {
     if (!targets.length) return 0;
     const items = targets.map((c) => {
         const first = Math.max(...c.runs.map((r) => r.seed)) + 1;
-        return { profile: c.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i), cache: c.kind === "trigger" || !!c.triggers };
+        return { profile: c.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
     });
     const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
     targets.forEach((c, i) => {
+        delete c.screened;
         c.runs = [...c.runs, ...runs[i]];
         c.result = summarize(c.runs, raw.zone.tier, c.profile);
     });
@@ -810,7 +855,7 @@ export function rateUpgrades(raw, settings) {
     const used = (c) => c.remove || !["food", "drinks"].includes(c.kind) || (c.result.consumables[c.hrid] || 0) > 0.01;
     const evaluated = raw.candidates.filter(used).map((c) => {
                 const delta = score(c.result, goal) - baseScore;
-        const confidence = confidenceGreater(c.runs.map((r) => score(r, goal)), baseScores) ?? 0.5;
+        const confidence = (c.runs.length < 2 ? confidenceOneRun(score(c.runs[0], goal), baseScores) : confidenceGreater(c.runs.map((r) => score(r, goal)), baseScores)) ?? 0.5;
         return {
             ...c,
             delta,
@@ -1113,7 +1158,11 @@ async function loadoutRound(pool, profile, zone, settings, onProgress) {
         ...consumableCandidates(profile, "food", { onlyUseful: true, replace: food.every(Boolean) ? index(meal) : null }).filter((c) => !c.remove),
     ];
     planned = firstRuns + candidates.length * settings.seeds;
-    const runs = await simulateRuns(pool, candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds) })), zone, settings.hours, (done) => onProgress?.(firstRuns + done, planned));
+    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds) }));
+    const runs = await simulateScreened(pool, candidates, items, baseRuns, base, zone, settings, (done, total) => {
+        planned = firstRuns + total;
+        onProgress?.(firstRuns + done, planned);
+    });
     const simulated = [
         ...candidates.map((c, i) => ({ ...c, result: summarize(runs[i], zone.tier, c.profile), runs: runs[i] })),
         ...scored.filter((c) => c.remove).map(({ score: _, ...c }) => ({ ...c, result: summarize(c.runs, zone.tier, c.profile) })),

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.69.1
+// @version      0.70.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -377,15 +377,15 @@
   // src/buy-limits.js
   var OLD_MS = 12 * 3600 * 1e3;
   var s = { jobs: [], at: 0, preferred: null };
-  function setBuyLimits(jobs, now = Date.now()) {
+  function setBuyLimits(jobs, now2 = Date.now()) {
     s.jobs = jobs;
-    s.at = now;
+    s.at = now2;
   }
   function preferBuyLimits(actionHrid) {
     s.preferred = actionHrid || null;
   }
-  function buyLimit(itemHrid, now = Date.now()) {
-    if (!s.jobs.length || now - s.at > OLD_MS) return null;
+  function buyLimit(itemHrid, now2 = Date.now()) {
+    if (!s.jobs.length || now2 - s.at > OLD_MS) return null;
     const using = s.jobs.filter((job2) => job2.inputs.some((i) => i.itemHrid === itemHrid));
     const job = using.find((j2) => j2.hrid === s.preferred) || using[0];
     if (!job) return null;
@@ -560,8 +560,8 @@
     for (const [key2, rate2] of Object.entries(xpPerHour || {})) {
       const skill = skills[key2];
       if (!skill || !(rate2 > 0)) continue;
-      const now = experienceOf(table, skill.xp, skill.level);
-      levels += fractionalLevel(table, now + rate2 * hours) - fractionalLevel(table, now);
+      const now2 = experienceOf(table, skill.xp, skill.level);
+      levels += fractionalLevel(table, now2 + rate2 * hours) - fractionalLevel(table, now2);
     }
     return levels / hours;
   }
@@ -1704,7 +1704,7 @@
     const low = price.diff !== null && price.diff < -PRICE_BAND;
     return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
   }
-  function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins9 = Infinity, have: have6 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now = Date.now() }) {
+  function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins9 = Infinity, have: have6 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now: now2 = Date.now() }) {
     if (entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o2) => o2.price >= breakEven).reduce((sum, o2) => sum + o2.quantity, 0) : null;
@@ -1738,7 +1738,7 @@
     const profitPerAction = entry.profitPerHour / entry.actionsPerHour;
     const inputs = bought.map((input) => {
       const market = inputMarket?.(input.itemHrid, input.enhancementLevel || 0) || {};
-      const fresh = market.book && now - market.book.at <= INPUT_BOOK_HOURS * 36e5 ? market.book : null;
+      const fresh = market.book && now2 - market.book.at <= INPUT_BOOK_HOURS * 36e5 ? market.book : null;
       const asks2 = fresh ? [...fresh.asks].filter((o2) => o2.price > 0 && o2.quantity > 0).sort((a, b) => a.price - b.price) : null;
       const maxPrice = asks2?.length ? Math.max(asks2[0].price, input.price + (profitPerAction - minMargin * entry.revenuePerAction) / input.count) : null;
       const limitPrice = input.price + (profitPerAction - limitMargin * entry.revenuePerAction) / input.count;
@@ -3113,9 +3113,9 @@
     const summary2 = itemHrid ? priceSummary(itemHrid) : null;
     if (!summary2?.enough) return null;
     const side = sellAt === "bid" ? "b" : "a";
-    const now = marketEntry(itemHrid)?.[side];
+    const now2 = marketEntry(itemHrid)?.[side];
     const usual = summary2[side].med7;
-    return { swing: summary2[side].swing, diff: now > 0 && usual > 0 ? now / usual - 1 : null };
+    return { swing: summary2[side].swing, diff: now2 > 0 && usual > 0 ? now2 / usual - 1 : null };
   }
   function priceWarnings(entry) {
     const warnings = [];
@@ -3378,11 +3378,11 @@
   function levelingButtons(e2) {
     const item = e2.action.itemHrid;
     const hours = e2.teaPlan?.hours || PLAN_MODES.away.hours;
-    let open;
+    let open2;
     let buy;
     if (isEnhance(e2)) {
       const guard = e2.protect ? ` data-protect="${esc(e2.protect.itemHrid)}" data-protect-from="${e2.protect.from}"` : "";
-      open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e2.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e2.target}${e2.protect ? `, protected from +${e2.protect.from} with ${esc(itemName(e2.protect.itemHrid))}` : ""}">\u25B6 Enhance to +${e2.target}</button>`;
+      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e2.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e2.target}${e2.protect ? `, protected from +${e2.protect.from} with ${esc(itemName(e2.protect.itemHrid))}` : ""}">\u25B6 Enhance to +${e2.target}</button>`;
       const attempts = Math.ceil(e2.actionsPerHour * hours);
       const items = e2.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN4);
       const guards = e2.protect?.itemHrid === item ? attempts * e2.protect.protections / e2.attempts : 0;
@@ -3394,7 +3394,7 @@
       const n4 = e2.suggestion?.count || 0;
       const plus = e2.action.enhancementLevel || 0;
       const catalyst = e2.catalyst?.itemHrid ? ` data-catalyst="${esc(e2.catalyst.itemHrid)}"` : "";
-      open = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}"${plus ? ` data-level="${plus}"` : ""} data-label="${esc(k.name)}" data-value="${n4}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))}${plus ? ` +${plus}` : ""} (from your inventory)${n4 ? ` and ${n4} actions` : ""}${e2.catalyst?.itemHrid ? `, with ${esc(itemName(e2.catalyst.itemHrid))}` : ""}">\u25B6 ${k.name}${n4 ? ` ${n4.toLocaleString("en-US")}` : ""}</button>`;
+      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}"${plus ? ` data-level="${plus}"` : ""} data-label="${esc(k.name)}" data-value="${n4}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))}${plus ? ` +${plus}` : ""} (from your inventory)${n4 ? ` and ${n4} actions` : ""}${e2.catalyst?.itemHrid ? `, with ${esc(itemName(e2.catalyst.itemHrid))}` : ""}">\u25B6 ${k.name}${n4 ? ` ${n4.toLocaleString("en-US")}` : ""}</button>`;
       const items = n4 ? e2.inputs.filter((i) => i.itemHrid !== COIN4 && i.forSale !== false).map((i) => ({ hrid: i.itemHrid, ...i.enhancementLevel ? { enhancementLevel: i.enhancementLevel } : {}, quantity: Math.max(0, Math.ceil(i.count * n4) - have(i.itemHrid, i.enhancementLevel || 0)) })).filter((i) => i.quantity > 0) : [];
       buy = items.length ? { items, title: `Adds what ${n4.toLocaleString("en-US")} actions use, less what you have: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`).join(", ")}` } : null;
     }
@@ -3403,7 +3403,7 @@
     const teas = plan?.items.length ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-teas="${esc(JSON.stringify(plan.items.map(({ hrid, quantity }) => ({ hrid, quantity }))))}" title="Adds the best teas for ${hoursText(plan.hours)} to the MWITools cart">\u{1F375} Buy teas</button>` : "";
     const plusLevel = isAlchemy(e2) ? e2.action.enhancementLevel || 0 : 0;
     const market = `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-market" data-item="${esc(item)}"${plusLevel ? ` data-level="${plusLevel}"` : ""} title="Opens ${esc(itemName(item))}${plusLevel ? ` +${plusLevel}` : ""} on the market">\u{1F3EA} Market</button>`;
-    return `<div class="mwia-skill-buttons">${open}${cart}${teas}${market}</div>`;
+    return `<div class="mwia-skill-buttons">${open2}${cart}${teas}${market}</div>`;
   }
   function actionButtons(e2) {
     if (isEnhance(e2) || isAlchemy(e2)) return levelingButtons(e2);
@@ -3437,12 +3437,12 @@
   }
   function teaHtml(entry) {
     const { current, best } = entry;
-    const now = (current.teas.length ? `Your teas: ${esc(names(current.teas))}.` : "You have no teas in this skill.") + ` ${slotsLine(entry)}`;
+    const now2 = (current.teas.length ? `Your teas: ${esc(names(current.teas))}.` : "You have no teas in this skill.") + ` ${slotsLine(entry)}`;
     if (!entry.betterTeas) {
-      if (!best.result.teas.length) return `${now} No tea earns back its cost here.`;
-      return `${now} That is already the best setup. ${worthText(best.worth)}${purchaseText(entry.teaPlan)}`;
+      if (!best.result.teas.length) return `${now2} No tea earns back its cost here.`;
+      return `${now2} That is already the best setup. ${worthText(best.worth)}${purchaseText(entry.teaPlan)}`;
     }
-    return `${now} Best: <b>${esc(names(best.result.teas)) || "none"}</b> \u2192 ${coins(best.result.goldPerDay)}/day, ${coins(best.result.xpPerDay)} XP/day
+    return `${now2} Best: <b>${esc(names(best.result.teas)) || "none"}</b> \u2192 ${coins(best.result.goldPerDay)}/day, ${coins(best.result.xpPerDay)} XP/day
         (<span class="mwia-ok">${teaGain(best.result, current)}</span>). ${worthText(best.worth)}${purchaseText(entry.teaPlan)}`;
   }
   function slotsLine(entry) {
@@ -4108,8 +4108,8 @@
     const i = key2.lastIndexOf("::");
     return { itemHrid: key2.slice(0, i), level: Number(key2.slice(i + 2)) || 0 };
   }
-  function emptyLedger(now = Date.now()) {
-    return { since: now, purchases: {}, fills: {}, forecasts: {}, reports: {}, history: {}, unsent: { reports: [], purchases: [] }, piSeq: 0 };
+  function emptyLedger(now2 = Date.now()) {
+    return { since: now2, purchases: {}, fills: {}, forecasts: {}, reports: {}, history: {}, unsent: { reports: [], purchases: [] }, piSeq: 0 };
   }
   function runningAction(actions) {
     const a = (actions || []).find((x) => !x.isDone);
@@ -4118,7 +4118,7 @@
   var mark = (list, id) => {
     if (!list.includes(id)) list.push(id);
   };
-  function noteFills(ledger, listings, { now, live, bookOf = () => null }) {
+  function noteFills(ledger, listings, { now: now2, live, bookOf = () => null }) {
     let changed2 = false;
     for (const listing of listings || []) {
       if (!listing || listing.isSell) continue;
@@ -4127,14 +4127,14 @@
       const seen = ledger.fills[id];
       const bought = ledger.purchases[id];
       const prev = Math.max(seen?.filled ?? 0, bought?.filled ?? 0);
-      const firstSeen = seen?.seen ?? (live && now - ledger.since > INSTANT_MS ? now : 0);
+      const firstSeen = seen?.seen ?? (live && now2 - ledger.since > INSTANT_MS ? now2 : 0);
       if (filled > prev) {
         const price = Number(listing.price) || 0;
         const level = Number(listing.enhancementLevel) || 0;
         const qty2 = filled - prev;
         let cost = qty2 * price;
         let estimate = false;
-        if (firstSeen && now - firstSeen <= INSTANT_MS) {
+        if (firstSeen && now2 - firstSeen <= INSTANT_MS) {
           const asks = (bookOf(listing.itemHrid, level) || []).filter((o2) => o2.price > 0 && o2.price <= price).sort((a, b) => a.price - b.price);
           let skip = prev;
           let left = qty2;
@@ -4154,18 +4154,18 @@
             estimate = true;
           }
         }
-        ledger.purchases[id] = { key: keyOf(listing.itemHrid, level), filled, cost: (bought?.cost ?? 0) + cost, at: bought?.at ?? now, timed: bought ? !!bought.timed : !!live, estimate: !!bought?.estimate || estimate };
+        ledger.purchases[id] = { key: keyOf(listing.itemHrid, level), filled, cost: (bought?.cost ?? 0) + cost, at: bought?.at ?? now2, timed: bought ? !!bought.timed : !!live, estimate: !!bought?.estimate || estimate };
         mark(ledger.unsent.purchases, id);
         changed2 = true;
       }
-      ledger.fills[id] = { filled: Math.max(filled, prev), seen: firstSeen, at: now };
+      ledger.fills[id] = { filled: Math.max(filled, prev), seen: firstSeen, at: now2 };
     }
-    prune(ledger, now);
+    prune(ledger, now2);
     return changed2;
   }
-  function prune(ledger, now) {
-    for (const [id, f] of Object.entries(ledger.fills)) if (now - f.at > LOT_MS) delete ledger.fills[id];
-    for (const [id, b] of Object.entries(ledger.purchases)) if (now - b.at > LOT_MS) delete ledger.purchases[id];
+  function prune(ledger, now2) {
+    for (const [id, f] of Object.entries(ledger.fills)) if (now2 - f.at > LOT_MS) delete ledger.fills[id];
+    for (const [id, b] of Object.entries(ledger.purchases)) if (now2 - b.at > LOT_MS) delete ledger.purchases[id];
   }
   function lotsLeft(ledger, except = null) {
     const lots = Object.values(ledger.purchases).filter((b) => b.filled > 0).map((b) => ({ key: b.key, qty: b.filled, left: b.filled, unit: b.cost / b.filled, at: b.at, timed: !!b.timed, estimate: !!b.estimate })).sort((a, b) => a.at - b.at);
@@ -4259,7 +4259,7 @@
       expectedMargin: expected.length ? expected.reduce((s2, h2) => s2 + h2.expectedMargin, 0) / expected.length : null
     };
   }
-  function jobReport(ledger, job, prices2, now = Date.now()) {
+  function jobReport(ledger, job, prices2, now2 = Date.now()) {
     const f = job.forecast;
     const actions = job.actions;
     const hours = job.hours;
@@ -4294,7 +4294,7 @@
       actionHrid: job.actionHrid,
       item: job.item,
       endedAt: job.endedAt,
-      pricedAt: now,
+      pricedAt: now2,
       actions,
       hours,
       made,
@@ -4621,10 +4621,10 @@
         card.appendChild(line);
       }
       if (line.dataset.html !== html) {
-        const open = line.querySelector("details")?.open;
+        const open2 = line.querySelector("details")?.open;
         line.dataset.html = html;
         line.innerHTML = html;
-        if (open) line.querySelector("details").open = true;
+        if (open2) line.querySelector("details").open = true;
       }
     }
   }
@@ -4722,6 +4722,15 @@
     if (va + vb <= 1e-18) return diff > 0 ? 1 : diff < 0 ? 0 : 0.5;
     const df = (va + vb) ** 2 / (va * va / (A.n - 1) + vb * vb / (B.n - 1));
     return studentTCdf(diff / Math.sqrt(va + vb), df);
+  }
+  function confidenceOneRun(value, reference, margin = 0) {
+    const n4 = reference.length;
+    if (n4 < 2) return null;
+    const mean = reference.reduce((s2, v) => s2 + v, 0) / n4;
+    const sd = Math.sqrt(reference.reduce((s2, v) => s2 + (v - mean) ** 2, 0) / (n4 - 1));
+    const diff = value - margin - mean;
+    if (sd <= 1e-9) return diff > 0 ? 1 : diff < 0 ? 0 : 0.5;
+    return studentTCdf(diff / (sd * Math.sqrt(1 + 1 / n4)), n4 - 1);
   }
 
   // src/profile.js
@@ -5035,7 +5044,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.69.1" : "dev";
+  var VERSION = true ? "0.70.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5110,44 +5119,14 @@
   }
 
   // src/sim-cache.js
-  var STORE = "mwia-sim-cache";
-  var MAX_ENTRIES = 1500;
+  var DB_NAME2 = "mwia-sim-cache";
+  var RUNS = "runs";
+  var META2 = "meta";
+  var MAX_ENTRIES = 2e4;
+  var OLD_STORE = "mwia-sim-cache";
+  var fingerprint = { tables: null, value: "" };
   var memory = null;
-  var fingerprint = { data: null, value: "" };
-  function storage() {
-    try {
-      return globalThis.localStorage || null;
-    } catch {
-      return null;
-    }
-  }
-  function load2() {
-    if (memory) return memory;
-    memory = /* @__PURE__ */ new Map();
-    try {
-      const saved = JSON.parse(storage()?.getItem(STORE) || "null");
-      if (Array.isArray(saved)) for (const [k, v] of saved) memory.set(k, v);
-    } catch {
-    }
-    return memory;
-  }
-  var saveTimer = null;
-  function save2() {
-    if (saveTimer || !storage()) return;
-    saveTimer = setTimeout(() => {
-      saveTimer = null;
-      try {
-        storage().setItem(STORE, JSON.stringify([...load2()]));
-      } catch {
-        const entries = [...load2()];
-        memory = new Map(entries.slice(entries.length >> 1));
-        try {
-          storage().setItem(STORE, JSON.stringify([...memory]));
-        } catch {
-        }
-      }
-    }, 500);
-  }
+  var opening = null;
   function hash(text) {
     let h1 = 3735928559;
     let h2 = 1103547991;
@@ -5160,31 +5139,148 @@
     h2 = Math.imul(h2 ^ h2 >>> 16, 2246822507) ^ Math.imul(h1 ^ h1 >>> 13, 3266489909);
     return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
   }
-  function dataFingerprint(data) {
-    if (fingerprint.data !== data) {
-      const tables = ["abilityDetailMap", "combatMonsterDetailMap", "actionDetailMap", "itemDetailMap"].map((k) => JSON.stringify(data?.[k] || null));
-      fingerprint = { data, value: hash(tables.join("|")) };
+  function generation() {
+    const tables = engineTables();
+    const sameData = fingerprint.tables && Object.keys(tables).every((k) => tables[k] === fingerprint.tables[k]);
+    if (!sameData) fingerprint = { tables, value: hash(JSON.stringify(tables)) };
+    return scriptVersion() + "|" + fingerprint.value;
+  }
+  function jobKey(job) {
+    const { telemetry, ...rest } = job;
+    return hash(JSON.stringify(rest));
+  }
+  var request2 = (req) => new Promise((resolve2, reject) => {
+    req.onsuccess = () => resolve2(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  var finished = (tx) => new Promise((resolve2, reject) => {
+    tx.oncomplete = resolve2;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  function dropOldStore() {
+    try {
+      globalThis.localStorage?.removeItem(OLD_STORE);
+    } catch {
     }
-    return fingerprint.value;
   }
-  function jobKey(job, data) {
-    return hash(scriptVersion() + "|" + dataFingerprint(data) + "|" + JSON.stringify(job));
+  function open(gen) {
+    opening || (opening = (async () => {
+      dropOldStore();
+      if (!globalThis.indexedDB) return null;
+      try {
+        const db = await new Promise((resolve2, reject) => {
+          const req = indexedDB.open(DB_NAME2, 1);
+          req.onupgradeneeded = () => {
+            const store5 = req.result.createObjectStore(RUNS, { keyPath: "key" });
+            store5.createIndex("used", "used");
+            req.result.createObjectStore(META2);
+          };
+          req.onsuccess = () => resolve2(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        return { db, gen: null };
+      } catch {
+        return null;
+      }
+    })());
+    return opening.then(async (state2) => {
+      if (!state2 || state2.gen === gen) return state2?.db || null;
+      const tx = state2.db.transaction(META2, "readonly");
+      const stored2 = await request2(tx.objectStore(META2).get("generation"));
+      if (stored2 !== gen) {
+        const wipe = state2.db.transaction([RUNS, META2], "readwrite");
+        wipe.objectStore(RUNS).clear();
+        wipe.objectStore(META2).put(gen, "generation");
+        await finished(wipe);
+      }
+      state2.gen = gen;
+      return state2.db;
+    });
   }
-  function cachedResult(key2) {
-    const map = load2();
-    if (!map.has(key2)) return null;
-    const value = map.get(key2);
-    map.delete(key2);
-    map.set(key2, value);
-    return structuredClone(value);
+  async function lookup(db, keys) {
+    if (!db) {
+      memory || (memory = /* @__PURE__ */ new Map());
+      return keys.map((k) => memory.has(k) ? structuredClone(memory.get(k)) : null);
+    }
+    const store5 = db.transaction(RUNS, "readonly").objectStore(RUNS);
+    return Promise.all(keys.map((k) => request2(store5.get(k)).then((v) => v ?? null)));
   }
-  function cacheResult(key2, result) {
-    const map = load2();
-    const { telemetry, ...kept } = result;
-    map.delete(key2);
-    map.set(key2, kept);
-    while (map.size > MAX_ENTRIES) map.delete(map.keys().next().value);
-    save2();
+  async function store3(db, entries) {
+    if (!entries.length) return;
+    if (!db) {
+      memory || (memory = /* @__PURE__ */ new Map());
+      for (const e2 of entries) {
+        memory.delete(e2.key);
+        memory.set(e2.key, structuredClone(e2));
+      }
+      while (memory.size > MAX_ENTRIES) memory.delete(memory.keys().next().value);
+      return;
+    }
+    const tx = db.transaction(RUNS, "readwrite");
+    const runs = tx.objectStore(RUNS);
+    for (const e2 of entries) runs.put(e2);
+    const count3 = await request2(runs.count());
+    if (count3 > MAX_ENTRIES) {
+      let excess = count3 - MAX_ENTRIES + Math.round(MAX_ENTRIES / 10);
+      const cursor = runs.index("used").openKeyCursor();
+      cursor.onsuccess = () => {
+        const c2 = cursor.result;
+        if (!c2 || excess-- <= 0) return;
+        runs.delete(c2.primaryKey);
+        c2.continue();
+      };
+    }
+    await finished(tx);
+  }
+  var clock = 0;
+  var now = () => Math.max(Date.now(), ++clock);
+  async function runCached(pool, jobs, onProgress) {
+    let db = null;
+    try {
+      db = await open(generation());
+    } catch {
+      db = null;
+    }
+    const keys = jobs.map(jobKey);
+    let found = [];
+    try {
+      found = await lookup(db, keys);
+    } catch {
+      found = keys.map(() => null);
+    }
+    const usable = (entry, job) => entry && (!job.telemetry || entry.telemetry);
+    const toRun = [];
+    const slotOf = /* @__PURE__ */ new Map();
+    const plan = jobs.map((job, i) => {
+      if (usable(found[i], job)) return { entry: found[i] };
+      const key2 = keys[i];
+      if (!slotOf.has(key2)) {
+        slotOf.set(key2, toRun.length);
+        toRun.push(job);
+      } else if (job.telemetry) toRun[slotOf.get(key2)] = job;
+      return { run: slotOf.get(key2) };
+    });
+    const kept = jobs.length - plan.filter((p2) => p2.run !== void 0).length;
+    if (kept) onProgress?.(kept, jobs.length);
+    const results = toRun.length ? await pool.runAll(toRun, (done2) => onProgress?.(kept + done2, kept + toRun.length)) : [];
+    const used = now();
+    const writes = /* @__PURE__ */ new Map();
+    const out = plan.map((p2, i) => {
+      if (p2.entry) {
+        writes.set(keys[i], { ...p2.entry, used });
+        const { result: result2, telemetry: telemetry2 } = p2.entry;
+        return jobs[i].telemetry ? { ...result2, telemetry: telemetry2 } : { ...result2 };
+      }
+      const { telemetry, ...result } = results[p2.run];
+      const entry = { key: keys[i], result, used };
+      if (telemetry) entry.telemetry = telemetry;
+      writes.set(keys[i], entry);
+      return jobs[i].telemetry ? { ...result, telemetry } : { ...result };
+    });
+    store3(db, [...writes.values()]).catch(() => {
+    });
+    return out;
   }
 
   // src/triggers.js
@@ -5288,12 +5384,12 @@
         }
       }
       if (kinds.includes("damage:allEnemies") && telemetry.maxEnemies >= 2) {
-        const now = valueOf(was, ENEMIES, C("number_of_active_units"), GTE) ?? 1;
+        const now2 = valueOf(was, ENEMIES, C("number_of_active_units"), GTE) ?? 1;
         const castsBelow = (k) => Object.entries(s2.enemiesAtCast).reduce((sum, [n4, count3]) => sum + (Number(n4) < k ? count3 : 0), 0);
         for (let k = 1; k <= telemetry.maxEnemies; k++) {
-          if (k === now) continue;
-          if (k > now && castsBelow(k) < SHARE * Math.max(1, s2.casts)) continue;
-          add("ability", hrid, was, setCondition(was, ENEMIES, C("number_of_active_units"), GTE, k), "aoe", { from: now, to: k });
+          if (k === now2) continue;
+          if (k > now2 && castsBelow(k) < SHARE * Math.max(1, s2.casts)) continue;
+          add("ability", hrid, was, setCondition(was, ENEMIES, C("number_of_active_units"), GTE, k), "aoe", { from: now2, to: k });
         }
       }
       if (kinds.some((k) => k.startsWith("heal:")) && (s2.heals > 0 || s2.blocked > 0)) {
@@ -5301,10 +5397,10 @@
         if (typical >= 2) {
           const hpConditions = [C("current_hp"), C("missing_hp"), C("lowest_hp_percentage")];
           const base = was.filter((t4) => !hpConditions.includes(t4.conditionHrid));
-          const now = valueOf(was, SELF, C("missing_hp"), GTE);
+          const now2 = valueOf(was, SELF, C("missing_hp"), GTE);
           for (const factor of [0.5, 1, 2]) {
             const value = whole(factor * typical);
-            if (now !== null && Math.abs(value - now) <= 0.1 * Math.max(now, 1)) continue;
+            if (now2 !== null && Math.abs(value - now2) <= 0.1 * Math.max(now2, 1)) continue;
             add("ability", hrid, was, [...base, { dependencyHrid: SELF, conditionHrid: C("missing_hp"), comparatorHrid: GTE, value }], "heal", { typical: Math.round(typical), overheal: s2.overheal, heals: s2.heals });
           }
         }
@@ -5323,10 +5419,10 @@
         [C("missing_mp"), detail.manapointRestore, blockedTotal >= SHARE * Math.max(1, castsTotal)]
       ]) {
         if (!(restore2 > 0)) continue;
-        const now = valueOf(was, SELF, condition, GTE);
-        if (now === null) continue;
-        const value = short3 ? whole(now / 2) : whole(now * 1.5);
-        if (value !== now) add("food", hrid, was, setCondition(was, SELF, condition, GTE, value), "food", { earlier: short3, deaths: telemetry.deaths, blocked: blockedTotal });
+        const now2 = valueOf(was, SELF, condition, GTE);
+        if (now2 === null) continue;
+        const value = short3 ? whole(now2 / 2) : whole(now2 * 1.5);
+        if (value !== now2) add("food", hrid, was, setCondition(was, SELF, condition, GTE, value), "food", { earlier: short3, deaths: telemetry.deaths, blocked: blockedTotal });
       }
     }
     return out;
@@ -5454,24 +5550,18 @@
   async function simulateRuns(pool, items, zone, hours, onProgress) {
     const data = getClientData();
     const jobs = [];
-    const slots = [];
     for (const item of items) {
       const player = toDTO(item.profile, data);
       for (const seed of item.seeds) {
         const job = { player, zoneHrid: zone.zoneHrid, tier: zone.tier, hours, seed: seedFor(seed), extraBuffs: item.profile.extraBuffs };
-        const key2 = item.cache ? jobKey(job, data) : null;
-        const cached = key2 && !item.telemetry ? cachedResult(key2) : null;
-        slots.push({ key: key2, cached, job: cached ? -1 : jobs.length });
-        if (!cached) jobs.push(item.telemetry ? { ...job, telemetry: true } : job);
+        jobs.push(item.telemetry ? { ...job, telemetry: true } : job);
       }
     }
-    const results = await pool.runAll(jobs, onProgress);
+    const results = await runCached(pool, jobs, onProgress);
     let next = 0;
     return items.map(
       (item) => item.seeds.map((seed) => {
-        const slot = slots[next++];
-        const { telemetry, ...result } = slot.cached || results[slot.job];
-        if (slot.key && !slot.cached) cacheResult(slot.key, result);
+        const { telemetry, ...result } = results[next++];
         if (item.telemetry) (item.telemetryOut || (item.telemetryOut = [])).push(telemetry);
         return { ...enrich(result, zone.tier, item.profile), seed };
       })
@@ -5494,7 +5584,7 @@
     const player = toDTO(profile, data);
     const hours = Math.max(1, settings2.hours / 2);
     const jobs = variants.map((v) => ({ player, zoneHrid: v.zone.zoneHrid, tier: v.zone.tier, hours, seed: seedFor(0), extraBuffs: profile.extraBuffs }));
-    const results = await pool.runAll(jobs, onProgress);
+    const results = await runCached(pool, jobs, onProgress);
     return variants.map((v, i) => ({ ...v, result: enrich(results[i], v.zone.tier, profile) }));
   }
   function pickBestZone(zoneResults, settings2) {
@@ -5622,10 +5712,10 @@
       if (owned) starts.push({ from: owned.enhancementLevel, base: 0, start: "owned" });
       const ask = askPrice(hrid, 0);
       if (ask !== null) starts.push({ from: 0, base: ask, start: "buy" });
-      const lookup = starts.length ? enhanceCost(hrid, starts.map((s2) => s2.from)) : null;
-      for (let target = 1; lookup && target <= MAX_TARGET; target++) {
+      const lookup2 = starts.length ? enhanceCost(hrid, starts.map((s2) => s2.from)) : null;
+      for (let target = 1; lookup2 && target <= MAX_TARGET; target++) {
         for (const s2 of starts) {
-          const made = s2.from < target ? lookup(s2.from, target) : null;
+          const made = s2.from < target ? lookup2(s2.from, target) : null;
           if (made) offer({ enhancementLevel: target, cost: s2.base + made.cost, owned: false, enhance: { ...made, from: s2.from, start: s2.start, basePrice: s2.base } });
         }
       }
@@ -5814,8 +5904,8 @@
     if (indices.length < 2) return [];
     const entries = indices.map((i) => profile.abilities[i]);
     const keyOf2 = (list) => list.map((e2) => e2.hrid).join(">");
-    const now = battleAbilityOrder(profile, data);
-    const seen = /* @__PURE__ */ new Set([keyOf2(now)]);
+    const now2 = battleAbilityOrder(profile, data);
+    const seen = /* @__PURE__ */ new Set([keyOf2(now2)]);
     const candidates = [];
     for (const permuted of permutations(entries)) {
       const order = battleAbilityOrder({ ...profile, abilities: [null, ...permuted] }, data);
@@ -5824,7 +5914,7 @@
       seen.add(key2);
       const variant = cloneProfile(profile);
       indices.forEach((slot, k) => variant.abilities[slot] = { ...order[k] });
-      candidates.push({ kind: "abilityOrder", slot: "abilityOrder", hrid: key2, order: order.map((e2) => e2.hrid), was: now.map((e2) => e2.hrid), cost: 0, owned: true, replaces: null, profile: variant });
+      candidates.push({ kind: "abilityOrder", slot: "abilityOrder", hrid: key2, order: order.map((e2) => e2.hrid), was: now2.map((e2) => e2.hrid), cost: 0, owned: true, replaces: null, profile: variant });
     }
     return candidates;
   }
@@ -5858,6 +5948,44 @@
     variant[map] = { ...variant[map] || {}, [change.hrid]: change.triggers };
     return variant;
   }
+  var SCREEN_MARGIN = 0.01;
+  var SCREEN_BELOW = 0.02;
+  var NOT_SCREENED = /* @__PURE__ */ new Set(["skillLevel"]);
+  function screenGoals(base, settings2) {
+    const ends = [{ goldWeight: 0, countLevels: false }, { goldWeight: 1, countLevels: false }];
+    if (base.levels !== null && base.levels !== void 0) ends.push({ goldWeight: 0, countLevels: true });
+    return ends.map((end) => {
+      const s2 = { ...settings2, ...end };
+      return makeGoal(s2, { xp: xpValue(base, s2), gold: base.loot });
+    });
+  }
+  function ruledOut(run, baseRuns, goals) {
+    return goals.every((goal) => (confidenceOneRun(score(run, goal), baseRuns.map((r) => score(r, goal)), SCREEN_MARGIN) ?? 1) < SCREEN_BELOW);
+  }
+  async function simulateScreened(pool, candidates, items, baseRuns, base, zone, settings2, onProgress) {
+    if (settings2.seeds < 2) return simulateRuns(pool, items, zone, settings2.hours, onProgress);
+    const goals = screenGoals(base, settings2);
+    const firstItems = items.map((item) => ({ ...item, seeds: item.seeds.slice(0, 1) }));
+    let total = items.reduce((sum, item) => sum + item.seeds.length, 0);
+    const first = await simulateRuns(pool, firstItems, zone, settings2.hours, (done2) => onProgress?.(done2, total));
+    const keep = items.map((item, i) => item.seeds.length < 2 || NOT_SCREENED.has(candidates[i].kind) || !ruledOut(first[i][0], baseRuns, goals));
+    const restItems = items.map((item, i) => keep[i] ? { ...item, seeds: item.seeds.slice(1) } : null).filter(Boolean);
+    const done0 = firstItems.length;
+    total = done0 + restItems.reduce((sum, item) => sum + item.seeds.length, 0);
+    const rest = await simulateRuns(pool, restItems, zone, settings2.hours, (done2) => onProgress?.(done0 + done2, total));
+    let r = 0;
+    return items.map((item, i) => {
+      if (item.telemetry) item.telemetryOut = [...firstItems[i].telemetryOut || []];
+      if (!keep[i]) {
+        candidates[i].screened = true;
+        return first[i];
+      }
+      const restItem = restItems[r];
+      const runs = [...first[i], ...rest[r++]];
+      if (item.telemetry) item.telemetryOut.push(...restItem.telemetryOut || []);
+      return runs;
+    });
+  }
   var TUNED_ABILITIES = 3;
   async function analyzeUpgrades(pool, profile, zone, settings2, onProgress, onRefineProgress) {
     const budget = settings2.budget;
@@ -5880,10 +6008,10 @@
       candidates.push(triggerCandidate(change, variant));
     }
     candidates.forEach((c2, id) => c2.id = id);
-    const items = candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds), telemetry: c2.kind === "ability", cache: c2.kind === "trigger" }));
+    const items = candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds), telemetry: c2.kind === "ability" }));
     const done0 = baseItem2.seeds.length;
-    const total = done0 + items.reduce((sum, item) => sum + item.seeds.length, 0);
-    const runs = await simulateRuns(pool, items, zone, settings2.hours, (done2) => onProgress?.(done0 + done2, total));
+    const base = summarize3(baseRuns, zone.tier, profile);
+    const runs = await simulateScreened(pool, candidates, items, baseRuns, base, zone, settings2, (done2, total) => onProgress?.(done0 + done2, done0 + total));
     const simulated = candidates.map((c2, i) => ({ ...c2, result: summarize3(runs[i], zone.tier, c2.profile), runs: runs[i], telemetry: items[i].telemetry ? mergeTelemetry(items[i].telemetryOut) : void 0 }));
     const slots = slotCounts(profile, getClientData());
     const emptyAbilitySlots = [];
@@ -5896,7 +6024,7 @@
       emptyAbilitySlots,
       starter: settings2.starter || null,
       baseProfile: profile,
-      base: summarize3(baseRuns, zone.tier, profile),
+      base,
       baseRuns,
       telemetry: summaryOfTelemetry(telemetry),
       candidates: simulated
@@ -5927,13 +6055,13 @@
       const c2 = raw.candidates.find((x) => x.id === rated2.id);
       if (!c2?.telemetry) continue;
       for (const { change, profile } of triggerCandidates(c2.profile, c2.telemetry, [c2.hrid])) {
-        const { result, runs: runs2, telemetry, id: id2, ...rest } = c2;
+        const { result, runs: runs2, telemetry, id: id2, screened, ...rest } = c2;
         tries.push({ ...rest, profile, triggers: change.triggers, was: change.was, rule: change.rule });
       }
     }
     if (!tries.length) return 0;
     const seeds = Array.from({ length: raw.seedsPerRound }, (_, i) => i);
-    const runs = await simulateRuns(pool, tries.map((t4) => ({ profile: t4.profile, seeds, cache: true })), raw.zone, raw.hours, onProgress);
+    const runs = await simulateRuns(pool, tries.map((t4) => ({ profile: t4.profile, seeds })), raw.zone, raw.hours, onProgress);
     const scores = (c2) => c2.runs.map((r) => score(r, rated.goal));
     const mean = (list) => list.reduce((a, b) => a + b, 0) / list.length;
     let id = Math.max(...raw.candidates.map((c2) => c2.id)) + 1;
@@ -5959,10 +6087,11 @@
     if (!targets.length) return 0;
     const items = targets.map((c2) => {
       const first = Math.max(...c2.runs.map((r) => r.seed)) + 1;
-      return { profile: c2.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i), cache: c2.kind === "trigger" || !!c2.triggers };
+      return { profile: c2.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
     });
     const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
     targets.forEach((c2, i) => {
+      delete c2.screened;
       c2.runs = [...c2.runs, ...runs[i]];
       c2.result = summarize3(c2.runs, raw.zone.tier, c2.profile);
     });
@@ -5976,7 +6105,7 @@
     const used = (c2) => c2.remove || !["food", "drinks"].includes(c2.kind) || (c2.result.consumables[c2.hrid] || 0) > 0.01;
     const evaluated = raw.candidates.filter(used).map((c2) => {
       const delta = score(c2.result, goal) - baseScore;
-      const confidence = confidenceGreater(c2.runs.map((r) => score(r, goal)), baseScores) ?? 0.5;
+      const confidence = (c2.runs.length < 2 ? confidenceOneRun(score(c2.runs[0], goal), baseScores) : confidenceGreater(c2.runs.map((r) => score(r, goal)), baseScores)) ?? 0.5;
       return {
         ...c2,
         delta,
@@ -6222,7 +6351,11 @@
       ...consumableCandidates(profile, "food", { onlyUseful: true, replace: food.every(Boolean) ? index(meal) : null }).filter((c2) => !c2.remove)
     ];
     planned = firstRuns + candidates.length * settings2.seeds;
-    const runs = await simulateRuns(pool, candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds) })), zone, settings2.hours, (done2) => onProgress?.(firstRuns + done2, planned));
+    const items = candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds) }));
+    const runs = await simulateScreened(pool, candidates, items, baseRuns, base, zone, settings2, (done2, total) => {
+      planned = firstRuns + total;
+      onProgress?.(firstRuns + done2, planned);
+    });
     const simulated = [
       ...candidates.map((c2, i) => ({ ...c2, result: summarize3(runs[i], zone.tier, c2.profile), runs: runs[i] })),
       ...scored.filter((c2) => c2.remove).map(({ score: _, ...c2 }) => ({ ...c2, result: summarize3(c2.runs, zone.tier, c2.profile) }))
@@ -6854,7 +6987,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var signature = (order) => `${order.filled}|${order.status}|${order.done}`;
   var randomId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
-  function orderEvents(listings, seen = {}, { full = false, now = Date.now(), predictionFor: predictionFor2 = () => null, newId = randomId } = {}) {
+  function orderEvents(listings, seen = {}, { full = false, now: now2 = Date.now(), predictionFor: predictionFor2 = () => null, newId = randomId } = {}) {
     const next = { ...seen };
     const events = [];
     const present = /* @__PURE__ */ new Set();
@@ -6865,29 +6998,29 @@ i.mwia-history-bid { background: #7ee2b0; }
       const before = next[order.id];
       const sig = signature(order);
       if (before?.sig === sig) continue;
-      const event = { uid: newId(), at: now, kind: "seen", order, raw };
+      const event = { uid: newId(), at: now2, kind: "seen", order, raw };
       if (!before) {
         const prediction2 = predictionFor2(order);
         if (prediction2) event.prediction = prediction2;
       }
       events.push(event);
-      next[order.id] = { sig, at: now, done: order.done, order: order.done ? void 0 : order };
+      next[order.id] = { sig, at: now2, done: order.done, order: order.done ? void 0 : order };
     }
     for (const [id, entry] of Object.entries(next)) {
       if (full && !entry.done && !present.has(id)) {
-        events.push({ uid: newId(), at: now, kind: "gone", order: entry.order ?? { id } });
-        next[id] = { sig: "gone", at: now, done: true };
+        events.push({ uid: newId(), at: now2, kind: "gone", order: entry.order ?? { id } });
+        next[id] = { sig: "gone", at: now2, done: true };
       }
-      if (next[id].done && now - next[id].at > DONE_KEEP_MS) delete next[id];
+      if (next[id].done && now2 - next[id].at > DONE_KEEP_MS) delete next[id];
     }
     return { events, seen: next };
   }
-  function notePrediction(snapshot2, now = Date.now()) {
-    o.shown.set(`${snapshot2.side}|${snapshot2.item}|${snapshot2.level}`, { ...snapshot2, shownAt: now });
+  function notePrediction(snapshot2, now2 = Date.now()) {
+    o.shown.set(`${snapshot2.side}|${snapshot2.item}|${snapshot2.level}`, { ...snapshot2, shownAt: now2 });
   }
-  function predictionFor(order, now = Date.now()) {
+  function predictionFor(order, now2 = Date.now()) {
     const shown = o.shown.get(`${order.side}|${order.item}|${order.level}`);
-    return shown && now - shown.shownAt <= PREDICTION_MS ? shown : null;
+    return shown && now2 - shown.shownAt <= PREDICTION_MS ? shown : null;
   }
   var readJson = (key2, fallback) => {
     try {
@@ -7029,7 +7162,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       predictions
     };
   }
-  function record(x, snap, now, late) {
+  function record(x, snap, now2, late) {
     const lab = snap.labyrinth;
     const skilling = x.room.roomType === SKILLING || !!x.room.skillHrid;
     const skill = skilling ? x.room.skillHrid.split("/").pop() : null;
@@ -7039,7 +7172,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const predicted = snap.predictions[`${x.row},${x.col}`] || null;
     return {
       uid: [lab.characterID, lab.startedAt || "", lab.currentFloor, x.row, x.col, x.outcome === "loss" ? "loss" : "end", x.fails].join("|"),
-      at: now,
+      at: now2,
       late: !!late,
       floor: lab.currentFloor,
       row: x.row,
@@ -7058,7 +7191,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       run: lab.startedAt || null
     };
   }
-  function load3() {
+  function load2() {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY2) || "null");
       if (saved && Array.isArray(saved.list)) return { list: saved.list, unsent: saved.unsent || [], piSeq: saved.piSeq || 0 };
@@ -7066,8 +7199,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return { list: [], unsent: [], piSeq: 0 };
   }
-  var log = () => g.log || (g.log = load3());
-  function save3() {
+  var log = () => g.log || (g.log = load2());
+  function save2() {
     const L = log();
     try {
       localStorage.setItem(KEY2, JSON.stringify(L));
@@ -7095,7 +7228,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (L.list.length > MAX_KEPT) L.list.splice(0, L.list.length - MAX_KEPT);
     const kept = new Set(L.list.map((a) => a.uid));
     L.unsent = L.unsent.filter((u) => kept.has(u));
-    save3();
+    save2();
     for (const fn of g.listeners) fn();
     return added;
   }
@@ -7110,7 +7243,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const L = log();
     const sent = new Set(uids);
     L.unsent = L.unsent.filter((u) => !sent.has(u));
-    save3();
+    save2();
   }
   var attemptsPiSeq = () => log().piSeq;
   function attemptsFromPi(wire) {
@@ -7119,7 +7252,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const L = log();
     if (Number.isFinite(wire.seq)) {
       L.piSeq = wire.seq;
-      save3();
+      save2();
     }
   }
   function loadPrev() {
@@ -7143,8 +7276,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   function onLabyrinth(labyrinth, late) {
     const prev = loadPrev();
     if (prev?.labyrinth && labyrinth) {
-      const now = Date.now();
-      const found = roomOutcomes(prev.labyrinth, labyrinth).map((x) => record(x, prev, now, late));
+      const now2 = Date.now();
+      const found = roomOutcomes(prev.labyrinth, labyrinth).map((x) => record(x, prev, now2, late));
       if (found.length) addAttempts(found);
     }
     keepPrev(labyrinth?.isActive && Array.isArray(labyrinth.roomData) ? snapshot(labyrinth, state.character) : null);
@@ -7562,17 +7695,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!summary2 || summary2.hours7 < PRELIMINARY_HOURS) {
       return head4(`collecting: ${summary2 ? progressText(summary2) : "nothing yet"}`) + more("Export", saved);
     }
-    const versusText = (now, side) => {
-      const versus = versusUsual(now, side.med7);
+    const versusText = (now2, side) => {
+      const versus = versusUsual(now2, side.med7);
       const cls = !versus ? "" : versus.label === "above" ? "mwia-history-high" : versus.label === "below" ? "mwia-history-low" : "";
       return versus ? `<span class="${cls}">${pct3(versus.diff)} ${versus.label === "near" ? "usual" : versus.label}</span>` : "";
     };
-    const row = (label3, now, side) => `<tr><th>${label3}</th><td>${now > 0 ? shortCoins(now) : "\u2013"}</td>
-            <td>${side.med7 ? shortCoins(side.med7) : "\u2013"} ${versusText(now, side)}</td>
+    const row = (label3, now2, side) => `<tr><th>${label3}</th><td>${now2 > 0 ? shortCoins(now2) : "\u2013"}</td>
+            <td>${side.med7 ? shortCoins(side.med7) : "\u2013"} ${versusText(now2, side)}</td>
             <td>${side.med30 ? shortCoins(side.med30) : "\u2013"}</td><td>${trendArrow(side.trend)}</td></tr>`;
     const askNow = entry?.a > 0 ? entry.a : null;
     const bidNow = entry?.b > 0 ? entry.b : null;
-    const brief = (label3, now, side) => `${label3} <b>${now > 0 ? shortCoins(now) : "\u2013"}</b> ${versusText(now, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
+    const brief = (label3, now2, side) => `${label3} <b>${now2 > 0 ? shortCoins(now2) : "\u2013"}</b> ${versusText(now2, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
     const swing = summary2.a.swing ?? summary2.b.swing;
     const line = `<div class="mwia-history-sum">${brief("Ask", askNow, summary2.a)} \xB7 ${brief("Bid", bidNow, summary2.b)}${swing !== null ? ` \xB7 <span title="Half of the week's prices lie within this share of the 7-day median">swings \xB1${Math.round(swing * 100)}%</span>` : ""}</div>`;
     const points = h.open ? await priceSeries(itemHrid, h.range, level) : [];
@@ -7591,7 +7724,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function progressText(summary2) {
     const hoursLeft = Math.max(0, MIN_HOURS - summary2.hours7);
-    const open = piConfig() ? "" : " with the game open";
+    const open2 = piConfig() ? "" : " with the game open";
     const daysLeft = Math.max(0, MIN_DAYS - summary2.spanDays);
     const parts = [
       hoursLeft ? `${summary2.hours7} of ${MIN_HOURS} h` : `${MIN_HOURS} h \u2713`,
@@ -7599,9 +7732,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     ];
     if (daysLeft) {
       const wait = daysLeft * 24;
-      parts.push(`ready in about ${wait < 20 ? Math.max(1, Math.round(wait)) + " h" : Math.round(daysLeft * 10) / 10 + " day" + (daysLeft > 1.05 ? "s" : "")}${hoursLeft ? ` and ${hoursLeft} more h${open}` : ""}`);
+      parts.push(`ready in about ${wait < 20 ? Math.max(1, Math.round(wait)) + " h" : Math.round(daysLeft * 10) / 10 + " day" + (daysLeft > 1.05 ? "s" : "")}${hoursLeft ? ` and ${hoursLeft} more h${open2}` : ""}`);
     } else if (hoursLeft) {
-      parts.push(`${hoursLeft} more h${open}`);
+      parts.push(`${hoursLeft} more h${open2}`);
     }
     return parts.join(" \xB7 ");
   }
@@ -8267,7 +8400,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       return [];
     }
   }
-  function store3(entry) {
+  function store4(entry) {
     const list = [entry, ...stored().filter((e2) => e2.sig !== entry.sig)].slice(0, KEEP);
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(list));
@@ -8382,7 +8515,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }).then((result) => {
       const entry = adviceEntry(result, fight, loadout, settings2);
       entry.sig = sig;
-      store3(entry);
+      store4(entry);
     }).catch((error) => g3.failed.set(sig, error?.message || String(error))).finally(() => {
       g3.running = null;
       scheduleScan7();
@@ -8398,8 +8531,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function part(title, final, start2, label3, extra = () => "") {
     const want = final.filter(Boolean);
-    const now = start2.filter(Boolean);
-    const lines = [...want.map((h2) => itemLine2(now.includes(h2) ? "keep" : "add", esc(label3(h2)), extra(h2))), ...now.filter((h2) => !want.includes(h2)).map((h2) => itemLine2("remove", esc(label3(h2))))];
+    const now2 = start2.filter(Boolean);
+    const lines = [...want.map((h2) => itemLine2(now2.includes(h2) ? "keep" : "add", esc(label3(h2)), extra(h2))), ...now2.filter((h2) => !want.includes(h2)).map((h2) => itemLine2("remove", esc(label3(h2))))];
     return lines.length ? `<div class="mwia-guide-sub">${title}</div><ul class="mwia-guide-list">${lines.join("")}</ul>` : "";
   }
   function gainText(entry) {
@@ -8686,7 +8819,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const coarse = monsters.flatMap((monster) => COARSE_LEVELS.map((level, i) => ({ monster, level, seed: i })));
     const fine = [];
     let before = 0;
-    const run = (points) => pool.runAll(pointsToJobs(fighter, points, rooms), (done2) => onProgress?.(before + done2, coarse.length + fine.length));
+    const run = (points) => runCached(pool, pointsToJobs(fighter, points, rooms), (done2) => onProgress?.(before + done2, coarse.length + fine.length));
     const coarseResults = await run(coarse);
     before = coarse.length;
     const curves = new Map(monsters.map((m2) => [m2, []]));
@@ -8737,8 +8870,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   function improvementCandidates(profile, data, crates) {
     const list = [];
     for (const kind of Object.keys(CRATE_KINDS)) {
-      const now = CRATE_TIERS.indexOf(crates[kind]);
-      for (const tier of CRATE_TIERS.slice(now + 1)) {
+      const now2 = CRATE_TIERS.indexOf(crates[kind]);
+      for (const tier of CRATE_TIERS.slice(now2 + 1)) {
         list.push({ id: `crate:${kind}:${tier}`, kind: "crate", label: `${tier[0].toUpperCase() + tier.slice(1)} ${CRATE_KINDS[kind]}`, crates: { ...crates, [kind]: tier }, profile });
       }
     }
@@ -8790,7 +8923,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         for (const edge of setup.edges) jobs.push({ ...fighter, monsterHrid: edge.hrid, roomLevel: edge.level, attempts: rooms, seed: seedFor2(edge.seed + seedShift + 7919 * k) });
       }
     }
-    const results = await pool.runAll(jobs, onProgress);
+    const results = await runCached(pool, jobs, onProgress);
     let next = 0;
     return setups.map((setup) => {
       const sums = setup.edges.map(() => ({ attempts: 0, wins: 0, deaths: 0, timeouts: 0 }));
@@ -8917,20 +9050,20 @@ i.mwia-history-bid { background: #7ee2b0; }
     const picks = [];
     let left = budget;
     let built = start2;
-    let now = before;
+    let now2 = before;
     let lastRound = [];
     for (let round = 0; round < ROUNDS2; round++) {
-      const open = shortlist2.filter((c2) => !picks.includes(c2) && !slotsOf2(c2).some((x) => taken.has(x)) && c2.cost <= left);
-      if (!open.length) break;
-      const roundEdges = now.map((m2, i) => edgeOf(m2, 3e3 + 10 * round + i));
+      const open2 = shortlist2.filter((c2) => !picks.includes(c2) && !slotsOf2(c2).some((x) => taken.has(x)) && c2.cost <= left);
+      if (!open2.length) break;
+      const roundEdges = now2.map((m2, i) => edgeOf(m2, 3e3 + 10 * round + i));
       const from = part2(8 + round, 1);
-      const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open.map((c2) => ({ profile: applyCandidate(built, c2), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
-      open.forEach((c2, i) => c2.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
-      lastRound = open;
-      const dropOf = (c2) => c2.kind === "ability" && c2.replaces ? open.find((d) => d.kind === "drop" && d.hrid === c2.replaces) : null;
+      const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open2.map((c2) => ({ profile: applyCandidate(built, c2), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
+      open2.forEach((c2, i) => c2.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
+      lastRound = open2;
+      const dropOf = (c2) => c2.kind === "ability" && c2.replaces ? open2.find((d) => d.kind === "drop" && d.hrid === c2.replaces) : null;
       const beatsDrop = (c2) => !dropOf(c2) || c2.roundLevels >= dropOf(c2).roundLevels + MIN_LEVELS;
       const worth = (c2) => c2.roundLevels >= MIN_LEVELS && beatsDrop(c2) && (c2.cost === 0 || c2.roundLevels / (c2.cost / 1e6) >= minPerMillion);
-      const good = open.filter(worth);
+      const good = open2.filter(worth);
       const order = [...good.filter((c2) => c2.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c2) => c2.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
       let pick2 = null;
       for (const [k, c2] of order.slice(0, CONFIRM_TRIES).entries()) {
@@ -8947,9 +9080,9 @@ i.mwia-history-bid { background: #7ee2b0; }
       slotsOf2(pick2).forEach((x) => taken.add(x));
       left -= pick2.cost;
       built = applyCandidate(built, pick2);
-      now = await simulateCurves(pool, roomFighter(built, data, crates), targets, accuracy.rooms, part2(8 + round, 1));
+      now2 = await simulateCurves(pool, roomFighter(built, data, crates), targets, accuracy.rooms, part2(8 + round, 1));
     }
-    const after = now;
+    const after = now2;
     onProgress?.(1e3, 1e3);
     const strip = ({ profile: _p, ...rest }) => rest;
     return {
@@ -9051,7 +9184,7 @@ i.mwia-history-bid { background: #7ee2b0; }
 
   // src/labyrinth-marks.js
   var SCAN_MS8 = 400;
-  var STORE2 = "mwia-laby-check";
+  var STORE = "mwia-laby-check";
   var TABLE = 'table[class*="LabyrinthPanel_automationTable"]';
   var LABEL2 = '[class*="LabyrinthPanel_roomLabel"]';
   var CHOSEN = 'input[class*="MuiSelect-nativeInput"], input[class*="nativeInput"]';
@@ -9070,7 +9203,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     };
     m.stored = kept;
     try {
-      localStorage.setItem(STORE2, JSON.stringify(kept));
+      localStorage.setItem(STORE, JSON.stringify(kept));
     } catch {
     }
     scheduleScan8();
@@ -9078,7 +9211,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function lastCheck() {
     if (m.stored === void 0) {
       try {
-        m.stored = JSON.parse(localStorage.getItem(STORE2) || "null");
+        m.stored = JSON.parse(localStorage.getItem(STORE) || "null");
       } catch {
         m.stored = null;
       }
@@ -9650,7 +9783,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       } catch {
       }
     };
-    const save5 = () => {
+    const save4 = () => {
       const box = button2.getBoundingClientRect();
       try {
         localStorage.setItem(POSITION_KEY, JSON.stringify({ x: box.left / innerWidth, y: box.top / innerHeight }));
@@ -9673,7 +9806,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       place2(start2.left + dx, start2.top + dy);
     });
     const end = () => {
-      if (start2 && moved) save5();
+      if (start2 && moved) save4();
       start2 = null;
     };
     button2.addEventListener("pointerup", end);
@@ -10103,7 +10236,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var n3 = (value) => Math.ceil(value).toLocaleString("en-US");
   var characterId = () => state.character?.character?.id ?? null;
   var storeKey = () => STORE_PREFIX + (characterId() ?? "unknown");
-  function save4() {
+  function save3() {
     try {
       if (t3.train) localStorage.setItem(storeKey(), JSON.stringify(t3.train));
       else localStorage.removeItem(storeKey());
@@ -10154,7 +10287,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       t3.collapsed = isNarrow();
       t3.notice = null;
       rememberQueuedActions();
-      save4();
+      save3();
       render();
       if (train.stops.length) goToCurrent();
     } catch (error) {
@@ -10180,7 +10313,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     clearTimeout(t3.queueClickTimer);
     t3.train.index = Math.max(0, Math.min(t3.train.stops.length, t3.train.index + step));
     t3.notice = null;
-    save4();
+    save3();
     render();
     if (currentStop()) goToCurrent();
   }
@@ -10194,7 +10327,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     t3.train.stops = [...passed, ...all.filter((stop) => !done2.has(stop.actionHrid))];
     t3.train.index = passed.length;
     t3.notice = null;
-    save4();
+    save3();
     render();
   }
   function endTrain() {
@@ -10202,7 +10335,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     document.querySelectorAll(".mwia-train-target").forEach((node) => node.classList.remove("mwia-train-target"));
     t3.train = null;
     t3.notice = null;
-    save4();
+    save3();
     render();
   }
   function fillPanel() {
@@ -10678,11 +10811,11 @@ i.mwia-history-bid { background: #7ee2b0; }
       const advice = hrid ? deps.advice(hrid) : null;
       const bar = document.createElement("div");
       bar.className = "mwia-trig-bar";
-      const now = shownTriggers(box);
+      const now2 = shownTriggers(box);
       let line;
       if (!hrid) line = "\u{1F9ED} Can't tell which ability or food this window is for.";
       else if (!advice) line = `\u{1F9ED} ${esc(deps.name(hrid))}: no trigger change in the last Upgrades analysis.`;
-      else if (sameTriggers(now, advice.triggers)) line = `\u{1F9ED} ${esc(deps.name(hrid))}: already as advised.`;
+      else if (sameTriggers(now2, advice.triggers)) line = `\u{1F9ED} ${esc(deps.name(hrid))}: already as advised.`;
       else line = `\u{1F9ED} Advice for ${esc(deps.name(hrid))}: <b>${esc(deps.describe(advice.triggers))}</b> <button type="button" class="mwia-trig-fill">\u25B6 Fill in</button>`;
       bar.innerHTML = `<div class="mwia-trig-line">${line}</div><div><button type="button" class="mwia-trig-read" title="Read how this window is built, to paste into a chat">\u{1F4CB}</button> <span class="mwia-trig-status"></span></div>`;
       const status = (text) => bar.querySelector(".mwia-trig-status").textContent = text;
@@ -10856,18 +10989,18 @@ ${triggerWindowReport()}`, false);
     const time2 = typeof raw === "number" ? raw < 1e12 ? raw * 1e3 : raw : Date.parse(raw ?? "");
     return Number.isFinite(time2) ? time2 : null;
   }
-  function trackFills(listings, store4 = {}, now = Date.now()) {
+  function trackFills(listings, store5 = {}, now2 = Date.now()) {
     const out = {};
     for (const listing of listings) {
       if (listing.id === void 0 || listing.id === null) continue;
       const filled = Number(listing.filledQuantity) || 0;
-      const before = store4[listing.id];
-      if (!before) out[listing.id] = { filled, at: Math.min(now, placedAt(listing) ?? now) };
-      else out[listing.id] = before.filled === filled ? before : { filled, at: now };
+      const before = store5[listing.id];
+      if (!before) out[listing.id] = { filled, at: Math.min(now2, placedAt(listing) ?? now2) };
+      else out[listing.id] = before.filled === filled ? before : { filled, at: now2 };
     }
     return out;
   }
-  function listingStatus(listing, { entry = null, book = null, own = [], summary: summary2 = null, lastFillAt = null, now = Date.now(), rules = MARKET_RULES } = {}) {
+  function listingStatus(listing, { entry = null, book = null, own = [], summary: summary2 = null, lastFillAt = null, now: now2 = Date.now(), rules = MARKET_RULES } = {}) {
     const sell = !!listing.isSell;
     const side = sell ? "sell" : "buy";
     const price = Number(listing.price) || 0;
@@ -10875,7 +11008,7 @@ ${triggerWindowReport()}`, false);
     const perDay2 = sold?.enough && sold.perDay > 0 ? sold.perDay : null;
     const out = { side, price, left: remaining(listing), kind: "unknown", alert: false, fromBook: false, better: null, total: null, share: null, daysAhead: null, gap: null, best: null, perDay: perDay2 };
     const better2 = (a, b) => sell ? a < b : a > b;
-    if (book && now - book.at <= rules.bookHours * HOUR) {
+    if (book && now2 - book.at <= rules.bookHours * HOUR) {
       const levels = otherLevels(sell ? book.asks : book.bids, own, book.range, side);
       const { better: ahead, same: same2 } = standing(price, levels, side);
       const total = levels.reduce((sum, level) => sum + level.quantity, 0);
@@ -10898,8 +11031,8 @@ ${triggerWindowReport()}`, false);
       }
     }
     out.alert = out.kind === "wall" || out.kind === "cheaper" && out.gap > rules.bigGap;
-    out.stale = lastFillAt !== null && now - lastFillAt > rules.staleHours * HOUR;
-    out.idleHours = lastFillAt !== null ? (now - lastFillAt) / HOUR : null;
+    out.stale = lastFillAt !== null && now2 - lastFillAt > rules.staleHours * HOUR;
+    out.idleHours = lastFillAt !== null ? (now2 - lastFillAt) / HOUR : null;
     const usual = summary2 && summary2.hours7 >= MIN_HOURS ? summary2[sell ? "a" : "b"].med7 : null;
     const vs = versusUsual(price, usual);
     out.usual = usual;
@@ -11024,9 +11157,9 @@ ${triggerWindowReport()}`, false);
     view2.showAll = !view2.showAll;
   }
   var openListings = () => (state.character?.myMarketListings || []).filter((listing) => remaining(listing) > 0);
-  function listingStatuses(now = Date.now()) {
+  function listingStatuses(now2 = Date.now()) {
     const listings = openListings();
-    const fills = trackFills(listings, readJson2(FILLS_KEY, {}), now);
+    const fills = trackFills(listings, readJson2(FILLS_KEY, {}), now2);
     writeJson2(FILLS_KEY, fills);
     return listings.map((listing) => {
       const level = Number(listing.enhancementLevel) || 0;
@@ -11037,7 +11170,7 @@ ${triggerWindowReport()}`, false);
         own,
         summary: priceSummary(listing.itemHrid, level),
         lastFillAt: fills[listing.id]?.at ?? null,
-        now
+        now: now2
       });
       return { listing, level, ...status };
     });
@@ -12001,8 +12134,8 @@ ${triggerWindowReport()}`, false);
     }
     if (fields.includes("style")) {
       const profile = currentProfile();
-      const now = profile && getClientData() ? STYLE_NAMES[weaponStyle(profile, getClientData())] : null;
-      const options = [["current", `Current weapon${now ? ` (${now})` : ""}`], ...Object.entries(STYLE_NAMES)];
+      const now2 = profile && getClientData() ? STYLE_NAMES[weaponStyle(profile, getClientData())] : null;
+      const options = [["current", `Current weapon${now2 ? ` (${now2})` : ""}`], ...Object.entries(STYLE_NAMES)];
       parts.push(`<label title="The style to fight with. Another style than your weapon's starts from the best weapon for it you own, or the cheapest you can wear (it goes on the shopping list); better weapons of that style are then tested as upgrades.">
             Fight as <select data-setting="combatStyle">${options.map(([k, v]) => `<option value="${k}" ${s2.combatStyle === k ? "selected" : ""}>${v}</option>`).join("")}</select></label>`);
     }
@@ -12450,7 +12583,8 @@ ${triggerWindowReport()}`, false);
   function confidenceCell(c2) {
     const value = Math.round(c2.confidence * 100);
     const cls = c2.confidence >= CONFIDENCE_LEVEL ? "mwia-ok" : c2.confidence >= 0.7 ? "mwia-warn" : "mwia-dim";
-    return `<span class="${cls}" title="Chance that this really improves your focus, from ${c2.runs.length} paired simulations">${value}%</span>`;
+    const title = c2.screened ? "Ruled out after one simulation: all but sure to give less than 1%, whatever the focus, so it got no more runs" : `Chance that this really improves your focus, from ${c2.runs.length} simulations`;
+    return `<span class="${cls}" title="${title}">${value}%${c2.screened ? " \u2717" : ""}</span>`;
   }
   var CONF_TITLE = "How sure we are that this is an improvement and not luck (paired t-test over several simulations with different random seeds). Only \u2265 90% goes on the shopping list.";
   var GAIN_TITLE = "Improvement of your focus as a share of what you have now: XP/h and profit/h, weighted by the XP\u2013Gold slider";
@@ -12588,11 +12722,11 @@ ${triggerWindowReport()}`, false);
       return `<p>The script hasn't seen your character yet. It reads it when the game connects, so <b>reload the page (F5)</b> with the script enabled.</p>`;
     }
     if (getClientData() && pricesAge() !== null) return renderSkilling(ui.settings);
-    const load4 = ui.skillingLoad;
-    if (load4?.error) {
-      return `<div class="mwia-error">${esc(load4.error)}</div><button class="mwia-btn" data-action="skilling-load">Try again</button>`;
+    const load3 = ui.skillingLoad;
+    if (load3?.error) {
+      return `<div class="mwia-error">${esc(load3.error)}</div><button class="mwia-btn" data-action="skilling-load">Try again</button>`;
     }
-    if (!load4?.loading) {
+    if (!load3?.loading) {
       ui.skillingLoad = { loading: true };
       Promise.all([loadClientData(ui.win), loadPrices()]).then(() => ui.skillingLoad = null).catch((error) => ui.skillingLoad = { error: error.message || String(error) }).finally(() => ui.tab === "skilling" && render2());
     }
@@ -12604,8 +12738,8 @@ ${triggerWindowReport()}`, false);
     let seen = false;
     ui.marketWatch = setInterval(() => {
       if (!ui.root.classList.contains("mwia-hidden")) return clearInterval(ui.marketWatch);
-      const open = [...document.querySelectorAll(MARKET_PANEL)].some(visible);
-      if (open) seen = true;
+      const open2 = [...document.querySelectorAll(MARKET_PANEL)].some(visible);
+      if (open2) seen = true;
       else if (seen) {
         clearInterval(ui.marketWatch);
         showPanel();
@@ -12663,7 +12797,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.69.1" : "dev";
+  var VERSION3 = true ? "0.70.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -12754,10 +12888,10 @@ ${triggerWindowReport()}`, false);
         break;
       case "trigger-window": {
         const diag = triggerWindowReport();
-        const open = !diag.includes("trigger window: not open");
+        const open2 = !diag.includes("trigger window: not open");
         ui.notice = {
-          level: open ? "info" : "warn",
-          text: open ? "The game's trigger window, read (nothing changed). Copy it and paste it into the chat." : "No Combat Triggers window is open. In the game: Loadouts \u2192 your combat loadout \u2192 \u2699 under an ability, then tap this again.",
+          level: open2 ? "info" : "warn",
+          text: open2 ? "The game's trigger window, read (nothing changed). Copy it and paste it into the chat." : "No Combat Triggers window is open. In the game: Loadouts \u2192 your combat loadout \u2192 \u2699 under an ability, then tap this again.",
           diag
         };
         render2();
@@ -12960,8 +13094,8 @@ ${triggerWindowReport()}`, false);
       if (label3) label3.textContent = focusText(Number(event.target.value));
     });
     button2.addEventListener("click", async () => {
-      const opening = root.classList.contains("mwia-hidden");
-      if (!opening) {
+      const opening2 = root.classList.contains("mwia-hidden");
+      if (!opening2) {
         root.classList.add("mwia-hidden");
         return;
       }
@@ -13162,8 +13296,8 @@ ${triggerWindowReport()}`, false);
     const margin = `${Math.round(t4.margin * 100)}%`;
     if (t4.price === null) return `${t4.job} needs ${itemName(c2.hrid)} at ${num(t4.exact)} or less to keep a ${margin} margin \u2013 under the tradable range (from ${num(c2.range.min)}). Nothing can be bought at a profit now.`;
     const cap3 = t4.capped ? ` The tradable range stops at ${num(t4.price)}, under the ${num(t4.exact)} the margin allows.` : "";
-    const now = t4.listed === null ? `Open ${itemName(c2.hrid)} on the market to see how many are listed under it.` : t4.listed > 0 ? `${num(t4.listed)} listed at or under it now are bought at once, the cheapest first; the rest waits as a buy order at this price.` : `Nobody lists it that cheap now: the order waits for sellers.`;
-    return `The most ${itemName(c2.hrid)} may cost with the last action of ${t4.job} still making ${margin} (the other materials at their lowest ask).${cap3} ${now} Worked out with the Skilling tab's prices ${Math.max(0, Math.round((Date.now() - t4.at) / 6e4))} min ago.`;
+    const now2 = t4.listed === null ? `Open ${itemName(c2.hrid)} on the market to see how many are listed under it.` : t4.listed > 0 ? `${num(t4.listed)} listed at or under it now are bought at once, the cheapest first; the rest waits as a buy order at this price.` : `Nobody lists it that cheap now: the order waits for sellers.`;
+    return `The most ${itemName(c2.hrid)} may cost with the last action of ${t4.job} still making ${margin} (the other materials at their lowest ask).${cap3} ${now2} Worked out with the Skilling tab's prices ${Math.max(0, Math.round((Date.now() - t4.at) / 6e4))} min ago.`;
   }
   function titleFor(s2, c2) {
     const sell = c2.side === "sell";
@@ -13236,8 +13370,8 @@ ${triggerWindowReport()}`, false);
     button2.click();
     for (let i = 0; i < 10; i++) {
       await tick();
-      const now = priceIn(c2);
-      if (now !== before) return now;
+      const now2 = priceIn(c2);
+      if (now2 !== before) return now2;
     }
     return null;
   }
