@@ -640,9 +640,14 @@ const TUNED_ABILITIES = 3; // new abilities that get a round with their own trig
 
 // settings.scope "abilities": only abilities, their levels, order and triggers (and food
 // triggers) – no gear, house rooms, skill levels, drinks or food to buy.
+// "loadout": only what a loadout's slots take from what you have – abilities you know, their
+// order, drinks and food – with no books to buy and no triggers (quick enough to run by itself).
 export async function analyzeUpgrades(pool, profile, zone, settings, onProgress, onRefineProgress) {
-    const budget = settings.budget;
-    const all = settings.scope !== "abilities";
+    const scope = settings.scope === "abilities" || settings.scope === "loadout" ? settings.scope : "all";
+    const all = scope === "all";
+    const consumablesToo = scope !== "abilities";
+    const triggersToo = scope !== "loadout";
+    const budget = scope === "loadout" ? 0 : settings.budget;
     const seeds = (n) => Array.from({ length: n }, (_, i) => i);
     const candidates = [
         ...(all ? gearCandidates(profile, settings) : []),
@@ -650,20 +655,20 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
         ...abilityOrderCandidates(profile),
         ...(all ? houseCandidates(profile, budget) : []),
         ...(all ? skillLevelCandidates(profile) : []),
-        ...(all ? consumableCandidates(profile, "drinks") : []),
-        ...(all ? consumableCandidates(profile, "food") : []),
+        ...(consumablesToo ? consumableCandidates(profile, "drinks") : []),
+        ...(consumablesToo ? consumableCandidates(profile, "food") : []),
     ];
     // The setup as it is, measured: what its triggers get wrong decides which trigger changes to try.
-    const baseItem = { profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR), telemetry: true };
+    const baseItem = { profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR), telemetry: triggersToo };
     const planned = baseItem.seeds.length + candidates.length * settings.seeds;
     const [baseRuns] = await simulateRuns(pool, [baseItem], zone, settings.hours, (done) => onProgress?.(done, planned));
-    const telemetry = mergeTelemetry(baseItem.telemetryOut);
-    for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) {
-        candidates.push(triggerCandidate(change, variant));
+    const telemetry = triggersToo ? mergeTelemetry(baseItem.telemetryOut) : null;
+    if (triggersToo) {
+        for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) candidates.push(triggerCandidate(change, variant));
     }
     candidates.forEach((c, id) => (c.id = id));
     // New abilities are measured too, to give the most promising ones their own triggers.
-    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds), telemetry: c.kind === "ability", cache: c.kind === "trigger" }));
+    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds), telemetry: triggersToo && c.kind === "ability", cache: c.kind === "trigger" }));
     const done0 = baseItem.seeds.length;
     const total = done0 + items.reduce((sum, item) => sum + item.seeds.length, 0);
     const runs = await simulateRuns(pool, items, zone, settings.hours, (done) => onProgress?.(done0 + done, total));
@@ -675,16 +680,16 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
         zone,
         hours: settings.hours,
         seedsPerRound: settings.seeds,
-        scope: all ? "all" : "abilities",
+        scope,
         emptyAbilitySlots,
         starter: settings.starter || null,
         baseProfile: profile,
         base: summarize(baseRuns, zone.tier, profile),
         baseRuns,
-        telemetry: summaryOfTelemetry(telemetry),
+        telemetry: telemetry ? summaryOfTelemetry(telemetry) : null,
         candidates: simulated,
     };
-    await tuneNewAbilities(pool, raw, settings, onRefineProgress);
+    if (triggersToo) await tuneNewAbilities(pool, raw, settings, onRefineProgress);
     for (const c of raw.candidates) delete c.telemetry;
     // Two automatic rounds of extra runs for promising but uncertain suggestions.
     for (let round = 0; round < 2; round++) {
@@ -1017,4 +1022,35 @@ export async function verifyPlan(pool, profile, plan, zone, settings, onProgress
     const variants = [{ kind: "base", profile }, { kind: "plan", profile: applyPlan(profile, plan) }];
     const [base, planned] = await simulateVariants(pool, variants, zone, settings, onProgress);
     return { base: base.result, planned: planned.result };
+}
+
+// ---------- a loadout's slots for the next fight ----------
+// Rounds of the "loadout" analysis: the best sure change to the abilities you know, their
+// order, the drinks and the food is put in, and the next round starts from there, until
+// nothing more is sure to help (at most LOADOUT_ROUNDS). settings: the advisor's settings
+// with the accuracy's hours and seeds. onProgress(done, total, round).
+// Returns { zone, start, final, rounds, before, after } – before/after: the setup as it is
+// and as advised (after.consumables: how many of each drink and food an hour).
+export const LOADOUT_ROUNDS = 3;
+
+export async function analyzeLoadout(pool, profile, zone, settings, onProgress) {
+    const run = { ...settings, budget: 0, scope: "loadout" };
+    let current = profile;
+    let before = null;
+    let last = null;
+    let rounds = 0;
+    for (let round = 1; round <= LOADOUT_ROUNDS; round++) {
+        const report = (done, total) => onProgress?.(done, total, round);
+        const raw = await analyzeUpgrades(pool, current, zone, run, report, report);
+        before ||= raw.base;
+        last = raw.base;
+        const plan = buildPlan(rateUpgrades(raw, run), 0, run.spending);
+        if (!plan.picks.length && !plan.order && !plan.drink && !plan.food) break;
+        current = applyPlan(current, { picks: plan.picks, order: plan.order, drink: plan.drink, food: plan.food });
+        last = null;
+        rounds = round;
+    }
+    // The advised setup measured on its own, for its gain and how fast it uses drinks and food.
+    if (!last) [{ result: last }] = await simulateVariants(pool, [{ profile: current }], zone, run, (done, total) => onProgress?.(done, total, rounds + 1));
+    return { zone, start: profile, final: current, rounds, before, after: last };
 }

@@ -6,6 +6,7 @@ import {
     ACCURACY,
     SPENDING,
     CONFIDENCE_LEVEL,
+    analyzeLoadout,
     analyzeUpgrades,
     deathLimit,
     refineUncertain,
@@ -50,6 +51,7 @@ import { onHistoryChange } from "./price-history-ui.js";
 import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js";
 import { startToolNotice } from "./tool-notice.js";
 import { startTeaSlots } from "./tea-slots.js";
+import { startLoadoutAdvice } from "./loadout-advice.js";
 import { rememberLabyrinth, roomPrediction, scheduleScan as refreshLabyrinthMarks, startLabyrinthMarks } from "./labyrinth-marks.js";
 import { attemptSummary, labyrinthAttempts, labyrinthCheckChanged, onAttemptsChanged, startLabyrinthLog } from "./labyrinth-log.js";
 import { startEnhancePlan } from "./enhance-plan-ui.js";
@@ -265,6 +267,30 @@ function chosenZone(profile) {
     const best = pickBestZone(ui.zoneResults, ui.settings);
     if (best) return best.zone;
     return profile.currentZone || null;
+}
+
+// The game's Loadouts panel: the abilities, drinks and food for the next fight's loadout,
+// simulated with the advisor's settings (as a task of its own: the panel shows its progress).
+function loadoutProfile(loadout) {
+    const data = getClientData();
+    if (!state.character || !data) return null;
+    return applyLoadout(buildProfile(state.character, state.items, data), loadout, state.items, data);
+}
+
+async function adviseLoadout(loadout, zone, onProgress) {
+    if (ui.busy) throw new Error("The advisor is busy with another analysis.");
+    let result = null;
+    await runTask(async () => {
+        const profile = loadoutProfile(loadout);
+        if (!profile) throw new Error("No character data yet.");
+        const label = (round) => `Loadout ${loadout.name || ""} for ${actionName(zone.zoneHrid) || zone.zoneHrid}, round ${round}`;
+        result = await analyzeLoadout(ui.pool, profile, zone, { ...ui.settings, ...runSettings() }, (done, total, round) => {
+            progress(label(round))(done, total);
+            onProgress(done, total, round);
+        });
+    });
+    if (!result) throw new Error(ui.error || "Cancelled");
+    return result;
 }
 
 // The setups the Labyrinth tab compares: every saved combat (and Labyrinth) loadout, and
@@ -1614,6 +1640,7 @@ export function mountUI(win, workerSource) {
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
+    startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart });
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
     startLabyrinthLog({ predict: roomPrediction });
     startEnhancePlan(gameDeps);

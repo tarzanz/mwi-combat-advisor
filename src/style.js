@@ -238,6 +238,8 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-tool-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid #2a3150; }
 .mwia-tool-list li .mwia-guide-cart { margin-top: 0; flex: 0 0 auto; }
 [data-mwia-tea="wrong"] { outline: 3px solid #ff4d4d !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-wrong 1.2s ease-in-out infinite; }
+[data-mwia-slot="wrong"] { outline: 3px solid #ff4d4d !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-wrong 1.2s ease-in-out infinite; }
+.mwia-loadout-box .mwia-guide-cart[disabled] { opacity: 0.6; cursor: default; }
 [data-mwia-tea="right"] { outline: 3px solid #3ddc84 !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-right 1.2s ease-in-out infinite; }
 @keyframes mwia-tea-wrong { 0%, 100% { box-shadow: 0 0 4px 1px rgba(255, 77, 77, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(255, 77, 77, 0.95); } }
 @keyframes mwia-tea-right { 0%, 100% { box-shadow: 0 0 4px 1px rgba(61, 220, 132, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(61, 220, 132, 0.95); } }

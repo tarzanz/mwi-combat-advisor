@@ -272,6 +272,18 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   upgrades* picked for the zone you fight in (or the zone you analysed last). A slot with food or a drink it doesn't
   use, or an empty one while something is missing, glows red; in the game's picker the right ones glow green, and
   those you don't have are named with a 🛒 button for 8 hours of them at the pace of the analysis.
+- **Loadout for your next fight (the game's Loadouts panel)** – when a fight is in your action queue (running or
+  waiting behind other jobs), the Loadouts panel gets a box for the loadout that fight uses: the one the queued
+  fight names, else your default combat loadout. With another loadout open the box says which one to open. With
+  that loadout open it simulates it in the queued zone and tier by itself – abilities you know (no books to buy),
+  their order, drinks and food, a round at a time: each round puts in what is sure to help and the next starts from
+  there, at most 3 rounds, with the Upgrades tab's focus, *Accept rare deaths* and accuracy. It lists what to keep
+  (✓), put in (➕) and take out (➖), the casting order when it changes, and the gain in XP/h and profit over the
+  loadout as it is; slots in the panel the advice takes out glow red. **🛒 8 h** and **🛒 24 h** top every advised
+  drink and food up to that many hours in the MWITools cart, at the pace the simulation used them, less what you
+  have. The advice is kept in the browser until the loadout's gear, abilities, drinks or food, the zone or the
+  focus change (once you've saved the advised loadout it says ✓ without simulating again); *↻ Simulate again*
+  works it out anew. Nothing is changed in the game: you set the slots and save the loadout.
 - **Market** – your own orders and what to sell.
   - *Your orders*: every open sell and buy order with its standing. ✅ first in line (or sharing the price); a few
     better offers first; ⛔ behind a wall – more than a day of sales comes before yours (from the sales the price
@@ -545,6 +557,7 @@ node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to 
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
 node test/export-browser-test.mjs /tmp                    # Export for chat: under the inventory, share sheet or download
 node test/labyrinth-browser-test.mjs /tmp                 # Labyrinth tab: loadouts per room type, floors, improvements, builder
+node test/loadout-advice-browser-test.mjs /tmp            # Loadouts panel: the next fight's loadout simulated, marks, 🛒 8 h / 24 h
 node test/labyrinth-skilling-test.mjs                      # Labyrinth skilling rooms: exact clear chance against a simulation
 node test/labyrinth-log-test.mjs                           # Labyrinth attempt log: won, lost, shrouded, the loadout chosen, the summary
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen

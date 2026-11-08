@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.68.0
+// @version      0.69.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -822,7 +822,7 @@
     return { attempts, xp, reach };
   }
   var SOLVE = { a: new Float64Array(3 * (MAX_TARGET + 2)), b: new Float64Array(MAX_TARGET + 2), d: new Float64Array(MAX_TARGET + 2) };
-  function protectedCycle(p2, blessed, target, from, xpPer, start = 0) {
+  function protectedCycle(p2, blessed, target, from, xpPer, start2 = 0) {
     const { a, b, d } = SOLVE;
     a.fill(0, 3 * target, 3 * (target + 2));
     b[target] = b[target + 1] = d[target] = d[target + 1] = 0;
@@ -847,7 +847,7 @@
     if (rest <= 1e-15) return null;
     const e0 = [a[0] / rest, a[1] / rest, a[2] / rest];
     let e2 = e0;
-    for (let L = 1; L <= start && L < target; L++) e2 = e2.map((prev, i) => a[3 * L + i] + b[L] * prev + d[L] * e0[i]);
+    for (let L = 1; L <= start2 && L < target; L++) e2 = e2.map((prev, i) => a[3 * L + i] + b[L] * prev + d[L] * e0[i]);
     return { attempts: e2[0], xp: e2[1], protections: e2[2] };
   }
   function protectedCycles(p2, blessed, target, from) {
@@ -915,8 +915,8 @@
     return bonus;
   }
   function baseItem(action, market, owned) {
-    const have5 = owned(action.itemHrid) > 0;
-    if (have5) {
+    const have6 = owned(action.itemHrid) > 0;
+    if (have6) {
       const bid = market.sell(action.itemHrid).bid;
       return { price: bid ? bid * (1 - MARKET_TAX) : 0, owned: true };
     }
@@ -1088,13 +1088,13 @@
           const cycles = protectedCycles(rates, blessed, target, from);
           if (!cycles) continue;
           const guarded = from < target;
-          for (const start of firsts) {
-            if (start >= target) continue;
-            const attempts = cycles.attempts[start];
+          for (const start2 of firsts) {
+            if (start2 >= target) continue;
+            const attempts = cycles.attempts[start2];
             if (!Number.isFinite(attempts)) continue;
-            const protections = guarded ? cycles.protections[start] : 0;
+            const protections = guarded ? cycles.protections[start2] : 0;
             const cost = attempts * perAttempt + (guarded ? protections * guard.price : 0);
-            const key2 = start * 100 + target;
+            const key2 = start2 * 100 + target;
             const known = best.get(key2);
             if (known && known.cost <= cost) continue;
             const hours = attempts * cycleSeconds / 3600;
@@ -1103,7 +1103,7 @@
         }
       }
     }
-    return (start, target) => best.get(start * 100 + target) || null;
+    return (start2, target) => best.get(start2 * 100 + target) || null;
   }
   var COST_BUFFS = /* @__PURE__ */ new Set([SUCCESS, "/buff_types/blessed", "/buff_types/enhancing_level", "/buff_types/action_speed"]);
   function costTeaSetups(who, data, market) {
@@ -1207,11 +1207,11 @@
       for (const h2 of items) {
         const step = choice.get(h2);
         if (!step) continue;
-        const g3 = (step.outputs.reduce((sum, o2) => sum + o2.count * val(gold, o2.itemHrid, sell), 0) - step.paid) / step.net;
+        const g4 = (step.outputs.reduce((sum, o2) => sum + o2.count * val(gold, o2.itemHrid, sell), 0) - step.paid) / step.net;
         const t4 = (step.hours + step.outputs.reduce((sum, o2) => sum + o2.count * val(hours, o2.itemHrid, none), 0)) / step.net;
         const x = (step.xp + step.outputs.reduce((sum, o2) => sum + o2.count * val(xp, o2.itemHrid, none), 0)) / step.net;
-        moved = Math.max(moved, Math.abs(g3 - gold.get(h2)) / Math.max(1, Math.abs(g3)), Math.abs(t4 - hours.get(h2)) / Math.max(1e-9, t4));
-        gold.set(h2, g3);
+        moved = Math.max(moved, Math.abs(g4 - gold.get(h2)) / Math.max(1, Math.abs(g4)), Math.abs(t4 - hours.get(h2)) / Math.max(1e-9, t4));
+        gold.set(h2, g4);
         hours.set(h2, t4);
         xp.set(h2, x);
       }
@@ -1227,16 +1227,16 @@
     for (let sweep = 0; sweep < SWEEPS * 4; sweep++) {
       let pushed = false;
       for (const h2 of [...amount2.keys()]) {
-        const n3 = amount2.get(h2);
-        if (n3 < 1e-12) continue;
+        const n4 = amount2.get(h2);
+        if (n4 < 1e-12) continue;
         amount2.set(h2, 0);
         const step = choice.get(h2);
         if (!step) {
-          sold.set(h2, (sold.get(h2) || 0) + n3);
+          sold.set(h2, (sold.get(h2) || 0) + n4);
           continue;
         }
         pushed = true;
-        const times = n3 / step.net;
+        const times = n4 / step.net;
         actions.set(h2, { step, count: (actions.get(h2)?.count || 0) + times });
         for (const o2 of step.outputs) if (o2.itemHrid !== COIN2) amount2.set(o2.itemHrid, (amount2.get(o2.itemHrid) || 0) + o2.count * times);
       }
@@ -1578,9 +1578,9 @@
   function teaSetups(data, type, slots, candidates) {
     const unique = (hrid) => data.itemDetailMap[hrid]?.consumableDetail?.buffs?.[0]?.uniqueHrid || hrid;
     const setups = [[]];
-    const grow = (start, chosen) => {
+    const grow = (start2, chosen) => {
       if (chosen.length >= slots) return;
-      for (let i = start; i < candidates.length; i++) {
+      for (let i = start2; i < candidates.length; i++) {
         if (chosen.some((hrid) => unique(hrid) === unique(candidates[i]))) continue;
         const next = [...chosen, candidates[i]];
         setups.push(next);
@@ -1626,11 +1626,11 @@
       return xp > 0 && r.valid !== false ? -(goldWeight * -r.goldPerDay / xp / costScale + (1 - goldWeight) * refs.xp / xp) : -Infinity;
     };
   }
-  function teaPurchase(entry, { hours, have: have5 = () => 0 }) {
+  function teaPurchase(entry, { hours, have: have6 = () => 0 }) {
     const teas = entry.best.result.teas;
     if (!teas.length || !(hours > 0)) return null;
     const perTea = Math.ceil(hours * entry.best.result.drinksPerHour);
-    const items = teas.map((hrid) => ({ hrid, quantity: perTea - have5(hrid), have: have5(hrid) })).filter((item) => item.quantity > 0);
+    const items = teas.map((hrid) => ({ hrid, quantity: perTea - have6(hrid), have: have6(hrid) })).filter((item) => item.quantity > 0);
     return { hours, perTea, items };
   }
   function heldStock(character, items, itemHrid) {
@@ -1670,9 +1670,9 @@
   var LIQUIDITY_HOURS = 12;
   var RATING_ORDER = { thin: 0, ok: 1, stable: 2 };
   var INPUT_BOOK_HOURS = 12;
-  function liquidityRating(summary) {
-    const l2 = summary?.liquidity;
-    const swing = summary?.a?.swing;
+  function liquidityRating(summary2) {
+    const l2 = summary2?.liquidity;
+    const swing = summary2?.a?.swing;
     if (!l2 || l2.hours < LIQUIDITY_HOURS || l2.spread === null || swing === null) return { rating: "thin", known: false, ...l2, swing: swing ?? null };
     const sales = l2.sold?.enough ? l2.sold.selling : null;
     const meets = (t4) => l2.both >= t4.both && l2.spread <= t4.spread && swing <= t4.swing && (sales !== null ? sales >= t4.selling : l2.activity >= t4.activity);
@@ -1704,7 +1704,7 @@
     const low = price.diff !== null && price.diff < -PRICE_BAND;
     return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
   }
-  function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins9 = Infinity, have: have5 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now = Date.now() }) {
+  function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins9 = Infinity, have: have6 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now = Date.now() }) {
     if (entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o2) => o2.price >= breakEven).reduce((sum, o2) => sum + o2.quantity, 0) : null;
@@ -1722,8 +1722,8 @@
       count3 = Math.ceil(count3 * swing.share);
       if (count3 < before) short3 = "swing";
     }
-    const haveOf = (input) => have5(input.itemHrid, input.enhancementLevel || 0);
-    const toBuy2 = (input, n3) => input.itemHrid === COIN3 ? input.count * n3 : Math.max(0, input.count * n3 - haveOf(input));
+    const haveOf = (input) => have6(input.itemHrid, input.enhancementLevel || 0);
+    const toBuy2 = (input, n4) => input.itemHrid === COIN3 ? input.count * n4 : Math.max(0, input.count * n4 - haveOf(input));
     const minMargin = hideThinMargins ? Math.max(RISKY_MARGIN, price?.swing > CALM_SWING ? price.swing : 0) : 0;
     const limitMargin = Math.max(RISKY_MARGIN, minMargin);
     for (const input of entry.inputs) {
@@ -1784,7 +1784,7 @@
       }
       return sum + Math.max(0, left) * asks2[asks2.length - 1].price;
     };
-    const spend = (n3) => entry.inputs.reduce((sum, input) => sum + (input.forSale === false ? 0 : cost(input, toBuy2(input, n3))), 0);
+    const spend = (n4) => entry.inputs.reduce((sum, input) => sum + (input.forSale === false ? 0 : cost(input, toBuy2(input, n4))), 0);
     let limitedByBook = null;
     for (const input of inputs) {
       if (input.maxCount < count3) {
@@ -1818,7 +1818,7 @@
     }
     const jobHours = count3 / entry.actionsPerHour;
     const aboveAsk = spend(count3) - entry.inputs.reduce((sum, input) => sum + (input.forSale === false ? 0 : toBuy2(input, count3) * (input.price || 0)), 0);
-    const fromStock = heldUse(entry, count3, have5, heldPrice);
+    const fromStock = heldUse(entry, count3, have6, heldPrice);
     const batch = {
       materials: count3 * entry.costPerAction + aboveAsk - fromStock.saving,
       aboveAsk,
@@ -1847,7 +1847,7 @@
       productLiquidity: product,
       ratedBy,
       inputs: inputs.map(({ asks: asks2, ...input }) => {
-        const units2 = Math.max(0, Math.ceil(input.perAction * count3 - have5(input.itemHrid, input.enhancementLevel) - 1e-9));
+        const units2 = Math.max(0, Math.ceil(input.perAction * count3 - have6(input.itemHrid, input.enhancementLevel) - 1e-9));
         return { ...input, toBuy: units2, averagePrice: units2 > 0 ? cost(input, units2) / units2 : null };
       }),
       minMargin,
@@ -1871,14 +1871,14 @@
     const ask = market.buy(hrid);
     return ask === null ? value : Math.min(ask, value);
   }
-  function heldUse(entry, n3, have5, heldPrice) {
+  function heldUse(entry, n4, have6, heldPrice) {
     let value = 0;
     let saving = 0;
     if (!heldPrice) return { value, saving };
     for (const input of entry.inputs) {
       if (input.itemHrid === COIN3 || !(input.count > 0)) continue;
       const level = input.enhancementLevel || 0;
-      const used = Math.min(have5(input.itemHrid, level), input.count * n3);
+      const used = Math.min(have6(input.itemHrid, level), input.count * n4);
       if (!(used > 0)) continue;
       const worth = heldPrice(input.itemHrid, level);
       value += used * worth;
@@ -2048,16 +2048,16 @@
     const reused = [];
     const sold = [];
     for (const o2 of r.outputs) {
-      let n3 = o2.count * per;
+      let n4 = o2.count * per;
       const input = inputs.find((i) => i.itemHrid === o2.itemHrid && i.count > 0);
       if (input) {
-        const take = Math.min(n3, input.count);
+        const take = Math.min(n4, input.count);
         input.count -= take;
         input.value = input.count * (input.price || 0);
         reused.push({ itemHrid: o2.itemHrid, count: take, price: input.price || 0 });
-        n3 -= take;
+        n4 -= take;
       }
-      if (n3 > 1e-12) sold.push({ ...o2, count: n3, value: n3 * o2.price, kind: o2.kind === "product" ? "recovered" : o2.kind });
+      if (n4 > 1e-12) sold.push({ ...o2, count: n4, value: n4 * o2.price, kind: o2.kind === "product" ? "recovered" : o2.kind });
     }
     const coins9 = r.coinCost * per;
     const catalyst = r.inputs.find((i) => i.catalyst);
@@ -2221,8 +2221,8 @@
       const required = action.levelRequirement.level;
       const evaluate = evaluator(action, required);
       const atUnlock = teaMode === "best" ? bestTeas(action, who, data, market, evaluate).result : evaluate(who.drinks[action.type] || []);
-      const have5 = who.experience[skillHrid];
-      const needXp = Array.isArray(table) && have5 !== null && table[required] !== void 0 ? Math.max(0, table[required] - have5) : null;
+      const have6 = who.experience[skillHrid];
+      const needXp = Array.isArray(table) && have6 !== null && table[required] !== void 0 ? Math.max(0, table[required] - have6) : null;
       const hours = needXp !== null && fastestXp[skillHrid] > 0 ? needXp / fastestXp[skillHrid] : null;
       return { ...atUnlock, needLevels: required - (who.levels[skillHrid] ?? 1), needXp, hoursToUnlock: hours };
     });
@@ -2240,19 +2240,19 @@
     const factor = { "": 1, k: 1e3, m: 1e6, b: 1e9 }[suffix];
     return Number.isFinite(value) ? Math.round(value * factor) : null;
   }
-  function coinsInput(n3) {
-    if (n3 >= 1e9 && n3 % 1e7 === 0) return n3 / 1e9 + "B";
-    if (n3 >= 1e6 && n3 % 1e4 === 0) return n3 / 1e6 + "M";
-    if (n3 >= 1e3 && n3 % 10 === 0) return n3 / 1e3 + "k";
-    return String(n3);
+  function coinsInput(n4) {
+    if (n4 >= 1e9 && n4 % 1e7 === 0) return n4 / 1e9 + "B";
+    if (n4 >= 1e6 && n4 % 1e4 === 0) return n4 / 1e6 + "M";
+    if (n4 >= 1e3 && n4 % 10 === 0) return n4 / 1e3 + "k";
+    return String(n4);
   }
-  function shortCoins(n3) {
-    const abs = Math.abs(n3);
+  function shortCoins(n4) {
+    const abs = Math.abs(n4);
     const fixed = (value, digits) => value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-    if (abs >= 1e9) return fixed(n3 / 1e9, 2) + "B";
-    if (abs >= 1e6) return fixed(n3 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
-    if (abs >= 1e4) return fixed(n3 / 1e3, abs >= 1e5 ? 0 : 1) + "k";
-    return Math.round(n3).toLocaleString("en-US");
+    if (abs >= 1e9) return fixed(n4 / 1e9, 2) + "B";
+    if (abs >= 1e6) return fixed(n4 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
+    if (abs >= 1e4) return fixed(n4 / 1e3, abs >= 1e5 ? 0 : 1) + "k";
+    return Math.round(n4).toLocaleString("en-US");
   }
   var esc = (s2) => String(s2 ?? "").replace(/[&<>"']/g, (c2) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c2]);
 
@@ -2515,10 +2515,10 @@
     }
     return out;
   }
-  function decodeRecords(stored, fields) {
+  function decodeRecords(stored2, fields) {
     const out = [];
     let previous = null;
-    for (const s2 of stored) {
+    for (const s2 of stored2) {
       if (!s2.idx) {
         out.push(s2);
         previous = s2;
@@ -2966,10 +2966,10 @@
   var SHORT_LIST = 25;
   var RATING = { stable: "\u{1F7E2} stable market", ok: "\u{1F7E1} ok market", thin: "\u{1F534} thin market" };
   var view = { upgradesKey: "", upgrades: null, showAll: false, open: /* @__PURE__ */ new Set() };
-  var dec = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  var dec = (n4, d = 1) => n4.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
-  var count = (n3) => n3 >= 100 ? dec(n3, 0) : n3 >= 1 ? dec(n3, 2) : n3.toPrecision(2);
-  var coins = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
+  var count = (n4) => n4 >= 100 ? dec(n4, 0) : n4 >= 1 ? dec(n4, 2) : n4.toPrecision(2);
+  var coins = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
   var skillLabel = (skill) => skill.charAt(0).toUpperCase() + skill.slice(1);
   var skillOf = (entry) => entry.skill.split("/").pop();
   var names = (teas) => teas.map(itemName).join(", ");
@@ -3055,8 +3055,8 @@
   });
   function skillingMarket(sellAt) {
     const usualAsk = (hrid) => {
-      const summary = priceSummary(hrid);
-      return summary && summary.hours7 >= MIN_HOURS ? summary.a.med7 : null;
+      const summary2 = priceSummary(hrid);
+      return summary2 && summary2.hours7 >= MIN_HOURS ? summary2.a.med7 : null;
     };
     const soldOf = (hrid) => {
       const sold = priceSummary(hrid)?.liquidity?.sold;
@@ -3070,13 +3070,13 @@
   var isAlchemy = (entry) => entry.action.function === ALCHEMY_FUNCTION;
   function plusResale(itemHrid, level, sellAt, data) {
     const entry = marketEntry(itemHrid, level);
-    const summary = priceSummary(itemHrid, level);
-    const usual = summary?.hours7 >= MIN_HOURS ? summary : null;
+    const summary2 = priceSummary(itemHrid, level);
+    const usual = summary2?.hours7 >= MIN_HOURS ? summary2 : null;
     const ask = entry?.a > 0 ? entry.a : null;
     const bid = entry?.b > 0 ? entry.b : null;
     const usualAsk = usual?.a.med7 > 0 ? usual.a.med7 : null;
     const usualBid = usual?.b.med7 > 0 ? usual.b.med7 : null;
-    const soldNow = summary?.liquidity?.sold;
+    const soldNow = summary2?.liquidity?.sold;
     const sold = soldNow?.enough ? soldNow.perDay : null;
     const lower = marketBids(itemHrid).filter((b) => b.enhancementLevel < level).sort((a, b) => b.enhancementLevel - a.enhancementLevel)[0];
     const vendor = data.itemDetailMap[itemHrid]?.sellPrice || 0;
@@ -3097,10 +3097,10 @@
   function rollWarnings(entry) {
     const plus = isAlchemy(entry) ? entry.action.enhancementLevel || 0 : isEnhance(entry) && entry.finish ? entry.target : 0;
     if (!plus) return [];
-    const n3 = isAlchemy(entry) ? entry.suggestion?.count ?? have(entry.action.itemHrid, plus) : Math.round(entry.itemsPerHour * (entry.budget?.hours ?? PLAN_MODES.away.hours));
-    if (n3 >= FEW_ROLLS) return [];
+    const n4 = isAlchemy(entry) ? entry.suggestion?.count ?? have(entry.action.itemHrid, plus) : Math.round(entry.itemsPerHour * (entry.budget?.hours ?? PLAN_MODES.away.hours));
+    if (n4 >= FEW_ROLLS) return [];
     const successRate = isAlchemy(entry) ? entry.successRate : entry.finish.entry.successRate;
-    return [{ kind: "oneroll", itemHrid: entry.action.itemHrid, level: plus, successRate, count: n3 }];
+    return [{ kind: "oneroll", itemHrid: entry.action.itemHrid, level: plus, successRate, count: n4 }];
   }
   function enhanceWarnings(entry) {
     const sell = entry.outputs[0]?.sell;
@@ -3110,28 +3110,28 @@
     return [];
   }
   function priceNow(itemHrid, sellAt) {
-    const summary = itemHrid ? priceSummary(itemHrid) : null;
-    if (!summary?.enough) return null;
+    const summary2 = itemHrid ? priceSummary(itemHrid) : null;
+    if (!summary2?.enough) return null;
     const side = sellAt === "bid" ? "b" : "a";
     const now = marketEntry(itemHrid)?.[side];
-    const usual = summary[side].med7;
-    return { swing: summary[side].swing, diff: now > 0 && usual > 0 ? now / usual - 1 : null };
+    const usual = summary2[side].med7;
+    return { swing: summary2[side].swing, diff: now > 0 && usual > 0 ? now / usual - 1 : null };
   }
   function priceWarnings(entry) {
     const warnings = [];
     const main = entry.outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0];
     if (main && (main.sell.source === "ask" || main.sell.source === "bid")) {
-      const summary = priceSummary(main.itemHrid);
+      const summary2 = priceSummary(main.itemHrid);
       const side = main.sell.source === "ask" ? "a" : "b";
-      const versus = summary?.enough ? versusUsual(main.sell[main.sell.source], summary[side].med7) : null;
-      if (versus && versus.label !== "near") warnings.push({ kind: versus.label === "above" ? "pricehigh" : "pricelow", itemHrid: main.itemHrid, diff: versus.diff, usual: summary[side].med7 });
-      const swing = summary?.enough ? summary[side].swing : null;
+      const versus = summary2?.enough ? versusUsual(main.sell[main.sell.source], summary2[side].med7) : null;
+      if (versus && versus.label !== "near") warnings.push({ kind: versus.label === "above" ? "pricehigh" : "pricelow", itemHrid: main.itemHrid, diff: versus.diff, usual: summary2[side].med7 });
+      const swing = summary2?.enough ? summary2[side].swing : null;
       if (swing > CALM_SWING && entry.margin > 0 && entry.margin < swing) warnings.push({ kind: "swing", itemHrid: main.itemHrid, swing, margin: entry.margin });
     }
     for (const input of entry.inputs) {
-      const summary = priceSummary(input.itemHrid);
-      const versus = summary?.enough ? versusUsual(input.price, summary.a.med7) : null;
-      if (versus?.label === "above") warnings.push({ kind: "inputhigh", itemHrid: input.itemHrid, diff: versus.diff, usual: summary.a.med7 });
+      const summary2 = priceSummary(input.itemHrid);
+      const versus = summary2?.enough ? versusUsual(input.price, summary2.a.med7) : null;
+      if (versus?.label === "above") warnings.push({ kind: "inputhigh", itemHrid: input.itemHrid, diff: versus.diff, usual: summary2.a.med7 });
     }
     return warnings;
   }
@@ -3235,9 +3235,9 @@
       <div class="mwia-skill-detail">${detailHtml(entry, upcoming)}</div></details>`;
   }
   function detailHtml(e2, upcoming) {
-    const section = (title, summary, body) => {
+    const section = (title, summary2, body) => {
       const key2 = `${e2.hrid}|${title}`;
-      return `<details class="mwia-skill-sec" data-open="${esc(key2)}"${view.open.has(key2) ? " open" : ""}><summary><b>${title}</b> ${summary}</summary>${body.map((line) => `<p>${line}</p>`).join("")}</details>`;
+      return `<details class="mwia-skill-sec" data-open="${esc(key2)}"${view.open.has(key2) ? " open" : ""}><summary><b>${title}</b> ${summary2}</summary>${body.map((line) => `<p>${line}</p>`).join("")}</details>`;
     };
     const sections = [];
     const buttons = upcoming ? "" : actionButtons(e2);
@@ -3391,12 +3391,12 @@
       buy = items.length ? { items, title: `Adds what ${hoursText(hours)} of enhancing uses: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
     } else {
       const k = ALCHEMY_KINDS[e2.action.kind];
-      const n3 = e2.suggestion?.count || 0;
+      const n4 = e2.suggestion?.count || 0;
       const plus = e2.action.enhancementLevel || 0;
       const catalyst = e2.catalyst?.itemHrid ? ` data-catalyst="${esc(e2.catalyst.itemHrid)}"` : "";
-      open = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}"${plus ? ` data-level="${plus}"` : ""} data-label="${esc(k.name)}" data-value="${n3}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))}${plus ? ` +${plus}` : ""} (from your inventory)${n3 ? ` and ${n3} actions` : ""}${e2.catalyst?.itemHrid ? `, with ${esc(itemName(e2.catalyst.itemHrid))}` : ""}">\u25B6 ${k.name}${n3 ? ` ${n3.toLocaleString("en-US")}` : ""}</button>`;
-      const items = n3 ? e2.inputs.filter((i) => i.itemHrid !== COIN4 && i.forSale !== false).map((i) => ({ hrid: i.itemHrid, ...i.enhancementLevel ? { enhancementLevel: i.enhancementLevel } : {}, quantity: Math.max(0, Math.ceil(i.count * n3) - have(i.itemHrid, i.enhancementLevel || 0)) })).filter((i) => i.quantity > 0) : [];
-      buy = items.length ? { items, title: `Adds what ${n3.toLocaleString("en-US")} actions use, less what you have: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`).join(", ")}` } : null;
+      open = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}"${plus ? ` data-level="${plus}"` : ""} data-label="${esc(k.name)}" data-value="${n4}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))}${plus ? ` +${plus}` : ""} (from your inventory)${n4 ? ` and ${n4} actions` : ""}${e2.catalyst?.itemHrid ? `, with ${esc(itemName(e2.catalyst.itemHrid))}` : ""}">\u25B6 ${k.name}${n4 ? ` ${n4.toLocaleString("en-US")}` : ""}</button>`;
+      const items = n4 ? e2.inputs.filter((i) => i.itemHrid !== COIN4 && i.forSale !== false).map((i) => ({ hrid: i.itemHrid, ...i.enhancementLevel ? { enhancementLevel: i.enhancementLevel } : {}, quantity: Math.max(0, Math.ceil(i.count * n4) - have(i.itemHrid, i.enhancementLevel || 0)) })).filter((i) => i.quantity > 0) : [];
+      buy = items.length ? { items, title: `Adds what ${n4.toLocaleString("en-US")} actions use, less what you have: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`).join(", ")}` } : null;
     }
     const cart = buy ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-job="${esc(e2.hrid)}" data-teas="${esc(JSON.stringify(buy.items))}" title="${esc(buy.title)}">\u{1F6D2} Materials</button>` : "";
     const plan = e2.teaPlan;
@@ -3446,8 +3446,8 @@
         (<span class="mwia-ok">${teaGain(best.result, current)}</span>). ${worthText(best.worth)}${purchaseText(entry.teaPlan)}`;
   }
   function slotsLine(entry) {
-    const n3 = entry.teaSlots;
-    return `<span class="mwia-dim">${n3} tea slot${n3 === 1 ? "" : "s"} (${entry.pouch ? esc(itemName(entry.pouch)) : "no pouch"}).</span>`;
+    const n4 = entry.teaSlots;
+    return `<span class="mwia-dim">${n4} tea slot${n4 === 1 ? "" : "s"} (${entry.pouch ? esc(itemName(entry.pouch)) : "no pouch"}).</span>`;
   }
   function worthText(worth) {
     if (!worth.length) return "";
@@ -3455,8 +3455,8 @@
   }
   function purchaseText(plan) {
     if (!plan) return "";
-    const have5 = plan.items.length ? ` To buy: ${plan.items.map((i) => `${i.quantity.toLocaleString("en-US")} ${esc(itemName(i.hrid))}${i.have ? ` (you have ${i.have.toLocaleString("en-US")})` : ""}`).join(", ")}.` : " You have enough of each.";
-    return `<br>For this job (${hoursText(plan.hours)}): ${plan.perTea.toLocaleString("en-US")} of each.${have5}`;
+    const have6 = plan.items.length ? ` To buy: ${plan.items.map((i) => `${i.quantity.toLocaleString("en-US")} ${esc(itemName(i.hrid))}${i.have ? ` (you have ${i.have.toLocaleString("en-US")})` : ""}`).join(", ")}.` : " You have enough of each.";
+    return `<br>For this job (${hoursText(plan.hours)}): ${plan.perTea.toLocaleString("en-US")} of each.${have6}`;
   }
   function budgetShort(b) {
     if (!b || b.fill >= 1) return "";
@@ -3513,7 +3513,7 @@
     return `${RATING[l2.rating]} over the last ${l2.hours} hours of prices: ${parts.join(", ")}.${sold} <span class="mwia-dim">Stable needs \u2265 ${share(s2.both)}, \u2264 ${share(s2.spread)}, \u2264 \xB1${share(s2.swing)} and \u2265 ${share(sales ? s2.selling : s2.activity)}; ok \u2265 ${share(LIQUIDITY.ok.both)}, \u2264 ${share(LIQUIDITY.ok.spread)}, \u2264 \xB1${share(LIQUIDITY.ok.swing)}${sales ? ` and \u2265 ${share(LIQUIDITY.ok.selling)}` : ""}.${note2}</span>`;
   }
   var ago = (at2) => hoursText((Date.now() - at2) / 36e5);
-  var soldText = (n3) => n3 >= 10 ? Math.round(n3).toLocaleString("en-US") : dec(n3, 1);
+  var soldText = (n4) => n4 >= 10 ? Math.round(n4).toLocaleString("en-US") : dec(n4, 1);
   var have = (hrid, level = 0) => level > 0 ? heldAt(hrid, level) : heldStock(state.character, state.items, hrid).inventory;
   var heldAt = (hrid, level) => [...state.items.values()].filter((i) => i.itemHrid === hrid && i.itemLocationHrid === INVENTORY2 && (i.enhancementLevel || 0) === level).reduce((sum, i) => sum + (i.count || 0), 0);
   function heldLevels(hrid) {
@@ -3678,24 +3678,24 @@
   function skillingExportLines(settings2, count3 = 10) {
     const { available } = ranking(settings2);
     const mode = PLAN_MODES[planMode(settings2)];
-    const n3 = (x) => Math.round(x).toLocaleString("en-US");
+    const n4 = (x) => Math.round(x).toLocaleString("en-US");
     const lines = [`Skill ${settings2.skillingSkill} \xB7 sell at ${settings2.skillingSellAt} \xB7 teas ${settings2.skillingTeas} \xB7 plan ${planMode(settings2)} (${hoursText(mode.hours)}) \xB7 focus ${goldShare(settings2)}% gold${settings2.countLevels ? " \xB7 counting levels" : ""}`];
     available.filter((e2) => e2.valid).slice(0, count3).forEach((e2, i) => {
       const fill = e2.fill ?? 1;
-      const head3 = `${i + 1}. ${adviceName(e2)} \u2013 ${skillLabel(skillOf(e2))} ${e2.action.levelRequirement.level} \xB7 ranked on ${coins(e2.goldPerDay * fill)}/day${fill < 1 ? ` (${coins(e2.goldPerDay)}/day running all ${hoursText(mode.hours)}, the job fills ${Math.round(fill * 100)}%)` : ""} \xB7 ${coins(e2.xpPerDay * fill)} XP/day \xB7 score ${dec(e2.score, 3)}`;
+      const head4 = `${i + 1}. ${adviceName(e2)} \u2013 ${skillLabel(skillOf(e2))} ${e2.action.levelRequirement.level} \xB7 ranked on ${coins(e2.goldPerDay * fill)}/day${fill < 1 ? ` (${coins(e2.goldPerDay)}/day running all ${hoursText(mode.hours)}, the job fills ${Math.round(fill * 100)}%)` : ""} \xB7 ${coins(e2.xpPerDay * fill)} XP/day \xB7 score ${dec(e2.score, 3)}`;
       const parts = [`${dec(e2.actionsPerHour, 0)} actions/h`, `profit ${coins(e2.profitPerHour)}/h`, `margin ${dec((e2.margin || 0) * 100, 1)}%`];
       if (e2.teas?.length) parts.push(`teas ${e2.teas.map(itemName).join(", ")}`);
       if (e2.inputs?.length) parts.push(`buys ${e2.inputs.map((input) => `${dec(input.count, 2)} ${itemName(input.itemHrid)} @ ${coins(input.price || 0)}`).join(" + ")} per action`);
       const out = e2.outputs?.find((o2) => o2.kind === "product");
       if (out) parts.push(`sells ${dec(out.count, 2)} ${itemName(out.itemHrid)} @ ${coins(out.price ?? out.value ?? 0)} after tax`);
-      const lines2 = [head3, `   ${parts.join(" \xB7 ")}`];
+      const lines2 = [head4, `   ${parts.join(" \xB7 ")}`];
       const s2 = e2.suggestion;
       if (s2?.known) {
-        const sold = s2.productLiquidity.sold?.enough ? `~${n3(s2.productLiquidity.sold.perDay)} sold/day` : "sales unknown";
+        const sold = s2.productLiquidity.sold?.enough ? `~${n4(s2.productLiquidity.sold.perDay)} sold/day` : "sales unknown";
         const job = [
-          `make ${n3(s2.count)} (${hoursText(s2.hours)} of ${hoursText(s2.plannedHours)}${s2.short ? `, cut by ${s2.short}` : ""})`,
+          `make ${n4(s2.count)} (${hoursText(s2.hours)} of ${hoursText(s2.plannedHours)}${s2.short ? `, cut by ${s2.short}` : ""})`,
           `market ${s2.liquidity.rating}${s2.ratedBy ? ` (set by ${itemName(s2.ratedBy)})` : ""}, product ${s2.productLiquidity.rating}, ${sold}`,
-          `you hold ${n3(s2.held)} (${n3(s2.stock.inventory)} inventory, ${n3(s2.stock.listed)} listed)${s2.heldOff ? `, ${n3(s2.heldOff)} taken off the job` : ""}`,
+          `you hold ${n4(s2.held)} (${n4(s2.stock.inventory)} inventory, ${n4(s2.stock.listed)} listed)${s2.heldOff ? `, ${n4(s2.heldOff)} taken off the job` : ""}`,
           `coins for materials ${coins(s2.budget)} (${Math.round(s2.coinShare * 100)}%)${s2.limitedByCoins ? " \u2013 the cap" : ""}`,
           `batch materials ${coins(s2.batch.materials)} (buy ${coins(s2.batch.toBuy)}), sells ${coins(s2.batch.revenue)}, profit ${coins(s2.batch.profit)}`
         ];
@@ -3949,8 +3949,8 @@
   var inventoryItemHash = (characterId2, itemHrid, level = 0) => `${characterId2}::/item_locations/inventory::${itemHrid}::${level}`;
   function componentWith(element, method) {
     const nodes = element ? [element, ...element.querySelectorAll("input, button, select")].map(pageView) : [];
-    const upFrom = (start) => {
-      for (let fiber = start, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
+    const upFrom = (start2) => {
+      for (let fiber = start2, steps = 0; fiber && steps < 60; fiber = fiber.return, steps++) {
         if (typeof fiber.stateNode?.[method] === "function") return fiber.stateNode;
       }
       return null;
@@ -4314,33 +4314,33 @@
   function compare(f, made, used, teas, hours, actions) {
     const primary = f.inputs.filter((i) => i.itemHrid !== COIN5 && !i.catalyst).sort((a, b) => b.count * b.price - a.count * a.price)[0];
     const usedOf = (hrid) => used.find((u) => u.itemHrid === hrid && u.level === 0);
-    const n3 = primary && usedOf(primary.itemHrid) ? usedOf(primary.itemHrid).qty / primary.count : actions;
+    const n4 = primary && usedOf(primary.itemHrid) ? usedOf(primary.itemHrid).qty / primary.count : actions;
     const parts = { yield: 0, prices: 0, usage: 0, bought: 0, teas: 0 };
     const outs = new Map(f.outputs.map((o2) => [o2.itemHrid, o2]));
     for (const m2 of made) {
       const o2 = m2.level === 0 ? outs.get(m2.itemHrid) : null;
-      const expected = o2 ? o2.count * n3 : 0;
+      const expected = o2 ? o2.count * n4 : 0;
       parts.yield += (m2.qty - expected) * m2.unit;
       if (o2) parts.prices += expected * (m2.unit - o2.price);
     }
     for (const o2 of f.outputs) {
-      if (!made.some((m2) => m2.itemHrid === o2.itemHrid && m2.level === 0)) parts.yield -= o2.count * n3 * o2.price;
+      if (!made.some((m2) => m2.itemHrid === o2.itemHrid && m2.level === 0)) parts.yield -= o2.count * n4 * o2.price;
     }
     const ins = new Map(f.inputs.map((i) => [i.itemHrid, i]));
     for (const u of used) {
       const i = u.level === 0 ? ins.get(u.itemHrid) : null;
-      const expected = i ? i.count * n3 : 0;
+      const expected = i ? i.count * n4 : 0;
       const price = i ? i.price : u.unit;
       parts.usage -= (u.qty - expected) * price;
       parts.bought -= u.qty * (u.unit - price);
     }
     for (const i of f.inputs) {
-      if (!used.some((u) => u.itemHrid === i.itemHrid && u.level === 0)) parts.usage += i.count * n3 * i.price;
+      if (!used.some((u) => u.itemHrid === i.itemHrid && u.level === 0)) parts.usage += i.count * n4 * i.price;
     }
-    const expectedTeas = f.actionsPerHour > 0 ? f.teaPerHour / f.actionsPerHour * n3 : 0;
+    const expectedTeas = f.actionsPerHour > 0 ? f.teaPerHour / f.actionsPerHour * n4 : 0;
     parts.teas = expectedTeas - teas;
-    const profit = f.profitPerAction * n3;
-    return { actions: n3, profit, margin: f.margin, perHour: f.profitPerHour, actionsPerHour: f.actionsPerHour, parts };
+    const profit = f.profitPerAction * n4;
+    return { actions: n4, profit, margin: f.margin, perHour: f.profitPerHour, actionsPerHour: f.actionsPerHour, parts };
   }
   function compactForecast(row) {
     const entry = row?.single || row;
@@ -4530,7 +4530,7 @@
   function entryDeltas(e2, data, forecast) {
     const deltas = {};
     const add = (key2, d) => deltas[key2] = (deltas[key2] || 0) + d;
-    for (const [key2, n3] of Object.entries(e2.drops || {})) add(key2.includes("::") ? key2 : keyOf(key2), Number(n3) || 0);
+    for (const [key2, n4] of Object.entries(e2.drops || {})) add(key2.includes("::") ? key2 : keyOf(key2), Number(n4) || 0);
     const count3 = Number(e2.actionCount) || 0;
     const item = itemOfHash2(e2.primaryItemHash);
     if (skillOf2(e2.actionHrid) === "alchemy") {
@@ -4592,7 +4592,7 @@
       decorate();
     }, 300);
   }
-  var pad = (n3) => String(n3).padStart(2, "0");
+  var pad = (n4) => String(n4).padStart(2, "0");
   function localStamp(ms) {
     const d = new Date(ms);
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -4628,10 +4628,10 @@
       }
     }
   }
-  var coins2 = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
-  var signed = (n3) => (n3 >= 0 ? "+" : "\u2212") + shortCoins(Math.abs(n3));
+  var coins2 = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
+  var signed = (n4) => (n4 >= 0 ? "+" : "\u2212") + shortCoins(Math.abs(n4));
   var pct2 = (x) => x === null || x === void 0 ? "\u2013" : `${(x * 100).toFixed(1)}%`;
-  var qty = (n3) => Math.abs(n3 - Math.round(n3)) < 1e-6 ? Math.round(n3).toLocaleString("en-US") : n3.toLocaleString("en-US", { maximumFractionDigits: 1 });
+  var qty = (n4) => Math.abs(n4 - Math.round(n4)) < 1e-6 ? Math.round(n4).toLocaleString("en-US") : n4.toLocaleString("en-US", { maximumFractionDigits: 1 });
   var levelText = (level) => level ? ` +${level}` : "";
   function duration(hours) {
     const minutes = Math.round(hours * 60);
@@ -4639,7 +4639,7 @@
   }
   function lineHtml(r, state2 = null) {
     const f = r.forecast;
-    const head3 = `\u{1F9ED} ${state2 ? `<span class="mwia-dim">${state2 === "running" ? "so far" : "ended \u2013 tap Refresh"}:</span> ` : ""}<b class="${r.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(r.profit)}</b>${r.perHour !== null ? ` \xB7 ${coins2(r.perHour)}/h` : ""} \xB7 margin ${pct2(r.margin)}${f ? ` <span class="mwia-dim">(${pct2(f.margin)} expected)</span>` : ""}`;
+    const head4 = `\u{1F9ED} ${state2 ? `<span class="mwia-dim">${state2 === "running" ? "so far" : "ended \u2013 tap Refresh"}:</span> ` : ""}<b class="${r.profit >= 0 ? "mwia-ok" : "mwia-bad"}">${signed(r.profit)}</b>${r.perHour !== null ? ` \xB7 ${coins2(r.perHour)}/h` : ""} \xB7 margin ${pct2(r.margin)}${f ? ` <span class="mwia-dim">(${pct2(f.margin)} expected)</span>` : ""}`;
     const lines = [];
     if (f) {
       lines.push(`Expected for these ${qty(f.actions)} actions${f.now ? " (advice worked out now \u2013 the job began before the advisor saw it)" : ""}: <b>${signed(f.profit)}</b> at a ${pct2(f.margin)} margin, ${coins2(f.perHour)}/h.`);
@@ -4658,7 +4658,7 @@
     if (state2 === "ended") lines.push(`<span class="mwia-dim">It has ended since the log was fetched: tap Refresh for the whole job.</span>`);
     const age = Math.max(0, Math.round((r.pricedAt - r.endedAt) / 6e4));
     lines.push(`<span class="mwia-dim">Made at the market ${age > 5 ? `${duration(age / 60)} after it ended (when first seen)` : "as it ended"}, the ${Math.round(MARKET_TAX * 100)}% tax off; used at what you paid, else the advice's price${r.teas >= 1 ? "; teas at the advice's rate" : ""}${skillOf2(r.actionHrid) === "alchemy" ? "; the catalyst one per success, from what the successes dropped" : "; materials as the action takes them (Artisan's saving as expected)"}.</span>`);
-    return `<details><summary>${head3}</summary>${lines.map((l2) => `<p>${l2}</p>`).join("")}</details>`;
+    return `<details><summary>${head4}</summary>${lines.map((l2) => `<p>${l2}</p>`).join("")}</details>`;
   }
 
   // src/stats.js
@@ -4875,7 +4875,7 @@
     return /^\d+$/.test(last) ? Number(last) : null;
   };
   function loadoutItem(location2, hash2, items, exact, taken) {
-    const itemHrid = String(hash2 || "").split("::").find((part) => part.startsWith("/items/"));
+    const itemHrid = String(hash2 || "").split("::").find((part2) => part2.startsWith("/items/"));
     if (!itemHrid) return null;
     const saved = levelOfHash3(hash2);
     const usable = [...items].filter(
@@ -5035,7 +5035,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.68.0" : "dev";
+  var VERSION = true ? "0.69.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5223,7 +5223,7 @@
       for (const [hrid, s2] of Object.entries(t4.abilities)) {
         const o2 = (_a = out.abilities)[hrid] || (_a[hrid] = { casts: 0, blocked: 0, enemiesAtCast: {}, hits: 0, hitDamage: 0, kills: [], healed: 0, overheal: 0, heals: 0, healSamples: [] });
         for (const k of ["casts", "blocked", "hits", "hitDamage", "healed", "overheal", "heals"]) o2[k] += s2[k];
-        for (const [n3, count3] of Object.entries(s2.enemiesAtCast)) o2.enemiesAtCast[n3] = (o2.enemiesAtCast[n3] || 0) + count3;
+        for (const [n4, count3] of Object.entries(s2.enemiesAtCast)) o2.enemiesAtCast[n4] = (o2.enemiesAtCast[n4] || 0) + count3;
         o2.kills.push(...s2.kills);
         o2.healSamples.push(...s2.healSamples);
       }
@@ -5289,7 +5289,7 @@
       }
       if (kinds.includes("damage:allEnemies") && telemetry.maxEnemies >= 2) {
         const now = valueOf(was, ENEMIES, C("number_of_active_units"), GTE) ?? 1;
-        const castsBelow = (k) => Object.entries(s2.enemiesAtCast).reduce((sum, [n3, count3]) => sum + (Number(n3) < k ? count3 : 0), 0);
+        const castsBelow = (k) => Object.entries(s2.enemiesAtCast).reduce((sum, [n4, count3]) => sum + (Number(n4) < k ? count3 : 0), 0);
         for (let k = 1; k <= telemetry.maxEnemies; k++) {
           if (k === now) continue;
           if (k > now && castsBelow(k) < SHARE * Math.max(1, s2.casts)) continue;
@@ -5416,11 +5416,11 @@
     return value;
   }
   function average(results) {
-    const n3 = results.length;
-    const mean = (pick2) => results.reduce((sum, r) => sum + pick2(r), 0) / n3;
+    const n4 = results.length;
+    const mean = (pick2) => results.reduce((sum, r) => sum + pick2(r), 0) / n4;
     const meanMap = (pick2) => {
       const out = {};
-      for (const r of results) for (const [k, v] of Object.entries(pick2(r))) out[k] = (out[k] || 0) + v / n3;
+      for (const r of results) for (const [k, v] of Object.entries(pick2(r))) out[k] = (out[k] || 0) + v / n4;
       return out;
     };
     return {
@@ -5846,27 +5846,30 @@
   }
   var TUNED_ABILITIES = 3;
   async function analyzeUpgrades(pool, profile, zone, settings2, onProgress, onRefineProgress) {
-    const budget = settings2.budget;
-    const all = settings2.scope !== "abilities";
-    const seeds = (n3) => Array.from({ length: n3 }, (_, i) => i);
+    const scope = settings2.scope === "abilities" || settings2.scope === "loadout" ? settings2.scope : "all";
+    const all = scope === "all";
+    const consumablesToo = scope !== "abilities";
+    const triggersToo = scope !== "loadout";
+    const budget = scope === "loadout" ? 0 : settings2.budget;
+    const seeds = (n4) => Array.from({ length: n4 }, (_, i) => i);
     const candidates = [
       ...all ? gearCandidates(profile, settings2) : [],
       ...abilityCandidates(profile, budget),
       ...abilityOrderCandidates(profile),
       ...all ? houseCandidates(profile, budget) : [],
       ...all ? skillLevelCandidates(profile) : [],
-      ...all ? consumableCandidates(profile, "drinks") : [],
-      ...all ? consumableCandidates(profile, "food") : []
+      ...consumablesToo ? consumableCandidates(profile, "drinks") : [],
+      ...consumablesToo ? consumableCandidates(profile, "food") : []
     ];
-    const baseItem2 = { profile, seeds: seeds(settings2.seeds * BASE_SEED_FACTOR), telemetry: true };
+    const baseItem2 = { profile, seeds: seeds(settings2.seeds * BASE_SEED_FACTOR), telemetry: triggersToo };
     const planned = baseItem2.seeds.length + candidates.length * settings2.seeds;
     const [baseRuns] = await simulateRuns(pool, [baseItem2], zone, settings2.hours, (done2) => onProgress?.(done2, planned));
-    const telemetry = mergeTelemetry(baseItem2.telemetryOut);
-    for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) {
-      candidates.push(triggerCandidate(change, variant));
+    const telemetry = triggersToo ? mergeTelemetry(baseItem2.telemetryOut) : null;
+    if (triggersToo) {
+      for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) candidates.push(triggerCandidate(change, variant));
     }
     candidates.forEach((c2, id) => c2.id = id);
-    const items = candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds), telemetry: c2.kind === "ability", cache: c2.kind === "trigger" }));
+    const items = candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds), telemetry: triggersToo && c2.kind === "ability", cache: c2.kind === "trigger" }));
     const done0 = baseItem2.seeds.length;
     const total = done0 + items.reduce((sum, item) => sum + item.seeds.length, 0);
     const runs = await simulateRuns(pool, items, zone, settings2.hours, (done2) => onProgress?.(done0 + done2, total));
@@ -5878,16 +5881,16 @@
       zone,
       hours: settings2.hours,
       seedsPerRound: settings2.seeds,
-      scope: all ? "all" : "abilities",
+      scope,
       emptyAbilitySlots,
       starter: settings2.starter || null,
       baseProfile: profile,
       base: summarize3(baseRuns, zone.tier, profile),
       baseRuns,
-      telemetry: summaryOfTelemetry(telemetry),
+      telemetry: telemetry ? summaryOfTelemetry(telemetry) : null,
       candidates: simulated
     };
-    await tuneNewAbilities(pool, raw, settings2, onRefineProgress);
+    if (triggersToo) await tuneNewAbilities(pool, raw, settings2, onRefineProgress);
     for (const c2 of raw.candidates) delete c2.telemetry;
     for (let round = 0; round < 2; round++) {
       if (!await refineUncertain(pool, raw, settings2, onRefineProgress)) break;
@@ -5898,7 +5901,7 @@
     return { kind: "trigger", slot: "trigger:" + change.hrid, hrid: change.hrid, target: change.target, triggers: change.triggers, was: change.was, rule: change.rule, why: change.why, cost: 0, owned: true, replaces: null, profile };
   }
   function summaryOfTelemetry(t4) {
-    const perHour = (n3) => t4.hours ? n3 / t4.hours : 0;
+    const perHour = (n4) => t4.hours ? n4 / t4.hours : 0;
     const abilities = {};
     for (const [hrid, s2] of Object.entries(t4.abilities)) {
       abilities[hrid] = { castsPerHour: perHour(s2.casts), waitingPerHour: perHour(s2.blocked), healed: s2.heals ? s2.healed / s2.heals : null };
@@ -6153,6 +6156,27 @@
     const variants = [{ kind: "base", profile }, { kind: "plan", profile: applyPlan(profile, plan) }];
     const [base, planned] = await simulateVariants(pool, variants, zone, settings2, onProgress);
     return { base: base.result, planned: planned.result };
+  }
+  var LOADOUT_ROUNDS = 3;
+  async function analyzeLoadout(pool, profile, zone, settings2, onProgress) {
+    const run = { ...settings2, budget: 0, scope: "loadout" };
+    let current = profile;
+    let before = null;
+    let last = null;
+    let rounds = 0;
+    for (let round = 1; round <= LOADOUT_ROUNDS; round++) {
+      const report = (done2, total) => onProgress?.(done2, total, round);
+      const raw = await analyzeUpgrades(pool, current, zone, run, report, report);
+      before || (before = raw.base);
+      last = raw.base;
+      const plan = buildPlan(rateUpgrades(raw, run), 0, run.spending);
+      if (!plan.picks.length && !plan.order && !plan.drink && !plan.food) break;
+      current = applyPlan(current, { picks: plan.picks, order: plan.order, drink: plan.drink, food: plan.food });
+      last = null;
+      rounds = round;
+    }
+    if (!last) [{ result: last }] = await simulateVariants(pool, [{ profile: current }], zone, run, (done2, total) => onProgress?.(done2, total, rounds + 1));
+    return { zone, start: profile, final: current, rounds, before, after: last };
   }
 
   // src/pool.js
@@ -6480,6 +6504,8 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-tool-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid #2a3150; }
 .mwia-tool-list li .mwia-guide-cart { margin-top: 0; flex: 0 0 auto; }
 [data-mwia-tea="wrong"] { outline: 3px solid #ff4d4d !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-wrong 1.2s ease-in-out infinite; }
+[data-mwia-slot="wrong"] { outline: 3px solid #ff4d4d !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-wrong 1.2s ease-in-out infinite; }
+.mwia-loadout-box .mwia-guide-cart[disabled] { opacity: 0.6; cursor: default; }
 [data-mwia-tea="right"] { outline: 3px solid #3ddc84 !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-right 1.2s ease-in-out infinite; }
 @keyframes mwia-tea-wrong { 0%, 100% { box-shadow: 0 0 4px 1px rgba(255, 77, 77, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(255, 77, 77, 0.95); } }
 @keyframes mwia-tea-right { 0%, 100% { box-shadow: 0 0 4px 1px rgba(61, 220, 132, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(61, 220, 132, 0.95); } }
@@ -6567,8 +6593,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   async function whenReady2(api) {
-    const start = Date.now();
-    while (!api.ready && Date.now() - start < READY_TIMEOUT_MS) {
+    const start2 = Date.now();
+    while (!api.ready && Date.now() - start2 < READY_TIMEOUT_MS) {
       await new Promise((resolve2) => setTimeout(resolve2, 100));
     }
   }
@@ -6584,13 +6610,13 @@ i.mwia-history-bid { background: #7ee2b0; }
       const wanted = Math.max(1, Math.ceil(item.quantity));
       const label3 = { hrid: item.hrid, enhancementLevel };
       try {
-        const have5 = api.getCartItem(item.hrid, enhancementLevel)?.quantity || 0;
-        if (have5 >= wanted) {
+        const have6 = api.getCartItem(item.hrid, enhancementLevel)?.quantity || 0;
+        if (have6 >= wanted) {
           outcome.present.push(label3);
           continue;
         }
-        const result = api.addToCart([{ itemHrid: item.hrid, enhancementLevel, quantity: wanted - have5, source: "manual" }]);
-        if (result?.ok) (have5 ? outcome.updated : outcome.added).push(label3);
+        const result = api.addToCart([{ itemHrid: item.hrid, enhancementLevel, quantity: wanted - have6, source: "manual" }]);
+        if (result?.ok) (have6 ? outcome.updated : outcome.added).push(label3);
         else outcome.failed.push(label3);
       } catch {
         outcome.failed.push(label3);
@@ -6864,9 +6890,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   var REFRESH_MS = 2e3;
   var g = { log: null, prev: void 0, predict: null, timer: null, listeners: /* @__PURE__ */ new Set() };
   function failsOf(room) {
-    let n3 = 0;
-    for (const [k, v] of Object.entries(room || {})) if (FAIL.test(k) && Number.isFinite(v)) n3 += v;
-    return n3;
+    let n4 = 0;
+    for (const [k, v] of Object.entries(room || {})) if (FAIL.test(k) && Number.isFinite(v)) n4 += v;
+    return n4;
   }
   var roomKey = (room) => room?.monsterHrid || room?.skillHrid || "";
   function roomOutcomes(before, after) {
@@ -6999,11 +7025,11 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function addAttempts(attempts, { fromPi = false } = {}) {
     const L = log();
-    const have5 = new Set(L.list.map((a) => a.uid));
+    const have6 = new Set(L.list.map((a) => a.uid));
     let added = 0;
     for (const a of attempts) {
-      if (!a?.uid || have5.has(a.uid)) continue;
-      have5.add(a.uid);
+      if (!a?.uid || have6.has(a.uid)) continue;
+      have6.add(a.uid);
       L.list.push(a);
       if (!fromPi) L.unsent.push(a.uid);
       added++;
@@ -7472,13 +7498,13 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   async function historyHtml(itemHrid, level = 0) {
     await loadHistory();
-    const summary = priceSummary(itemHrid, level);
+    const summary2 = priceSummary(itemHrid, level);
     const entry = marketEntry(itemHrid, level);
-    const head3 = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price${level ? ` <span class="mwia-enh">+${level}</span>` : ""}</b> <span>${text}</span></div>`;
+    const head4 = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price${level ? ` <span class="mwia-enh">+${level}</span>` : ""}</b> <span>${text}</span></div>`;
     const saved = sourceHtml();
     const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${exportHtml()}</details>`;
-    if (!summary || summary.hours7 < PRELIMINARY_HOURS) {
-      return head3(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + more("Export", saved);
+    if (!summary2 || summary2.hours7 < PRELIMINARY_HOURS) {
+      return head4(`collecting: ${summary2 ? progressText(summary2) : "nothing yet"}`) + more("Export", saved);
     }
     const versusText = (now, side) => {
       const versus = versusUsual(now, side.med7);
@@ -7491,29 +7517,29 @@ i.mwia-history-bid { background: #7ee2b0; }
     const askNow = entry?.a > 0 ? entry.a : null;
     const bidNow = entry?.b > 0 ? entry.b : null;
     const brief = (label3, now, side) => `${label3} <b>${now > 0 ? shortCoins(now) : "\u2013"}</b> ${versusText(now, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
-    const swing = summary.a.swing ?? summary.b.swing;
-    const line = `<div class="mwia-history-sum">${brief("Ask", askNow, summary.a)} \xB7 ${brief("Bid", bidNow, summary.b)}${swing !== null ? ` \xB7 <span title="Half of the week's prices lie within this share of the 7-day median">swings \xB1${Math.round(swing * 100)}%</span>` : ""}</div>`;
+    const swing = summary2.a.swing ?? summary2.b.swing;
+    const line = `<div class="mwia-history-sum">${brief("Ask", askNow, summary2.a)} \xB7 ${brief("Bid", bidNow, summary2.b)}${swing !== null ? ` \xB7 <span title="Half of the week's prices lie within this share of the 7-day median">swings \xB1${Math.round(swing * 100)}%</span>` : ""}</div>`;
     const points = h.open ? await priceSeries(itemHrid, h.range, level) : [];
     const long = h.open && h.range > 31 ? await longMedians(itemHrid, level) : null;
     const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "\u2013"}, bid ${long.b90 ? shortCoins(long.b90) : "\u2013"} \xB7 1 year: ask ${long.a365 ? shortCoins(long.a365) : "\u2013"}, bid ${long.b365 ? shortCoins(long.b365) : "\u2013"} (${long.days} days of data)</div>` : "";
-    const preliminary = !summary.enough;
-    return (preliminary ? head3(`<b class="mwia-history-prelim">preliminary</b> \xB7 ${readyText(summary)}`) : head3(`7-day median \xB7 ${summary.spanDays.toFixed(0)} days of data`)) + line + more(
+    const preliminary = !summary2.enough;
+    return (preliminary ? head4(`<b class="mwia-history-prelim">preliminary</b> \xB7 ${readyText(summary2)}`) : head4(`7-day median \xB7 ${summary2.spanDays.toFixed(0)} days of data`)) + line + more(
       "Chart and details",
-      `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
-          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` + longLine + (preliminary ? `<div class="mwia-history-note">Preliminary: ${progressText(summary)}. Only ${summary.hours7} h over ${summary.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>` : `<div class="mwia-history-note">${summary.hours7} h in the last week.</div>`) + saved
+      `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary2.a)}${row("Bid", bidNow, summary2.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
+          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` + longLine + (preliminary ? `<div class="mwia-history-note">Preliminary: ${progressText(summary2)}. Only ${summary2.hours7} h over ${summary2.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>` : `<div class="mwia-history-note">${summary2.hours7} h in the last week.</div>`) + saved
     );
   }
-  function readyText(summary) {
-    const parts = progressText(summary).split(" \xB7 ");
+  function readyText(summary2) {
+    const parts = progressText(summary2).split(" \xB7 ");
     return parts.length > 2 ? parts.slice(2).join(" \xB7 ") : "almost ready";
   }
-  function progressText(summary) {
-    const hoursLeft = Math.max(0, MIN_HOURS - summary.hours7);
+  function progressText(summary2) {
+    const hoursLeft = Math.max(0, MIN_HOURS - summary2.hours7);
     const open = piConfig() ? "" : " with the game open";
-    const daysLeft = Math.max(0, MIN_DAYS - summary.spanDays);
+    const daysLeft = Math.max(0, MIN_DAYS - summary2.spanDays);
     const parts = [
-      hoursLeft ? `${summary.hours7} of ${MIN_HOURS} h` : `${MIN_HOURS} h \u2713`,
-      daysLeft ? `${summary.spanDays.toFixed(1)} of ${MIN_DAYS} days` : `${MIN_DAYS} days \u2713`
+      hoursLeft ? `${summary2.hours7} of ${MIN_HOURS} h` : `${MIN_HOURS} h \u2713`,
+      daysLeft ? `${summary2.spanDays.toFixed(1)} of ${MIN_DAYS} days` : `${MIN_DAYS} days \u2713`
     ];
     if (daysLeft) {
       const wait = daysLeft * 24;
@@ -7552,7 +7578,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var HOURS_PER_DAY2 = 24;
   var FIGHT_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   var g2 = { deps: null, scanTimer: null, loading: null, statuses: /* @__PURE__ */ new Map(), hours: /* @__PURE__ */ new Map() };
-  var coins4 = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
+  var coins4 = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
   var have2 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
   var slotItems = (map, type) => (state.character?.[map]?.[type] || []).map((slot) => slot?.itemHrid).filter(Boolean);
   function rememberCombatSetup(zone, setup) {
@@ -7665,8 +7691,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       return w.gainPerDay >= 0 ? ` \xB7 +${coins4(w.gainPerDay)}/day` : ` \xB7 +${coins4(w.xpPerDay)} XP/day`;
     };
     const stock = (hrid) => {
-      const n3 = have2(hrid);
-      return n3 < perDay2 ? `<b class="mwia-guide-low">${n3.toLocaleString("en-US")} in inventory</b>` : `${n3.toLocaleString("en-US")} in inventory`;
+      const n4 = have2(hrid);
+      return n4 < perDay2 ? `<b class="mwia-guide-low">${n4.toLocaleString("en-US")} in inventory</b>` : `${n4.toLocaleString("en-US")} in inventory`;
     };
     const lines = [
       ...best.map((hrid) => itemLine(current.includes(hrid) ? "keep" : "add", hrid, stock(hrid) + gain(hrid))),
@@ -7703,12 +7729,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const age = hours < 1 ? "less than an hour ago" : hours < 48 ? `${Math.round(hours)} h ago` : `${Math.round(hours / 24)} days ago`;
     const perDay2 = (hrid) => Math.ceil((setup.perHour?.[hrid] || 0) * HOURS_PER_DAY2);
     const stock = (hrid) => {
-      const n3 = have2(hrid);
+      const n4 = have2(hrid);
       const need2 = perDay2(hrid);
-      const text = `${n3.toLocaleString("en-US")} in inventory${need2 ? `, ${need2.toLocaleString("en-US")} a day` : ""}`;
-      return n3 < need2 ? `<b class="mwia-guide-low">${text}</b>` : text;
+      const text = `${n4.toLocaleString("en-US")} in inventory${need2 ? `, ${need2.toLocaleString("en-US")} a day` : ""}`;
+      return n4 < need2 ? `<b class="mwia-guide-low">${text}</b>` : text;
     };
-    const part = (title, target, current) => {
+    const part2 = (title, target, current) => {
       const wanted = target.filter(Boolean);
       const lines = [...wanted.map((hrid) => itemLine(current.includes(hrid) ? "keep" : "add", hrid, stock(hrid))), ...current.filter((hrid) => !wanted.includes(hrid)).map((hrid) => itemLine("remove", hrid))];
       return lines.length ? `<div class="mwia-guide-sub">${title}</div><ul class="mwia-guide-list">${lines.join("")}</ul>` : "";
@@ -7720,7 +7746,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const picked = setup.encountersPerHour > 0 && (tier === null || tier === (setup.tier || 0)) ? g2.hours.get(action.hrid) : null;
     const need = (hrid) => picked ? Math.ceil((setup.perHour?.[hrid] || 0) * picked) : perDay2(hrid);
     const items = all.filter((hrid) => have2(hrid) < need(hrid)).map((hrid) => ({ hrid, quantity: need(hrid) - have2(hrid) }));
-    return head("\u2615 Drinks and food", `MWI Advisor \xB7 ${esc(actionName(action.hrid))}${setup.tier ? ` T${setup.tier}` : ""}, analysed ${age}`) + part("Drinks", setup.drinks, drinksNow) + part("Food", setup.food, foodNow) + `<div class="mwia-guide-note">${done2 ? "\u2713 Your slots match the advice." : "Set your slots as above before you start."}</div>` + fightsHtml(action, setup, tier) + cartButton(items, `\u{1F6D2} What's missing for ${picked ? `${picked} h` : "1 day"}`);
+    return head("\u2615 Drinks and food", `MWI Advisor \xB7 ${esc(actionName(action.hrid))}${setup.tier ? ` T${setup.tier}` : ""}, analysed ${age}`) + part2("Drinks", setup.drinks, drinksNow) + part2("Food", setup.food, foodNow) + `<div class="mwia-guide-note">${done2 ? "\u2713 Your slots match the advice." : "Set your slots as above before you start."}</div>` + fightsHtml(action, setup, tier) + cartButton(items, `\u{1F6D2} What's missing for ${picked ? `${picked} h` : "1 day"}`);
   }
   function onHours(button2) {
     const box = button2.closest(".mwia-guide-box");
@@ -7769,7 +7795,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var INVENTORY5 = "/item_locations/inventory";
   var GRID_ICONS = 8;
   var t = { deps: null, scanTimer: null, loading: null, key: "", notices: [], status: "" };
-  var coins5 = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
+  var coins5 = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
   var skillLabel2 = (skill) => skill.charAt(0).toUpperCase() + skill.slice(1);
   function startToolNotice(deps) {
     t.deps = deps;
@@ -7842,23 +7868,23 @@ i.mwia-history-bid { background: #7ee2b0; }
   function cartButton2(items, label3) {
     return `<button class="mwia-guide-cart" data-tool-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(items.map((i) => itemName(i.hrid)).join(", "))}">${label3}</button>`;
   }
-  function rowHtml2(n3) {
-    const from = n3.current ? `${esc(itemName(n3.current.itemHrid))}${n3.current.enhancementLevel ? ` +${n3.current.enhancementLevel}` : ""} \u2192 ` : "";
+  function rowHtml2(n4) {
+    const from = n4.current ? `${esc(itemName(n4.current.itemHrid))}${n4.current.enhancementLevel ? ` +${n4.current.enhancementLevel}` : ""} \u2192 ` : "";
     let worth = "";
-    if (n3.gainPerDay !== null) {
-      if (n3.gainPerDay > 1) worth = ` \xB7 <span class="mwia-ok">+${coins5(n3.gainPerDay)}/day</span>${n3.paybackDays !== null && !n3.owned ? `, pays back in ${n3.paybackDays < 1 ? Math.max(1, Math.round(n3.paybackDays * 24)) + " h" : Math.round(n3.paybackDays * 10) / 10 + " days"}` : ""}`;
-      else if (n3.xpPerDay > 1) worth = ` \xB7 +${coins5(n3.xpPerDay)} XP/day`;
-      else if (n3.current) worth = ` \xB7 <span class="mwia-guide-low">not better than your ${esc(itemName(n3.current.itemHrid))}${n3.current.enhancementLevel ? ` +${n3.current.enhancementLevel}` : ""}</span>`;
+    if (n4.gainPerDay !== null) {
+      if (n4.gainPerDay > 1) worth = ` \xB7 <span class="mwia-ok">+${coins5(n4.gainPerDay)}/day</span>${n4.paybackDays !== null && !n4.owned ? `, pays back in ${n4.paybackDays < 1 ? Math.max(1, Math.round(n4.paybackDays * 24)) + " h" : Math.round(n4.paybackDays * 10) / 10 + " days"}` : ""}`;
+      else if (n4.xpPerDay > 1) worth = ` \xB7 +${coins5(n4.xpPerDay)} XP/day`;
+      else if (n4.current) worth = ` \xB7 <span class="mwia-guide-low">not better than your ${esc(itemName(n4.current.itemHrid))}${n4.current.enhancementLevel ? ` +${n4.current.enhancementLevel}` : ""}</span>`;
     }
-    const price = n3.owned ? "in your inventory \u2013 equip it" : n3.price === null ? "nobody sells it now" : coins5(n3.price);
-    const cart = !n3.owned && n3.price !== null ? cartButton2([{ hrid: n3.itemHrid, quantity: 1 }], "\u{1F6D2}") : "";
-    return `<li><span><b>${skillLabel2(n3.skill)}</b> <span class="mwia-dim">lvl ${n3.skillLevel}</span>: ${from}<b>${esc(itemName(n3.itemHrid))}</b> <span class="mwia-dim">(lvl ${n3.level})</span> \xB7 ${price}${worth}</span>${cart}</li>`;
+    const price = n4.owned ? "in your inventory \u2013 equip it" : n4.price === null ? "nobody sells it now" : coins5(n4.price);
+    const cart = !n4.owned && n4.price !== null ? cartButton2([{ hrid: n4.itemHrid, quantity: 1 }], "\u{1F6D2}") : "";
+    return `<li><span><b>${skillLabel2(n4.skill)}</b> <span class="mwia-dim">lvl ${n4.skillLevel}</span>: ${from}<b>${esc(itemName(n4.itemHrid))}</b> <span class="mwia-dim">(lvl ${n4.level})</span> \xB7 ${price}${worth}</span>${cart}</li>`;
   }
   function boxHtml(list) {
-    const buyable = list.filter((n3) => !n3.owned && n3.price !== null);
+    const buyable = list.filter((n4) => !n4.owned && n4.price !== null);
     return `<div class="mwia-guide-head"><b>\u2B06 Better tools unlocked</b> <span>MWI Advisor</span></div>
         <ul class="mwia-tool-list">${list.map(rowHtml2).join("")}</ul>
-        ${buyable.length > 1 ? cartButton2(buyable.map((n3) => ({ hrid: n3.itemHrid, quantity: 1 })), `\u{1F6D2} Add all ${buyable.length} (${coins5(buyable.reduce((sum, n3) => sum + n3.price, 0))})`) : ""}
+        ${buyable.length > 1 ? cartButton2(buyable.map((n4) => ({ hrid: n4.itemHrid, quantity: 1 })), `\u{1F6D2} Add all ${buyable.length} (${coins5(buyable.reduce((sum, n4) => sum + n4.price, 0))})`) : ""}
         ${t.status ? `<div class="mwia-guide-status">${esc(t.status)}</div>` : ""}
         <div class="mwia-guide-status">Gold a day on what you'd make now (the top of the skill's Skilling list), sold at the ${t.deps.settings().skillingSellAt === "bid" ? "bid" : "ask"}. Payback counts selling the tool again at the bid.</div>`;
   }
@@ -7901,7 +7927,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const id = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1];
     return id ? "/items/" + id : null;
   };
-  var ownText = (el) => [...el.childNodes].filter((n3) => n3.nodeType === 3).map((n3) => n3.textContent).join("").trim();
+  var ownText = (el) => [...el.childNodes].filter((n4) => n4.nodeType === 3).map((n4) => n4.textContent).join("").trim();
   var leaves = (root, test) => [...root.querySelectorAll("*")].filter((el) => test(ownText(el)));
   var ours = (el) => el.closest('[class*="mwia"]');
   function startTeaSlots(deps) {
@@ -8082,6 +8108,341 @@ i.mwia-history-bid { background: #7ee2b0; }
       t2.status = error.message;
     }
     scheduleScan6();
+  }
+
+  // src/loadout-advice.js
+  var SCAN_MS7 = 400;
+  var STORE_KEY = "mwia-loadout-advice";
+  var KEEP = 8;
+  var CART_HOURS = [8, 24];
+  var WAIT_MS = 3e3;
+  var COMBAT_ACTIONS = "/actions/combat/";
+  var g3 = { deps: null, scanTimer: null, running: null, failed: /* @__PURE__ */ new Map(), status: "", retry: null, loading: null };
+  var ours2 = (el) => el.closest('[class*="mwia"]');
+  var ownText2 = (el) => [...el.childNodes].filter((n4) => n4.nodeType === 3).map((n4) => n4.textContent).join("").trim();
+  var have4 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
+  var n2 = (v) => Math.round(v).toLocaleString("en-US");
+  function startLoadoutAdvice(deps) {
+    g3.deps = deps;
+    onStateChange(() => scheduleScan7());
+    new MutationObserver((records) => {
+      if (records.every((r) => r.target.closest?.(".mwia-loadout-box"))) return;
+      scheduleScan7();
+    }).observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("click", onClick5, true);
+  }
+  function scheduleScan7() {
+    if (g3.scanTimer) return;
+    g3.scanTimer = setTimeout(() => {
+      g3.scanTimer = null;
+      try {
+        scan6();
+      } catch (error) {
+        console.warn("[MWI Advisor] loadout panel", error);
+      }
+    }, SCAN_MS7);
+  }
+  function queuedFight(character) {
+    const action = (character?.characterActions || []).find((a) => a?.actionHrid?.startsWith(COMBAT_ACTIONS) && !a.isDone);
+    return action ? { zoneHrid: action.actionHrid, tier: action.difficultyTier || 0, action } : null;
+  }
+  function fightLoadout(character, fight) {
+    const loadouts = combatLoadouts(character);
+    if (!loadouts.length) return null;
+    for (const [key2, value] of Object.entries(fight?.action || {})) {
+      if (!/loadout/i.test(key2) || value === null || value === void 0 || value === "" || value === 0) continue;
+      const named = loadouts.find((l2) => l2.id === String(value));
+      if (named) return { loadout: named, why: "the loadout set for the queued fight" };
+    }
+    const fallback = loadouts.find((l2) => l2.isDefault && l2.actionTypeHrid === "/action_types/combat") || loadouts.find((l2) => l2.isDefault);
+    return fallback ? { loadout: fallback, why: "your default combat loadout" } : { loadout: loadouts[0], why: "your first combat loadout" };
+  }
+  var iconId = (el) => {
+    const use = el.querySelector("svg use");
+    return (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1] || null;
+  };
+  function findLoadoutPanel(doc = document) {
+    const button2 = [...doc.querySelectorAll("button")].find((b) => /^equip loadout$/i.test(b.textContent.trim()) && visible(b) && !ours2(b));
+    if (!button2) return null;
+    const heading = (root, label3) => [...root.querySelectorAll("*")].find((el) => ownText2(el).toLowerCase() === label3 && !ours2(el) && visible(el));
+    let panel = button2.parentElement;
+    while (panel && panel !== doc.body && !(heading(panel, "abilities") && heading(panel, "consumables"))) panel = panel.parentElement;
+    if (!panel || panel === doc.body) return null;
+    const data = getClientData();
+    const row = (label3, kind) => {
+      const head4 = heading(panel, label3);
+      const el = head4?.nextElementSibling || head4?.parentElement?.nextElementSibling;
+      if (!el) return { el: null, slots: [] };
+      const slots = [...el.children].filter((child) => !ours2(child)).map((child) => {
+        const id = iconId(child);
+        const hrid = id ? `/${kind}/${id}` : null;
+        const known = hrid && (kind === "abilities" ? data?.abilityDetailMap?.[hrid] : data?.itemDetailMap?.[hrid]);
+        return { el: child, hrid: known || !data ? hrid : null };
+      });
+      return { el, slots };
+    };
+    return { panel, abilities: row("abilities", "abilities"), consumables: row("consumables", "items") };
+  }
+  var loadoutContent = (l2) => [...Object.values(l2.abilityMap || {}), ...l2.foodItemHrids || [], ...l2.drinkItemHrids || []].filter(Boolean).sort().join(",");
+  function shownLoadout(found, character, prefer = null) {
+    const shown = [...found.abilities.slots, ...found.consumables.slots].map((s2) => s2.hrid).filter(Boolean).sort().join(",");
+    const fits = combatLoadouts(character).filter((l2) => loadoutContent(l2) === shown);
+    return fits.find((l2) => l2.id === prefer?.id) || fits[0] || null;
+  }
+  function setupSig(profile, fight, settings2) {
+    return JSON.stringify([
+      Object.entries(profile.equipment || {}).sort().map(([slot, e2]) => `${slot}:${e2.hrid}+${e2.enhancementLevel || 0}`),
+      (profile.abilities || []).map((a) => a?.hrid || null),
+      (profile.drinks || []).filter(Boolean).sort(),
+      (profile.food || []).filter(Boolean).sort(),
+      fight.zoneHrid,
+      fight.tier,
+      Number(settings2.goldWeight) || 0,
+      !!settings2.acceptRareDeaths,
+      !!settings2.countLevels,
+      settings2.accuracy || "normal"
+    ]);
+  }
+  function stored() {
+    try {
+      const list = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+  function store3(entry) {
+    const list = [entry, ...stored().filter((e2) => e2.sig !== entry.sig)].slice(0, KEEP);
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(list));
+    } catch {
+    }
+  }
+  function adviceFor2(sig) {
+    const list = stored();
+    const own = list.find((e2) => e2.sig === sig);
+    if (own) return { entry: own, done: false };
+    const reached = list.find((e2) => e2.finalSig === sig);
+    return reached ? { entry: reached, done: true } : null;
+  }
+  var slotsOf = (profile) => ({
+    special: profile.abilities?.[0]?.hrid || null,
+    abilities: (profile.abilities || []).slice(1).map((a) => a?.hrid || null),
+    drinks: [...profile.drinks || []],
+    food: [...profile.food || []]
+  });
+  var summary = (r) => r && { xp: r.xpTotal || 0, profit: r.profit || 0, deaths: r.deaths || 0, encounters: r.encounters || 0, consumables: r.consumables || {} };
+  function adviceEntry(result, fight, loadout, settings2) {
+    return {
+      sig: setupSig(result.start, fight, settings2),
+      finalSig: setupSig(result.final, fight, settings2),
+      at: Date.now(),
+      zoneHrid: fight.zoneHrid,
+      tier: fight.tier,
+      loadoutId: loadout.id,
+      loadoutName: loadout.name || "Loadout",
+      rounds: result.rounds,
+      start: slotsOf(result.start),
+      final: slotsOf(result.final),
+      before: summary(result.before),
+      after: summary(result.after)
+    };
+  }
+  function cartItems(entry, hours, haveOf = have4) {
+    const wanted = [...entry.final.drinks, ...entry.final.food].filter(Boolean);
+    return wanted.map((hrid) => ({ hrid, quantity: Math.ceil((entry.after.consumables[hrid] || 0) * hours) - haveOf(hrid) })).filter((i) => i.quantity > 0);
+  }
+  function scan6() {
+    const found = state.character ? findLoadoutPanel() : null;
+    const marked = /* @__PURE__ */ new Set();
+    let html = null;
+    let at2 = null;
+    if (found) {
+      const fight = queuedFight(state.character);
+      const chosen = fight ? fightLoadout(state.character, fight) : null;
+      if (fight && chosen) {
+        const shown = shownLoadout(found, state.character, chosen.loadout);
+        at2 = found;
+        html = boxHtml2(found, fight, chosen, shown, marked);
+      }
+    }
+    document.querySelectorAll("[data-mwia-slot]").forEach((el) => marked.has(el) || unmark2(el));
+    document.querySelectorAll(".mwia-loadout-box").forEach((box2) => html && at2 && found.panel.contains(box2) || box2.remove());
+    if (!html || !at2) return;
+    let box = found.panel.querySelector(".mwia-loadout-box");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "mwia-guide-box mwia-loadout-box";
+      const anchor = found.consumables.el || found.abilities.el;
+      if (anchor) anchor.insertAdjacentElement("afterend", box);
+      else found.panel.appendChild(box);
+    }
+    if (box.dataset.html !== html) {
+      box.dataset.html = html;
+      box.innerHTML = html;
+    }
+  }
+  var fightName = (fight) => esc(actionName(fight.zoneHrid) || fight.zoneHrid.split("/").pop()) + (fight.tier ? ` T${fight.tier}` : "");
+  var head2 = (note2) => `<div class="mwia-guide-head"><b>\u{1F9ED} Loadout for your next fight</b> <span>MWI Advisor${note2 ? " \xB7 " + note2 : ""}</span></div>`;
+  function boxHtml2(found, fight, chosen, shown, marked) {
+    const { loadout, why } = chosen;
+    const name = esc(loadout.name || "Loadout");
+    if (shown && shown.id !== loadout.id) {
+      return head2(fightName(fight)) + `<div class="mwia-guide-note">Your next fight, <b>${fightName(fight)}</b>, uses <b>${name}</b> (${why}). Open that loadout for its abilities, drinks and food.</div>`;
+    }
+    const settings2 = g3.deps.settings();
+    const profile = g3.deps.profileOf(loadout);
+    if (!profile) {
+      g3.loading || (g3.loading = g3.deps.prepare().then(scheduleScan7, (error) => console.warn("[MWI Advisor] loadout panel", error)).finally(() => g3.loading = null));
+      return head2(fightName(fight)) + `<div class="mwia-guide-note mwia-guide-dim">Loading the game data\u2026</div>`;
+    }
+    const sig = setupSig(profile, fight, settings2);
+    const known = adviceFor2(sig);
+    const unsure = shown ? "" : `<div class="mwia-guide-note mwia-guide-dim">Can't tell which loadout this is; the advice is for <b>${name}</b>.</div>`;
+    const intro = `<div class="mwia-guide-note">Next fight: <b>${fightName(fight)}</b> with <b>${name}</b> <span class="mwia-guide-dim">(${why})</span></div>`;
+    if (!known) {
+      if (g3.running?.sig === sig) {
+        const pct6 = g3.running.total ? Math.round(100 * g3.running.done / g3.running.total) : 0;
+        return head2("simulating") + intro + unsure + `<div class="mwia-guide-note">Simulating this loadout in ${fightName(fight)}\u2026 round ${g3.running.round}, ${pct6}%</div>`;
+      }
+      const failed = g3.failed.get(sig);
+      if (failed) return head2("") + intro + unsure + `<div class="mwia-guide-note mwia-guide-low">Could not work it out: ${esc(failed)}</div>` + againButton("Try again");
+      if (!g3.running && !g3.deps.busy()) start(loadout, fight, profile, sig);
+      else waitAndLook();
+      return head2("") + intro + unsure + `<div class="mwia-guide-note mwia-guide-dim">${g3.running ? "Waiting for the other loadout's simulation\u2026" : "Waiting for the advisor's other analysis\u2026"}</div>`;
+    }
+    return head2(ageText(known.entry.at)) + intro + unsure + adviceHtml(known, shown ? found : null, marked) + statusHtml();
+  }
+  function waitAndLook() {
+    clearTimeout(g3.retry);
+    g3.retry = setTimeout(scheduleScan7, WAIT_MS);
+  }
+  function start(loadout, fight, profile, sig) {
+    g3.running = { sig, done: 0, total: 0, round: 1 };
+    g3.status = "";
+    const settings2 = { ...g3.deps.settings() };
+    g3.deps.analyze(loadout, { zoneHrid: fight.zoneHrid, tier: fight.tier }, (done2, total, round) => {
+      g3.running = { sig, done: done2, total, round };
+      scheduleScan7();
+    }).then((result) => {
+      const entry = adviceEntry(result, fight, loadout, settings2);
+      entry.sig = sig;
+      store3(entry);
+    }).catch((error) => g3.failed.set(sig, error?.message || String(error))).finally(() => {
+      g3.running = null;
+      scheduleScan7();
+    });
+  }
+  var ageText = (at2) => {
+    const hours = Math.max(0, (Date.now() - at2) / 36e5);
+    return hours < 1 ? "simulated less than an hour ago" : hours < 48 ? `simulated ${Math.round(hours)} h ago` : `simulated ${Math.round(hours / 24)} days ago`;
+  };
+  function itemLine2(kind, text, extra = "") {
+    const mark3 = { keep: "\u2713", add: "\u2795 Put in", remove: "\u2796 Take out" }[kind];
+    return `<li class="mwia-guide-${kind}">${mark3} ${text}${extra ? ` <span>${extra}</span>` : ""}</li>`;
+  }
+  function part(title, final, start2, label3, extra = () => "") {
+    const want = final.filter(Boolean);
+    const now = start2.filter(Boolean);
+    const lines = [...want.map((h2) => itemLine2(now.includes(h2) ? "keep" : "add", esc(label3(h2)), extra(h2))), ...now.filter((h2) => !want.includes(h2)).map((h2) => itemLine2("remove", esc(label3(h2))))];
+    return lines.length ? `<div class="mwia-guide-sub">${title}</div><ul class="mwia-guide-list">${lines.join("")}</ul>` : "";
+  }
+  function gainText(entry) {
+    const { before, after } = entry;
+    if (!before || !after) return "";
+    const pct6 = (a, b) => b > 0 ? Math.round(100 * (a - b) / b) : 0;
+    const xp = pct6(after.xp, before.xp);
+    const profit = after.profit - before.profit;
+    const sign = (v) => v > 0 ? "+" : v < 0 ? "\u2212" : "\xB1";
+    const deaths = after.deaths > 0.05 ? `, ${after.deaths.toFixed(1)} deaths/h` : "";
+    return `<b class="${xp >= 0 ? "mwia-ok" : "mwia-guide-low"}">${sign(xp)}${Math.abs(xp)}% XP/h</b>, <b class="${profit >= 0 ? "mwia-ok" : "mwia-guide-low"}">${sign(profit)}${shortCoins(Math.abs(profit))}/h profit</b>${deaths} over the loadout as it is`;
+  }
+  function adviceHtml(known, found, marked) {
+    const { entry, done: done2 } = known;
+    const { start: start2, final } = entry;
+    const same2 = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const unchanged = done2 || same2(start2.abilities.filter(Boolean), final.abilities.filter(Boolean)) && same2(start2.special, final.special) && same2(start2.drinks.filter(Boolean).sort(), final.drinks.filter(Boolean).sort()) && same2(start2.food.filter(Boolean).sort(), final.food.filter(Boolean).sort());
+    const perHour = (h2) => entry.after.consumables[h2] || 0;
+    const stock = (h2) => {
+      const need = Math.ceil(perHour(h2) * 8);
+      const text = `${n2(have4(h2))} in inventory${perHour(h2) ? `, ${n2(perHour(h2))}/h` : ""}`;
+      return have4(h2) < need ? `<b class="mwia-guide-low">${text}</b>` : text;
+    };
+    const from = done2 ? final : start2;
+    const order = final.abilities.filter(Boolean);
+    const newOrder = order.length > 1 && !same2(order, from.abilities.filter(Boolean));
+    let html = part("Abilities", [final.special, ...final.abilities], [from.special, ...from.abilities], abilityName) + (newOrder ? `<div class="mwia-guide-note">In this order: <b>${order.map((h2) => esc(abilityName(h2))).join(" \u2192 ")}</b></div>` : "") + part("Drinks", final.drinks, from.drinks, itemName, stock) + part("Food", final.food, from.food, itemName, stock);
+    html += `<div class="mwia-guide-note">${unchanged ? "\u2713 This loadout is the best the advisor found for this fight." : `Change it as above and save the loadout: ${gainText(entry)}.`}</div>`;
+    if (found) markSlots(found, final, marked);
+    const buttons = CART_HOURS.map((hours) => cartButton3(cartItems(entry, hours), hours)).join(" ");
+    html += `<div class="mwia-guide-sub">Drinks and food for <span>\xB7 at the simulated pace, less what you have</span></div><div class="mwia-guide-hours">${buttons}</div>`;
+    return html + againButton("\u21BB Simulate again");
+  }
+  var againButton = (label3) => `<button class="mwia-guide-cart" data-loadout-again="1">${label3}</button>`;
+  var statusHtml = () => g3.status ? `<div class="mwia-guide-status">${esc(g3.status)}</div>` : "";
+  function cartButton3(items, hours) {
+    if (!items.length) return `<button class="mwia-guide-cart" disabled title="You have enough for ${hours} h">\u2713 ${hours} h</button>`;
+    const title = items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ");
+    return `<button class="mwia-guide-cart" data-loadout-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(title)}">\u{1F6D2} ${hours} h</button>`;
+  }
+  function markSlots(found, final, marked) {
+    const abilities = new Set([final.special, ...final.abilities].filter(Boolean));
+    const consumables = new Set([...final.drinks, ...final.food].filter(Boolean));
+    const check = (slots, keep, label3) => {
+      for (const slot of slots) {
+        if (!slot.hrid || keep.has(slot.hrid)) continue;
+        const title = `Take out ${label3(slot.hrid)} (MWI Advisor)`;
+        if (slot.el.dataset.mwiaSlot !== "wrong") slot.el.dataset.mwiaSlot = "wrong";
+        if (slot.el.title !== title) slot.el.title = title;
+        marked.add(slot.el);
+      }
+    };
+    check(found.abilities.slots, abilities, abilityName);
+    check(found.consumables.slots, consumables, itemName);
+  }
+  function unmark2(el) {
+    delete el.dataset.mwiaSlot;
+    el.removeAttribute("title");
+  }
+  async function onClick5(event) {
+    const again = event.target.closest?.(".mwia-loadout-box [data-loadout-again]");
+    if (again) {
+      event.preventDefault();
+      event.stopPropagation();
+      forget();
+      scheduleScan7();
+      return;
+    }
+    const button2 = event.target.closest?.(".mwia-loadout-box [data-loadout-cart]");
+    if (!button2) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const names2 = (list) => list.map((i) => itemName(i.hrid)).join(", ");
+    try {
+      const outcome = await g3.deps.addToCart(JSON.parse(button2.dataset.loadoutCart));
+      const parts = [];
+      if (outcome.added.length) parts.push(`added ${names2(outcome.added)}`);
+      if (outcome.updated.length) parts.push(`topped up ${names2(outcome.updated)}`);
+      if (outcome.present.length) parts.push(`${names2(outcome.present)} already in the cart`);
+      if (outcome.failed.length) parts.push(`could not add ${names2(outcome.failed)}`);
+      g3.status = "Cart: " + parts.join("; ") + ".";
+    } catch (error) {
+      g3.status = error.message;
+    }
+    scheduleScan7();
+  }
+  function forget() {
+    const fight = queuedFight(state.character);
+    const chosen = fight ? fightLoadout(state.character, fight) : null;
+    const profile = chosen ? g3.deps.profileOf(chosen.loadout) : null;
+    if (!profile) return;
+    const sig = setupSig(profile, fight, g3.deps.settings());
+    g3.failed.delete(sig);
+    g3.status = "";
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(stored().filter((e2) => e2.sig !== sig && e2.finalSig !== sig)));
+    } catch {
+    }
   }
 
   // src/labyrinth.js
@@ -8279,10 +8640,10 @@ i.mwia-history-bid { background: #7ee2b0; }
       const curve = curves.get(monster);
       const lastSafe = [...curve].reverse().find((p2) => rate(p2) >= SAFE_WIN)?.level ?? 0;
       const firstLost = curve.find((p2) => p2.level > lastSafe && rate(p2) <= 0.1)?.level ?? MAX_LEVEL;
-      const have5 = new Set(curve.map((p2) => p2.level));
+      const have6 = new Set(curve.map((p2) => p2.level));
       const levels = [];
       for (let level = Math.max(MIN_LEVEL, lastSafe) + FINE_STEP; level < firstLost && levels.length < MAX_FINE; level += FINE_STEP) {
-        if (!have5.has(level)) levels.push(level);
+        if (!have6.has(level)) levels.push(level);
       }
       fine.push(...levels.map((level) => ({ monster, level, seed: 100 + level })));
     }
@@ -8449,44 +8810,44 @@ i.mwia-history-bid { background: #7ee2b0; }
     const minPerMillion = LEVELS_PER_MILLION[settings2.spending] ?? LEVELS_PER_MILLION.balanced;
     const targets = monstersFor(data, style);
     if (!targets.length) throw new Error(`No Labyrinth monster is weak to ${style}.`);
-    let start = cloneProfile(profile);
+    let start2 = cloneProfile(profile);
     let starter = null;
     if (yourStyle(profile, data) !== style) {
       starter = styleWeapon(profile, data, style);
       if (!starter) throw new Error(`No ${style} weapon you can wear is for sale.`);
       starter.replaces = weaponOf(profile);
-      equip(start, starter.slot, { hrid: starter.hrid, enhancementLevel: starter.enhancementLevel });
+      equip(start2, starter.slot, { hrid: starter.hrid, enhancementLevel: starter.enhancementLevel });
       budget = Math.max(0, budget - starter.cost);
     }
-    start.food = [];
-    start.drinks = [];
+    start2.food = [];
+    start2.drinks = [];
     const steps = 14;
-    const part = (from, size) => (done2, total) => onProgress?.(Math.round((from + size * done2 / Math.max(1, total)) * 1e3 / steps), 1e3);
-    const before = await simulateCurves(pool, roomFighter(start, data, crates), targets, accuracy.rooms, part(0, 3));
+    const part2 = (from, size) => (done2, total) => onProgress?.(Math.round((from + size * done2 / Math.max(1, total)) * 1e3 / steps), 1e3);
+    const before = await simulateCurves(pool, roomFighter(start2, data, crates), targets, accuracy.rooms, part2(0, 3));
     const edges = before.map((m2, i) => edgeOf(m2, 2e3 + i));
     const subStyle = (c2) => c2.kind !== "gear" || !["main_hand", "two_hand"].includes(c2.slot) || data.itemDetailMap[c2.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style;
     const candidates = [
       // A loadout of its own sells nothing: what it replaces is still worn in your other loadouts.
-      ...gearCandidates(start, { budget, starter, enhanceCost: opts.enhanceCost }).filter((c2) => c2.slot !== "pouch" && !c2.extraFood && subStyle(c2)).map((c2) => ({ ...c2, cost: c2.price ?? c2.cost, resale: 0, sold: [] })).filter((c2) => c2.cost <= budget),
-      ...abilityCandidates(start, budget)
+      ...gearCandidates(start2, { budget, starter, enhanceCost: opts.enhanceCost }).filter((c2) => c2.slot !== "pouch" && !c2.extraFood && subStyle(c2)).map((c2) => ({ ...c2, cost: c2.price ?? c2.cost, resale: 0, sold: [] })).filter((c2) => c2.cost <= budget),
+      ...abilityCandidates(start2, budget)
     ];
-    start.abilities.forEach((entry, index) => {
+    start2.abilities.forEach((entry, index) => {
       if (!entry || index === 0) return;
-      const without = cloneProfile(start);
+      const without = cloneProfile(start2);
       without.abilities[index] = null;
       candidates.push({ kind: "drop", slot: "ability" + index, hrid: entry.hrid, cost: 0, owned: true, profile: without });
     });
-    if (start.abilities.slice(1).filter(Boolean).length > 1) {
-      const bare = cloneProfile(start);
+    if (start2.abilities.slice(1).filter(Boolean).length > 1) {
+      const bare = cloneProfile(start2);
       bare.abilities = bare.abilities.map((entry, index) => index === 0 ? entry : null);
       candidates.push({ kind: "dropAll", slot: "abilities", cost: 0, owned: true, profile: bare });
     }
-    const quiet = cloneProfile(start);
-    quiet.abilityTriggers = Object.fromEntries(start.abilities.filter(Boolean).map((a) => [a.hrid, []]));
+    const quiet = cloneProfile(start2);
+    quiet.abilityTriggers = Object.fromEntries(start2.abilities.filter(Boolean).map((a) => [a.hrid, []]));
     candidates.push({ kind: "triggers", slot: "triggers", cost: 0, owned: true, profile: quiet });
     const scoreAt = (edgeList) => (own, base) => edgeList.reduce((sum, edge, i) => sum + Math.max(-50, Math.min(50, (rate(own[i]) - rate(base[i])) / edge.slope)), 0) / edgeList.length;
     const screenRooms = Math.max(20, Math.round(accuracy.improveRooms * SCREEN_SHARE));
-    const first = await atEdges(pool, data, [{ profile: start, crates, edges, repeat: BASE_REPEAT }, ...candidates.map((c2) => ({ profile: c2.profile, crates, edges }))], screenRooms, 0, part(3, 5));
+    const first = await atEdges(pool, data, [{ profile: start2, crates, edges, repeat: BASE_REPEAT }, ...candidates.map((c2) => ({ profile: c2.profile, crates, edges }))], screenRooms, 0, part2(3, 5));
     candidates.forEach((c2, i) => c2.levels = scoreAt(edges)(first[i + 1], first[0]));
     const bySlot = /* @__PURE__ */ new Map();
     for (const c2 of candidates.filter((c3) => c3.cost > 0 && c3.levels > 0).sort((a, b) => b.levels - a.levels)) {
@@ -8496,18 +8857,18 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const shortlist2 = [...candidates.filter((c2) => c2.cost === 0), ...[...bySlot.values()].flat()];
     const abilitySlots = [1, 2, 3, 4].map((i) => "ability" + i);
-    const slotsOf = (c2) => c2.slot === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : c2.slot === "main_hand" || c2.slot === "off_hand" ? [c2.slot, "two_hand"] : c2.kind === "dropAll" ? [...abilitySlots, "triggers", "abilities"] : c2.slot.startsWith("ability") && c2.slot !== "ability0" ? [c2.slot, "abilities"] : c2.slot === "triggers" ? ["triggers", "abilities"] : [c2.slot];
+    const slotsOf2 = (c2) => c2.slot === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : c2.slot === "main_hand" || c2.slot === "off_hand" ? [c2.slot, "two_hand"] : c2.kind === "dropAll" ? [...abilitySlots, "triggers", "abilities"] : c2.slot.startsWith("ability") && c2.slot !== "ability0" ? [c2.slot, "abilities"] : c2.slot === "triggers" ? ["triggers", "abilities"] : [c2.slot];
     const taken = /* @__PURE__ */ new Set();
     const picks = [];
     let left = budget;
-    let built = start;
+    let built = start2;
     let now = before;
     let lastRound = [];
     for (let round = 0; round < ROUNDS2; round++) {
-      const open = shortlist2.filter((c2) => !picks.includes(c2) && !slotsOf(c2).some((x) => taken.has(x)) && c2.cost <= left);
+      const open = shortlist2.filter((c2) => !picks.includes(c2) && !slotsOf2(c2).some((x) => taken.has(x)) && c2.cost <= left);
       if (!open.length) break;
       const roundEdges = now.map((m2, i) => edgeOf(m2, 3e3 + 10 * round + i));
-      const from = part(8 + round, 1);
+      const from = part2(8 + round, 1);
       const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open.map((c2) => ({ profile: applyCandidate(built, c2), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
       open.forEach((c2, i) => c2.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
       lastRound = open;
@@ -8528,10 +8889,10 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (!pick2) break;
       pick2.levels = pick2.roundLevels;
       picks.push(pick2);
-      slotsOf(pick2).forEach((x) => taken.add(x));
+      slotsOf2(pick2).forEach((x) => taken.add(x));
       left -= pick2.cost;
       built = applyCandidate(built, pick2);
-      now = await simulateCurves(pool, roomFighter(built, data, crates), targets, accuracy.rooms, part(8 + round, 1));
+      now = await simulateCurves(pool, roomFighter(built, data, crates), targets, accuracy.rooms, part2(8 + round, 1));
     }
     const after = now;
     onProgress?.(1e3, 1e3);
@@ -8634,7 +8995,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/labyrinth-marks.js
-  var SCAN_MS7 = 400;
+  var SCAN_MS8 = 400;
   var STORE2 = "mwia-laby-check";
   var TABLE = 'table[class*="LabyrinthPanel_automationTable"]';
   var LABEL2 = '[class*="LabyrinthPanel_roomLabel"]';
@@ -8657,7 +9018,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       localStorage.setItem(STORE2, JSON.stringify(kept));
     } catch {
     }
-    scheduleScan7();
+    scheduleScan8();
   }
   function lastCheck() {
     if (m.stored === void 0) {
@@ -8673,21 +9034,21 @@ i.mwia-history-bid { background: #7ee2b0; }
     m.deps = deps;
     new MutationObserver((records) => {
       if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}, .${CELL_MARK}`))) return;
-      scheduleScan7();
+      scheduleScan8();
     }).observe(document.body, { childList: true, subtree: true });
-    onStateChange(() => scheduleScan7());
-    scheduleScan7();
+    onStateChange(() => scheduleScan8());
+    scheduleScan8();
   }
-  function scheduleScan7() {
+  function scheduleScan8() {
     if (m.scanTimer || !m.deps) return;
     m.scanTimer = setTimeout(() => {
       m.scanTimer = null;
       try {
-        scan6();
+        scan7();
       } catch (error) {
         console.warn("[MWI Advisor] labyrinth marks", error);
       }
-    }, SCAN_MS7);
+    }, SCAN_MS8);
   }
   function rowMonster(row, monsters, data) {
     const label3 = row.querySelector(LABEL2) || row.querySelector("td");
@@ -8726,7 +9087,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (levels.length) return { level: levels[Math.floor(levels.length / 2)], run: true };
     return { level: m.deps.level(), run: false };
   }
-  function scan6() {
+  function scan7() {
     mapMarks();
     const tables = [...document.querySelectorAll(TABLE)].filter(visible);
     const check = lastCheck();
@@ -8775,7 +9136,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const data = getClientData();
     const rooms = new Map(runRooms(labyrinth).map((x) => [x.row * cols + x.col, x]));
     if (!data && [...rooms.values()].some((x) => x.skill) && m.deps.prepare && !m.loading) {
-      m.loading = m.deps.prepare().then(scheduleScan7, (error) => console.warn("[MWI Advisor] labyrinth marks", error)).finally(() => m.loading = null);
+      m.loading = m.deps.prepare().then(scheduleScan8, (error) => console.warn("[MWI Advisor] labyrinth marks", error)).finally(() => m.loading = null);
     }
     cells.forEach((cell, i) => {
       const room = rooms.get(i);
@@ -8854,31 +9215,31 @@ i.mwia-history-bid { background: #7ee2b0; }
       return ((t4 ^ t4 >>> 14) >>> 0) / 4294967296;
     };
   }
-  function simulateTries(p2, blessed, start, targets, from, runs, random) {
+  function simulateTries(p2, blessed, start2, targets, from, runs, random) {
     const top = Math.max(...targets);
     const out = Object.fromEntries(targets.map((t4) => [t4, { attempts: new Float64Array(runs), protections: new Float64Array(runs) }]));
     const cap3 = 50 * MAX_MEAN;
     for (let r = 0; r < runs; r++) {
-      let level = start;
+      let level = start2;
       let a = 0;
-      let g3 = 0;
+      let g4 = 0;
       let next = 0;
       while (level < top && a < cap3) {
         a++;
         if (random() < p2[level]) level += blessed > 0 && random() < blessed ? 2 : 1;
         else if (level >= from) {
-          g3++;
+          g4++;
           level--;
         } else level = 0;
         while (next < targets.length && level >= targets[next]) {
           out[targets[next]].attempts[r] = a;
-          out[targets[next]].protections[r] = g3;
+          out[targets[next]].protections[r] = g4;
           next++;
         }
       }
       for (; next < targets.length; next++) {
         out[targets[next]].attempts[r] = a;
-        out[targets[next]].protections[r] = g3;
+        out[targets[next]].protections[r] = g4;
       }
     }
     return out;
@@ -8888,10 +9249,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!sorted.length) return null;
     return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))];
   }
-  function enhancePlan({ itemHrid, start = 0, who, data, market, seed = 1 }) {
+  function enhancePlan({ itemHrid, start: start2 = 0, who, data, market, seed = 1 }) {
     const detail = data.itemDetailMap[itemHrid];
     const inputs = detail?.enhancementCosts?.length ? materials(detail, market) : null;
-    if (!inputs || start >= MAX_TARGET) return null;
+    if (!inputs || start2 >= MAX_TARGET) return null;
     const teas = who.drinks?.[TYPE3] || [];
     const { rates, blessed, cycleSeconds, effectiveLevel, multiplier } = enhanceRates(who, data, teas, detail.itemLevel || 1);
     const drinksPerAttempt = 12 * (who.concentration || 1) * cycleSeconds / 3600;
@@ -8901,11 +9262,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     const guard = cheapestProtection(detail, market);
     const meanCost = (cycle, guarded) => cycle.attempts * attemptCost + (guarded ? cycle.protections * guard.price : 0);
     const picks = [];
-    for (let target = start + 1; target <= MAX_TARGET; target++) {
-      const bare = protectedCycle(rates, blessed, target, target, NO_XP2, start);
+    for (let target = start2 + 1; target <= MAX_TARGET; target++) {
+      const bare = protectedCycle(rates, blessed, target, target, NO_XP2, start2);
       let best = bare && Number.isFinite(bare.attempts) ? { from: target, cycle: bare, cost: meanCost(bare, false) } : null;
       for (let from = MIN_PROTECT; guard && from < target; from++) {
-        const cycle = protectedCycle(rates, blessed, target, from, NO_XP2, start);
+        const cycle = protectedCycle(rates, blessed, target, from, NO_XP2, start2);
         if (!cycle || !Number.isFinite(cycle.attempts)) continue;
         const cost = meanCost(cycle, true);
         if (!best || cost < best.cost) best = { from, cycle, cost };
@@ -8925,13 +9286,13 @@ i.mwia-history-bid { background: #7ee2b0; }
       const from = key2 === "none" ? MAX_TARGET + 1 : key2;
       const most = Math.max(...list.map((pick2) => pick2.cycle.attempts));
       const runs = Math.round(Math.min(MAX_RUNS, Math.max(MIN_RUNS, STEP_BUDGET / Math.max(1, most))));
-      const tries = simulateTries(rates, blessed, start, list.map((pick2) => pick2.target), from, runs, seededRandom(seed * 7919 + (key2 === "none" ? 0 : key2)));
+      const tries = simulateTries(rates, blessed, start2, list.map((pick2) => pick2.target), from, runs, seededRandom(seed * 7919 + (key2 === "none" ? 0 : key2)));
       for (const pick2 of list) {
         const { attempts, protections } = tries[pick2.target];
         const costs = attempts.map((a, i) => a * attemptCost + (pick2.guarded ? protections[i] * guard.price : 0));
         const at2 = (q) => {
-          const n3 = quantile2(attempts, q);
-          return { attempts: n3, protections: pick2.guarded ? quantile2(protections, q) : 0, cost: quantile2(costs, q), hours: n3 * cycleSeconds / 3600 };
+          const n4 = quantile2(attempts, q);
+          return { attempts: n4, protections: pick2.guarded ? quantile2(protections, q) : 0, cost: quantile2(costs, q), hours: n4 * cycleSeconds / 3600 };
         };
         spread.set(pick2.target, { typical: at2(TYPICAL), unlucky: at2(UNLUCKY), runs });
       }
@@ -8948,20 +9309,20 @@ i.mwia-history-bid { background: #7ee2b0; }
         without: guarded && bare && Number.isFinite(bare.attempts) ? { cost: meanCost(bare, false), attempts: bare.attempts } : null
       };
     });
-    return { itemHrid, start, teas, rates, blessed, multiplier, effectiveLevel, cycleSeconds, attemptCost, perAttempt, guard, targets };
+    return { itemHrid, start: start2, teas, rates, blessed, multiplier, effectiveLevel, cycleSeconds, attemptCost, perAttempt, guard, targets };
   }
-  function withStock(plan, have5) {
-    const owned = (hrid) => Math.max(0, (have5(hrid) || 0) - (hrid === plan.itemHrid && plan.start === 0 ? 1 : 0));
-    const coins9 = have5(COIN8) || 0;
+  function withStock(plan, have6) {
+    const owned = (hrid) => Math.max(0, (have6(hrid) || 0) - (hrid === plan.itemHrid && plan.start === 0 ? 1 : 0));
+    const coins9 = have6(COIN8) || 0;
     const needs = (t4, outcome) => {
       if (!outcome) return null;
       const list = plan.perAttempt.map((i) => ({ itemHrid: i.itemHrid, price: i.price, tea: !!i.tea, count: Math.ceil(i.count * outcome.attempts) }));
       if (t4.protect) list.push({ itemHrid: t4.protect.itemHrid, price: t4.protect.price, protection: true, count: Math.ceil(outcome.protections) });
-      for (const n3 of list) {
-        n3.have = n3.itemHrid === COIN8 ? coins9 : owned(n3.itemHrid);
-        n3.short = Math.max(0, n3.count - n3.have);
+      for (const n4 of list) {
+        n4.have = n4.itemHrid === COIN8 ? coins9 : owned(n4.itemHrid);
+        n4.short = Math.max(0, n4.count - n4.have);
       }
-      const coinsNeeded = list.reduce((sum, n3) => sum + (n3.itemHrid === COIN8 ? n3.count : n3.short * n3.price), 0);
+      const coinsNeeded = list.reduce((sum, n4) => sum + (n4.itemHrid === COIN8 ? n4.count : n4.short * n4.price), 0);
       return { ...outcome, list, coinsNeeded, affordable: coinsNeeded <= coins9 };
     };
     const targets = plan.targets.map((t4) => ({ ...t4, mean: needs(t4, t4.mean), typical: needs(t4, t4.typical), unlucky: needs(t4, t4.unlucky) }));
@@ -8970,16 +9331,16 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
 
   // src/enhance-plan-ui.js
-  var SCAN_MS8 = 400;
+  var SCAN_MS9 = 400;
   var TYPE4 = "/action_types/enhancing";
   var SKILL3 = "/skills/enhancing";
   var COIN9 = "/items/coin";
   var SHOWN = 5;
   var PAST_REACH = 3;
   var e = { deps: null, scanTimer: null, loading: null, plans: /* @__PURE__ */ new Map(), busy: null, open: /* @__PURE__ */ new Set(), statuses: /* @__PURE__ */ new Map(), panels: /* @__PURE__ */ new Map() };
-  var coins6 = (n3) => shortCoins(Math.round(n3));
-  var count2 = (n3) => Math.round(n3).toLocaleString("en-US");
-  var have4 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
+  var coins6 = (n4) => shortCoins(Math.round(n4));
+  var count2 = (n4) => Math.round(n4).toLocaleString("en-US");
+  var have5 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
   function duration2(hours) {
     const s2 = hours * 3600;
     if (s2 < 90) return `${Math.max(1, Math.round(s2))} s`;
@@ -8989,35 +9350,35 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function startEnhancePlan(deps) {
     e.deps = deps;
-    onStateChange(() => scheduleScan8());
+    onStateChange(() => scheduleScan9());
     new MutationObserver((records) => {
       if (records.every((r) => r.target.closest?.(".mwia-plan-box"))) return;
-      scheduleScan8();
+      scheduleScan9();
     }).observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("click", onClick5, true);
+    document.addEventListener("click", onClick6, true);
     document.addEventListener("toggle", onToggle, true);
   }
-  function scheduleScan8() {
+  function scheduleScan9() {
     if (e.scanTimer) return;
     e.scanTimer = setTimeout(() => {
       e.scanTimer = null;
       try {
-        scan7();
+        scan8();
       } catch (error) {
         console.warn("[MWI Advisor] enhancing plan", error);
       }
-    }, SCAN_MS8);
+    }, SCAN_MS9);
   }
-  function planInputs(itemHrid, start) {
+  function planInputs(itemHrid, start2) {
     const data = getClientData();
     const who = skillingCharacter(state.character, state.items, data);
     const key2 = JSON.stringify([pricesStamp(), who.levels[SKILL3], who.drinks[TYPE4], who.concentration, who.equipped, who.houseLevels, who.buffs?.[TYPE4] || null]);
-    return { id: `${itemHrid}+${start}`, key: key2, who, data };
+    return { id: `${itemHrid}+${start2}`, key: key2, who, data };
   }
-  function scan7() {
+  function scan8() {
     const panels = levelingPanels().filter((p2) => p2.kind === "enhancing" && itemOfHash(p2.itemHash));
     if (panels.length && (!getClientData() || !pricesStamp())) {
-      e.loading || (e.loading = e.deps.prepare().then(scheduleScan8, (error) => console.warn("[MWI Advisor] enhancing plan", error)).finally(() => e.loading = null));
+      e.loading || (e.loading = e.deps.prepare().then(scheduleScan9, (error) => console.warn("[MWI Advisor] enhancing plan", error)).finally(() => e.loading = null));
       return;
     }
     const shown = /* @__PURE__ */ new Set();
@@ -9025,10 +9386,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (state.character) {
       for (const { panel, itemHash } of panels) {
         const itemHrid = itemOfHash(itemHash);
-        const start = levelOfHash(itemHash) || 0;
-        const { id, key: key2 } = planInputs(itemHrid, start);
+        const start2 = levelOfHash(itemHash) || 0;
+        const { id, key: key2 } = planInputs(itemHrid, start2);
         e.panels.set(id, { panel, itemHash });
-        shown.add(placeBox2(panel, id, boxHtml2(itemHrid, start, id, key2)));
+        shown.add(placeBox2(panel, id, boxHtml3(itemHrid, start2, id, key2)));
       }
     }
     document.querySelectorAll(".mwia-plan-box").forEach((box) => shown.has(box) || box.remove());
@@ -9047,22 +9408,22 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return box;
   }
-  var head2 = (title, note2) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note2}</span></div>`;
-  function boxHtml2(itemHrid, start, id, key2) {
+  var head3 = (title, note2) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note2}</span></div>`;
+  function boxHtml3(itemHrid, start2, id, key2) {
     const status = e.statuses.get(id);
-    const statusHtml = status ? `<div class="mwia-guide-status">${esc(status)}</div>` : "";
-    const title = head2("\u{1F3AF} Enhancing plan", `MWI Advisor \xB7 ${esc(itemName(itemHrid))}${start ? ` +${start}` : ""}`);
-    if (start >= 20) return title + `<div class="mwia-guide-note">Already at +20.</div>`;
+    const statusHtml2 = status ? `<div class="mwia-guide-status">${esc(status)}</div>` : "";
+    const title = head3("\u{1F3AF} Enhancing plan", `MWI Advisor \xB7 ${esc(itemName(itemHrid))}${start2 ? ` +${start2}` : ""}`);
+    if (start2 >= 20) return title + `<div class="mwia-guide-note">Already at +20.</div>`;
     const saved = e.plans.get(id);
     const button2 = (label3) => `<button class="mwia-guide-cart mwia-plan-run" data-plan-run="${esc(id)}" ${e.busy ? "disabled" : ""}>${label3}</button>`;
-    if (e.busy === id) return title + `<div class="mwia-guide-note mwia-plan-busy">\u{1F3B2} Simulating thousands of tries from +${start} to every target\u2026 this can take a few seconds.</div>`;
+    if (e.busy === id) return title + `<div class="mwia-guide-note mwia-plan-busy">\u{1F3B2} Simulating thousands of tries from +${start2} to every target\u2026 this can take a few seconds.</div>`;
     if (!saved) {
-      return title + `<div class="mwia-guide-note">What reaching each +level typically costs and takes, with bad luck, which protection is worth it and the materials against what you have \u2013 simulated with your odds here (it can take a few seconds).</div>` + button2(`\u{1F3B2} Simulate +${start + 1} \u2026 +20`) + statusHtml;
+      return title + `<div class="mwia-guide-note">What reaching each +level typically costs and takes, with bad luck, which protection is worth it and the materials against what you have \u2013 simulated with your odds here (it can take a few seconds).</div>` + button2(`\u{1F3B2} Simulate +${start2 + 1} \u2026 +20`) + statusHtml2;
     }
-    if (!saved.plan) return title + `<div class="mwia-guide-note">Can't plan this item: it has no enhancing materials, or one of them isn't for sale.</div>` + statusHtml;
-    const plan = withStock(saved.plan, have4);
+    if (!saved.plan) return title + `<div class="mwia-guide-note">Can't plan this item: it has no enhancing materials, or one of them isn't for sale.</div>` + statusHtml2;
+    const plan = withStock(saved.plan, have5);
     const stale2 = saved.key !== key2 ? `<div class="mwia-guide-note mwia-guide-low">Prices, your teas or your Enhancing have changed since. ${button2("\u{1F3B2} Simulate again")}</div>` : "";
-    return title + stale2 + summaryHtml(plan) + tableHtml(plan, id) + statusHtml;
+    return title + stale2 + summaryHtml(plan) + tableHtml(plan, id) + statusHtml2;
   }
   function summaryHtml(plan) {
     const odds = [];
@@ -9105,37 +9466,37 @@ i.mwia-history-bid { background: #7ee2b0; }
     else lines.push(`Too many attempts to simulate: on average ${count2(t4.mean.attempts)} attempts (${duration2(t4.mean.hours)}), ${coins6(t4.mean.cost)}.`);
     const base = sim || t4.mean;
     const bad = t4.unlucky;
-    const items = base.list.map((n3, i) => {
+    const items = base.list.map((n4, i) => {
       const b = bad?.list[i];
-      const amount2 = `${count2(n3.count)}${b ? ` (bad luck ${count2(b.count)})` : ""}`;
-      const verdict3 = n3.short > 0 ? `<b class="mwia-guide-low">${count2(n3.short)} short</b>` : b?.short > 0 ? `enough typically, ${count2(b.short)} short with bad luck` : `<span class="mwia-ok">\u2713 ${count2(n3.have - (b || n3).count)} to spare</span>`;
-      return `<li>${esc(n3.itemHrid === COIN9 ? "Coins" : itemName(n3.itemHrid))}${n3.protection ? " (protection)" : ""}${n3.tea ? " (tea)" : ""}: ${amount2} \xB7 have ${count2(n3.have)} \xB7 ${verdict3}</li>`;
+      const amount2 = `${count2(n4.count)}${b ? ` (bad luck ${count2(b.count)})` : ""}`;
+      const verdict3 = n4.short > 0 ? `<b class="mwia-guide-low">${count2(n4.short)} short</b>` : b?.short > 0 ? `enough typically, ${count2(b.short)} short with bad luck` : `<span class="mwia-ok">\u2713 ${count2(n4.have - (b || n4).count)} to spare</span>`;
+      return `<li>${esc(n4.itemHrid === COIN9 ? "Coins" : itemName(n4.itemHrid))}${n4.protection ? " (protection)" : ""}${n4.tea ? " (tea)" : ""}: ${amount2} \xB7 have ${count2(n4.have)} \xB7 ${verdict3}</li>`;
     });
     const cart = (outcome, label3) => {
-      const list = outcome ? outcome.list.filter((n3) => n3.itemHrid !== COIN9 && n3.short > 0).map((n3) => ({ hrid: n3.itemHrid, quantity: n3.short })) : [];
+      const list = outcome ? outcome.list.filter((n4) => n4.itemHrid !== COIN9 && n4.short > 0).map((n4) => ({ hrid: n4.itemHrid, quantity: n4.short })) : [];
       return list.length ? `<button class="mwia-guide-cart" data-plan-cart="${esc(JSON.stringify(list))}" title="Adds to the MWITools cart: ${esc(list.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">${label3}</button>` : "";
     };
-    const protectHave = t4.protect ? base.list.find((n3) => n3.protection)?.have || 0 : 0;
+    const protectHave = t4.protect ? base.list.find((n4) => n4.protection)?.have || 0 : 0;
     const set = `<button class="mwia-guide-cart" data-plan-set="${t4.target}"${t4.protect && protectHave > 0 ? ` data-protect="${esc(t4.protect.itemHrid)}" data-from="${t4.protect.from}"` : ""}>\u25B6 Set +${t4.target}${t4.protect ? protectHave > 0 ? ` and protection from +${t4.protect.from}` : "" : ""}</button>`;
     return lines.map((l2) => `<div class="mwia-guide-note">${l2}</div>`).join("") + `<ul class="mwia-guide-list">${items.join("")}</ul><div class="mwia-plan-buttons">${set}${cart(sim ? sim : t4.mean, sim ? "\u{1F6D2} What's short (typical)" : "\u{1F6D2} What's short (average)")}${cart(bad, "\u{1F6D2} What's short (bad luck)")}</div>` + (t4.protect && protectHave <= 0 ? `<div class="mwia-guide-dim">Buy the protection first, then \u25B6 puts it in too.</div>` : "");
   }
   function runPlan(id) {
     const [itemHrid, startText] = [id.slice(0, id.lastIndexOf("+")), id.slice(id.lastIndexOf("+") + 1)];
-    const start = Number(startText) || 0;
+    const start2 = Number(startText) || 0;
     e.busy = id;
     e.statuses.delete(id);
-    scheduleScan8();
+    scheduleScan9();
     setTimeout(() => {
       try {
-        const { key: key2, who, data } = planInputs(itemHrid, start);
-        e.plans.set(id, { key: key2, plan: enhancePlan({ itemHrid, start, who, data, market: skillingMarket("bid") }) });
+        const { key: key2, who, data } = planInputs(itemHrid, start2);
+        e.plans.set(id, { key: key2, plan: enhancePlan({ itemHrid, start: start2, who, data, market: skillingMarket("bid") }) });
       } catch (error) {
         console.warn("[MWI Advisor] enhancing plan", error);
         e.statuses.set(id, `Could not simulate: ${error.message}`);
       }
       e.busy = null;
-      scheduleScan8();
-    }, SCAN_MS8 + 150);
+      scheduleScan9();
+    }, SCAN_MS9 + 150);
   }
   async function setTarget(button2, id) {
     const target = Number(button2.dataset.planSet);
@@ -9148,9 +9509,9 @@ i.mwia-history-bid { background: #7ee2b0; }
       id,
       result === "item" ? `Target +${target} set${protect ? `, protection from +${protect.from}` : ""} \u2013 press the game's Enhance.` : result === "partial" ? `Target +${target} set, but put in ${itemName(protectHrid)} from +${button2.dataset.from} yourself (${navDiagnostics()}).` : `Could not set it: enter +${target} yourself (${navDiagnostics() || "no Enhancing window"}).`
     );
-    scheduleScan8();
+    scheduleScan9();
   }
-  async function onClick5(event) {
+  async function onClick6(event) {
     const button2 = event.target.closest?.(".mwia-plan-box button");
     if (!button2) return;
     event.preventDefault();
@@ -9171,7 +9532,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       } catch (error) {
         e.statuses.set(id, error.message);
       }
-      scheduleScan8();
+      scheduleScan9();
     }
   }
   function onToggle(event) {
@@ -9219,7 +9580,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     });
   }
   function makeDraggable(button2) {
-    let start = null;
+    let start2 = null;
     let moved = false;
     const place2 = (x, y) => {
       button2.style.left = `${Math.min(Math.max(4, x), innerWidth - button2.offsetWidth - 4)}px`;
@@ -9244,21 +9605,21 @@ i.mwia-history-bid { background: #7ee2b0; }
     button2.addEventListener("pointerdown", (event) => {
       if (event.button) return;
       const box = button2.getBoundingClientRect();
-      start = { x: event.clientX, y: event.clientY, left: box.left, top: box.top };
+      start2 = { x: event.clientX, y: event.clientY, left: box.left, top: box.top };
       moved = false;
       button2.setPointerCapture?.(event.pointerId);
     });
     button2.addEventListener("pointermove", (event) => {
-      if (!start) return;
-      const dx = event.clientX - start.x;
-      const dy = event.clientY - start.y;
+      if (!start2) return;
+      const dx = event.clientX - start2.x;
+      const dy = event.clientY - start2.y;
       if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       moved = true;
-      place2(start.left + dx, start.top + dy);
+      place2(start2.left + dx, start2.top + dy);
     });
     const end = () => {
-      if (start && moved) save5();
-      start = null;
+      if (start2 && moved) save5();
+      start2 = null;
     };
     button2.addEventListener("pointerup", end);
     button2.addEventListener("pointercancel", end);
@@ -9318,9 +9679,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const policies = /* @__PURE__ */ new Map();
     for (const row of doc.querySelectorAll(".planning-step")) {
-      const summary = row.querySelector(":scope > summary") || row;
-      const hrid = itemFromIcon(summary.querySelector(".planning-row-icon")) || byName.get(summary.querySelector(".planning-step-name")?.textContent.trim());
-      const policy = activePolicy(summary);
+      const summary2 = row.querySelector(":scope > summary") || row;
+      const hrid = itemFromIcon(summary2.querySelector(".planning-row-icon")) || byName.get(summary2.querySelector(".planning-step-name")?.textContent.trim());
+      const policy = activePolicy(summary2);
       if (hrid && policy) policies.set(hrid, policy);
     }
     let error = null;
@@ -9414,9 +9775,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     const rows = /* @__PURE__ */ new Map();
     for (const hrid of [...order].reverse()) {
       const wanted = demand.get(hrid) || 0;
-      const have5 = owned.get(hrid) || 0;
-      const need = Math.max(0, wanted - have5);
-      const row = { hrid, name: name(hrid), wanted, have: have5, need };
+      const have6 = owned.get(hrid) || 0;
+      const need = Math.max(0, wanted - have6);
+      const row = { hrid, name: name(hrid), wanted, have: have6, need };
       if (produced(hrid)) {
         const action = actions.get(hrid);
         const perAction = action.outputItems[0].count || 1;
@@ -9577,8 +9938,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     enableTapTips(element);
     return element;
   }
-  function shownRequired(summary) {
-    const text = summary.querySelector(".planning-step-count")?.textContent || summary.textContent;
+  function shownRequired(summary2) {
+    const text = summary2.querySelector(".planning-step-count")?.textContent || summary2.textContent;
     const match = text.match(/Required\s*([\d.,]+\s*[kmb]?)/i);
     return match ? parseCoins(match[1].replace(/\s+/g, "")) : null;
   }
@@ -9639,11 +10000,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const byName = new Map(Object.values(data.itemDetailMap).map((item) => [item.name, item.hrid]));
     for (const step of steps) {
-      const summary = step.querySelector(":scope > summary") || step;
-      const use = summary.querySelector(".planning-row-icon use");
+      const summary2 = step.querySelector(":scope > summary") || step;
+      const use = summary2.querySelector(".planning-row-icon use");
       const bare = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1];
-      const hrid = bare ? "/items/" + bare : byName.get(summary.querySelector(".planning-step-name")?.textContent.trim());
-      const count3 = wanted.get(hrid) || shownRequired(summary);
+      const hrid = bare ? "/items/" + bare : byName.get(summary2.querySelector(".planning-step-name")?.textContent.trim());
+      const count3 = wanted.get(hrid) || shownRequired(summary2);
       let html = "";
       if (c.priceError || !hrid || !data.itemDetailMap[hrid]) html = "";
       else if (!count3) html = '<span class="mwia-dim">Not needed with the current choices</span>';
@@ -9655,11 +10016,11 @@ i.mwia-history-bid { background: #7ee2b0; }
           { label: "Full chain", cost: costs.chain }
         ]);
       }
-      place(html, summary.querySelector(".mwia-plan-cost"), () => {
+      place(html, summary2.querySelector(".mwia-plan-cost"), () => {
         const element = costElement("mwia-plan-cost", ROW_TIP);
-        const policySwitch = summary.querySelector(".planning-policy-switch");
+        const policySwitch = summary2.querySelector(".planning-policy-switch");
         if (policySwitch) policySwitch.after(element);
-        else summary.appendChild(element);
+        else summary2.appendChild(element);
         return element;
       });
     }
@@ -9684,7 +10045,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     // count input -> stop index it was filled for
     queueClickTimer: null
   };
-  var n2 = (value) => Math.ceil(value).toLocaleString("en-US");
+  var n3 = (value) => Math.ceil(value).toLocaleString("en-US");
   var characterId = () => state.character?.character?.id ?? null;
   var storeKey = () => STORE_PREFIX + (characterId() ?? "unknown");
   function save4() {
@@ -9818,7 +10179,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }, NOT_QUEUED_AFTER_MS);
   }
   function onGameMessage(type, data) {
-    scheduleScan9();
+    scheduleScan10();
     if (type === "init_character_data") {
       t3.seenActionIds = /* @__PURE__ */ new Set();
       restore();
@@ -9849,7 +10210,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!train) return;
     const stop = currentStop();
     const done2 = train.index >= train.stops.length && !train.failed;
-    const headline = done2 ? "All stops queued" : stop ? `${train.index + 1}/${train.stops.length} \xB7 ${esc(stop.actionName)} \xD7${n2(stop.count)}` : "";
+    const headline = done2 ? "All stops queued" : stop ? `${train.index + 1}/${train.stops.length} \xB7 ${esc(stop.actionName)} \xD7${n3(stop.count)}` : "";
     let html = `<div class="mwia-train-head">
         <button class="mwia-link" data-train="toggle" title="Show or hide the stops">${t3.collapsed ? "\u25B8" : "\u25BE"}</button>
         <b>\u{1F682} ${esc(train.title)}</b>
@@ -9871,7 +10232,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         html += `<p>Everything is in the queue. When it has finished, ${/→/.test(train.title) ? "upgrade the house room" : "the goal items are ready"}.</p>`;
       }
       html += `<ol class="mwia-train-stops">${train.stops.map((s2, i) => `<li class="${i < train.index ? "mwia-train-done" : i === train.index ? "mwia-train-current" : ""}">
-                <span>${esc(s2.actionName)}</span> <span class="mwia-num"${s2.gather ? ` title="${n2(s2.count)} actions give about ${n2(s2.output)}; ${n2(s2.need)} needed"` : ""}>\xD7${n2(s2.count)}</span>
+                <span>${esc(s2.actionName)}</span> <span class="mwia-num"${s2.gather ? ` title="${n3(s2.count)} actions give about ${n3(s2.output)}; ${n3(s2.need)} needed"` : ""}>\xD7${n3(s2.count)}</span>
                 <span class="mwia-dim">${esc(cap(s2.skill))}</span>${levelNote(s2)}${s2.gather && i >= train.index ? ` <button class="mwia-link" data-train="gather" data-item="${esc(s2.itemHrid)}" title="Buy ${esc(s2.name)} instead of gathering it">buy instead</button>` : ""}</li>`).join("")}</ol>`;
       if (!train.stops.length) html += `<p>Nothing needs to be made \u2014 your inventory already covers the plan.</p>`;
       if (train.covered.length) html += `<p class="mwia-dim">Already in inventory: ${esc(train.covered.join(", "))}</p>`;
@@ -9884,15 +10245,15 @@ i.mwia-history-bid { background: #7ee2b0; }
         return ` <button class="mwia-link" data-train="gather" data-item="${esc(s2.itemHrid)}" title="Gather it yourself (${esc(cap(item.skill))} ${item.levelRequired})">gather</button>${levelNote(item)}`;
       };
       if (buyable.length) {
-        html += `<p><b>Missing materials:</b> ${buyable.map((s2) => `${esc(s2.name)} \xD7${n2(s2.need)}${gatherButton(s2)}`).join(", ")}
+        html += `<p><b>Missing materials:</b> ${buyable.map((s2) => `${esc(s2.name)} \xD7${n3(s2.need)}${gatherButton(s2)}`).join(", ")}
               <button class="mwia-cart-btn" data-train="cart" title="Add the missing materials to the MWITools shopping cart">\u{1F6D2} Add to cart</button></p>`;
       }
-      if (coins9) html += `<p class="mwia-warn">Coins short: ${n2(coins9.need)}</p>`;
+      if (coins9) html += `<p class="mwia-warn">Coins short: ${n3(coins9.need)}</p>`;
       for (const warning of train.warnings) html += `<p class="mwia-warn">\u26A0 ${esc(warning)}</p>`;
     }
     t3.root.innerHTML = html;
   }
-  async function onClick6(event) {
+  async function onClick7(event) {
     const button2 = event.target.closest("[data-train]");
     if (!button2) return;
     const action = button2.dataset.train;
@@ -9948,7 +10309,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   var scanQueued = false;
-  function scheduleScan9() {
+  function scheduleScan10() {
     if (scanQueued) return;
     scanQueued = true;
     requestAnimationFrame(() => {
@@ -9966,7 +10327,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     t3.win = win2;
     t3.root = document.createElement("div");
     t3.root.className = "mwia-train mwia-hidden";
-    t3.root.addEventListener("click", onClick6);
+    t3.root.addEventListener("click", onClick7);
     enableTapTips(t3.root);
     document.body.appendChild(t3.root);
     try {
@@ -9978,8 +10339,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     rememberQueuedActions();
     render();
     onStateChange(onGameMessage);
-    new MutationObserver(scheduleScan9).observe(document.body, { childList: true, subtree: true });
-    scheduleScan9();
+    new MutationObserver(scheduleScan10).observe(document.body, { childList: true, subtree: true });
+    scheduleScan10();
   }
 
   // src/trigger-fill.js
@@ -10110,7 +10471,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   };
   var clean3 = (text) => String(text || "").replace(/\s+/g, " ").trim();
-  var short = (text, n3 = 40) => text.length > n3 ? text.slice(0, n3) + "\u2026" : text;
+  var short = (text, n4 = 40) => text.length > n4 ? text.slice(0, n4) + "\u2026" : text;
   function watchTriggerClicks() {
     document.addEventListener(
       "click",
@@ -10134,7 +10495,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     );
   }
   function triggerWindow() {
-    const title = [...document.querySelectorAll("body *")].find((el) => !el.closest('[class*="mwia"]') && ownText2(el) === "Combat Triggers" && visible(el));
+    const title = [...document.querySelectorAll("body *")].find((el) => !el.closest('[class*="mwia"]') && ownText3(el) === "Combat Triggers" && visible(el));
     if (!title) return { title: null, box: null };
     let box = title.parentElement;
     while (box && box !== document.body && ![...box.querySelectorAll("button")].some((b) => clean3(b.textContent) === "Save")) box = box.parentElement;
@@ -10149,13 +10510,13 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (el.tagName === "INPUT" || el.tagName === "SELECT") out.push(`value="${short(String(el.value), 20)}"`);
     return out.length ? ` (${out.join(" ")})` : "";
   }
-  function ownText2(el) {
-    return clean3([...el.childNodes].filter((n3) => n3.nodeType === 3).map((n3) => n3.textContent).join(" "));
+  function ownText3(el) {
+    return clean3([...el.childNodes].filter((n4) => n4.nodeType === 3).map((n4) => n4.textContent).join(" "));
   }
   function outline(root, maxDepth, lines) {
     const walk = (el, depth) => {
       if (lines.length >= MAX_LINES || depth > maxDepth) return;
-      const text = ownText2(el);
+      const text = ownText3(el);
       const icons = el.tagName.toLowerCase() === "use" ? ` #${(el.getAttribute("href") || el.getAttribute("xlink:href") || "").split("#")[1] || ""}` : "";
       lines.push(`${"  ".repeat(depth)}${describe(el)}${attrs(el)}${text ? ` "${short(text)}"` : ""}${icons}`);
       if (el.tagName === "SELECT") {
@@ -10195,12 +10556,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const lines = [];
     const host = walkFibers((f) => f.stateNode === box).fiber;
     if (!host) return ["window fiber: not found from the React root"];
-    let n3 = 0;
-    for (let f = host.return; f && n3 < 14; f = f.return) {
+    let n4 = 0;
+    for (let f = host.return; f && n4 < 14; f = f.return) {
       if (typeof f.type === "string") continue;
-      n3++;
+      n4++;
       const hooks = hookValues(f);
-      lines.push(`up ${n3}: ${typeName(f)}${isClass(f) ? " (class)" : ""}`);
+      lines.push(`up ${n4}: ${typeName(f)}${isClass(f) ? " (class)" : ""}`);
       const props = propsText(f.memoizedProps);
       if (props) lines.push(`  props: ${short(props, 400)}`);
       if (isClass(f)) {
@@ -10209,7 +10570,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       } else if (hooks.length) {
         lines.push(`  hooks: ${short(hooks.map((v, i) => `${i}:${valueText(v)}`).join("; "), 400)}`);
       }
-      if (Object.values(f.memoizedProps || {}).some(holdsTriggers2) && n3 > 2) break;
+      if (Object.values(f.memoizedProps || {}).some(holdsTriggers2) && n4 > 2) break;
     }
     for (const el of [box.querySelector("select"), box.querySelector("input"), box.querySelector('[role="button"],[aria-haspopup]')].filter(Boolean)) {
       const fiber = walkFibers((f) => f.stateNode === el).fiber;
@@ -10253,7 +10614,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function startTriggerWindow(deps) {
     let timer = null;
-    const scan9 = () => {
+    const scan10 = () => {
       timer = null;
       const { box } = triggerWindow();
       if (!box || box.querySelector(".mwia-trig-bar")) return;
@@ -10300,7 +10661,7 @@ ${triggerWindowReport()}`, false);
     };
     new MutationObserver((records) => {
       if (timer || records.every((r) => r.target.closest?.(".mwia-trig-bar"))) return;
-      timer = setTimeout(scan9, 200);
+      timer = setTimeout(scan10, 200);
     }).observe(document.body, { childList: true, subtree: true });
   }
 
@@ -10356,9 +10717,9 @@ ${triggerWindowReport()}`, false);
     const newest = hours.length ? hours[hours.length - 1].hour : 0;
     const starts = hours.filter((r) => r.hour + horizon <= newest).map((r) => r.hour);
     const windows = [];
-    for (const start of starts) {
+    for (const start2 of starts) {
       const seen = [];
-      for (let k = 1; k <= horizon; k++) if (byHour.has(start + k)) seen.push([k, byHour.get(start + k)]);
+      for (let k = 1; k <= horizon; k++) if (byHour.has(start2 + k)) seen.push([k, byHour.get(start2 + k)]);
       if (seen.length >= Math.max(1, COVERAGE * horizon)) windows.push(seen);
     }
     if (windows.length < MIN_WINDOWS) return { price: null, why: "history", windows: windows.length };
@@ -10392,7 +10753,7 @@ ${triggerWindowReport()}`, false);
     }
     return { price: null, why: "none", windows: windows.length, need };
   }
-  function listingPrices({ side, book = null, own = [], best = null, range = null, summary = null, hours = [], quantity = 1 }) {
+  function listingPrices({ side, book = null, own = [], best = null, range = null, summary: summary2 = null, hours = [], quantity = 1 }) {
     const sell = side === "sell";
     const levels = otherLevels(book ? sell ? book.asks : book.bids : [], own, range, side);
     const clamp = (price) => {
@@ -10410,8 +10771,8 @@ ${triggerWindowReport()}`, false);
       const h2 = horizonPrice({ side, hours, horizon, quantity, best: othersBest, levels, range, taken });
       out.push({ kind: "horizon", horizon, ...h2, capped: null, step: h2.under ? sell ? -1 : 1 : 0 });
     }
-    const history = summary && summary.hours7 >= MIN_HOURS ? summary[sell ? "a" : "b"] : null;
-    return { levels, suggestions: out, usual: history?.med7 ?? null, hours: summary?.hours7 ?? 0, taken, quantity };
+    const history = summary2 && summary2.hours7 >= MIN_HOURS ? summary2[sell ? "a" : "b"] : null;
+    return { levels, suggestions: out, usual: history?.med7 ?? null, hours: summary2?.hours7 ?? 0, taken, quantity };
   }
 
   // src/market.js
@@ -10440,22 +10801,22 @@ ${triggerWindowReport()}`, false);
     const time2 = typeof raw === "number" ? raw < 1e12 ? raw * 1e3 : raw : Date.parse(raw ?? "");
     return Number.isFinite(time2) ? time2 : null;
   }
-  function trackFills(listings, store3 = {}, now = Date.now()) {
+  function trackFills(listings, store4 = {}, now = Date.now()) {
     const out = {};
     for (const listing of listings) {
       if (listing.id === void 0 || listing.id === null) continue;
       const filled = Number(listing.filledQuantity) || 0;
-      const before = store3[listing.id];
+      const before = store4[listing.id];
       if (!before) out[listing.id] = { filled, at: Math.min(now, placedAt(listing) ?? now) };
       else out[listing.id] = before.filled === filled ? before : { filled, at: now };
     }
     return out;
   }
-  function listingStatus(listing, { entry = null, book = null, own = [], summary = null, lastFillAt = null, now = Date.now(), rules = MARKET_RULES } = {}) {
+  function listingStatus(listing, { entry = null, book = null, own = [], summary: summary2 = null, lastFillAt = null, now = Date.now(), rules = MARKET_RULES } = {}) {
     const sell = !!listing.isSell;
     const side = sell ? "sell" : "buy";
     const price = Number(listing.price) || 0;
-    const sold = summary?.liquidity?.sold;
+    const sold = summary2?.liquidity?.sold;
     const perDay2 = sold?.enough && sold.perDay > 0 ? sold.perDay : null;
     const out = { side, price, left: remaining(listing), kind: "unknown", alert: false, fromBook: false, better: null, total: null, share: null, daysAhead: null, gap: null, best: null, perDay: perDay2 };
     const better2 = (a, b) => sell ? a < b : a > b;
@@ -10484,7 +10845,7 @@ ${triggerWindowReport()}`, false);
     out.alert = out.kind === "wall" || out.kind === "cheaper" && out.gap > rules.bigGap;
     out.stale = lastFillAt !== null && now - lastFillAt > rules.staleHours * HOUR;
     out.idleHours = lastFillAt !== null ? (now - lastFillAt) / HOUR : null;
-    const usual = summary && summary.hours7 >= MIN_HOURS ? summary[sell ? "a" : "b"].med7 : null;
+    const usual = summary2 && summary2.hours7 >= MIN_HOURS ? summary2[sell ? "a" : "b"].med7 : null;
     const vs = versusUsual(price, usual);
     out.usual = usual;
     out.vsUsual = vs;
@@ -10511,16 +10872,16 @@ ${triggerWindowReport()}`, false);
       const ask = entry.a > 0 ? entry.a : null;
       const bid = entry.b > 0 ? entry.b : null;
       if (!ask && !bid) continue;
-      const summary = summaryOf(hrid, level);
-      const history = summary && summary.hours7 >= MIN_HOURS;
-      const usualAsk = history ? summary.a.med7 : null;
-      const usualBid = history ? summary.b.med7 : null;
+      const summary2 = summaryOf(hrid, level);
+      const history = summary2 && summary2.hours7 >= MIN_HOURS;
+      const usualAsk = history ? summary2.a.med7 : null;
+      const usualBid = history ? summary2.b.med7 : null;
       const ceiling = usualAsk > 0 ? usualAsk : bid ? WIDE_SPREAD * bid : Infinity;
       const listPrice = ask ? Math.min(ask, ceiling) : usualAsk > 0 ? usualAsk : null;
       const net = (price) => price ? price * count3 * (1 - MARKET_TAX) : 0;
       const spread = ask && bid ? (ask - bid) / ask : null;
       const how = !bid ? "list" : !listPrice ? "sell" : spread !== null && spread <= rules.quickSpread ? "sell" : "list";
-      const sold = summary?.liquidity?.sold;
+      const sold = summary2?.liquidity?.sold;
       const perDay2 = sold?.enough && sold.perDay > 0 ? sold.perDay : null;
       rows.push({
         hrid,
@@ -10579,8 +10940,8 @@ ${triggerWindowReport()}`, false);
   var FILLS_KEY = "mwia-listing-fills";
   var INVENTORY7 = "/item_locations/inventory";
   var view2 = { showAll: false };
-  var dec2 = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-  var coins7 = (n3) => (n3 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n3));
+  var dec2 = (n4, d = 1) => n4.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  var coins7 = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
   var pctAbs = (fraction) => `${dec2(Math.abs(fraction) * 100, fraction && Math.abs(fraction) < 0.1 ? 1 : 0)}%`;
   var label = (hrid, level) => esc(itemName(hrid)) + (level ? ` <span class="mwia-enh">+${level}</span>` : "");
   function readJson2(key2, fallback) {
@@ -10912,7 +11273,7 @@ ${triggerWindowReport()}`, false);
     }
     return items;
   }
-  function buildHtml(build, data, settings2, busy, settingsHtml2, cartButton4, coins9) {
+  function buildHtml(build, data, settings2, busy, settingsHtml2, cartButton5, coins9) {
     const style = buildStyleSetting(settings2);
     const targets = monstersFor(data, style).map((h2) => esc(monsterName(h2)));
     let html = `<h3>Build a loadout for the Labyrinth</h3>
@@ -10930,7 +11291,7 @@ ${triggerWindowReport()}`, false);
     if (build.starter) html += `<br>Weapon: <b>${esc(itemName(build.starter.hrid))}${build.starter.enhancementLevel ? " +" + build.starter.enhancementLevel : ""}</b> ${build.starter.owned ? '<span class="mwia-ok">you own it</span>' : "\u2013 " + coins9(build.starter.cost)}`;
     html += `<ol class="mwia-plan">${build.picks.map((p2) => `<li>${pickText(p2, coins9)}</li>`).join("") || "<li>Nothing tested takes these rooms clearly further within the budget.</li>"}</ol>`;
     const cart = cartOf(build);
-    if (cart.length) html += cartButton4(cart, "\u{1F6D2} Add all to the cart");
+    if (cart.length) html += cartButton5(cart, "\u{1F6D2} Add all to the cart");
     html += `</div><table class="mwia-table mwia-wide mwia-laby-built"><thead><tr><th>Monster</th><th class="mwia-num" title="Highest room level with at least ${pctText(SAFE_WIN)} of the rooms won">Safe: now</th><th class="mwia-num">Safe: built</th><th class="mwia-num" title="Room level where you win half the rooms">50%: now</th><th class="mwia-num">50%: built</th></tr></thead><tbody>`;
     for (const m2 of build.after) {
       const b = before.get(m2.hrid);
@@ -10951,21 +11312,21 @@ ${triggerWindowReport()}`, false);
   function attemptName(a) {
     return a.type === "combat" ? monsterName(`/monsters/${a.what}`) : cap2(a.what);
   }
-  function attemptsHtml(summary, recent) {
+  function attemptsHtml(summary2, recent) {
     let html = `<h3>Your attempts</h3>`;
-    if (!summary.length) {
+    if (!summary2.length) {
       return html + `<p class="mwia-dim">Each room you fight or skill in the Labyrinth is logged here from now on (and sent to your Pi when it takes them):
           won, lost or shrouded, at what room level, with your levels, the loadout chosen for it, crates and shop upgrades, and the chance the advisor gave it.</p>`;
     }
     const levels = (s2) => s2.minLevel === null ? "\u2013" : s2.minLevel === s2.maxLevel ? String(s2.minLevel) : `${s2.minLevel}\u2013${s2.maxLevel}`;
     html += `<table class="mwia-table"><thead><tr><th>Room</th><th title="Room levels tried">Level</th><th title="Fights or skilling tries (shrouds not counted)">Tries</th>
       <th title="Share of the tries won">Won</th><th title="The advisor's average chance for those tries (combat: with the loadout the last check found best)">Advisor said</th><th title="Rooms shrouded">\u{1F32B}</th></tr></thead><tbody>
-      ${summary.map((s2) => `<tr><td>${esc(attemptName(s2))}</td><td>${levels(s2)}</td><td>${s2.tries}</td><td>${s2.won === null ? "\u2013" : `${pctText(s2.won)} <span class="mwia-dim">(${s2.wins}/${s2.tries})</span>`}</td>
+      ${summary2.map((s2) => `<tr><td>${esc(attemptName(s2))}</td><td>${levels(s2)}</td><td>${s2.tries}</td><td>${s2.won === null ? "\u2013" : `${pctText(s2.won)} <span class="mwia-dim">(${s2.wins}/${s2.tries})</span>`}</td>
         <td>${s2.predicted === null ? "\u2013" : pctText(s2.predicted)}</td><td>${s2.shrouds || ""}</td></tr>`).join("")}</tbody></table>`;
     html += `<details class="mwia-skill-sec"><summary>The latest ${recent.length}</summary><ol class="mwia-plan">${recent.map((a) => `<li>${new Date(a.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} \xB7 floor ${a.floor} \xB7 Lv.${a.level} ${esc(attemptName(a))}: ${OUTCOME[a.outcome] || a.outcome}${a.loadout?.name ? ` \xB7 ${esc(a.loadout.name)}` : ""}${a.predicted ? ` \xB7 advisor ${pctText(a.predicted.win)}${a.predicted.forChosen === false ? " (another loadout)" : ""}` : ""}${a.late ? ` <span class="mwia-dim" title="Found on login: it happened while the game was closed">(late)</span>` : ""}</li>`).join("")}</ol></details>`;
     return html;
   }
-  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml2, slotted, setupsNote, cartButton: cartButton4, coins: coins9 = shortCoins, attempts = "" }) {
+  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml2, slotted, setupsNote, cartButton: cartButton5, coins: coins9 = shortCoins, attempts = "" }) {
     const level = roomLevelSetting(settings2);
     let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
       1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
@@ -10985,7 +11346,7 @@ ${triggerWindowReport()}`, false);
       html += `<button class="mwia-btn" data-action="laby-improve" ${busy ? "disabled" : ""}>What should I improve?</button>`;
       if (improve) html += improveHtml(improve);
     }
-    html += buildHtml(build, data, settings2, busy, settingsHtml2, cartButton4, coins9);
+    html += buildHtml(build, data, settings2, busy, settingsHtml2, cartButton5, coins9);
     html += attempts;
     html += `<h3>On the Labyrinth map</h3>
       <p>Next: marks on the game's Labyrinth map (and later its automation settings) saying which loadout to use in each room. For that the script
@@ -11025,7 +11386,7 @@ ${triggerWindowReport()}`, false);
     }
   };
   var clean4 = (text) => String(text || "").replace(/\s+/g, " ").trim();
-  var short2 = (text, n3 = 60) => text.length > n3 ? text.slice(0, n3) + "\u2026" : text;
+  var short2 = (text, n4 = 60) => text.length > n4 ? text.slice(0, n4) + "\u2026" : text;
   var LAB_WORDS = /labyrinth|maze|room|floor|beacon|torch|shroud|crate|automation/i;
   function shapeOf(value, depth = 0) {
     if (value === null || value === void 0) return String(value);
@@ -11063,8 +11424,8 @@ ${triggerWindowReport()}`, false);
     lines.push(`character fields: ${fields.join(", ") || "none with labyrinth in the name"}`);
     for (const key2 of fields) lines.push(`  ${key2}: ${short2(shapeOf(character[key2]), 1200)}`);
   }
-  function ownText3(el) {
-    return clean4([...el.childNodes].filter((n3) => n3.nodeType === 3).map((n3) => n3.textContent).join(" "));
+  function ownText4(el) {
+    return clean4([...el.childNodes].filter((n4) => n4.nodeType === 3).map((n4) => n4.textContent).join(" "));
   }
   function pageLines(lines) {
     const all = [...document.querySelectorAll('[class*="abyrinth"]')].filter((el) => !el.closest('[class*="mwia"]'));
@@ -11072,7 +11433,7 @@ ${triggerWindowReport()}`, false);
     lines.push(`page: ${all.length} elements with "Labyrinth" in a class, ${tops.length} outermost (${tops.filter(visible).length} visible)`);
     const walk = (el, depth) => {
       if (lines.length >= MAX_LINES2 || depth > 9) return;
-      const text = ownText3(el);
+      const text = ownText4(el);
       const title = el.getAttribute("title") || el.getAttribute("aria-label");
       const icons = el.tagName.toLowerCase() === "use" ? ` #${(el.getAttribute("href") || el.getAttribute("xlink:href") || "").split("#")[1] || ""}` : "";
       const style = el.getAttribute("style");
@@ -11101,7 +11462,7 @@ ${triggerWindowReport()}`, false);
       if (heads.length) lines.push(`  headers: ${heads.join(" | ")}`);
       const rows = [...table.querySelectorAll('tr, [role="row"]')].filter((r) => !r.querySelector("th")).map((r) => {
         const copy = r.cloneNode(true);
-        copy.querySelectorAll('[class*="mwia"]').forEach((n3) => n3.remove());
+        copy.querySelectorAll('[class*="mwia"]').forEach((n4) => n4.remove());
         return copy;
       });
       rows.slice(0, 30).forEach((row, i) => {
@@ -11137,11 +11498,11 @@ ${triggerWindowReport()}`, false);
   }
   function labyrinthReport() {
     const lines = [`world: ${attempt3(worldReport, "?")}`];
-    for (const part of [messageLines, characterLines, tableLines, pageLines, componentLines]) {
+    for (const part2 of [messageLines, characterLines, tableLines, pageLines, componentLines]) {
       try {
-        part(lines);
+        part2(lines);
       } catch (error) {
-        lines.push(`(${part.name} failed: ${error?.message || error})`);
+        lines.push(`(${part2.name} failed: ${error?.message || error})`);
       }
     }
     if (lines.length > MAX_LINES2) lines.splice(MAX_LINES2, lines.length - MAX_LINES2, `\u2026 cut at ${MAX_LINES2} lines`);
@@ -11233,18 +11594,18 @@ ${triggerWindowReport()}`, false);
     } catch {
     }
   }
-  var int = (n3) => Math.round(n3).toLocaleString("en-US");
-  var dec3 = (n3, d = 1) => n3.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-  var pct5 = (n3) => (n3 >= 0 ? "+" : "") + dec3(n3 * 100, 1) + "%";
+  var int = (n4) => Math.round(n4).toLocaleString("en-US");
+  var dec3 = (n4, d = 1) => n4.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  var pct5 = (n4) => (n4 >= 0 ? "+" : "") + dec3(n4 * 100, 1) + "%";
   var HOURS_PER_DAY3 = 24;
   var perDay = (perHour) => perHour * HOURS_PER_DAY3;
-  function coins8(n3) {
-    if (n3 === null || n3 === void 0) return "\u2013";
-    const abs = Math.abs(n3);
-    if (abs >= 1e9) return dec3(n3 / 1e9, 2) + "B";
-    if (abs >= 1e6) return dec3(n3 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
-    if (abs >= 1e4) return dec3(n3 / 1e3, 0) + "k";
-    return int(n3);
+  function coins8(n4) {
+    if (n4 === null || n4 === void 0) return "\u2013";
+    const abs = Math.abs(n4);
+    if (abs >= 1e9) return dec3(n4 / 1e9, 2) + "B";
+    if (abs >= 1e6) return dec3(n4 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
+    if (abs >= 1e4) return dec3(n4 / 1e3, 0) + "k";
+    return int(n4);
   }
   function gearLabel(gear) {
     if (!gear) return '<span class="mwia-dim">empty</span>';
@@ -11259,7 +11620,7 @@ ${triggerWindowReport()}`, false);
     if (deaths < 1) return `<span class="mwia-warn" title="Deaths per hour">\u26A0 ${dec3(deaths, 2)}/h</span>`;
     return `<span class="mwia-bad" title="Deaths per hour">\u2716 ${dec3(deaths, 1)}/h</span>`;
   }
-  var signed2 = (text, n3) => (n3 >= 0 ? "+" : "\u2212") + text(Math.abs(n3));
+  var signed2 = (text, n4) => (n4 >= 0 ? "+" : "\u2212") + text(Math.abs(n4));
   var focusText = (gold) => gold === 0 ? "XP only" : gold === 100 ? "Gold only" : `${100 - gold}% XP \xB7 ${gold}% gold`;
   var countingLevels = () => !!ui.settings.countLevels && Array.isArray(getClientData()?.levelExperienceTable);
   var xpLabel = () => countingLevels() ? "Levels/day" : "Combat XP/h";
@@ -11334,6 +11695,26 @@ ${triggerWindowReport()}`, false);
     if (best) return best.zone;
     return profile.currentZone || null;
   }
+  function loadoutProfile(loadout) {
+    const data = getClientData();
+    if (!state.character || !data) return null;
+    return applyLoadout(buildProfile(state.character, state.items, data), loadout, state.items, data);
+  }
+  async function adviseLoadout(loadout, zone, onProgress) {
+    if (ui.busy) throw new Error("The advisor is busy with another analysis.");
+    let result = null;
+    await runTask(async () => {
+      const profile = loadoutProfile(loadout);
+      if (!profile) throw new Error("No character data yet.");
+      const label3 = (round) => `Loadout ${loadout.name || ""} for ${actionName(zone.zoneHrid) || zone.zoneHrid}, round ${round}`;
+      result = await analyzeLoadout(ui.pool, profile, zone, { ...ui.settings, ...runSettings() }, (done2, total, round) => {
+        progress(label3(round))(done2, total);
+        onProgress(done2, total, round);
+      });
+    });
+    if (!result) throw new Error(ui.error || "Cancelled");
+    return result;
+  }
   function labyrinthSetups() {
     const data = getClientData();
     if (!state.character || !data) return [];
@@ -11389,7 +11770,7 @@ ${triggerWindowReport()}`, false);
       settingsHtml,
       slotted: { coffee: slottedCrate(state.character, "coffee"), food: slottedCrate(state.character, "food") },
       setupsNote: `<p class="mwia-dim">Loadouts: ${setups.map((s2) => `<b>${esc(s2.name)}</b>`).join(", ")}${setups.length < 2 ? " \u2013 save a loadout per combat style in the game to compare them here" : ""}.</p>`,
-      cartButton: cartButton3,
+      cartButton: cartButton4,
       coins: coins8,
       attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse())
     });
@@ -11750,14 +12131,14 @@ ${triggerWindowReport()}`, false);
     }
     const profile = currentProfile();
     const current = profile?.currentZone && ui.zoneResults.find((z) => z.zone.zoneHrid === profile.currentZone.zoneHrid && z.zone.tier === profile.currentZone.tier);
-    const summary = (r) => `<b>${xpNum(xpValue(r, ui.settings))} ${xpLabel()}</b> and <b>${coins8(perDay(r.profit))}</b> profit/day`;
+    const summary2 = (r) => `<b>${xpNum(xpValue(r, ui.settings))} ${xpLabel()}</b> and <b>${coins8(perDay(r.profit))}</b> profit/day`;
     if (best) {
-      html += `<div class="mwia-reco"><b>Recommendation:</b> ${zoneLabel(best.zone)} \u2013 about ${summary(best.result)}, ${deathBadge(best.result.deaths)}.`;
+      html += `<div class="mwia-reco"><b>Recommendation:</b> ${zoneLabel(best.zone)} \u2013 about ${summary2(best.result)}, ${deathBadge(best.result.deaths)}.`;
       if (isSpawnCapped(best.result)) {
         html += `<br>\u23F1 You kill monsters here as fast as they appear, so this zone is too easy for you.
               ${Number(ui.settings.maxTier) < 5 ? "Raise <b>Max tier</b> and run again \u2013 a harder tier gives more XP per kill." : "Try zones with tougher monsters."}`;
       }
-      if (current && current !== best) html += `<br>You're currently fighting in ${zoneLabel(current.zone)}: ${summary(current.result)}.`;
+      if (current && current !== best) html += `<br>You're currently fighting in ${zoneLabel(current.zone)}: ${summary2(current.result)}.`;
       html += `</div>`;
     }
     const bestScore = best ? score(best.result, goal) : 1;
@@ -11783,7 +12164,7 @@ ${triggerWindowReport()}`, false);
     if (!c2.safe) notes.push(`<span class="mwia-bad">more deaths</span>`);
     return notes.join(" ");
   }
-  function cartItems(c2) {
+  function cartItems2(c2) {
     const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c2.result?.consumables?.[hrid] || 0)));
     if (c2.kind === "house") return c2.materials.filter((m2) => m2.hrid !== COIN11).map((m2) => ({ hrid: m2.hrid, quantity: m2.count }));
     if (c2.kind === "abilityOrder" || c2.kind === "skillLevel" || c2.kind === "trigger") return [];
@@ -11830,12 +12211,12 @@ ${triggerWindowReport()}`, false);
   }
   function costText2(c2) {
     if (!c2.cost && !c2.resale) return "(free)";
-    const sold = c2.resale ? ` (${coins8(c2.price)} \u2212 ${coins8(c2.resale)} selling your ${c2.sold.map((g3) => gearLabel(g3)).join(" and ")})` : "";
+    const sold = c2.resale ? ` (${coins8(c2.price)} \u2212 ${coins8(c2.resale)} selling your ${c2.sold.map((g4) => gearLabel(g4)).join(" and ")})` : "";
     return `for ${c2.cost ? coins8(c2.cost) : "nothing"}${sold}`;
   }
   var starterCart = (w) => w?.cost ? [{ hrid: w.hrid, quantity: 1, enhancementLevel: w.enhancementLevel }] : [];
   var cartLabel = (i) => `${i.quantity ? i.quantity + "\xD7 " : ""}${itemName(i.hrid)}${i.enhancementLevel ? " +" + i.enhancementLevel : ""}`;
-  function cartButton3(items, label3 = "\u{1F6D2} Add") {
+  function cartButton4(items, label3 = "\u{1F6D2} Add") {
     if (!items.length) return "";
     const id = String(ui.cartItems.size + 1);
     ui.cartItems.set(id, items);
@@ -11897,7 +12278,7 @@ ${triggerWindowReport()}`, false);
       if (plan.starter) {
         const w = plan.starter;
         html += `<li>${w.owned ? "Equip" : "Buy"} <b>${gearLabel(w)}</b> ${w.owned ? "from your inventory " : ""}to fight as ${STYLE_NAMES[ui.settings.combatStyle] || "the chosen style"}${w.replaces ? ` \u2013 replaces ${gearLabel(w.replaces)}` : ""}
-              ${w.cost ? `for ${coins8(w.cost)}` : "(free)"} <span class="mwia-dim">(everything here was simulated with it)</span> ${cartButton3(starterCart(w))}</li>`;
+              ${w.cost ? `for ${coins8(w.cost)}` : "(free)"} <span class="mwia-dim">(everything here was simulated with it)</span> ${cartButton4(starterCart(w))}</li>`;
       }
       for (const p2 of plan.picks) {
         let what;
@@ -11906,47 +12287,47 @@ ${triggerWindowReport()}`, false);
         } else if (p2.kind === "ability") {
           what = `ability <b>${esc(abilityName(p2.hrid))}</b>${p2.cost ? ` (buy the book ${esc(itemName(p2.bookHrid))})` : ` (level ${p2.level})`}${p2.triggers ? `, triggers: <b>${esc(describeTriggers(p2.triggers, getClientData()))}</b>` : ""}`;
         } else if (p2.kind === "house") {
-          html += `<li>Build <b>${esc(p2.name)}</b> level ${p2.fromLevel} \u2192 ${p2.level} <span class="mwia-dim">(${houseMaterials(p2)})</span>: ${gainText(p2)} for ${coins8(p2.cost)} ${cartButton3(cartItems(p2), "\u{1F6D2} Materials")}</li>`;
+          html += `<li>Build <b>${esc(p2.name)}</b> level ${p2.fromLevel} \u2192 ${p2.level} <span class="mwia-dim">(${houseMaterials(p2)})</span>: ${gainText2(p2)} for ${coins8(p2.cost)} ${cartButton4(cartItems2(p2), "\u{1F6D2} Materials")}</li>`;
           continue;
         } else if (p2.enhance) {
           const own = p2.enhance.start === "worn" ? `your <b>${gearLabel(p2.replaces)}</b>` : p2.enhance.start === "owned" ? `your <b>${gearLabel({ hrid: p2.hrid, enhancementLevel: p2.enhance.from })}</b>` : `a <b>${gearLabel({ hrid: p2.hrid })}</b>`;
           const replaces2 = p2.enhance.start !== "worn" && p2.replaces ? ` \u2013 replaces ${gearLabel(p2.replaces)}` : "";
           html += `<li>${p2.enhance.start === "buy" ? "Buy" : "Take"} ${own} and enhance it to <span class="mwia-enh">+${p2.enhancementLevel}</span> yourself
-                  <span class="mwia-dim">(${esc(enhanceDetail(p2))})</span>${replaces2}: ${gainText(p2)} ${costText2(p2)} ${cartButton3(cartItems(p2))}</li>`;
+                  <span class="mwia-dim">(${esc(enhanceDetail(p2))})</span>${replaces2}: ${gainText2(p2)} ${costText2(p2)} ${cartButton4(cartItems2(p2))}</li>`;
           continue;
         } else {
           what = `<b>${gearLabel(p2)}</b> in ${SLOT_NAMES[p2.slot]}${p2.extraFood ? ` and put <b>${esc(itemName(p2.extraFood))}</b> in the new food slot` : ""}`;
         }
         const replaces = p2.replaces ? ` \u2013 replaces ${p2.kind === "ability" ? esc(abilityName(p2.replaces)) : gearLabel(p2.replaces)}` : "";
-        html += `<li>${p2.cost || p2.price ? "Buy" : "Use"} ${what}${replaces}: ${gainText(p2)} ${costText2(p2)} ${cartButton3(cartItems(p2))}</li>`;
+        html += `<li>${p2.cost || p2.price ? "Buy" : "Use"} ${what}${replaces}: ${gainText2(p2)} ${costText2(p2)} ${cartButton4(cartItems2(p2))}</li>`;
       }
       if (plan.order) {
         html += `<li>Put your abilities in this order: <b>${plan.order.order.map((h2) => esc(abilityName(h2))).join(" \u2192 ")}</b>
-              <span class="mwia-dim">(now ${plan.order.was.map((h2) => esc(abilityName(h2))).join(" \u2192 ")})</span>: ${gainText(plan.order)} (free)</li>`;
+              <span class="mwia-dim">(now ${plan.order.was.map((h2) => esc(abilityName(h2))).join(" \u2192 ")})</span>: ${gainText2(plan.order)} (free)</li>`;
       }
       for (const t4 of plan.triggers || []) {
         html += `<li>Set the triggers of <b>${esc(triggerTargetName(t4))}</b> to <b>${esc(describeTriggers(t4.triggers, getClientData()))}</b>
-              <span class="mwia-dim">(now ${esc(describeTriggers(t4.was, getClientData()))})</span>: ${gainText(t4)} (free)</li>`;
+              <span class="mwia-dim">(now ${esc(describeTriggers(t4.was, getClientData()))})</span>: ${gainText2(t4)} (free)</li>`;
       }
       for (const [kind, pick2, max] of [["Food", plan.food, plan.foodMax], ["Drink", plan.drink, plan.drinkMax]]) {
         if (!pick2) continue;
         if (pick2.remove) {
-          html += `<li>Stop using <b>${esc(itemName(pick2.hrid))}</b> (empty that ${kind.toLowerCase()} slot): ${gainText(pick2)},
+          html += `<li>Stop using <b>${esc(itemName(pick2.hrid))}</b> (empty that ${kind.toLowerCase()} slot): ${gainText2(pick2)},
                   saves about ${coins8(perDay(-pick2.costPerHourDelta))}/day`;
         } else {
           const where = pick2.replaces ? `instead of ${esc(itemName(pick2.replaces))}` : "in an empty slot";
           const money = pick2.costPerHourDelta < 0 ? `saves about ${coins8(perDay(-pick2.costPerHourDelta))}/day` : `costs about ${coins8(perDay(pick2.costPerHourDelta))}/day extra`;
-          html += `<li>${kind} <b>${esc(itemName(pick2.hrid))}</b> ${where}: ${gainText(pick2)}, ${money}
-                  <span class="mwia-dim">(optional \u2013 a running cost)</span> ${cartButton3(cartItems(pick2), "\u{1F6D2} 1 day")}`;
+          html += `<li>${kind} <b>${esc(itemName(pick2.hrid))}</b> ${where}: ${gainText2(pick2)}, ${money}
+                  <span class="mwia-dim">(optional \u2013 a running cost)</span> ${cartButton4(cartItems2(pick2), "\u{1F6D2} 1 day")}`;
         }
         if (dropsHpFood(pick2)) {
           html += `<br><span class="mwia-warn">You don't need HP food in this zone, but keep some at hand \u2013 put it back before you move to a harder zone or tier.</span>`;
         }
-        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText(max)}) at ${coins8(perDay(max.costPerHourDelta))}/day.</span>`;
+        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText2(max)}) at ${coins8(perDay(max.costPerHourDelta))}/day.</span>`;
         html += `</li>`;
       }
       html += `</ol><p>Total one-time cost: <b>${coins8(plan.spent)}</b> of your ${coins8(Number(ui.settings.budget) || 0)} budget.
-          ${cartButton3([...starterCart(plan.starter), ...plan.picks.flatMap(cartItems)], "\u{1F6D2} Add all purchases to cart")}</p>`;
+          ${cartButton4([...starterCart(plan.starter), ...plan.picks.flatMap(cartItems2)], "\u{1F6D2} Add all purchases to cart")}</p>`;
       if (ui.verified) {
         const v = ui.verified;
         const before = xpValue(v.base, ui.settings);
@@ -12004,7 +12385,7 @@ ${triggerWindowReport()}`, false);
     const after = c2.profile?.food || [];
     return before.some((h2) => h2 && heals(h2)) && !after.some((h2) => h2 && heals(h2));
   }
-  function gainText(c2) {
+  function gainText2(c2) {
     const gold = ui.upgradeResult.goal.gold;
     const profit = `${signed2(coins8, perDay(c2.profitDelta))} profit/day`;
     if (gold === 0) return `${pct5(c2.deltaPct)} ${xpLabel()}`;
@@ -12030,7 +12411,7 @@ ${triggerWindowReport()}`, false);
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${slotText(c2)}</td><td>${nameHtml(c2)}</td><td>${replacesHtml(c2)}</td>
           <td class="mwia-num"${c2.resale ? ` title="${coins8(c2.price)} \u2212 ${coins8(c2.resale)} for what it replaces"` : ""}>${c2.cost ? coins8(c2.cost) : "0"}${c2.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td>
           <td class="mwia-num">${pct5(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
-          <td>${upgradeNotes(c2, base)}</td><td>${cartButton3(cartItems(c2))}</td></tr>`;
+          <td>${upgradeNotes(c2, base)}</td><td>${cartButton4(cartItems2(c2))}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -12100,7 +12481,7 @@ ${triggerWindowReport()}`, false);
           <td class="mwia-num">${c2.remove ? "\u2013" : coins8(askPrice(c2.hrid))}</td><td class="mwia-num">${coins8(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td>
           <td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td class="mwia-num ${c2.safe ? "" : "mwia-bad"}">${dec3(c2.result.deaths, 2)}${c2.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
-          <td>${cartButton3(cartItems(c2), "\u{1F6D2} 1 day")}</td></tr>`;
+          <td>${cartButton4(cartItems2(c2), "\u{1F6D2} 1 day")}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -12227,7 +12608,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.68.0" : "dev";
+  var VERSION3 = true ? "0.69.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -12271,7 +12652,7 @@ ${triggerWindowReport()}`, false);
     }
     button2.textContent = copied ? "\u2713 Copied" : "Select the text above to copy it";
   }
-  function onClick7(event) {
+  function onClick8(event) {
     const target = event.target.closest("[data-action],[data-tab]");
     if (!target || !ui.root.contains(target)) return;
     try {
@@ -12428,7 +12809,7 @@ ${triggerWindowReport()}`, false);
       } else if (key2 === "labyCoffee" || key2 === "labyFood") {
         ui.labResult = ui.labImprove = ui.labBuild = null;
       }
-      scheduleScan7();
+      scheduleScan8();
       render2();
       return;
     }
@@ -12498,6 +12879,7 @@ ${triggerWindowReport()}`, false);
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
+    startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart });
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
     startLabyrinthLog({ predict: roomPrediction });
     startEnhancePlan(gameDeps);
@@ -12513,7 +12895,7 @@ ${triggerWindowReport()}`, false);
       }
     });
     ui.root = root;
-    root.addEventListener("click", onClick7);
+    root.addEventListener("click", onClick8);
     root.addEventListener("change", onChange);
     root.addEventListener("toggle", rememberToggle, true);
     enableTapTips(root);
@@ -12559,12 +12941,12 @@ ${triggerWindowReport()}`, false);
   var HEADER = '[class*="MarketplacePanel_header"]';
   var PRICE_INPUTS = '[class*="MarketplacePanel_priceInputs"]';
   var BEST = '[class*="MarketplacePanel_bestPrice"]';
-  var SCAN_MS9 = 300;
+  var SCAN_MS10 = 300;
   var BOOK_OLD_MS = 10 * 60 * 1e3;
   var LABELS = { match: "Match", wall: "Wall" };
   var label2 = (s2) => s2.kind === "horizon" ? `<${s2.horizon}h` : LABELS[s2.kind];
   var l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false, cache: { key: null, prices: null }, clicked: null };
-  var num = (n3) => Math.round(n3).toLocaleString("en-US");
+  var num = (n4) => Math.round(n4).toLocaleString("en-US");
   var numberIn = (text) => {
     const found = String(text).match(/\d[\d\s,.]*[kmb]?/gi);
     return found ? parseCoins(found[found.length - 1].trim()) : null;
@@ -12574,11 +12956,11 @@ ${triggerWindowReport()}`, false);
     l.win = win2;
     new MutationObserver((records) => {
       if (records.every((r) => r.target.closest?.(".mwia-listprice"))) return;
-      scheduleScan10();
+      scheduleScan11();
     }).observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("click", onClick8, true);
+    document.addEventListener("click", onClick9, true);
     document.addEventListener("input", (event) => {
-      if (event.target.closest?.(MODAL)) scheduleScan10();
+      if (event.target.closest?.(MODAL)) scheduleScan11();
     }, true);
   }
   var POST = /^post (sell|buy) listing$/i;
@@ -12596,16 +12978,16 @@ ${triggerWindowReport()}`, false);
     }
     return [...found];
   }
-  function scheduleScan10() {
+  function scheduleScan11() {
     if (l.scanTimer) return;
     l.scanTimer = setTimeout(() => {
       l.scanTimer = null;
       try {
-        scan8();
+        scan9();
       } catch (error) {
         console.warn("[MWI Advisor] listing prices", error);
       }
-    }, SCAN_MS9);
+    }, SCAN_MS10);
   }
   function readModal(modal) {
     const header = modal.querySelector(HEADER)?.textContent || "";
@@ -12667,16 +13049,16 @@ ${triggerWindowReport()}`, false);
     const listed = book ? book.asks.filter((o2) => o2.price <= price).reduce((sum, o2) => sum + o2.quantity, 0) : null;
     return { ...limit, price: under ? null : price, exact: limit.price, capped, under, listed };
   }
-  function scan8() {
+  function scan9() {
     const modals = listingModals();
     if (modals.length && !getClientData() && !l.loadError) {
-      l.loading || (l.loading = loadClientData(l.win).then(scheduleScan10, (error) => {
+      l.loading || (l.loading = loadClientData(l.win).then(scheduleScan11, (error) => {
         l.loadError = String(error?.message || error);
-        scheduleScan10();
+        scheduleScan11();
       }).finally(() => l.loading = null));
       return;
     }
-    if (modals.length) setTimeout(scheduleScan10, 700);
+    if (modals.length) setTimeout(scheduleScan11, 700);
     for (const modal of modals) {
       let c2;
       try {
@@ -12699,14 +13081,14 @@ ${triggerWindowReport()}`, false);
         else modal.appendChild(box);
       }
       if (!c2.error) notePrediction(prediction(c2));
-      const html = c2.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION4)} can't read this window: ${esc(c2.error)}. A screenshot of this helps.</div>` : boxHtml3(c2);
+      const html = c2.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION4)} can't read this window: ${esc(c2.error)}. A screenshot of this helps.</div>` : boxHtml4(c2);
       if (box.dataset.html !== html) {
         box.dataset.html = html;
         box.innerHTML = html;
       }
     }
   }
-  function boxHtml3(c2) {
+  function boxHtml4(c2) {
     const sell = c2.side === "sell";
     const buttons = c2.suggestions.map((s2, i) => {
       const shown = s2.price === null ? "\u2014" : s2.kind === "wall" || s2.under ? `${sell ? "<" : ">"} ${shortCoins(s2.price)}` : shortCoins(s2.price);
@@ -12844,9 +13226,9 @@ ${triggerWindowReport()}`, false);
     } finally {
       l.applying = false;
     }
-    scheduleScan10();
+    scheduleScan11();
   }
-  function onClick8(event) {
+  function onClick9(event) {
     const button2 = event.target.closest?.(".mwia-listprice [data-listprice]");
     if (!button2) return;
     event.preventDefault();
