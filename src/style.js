@@ -102,6 +102,12 @@ export const CSS = `
 }
 .mwia-train p { margin: 5px 0; }
 .mwia-loop { bottom: auto; top: 70px; }
+.mwia-launcher.mwia-loop-icon { bottom: 122px; }
+.mwia-loop-count {
+  position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+  padding: 0 4px; border-radius: 6px; background: #171b2e; border: 1px solid #5b6bb0;
+  font: 600 9px/1.4 sans-serif; color: #e8ebff; white-space: nowrap; pointer-events: none;
+}
 .mwia-train-head { display: flex; align-items: center; gap: 4px; }
 .mwia-train-head b { flex: 1; }
 .mwia-train-now { margin: 4px 0; padding: 4px 8px; border-radius: 6px; background: #1d2b45; border-left: 3px solid #f2c25b; font-weight: 600; }

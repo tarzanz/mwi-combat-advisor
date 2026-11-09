@@ -11,15 +11,19 @@ import { esc } from "./format.js";
 import { addToCart } from "./mwitools-cart.js";
 import { inventoryItemHash, levelingPanels, navDiagnostics, openAlchemy, openEnhancing } from "./game-nav.js";
 import { hashItem, enhancingInQueue, loopActions, loopCart, loopStatus, newLoop } from "./enhance-loop.js";
-import { enableTapTips } from "./touch.js";
+import { enableTapTips, makeDraggable } from "./touch.js";
 
 const STORE_PREFIX = "mwia-loop:";
+const MINIMIZED_KEY = "mwia-loop-min";
+const ICON_POSITION_KEY = "mwia-loop-icon-pos";
 const INVENTORY = "/item_locations/inventory";
 const NOT_QUEUED_AFTER_MS = 4000;
 
 const L = {
     win: null,
     root: null,
+    icon: null, // the 🧪 the panel shrinks to (➖), only while a loop runs
+    minimized: false,
     loop: null,
     notice: null, // { kind, text, diag }
     collapsed: false,
@@ -57,6 +61,17 @@ function status() {
     return loopStatus(loop, { inQueue: enhancingInQueue(state.character?.characterActions, loop.itemHrid), heldZero: heldAt(loop.itemHrid, 0), heldTarget: heldAt(loop.itemHrid, loop.target) });
 }
 
+// ➖ shrinks the panel to the 🧪 icon (out of the way of the game's queue); the icon brings it back.
+function setMinimized(minimized) {
+    L.minimized = minimized;
+    try {
+        localStorage.setItem(MINIMIZED_KEY, minimized ? "1" : "");
+    } catch {
+        // the choice is just not remembered
+    }
+    render();
+}
+
 function setNotice(kind, text, diag = "") {
     L.notice = text ? { kind, text, diag } : null;
     render();
@@ -70,6 +85,7 @@ export function startLoop(options) {
     L.loop = newLoop({ ...options, total, heldTarget: heldAt(options.itemHrid, options.target) });
     L.notice = null;
     L.collapsed = false;
+    setMinimized(false);
     save();
     render();
     if (total > 0) openNext();
@@ -183,9 +199,16 @@ function onGameMessage(type, data) {
 function render() {
     if (!L.root) return;
     const loop = L.loop;
-    L.root.classList.toggle("mwia-hidden", !loop);
+    L.root.classList.toggle("mwia-hidden", !loop || L.minimized);
+    L.icon?.classList.toggle("mwia-hidden", !loop || !L.minimized);
     if (!loop) return;
     const st = status();
+    if (L.icon) {
+        // Progress on the icon, and a dot when the loop waits for you (decompose).
+        L.icon.querySelector(".mwia-loop-count").textContent = st.phase === "decompose" || st.phase === "done" ? `+${loop.target}` : `${n(st.queued)}/${n(st.total)}`;
+        L.icon.classList.toggle("mwia-has-alert", st.phase === "decompose");
+        L.icon.title = `🔁 ${itemName(loop.itemHrid)} → +${loop.target}: ${st.phase === "decompose" ? `${n(st.heldTarget)} ready to decompose` : `${n(st.queued)}/${n(st.total)} queued`} – tap to open`;
+    }
     const item = esc(itemName(loop.itemHrid));
     const plus = `+${loop.target}`;
     const button = (action, text, title = "") => `<button class="mwia-cart-btn" data-loop="${action}"${title ? ` title="${esc(title)}"` : ""}>${text}</button>`;
@@ -200,6 +223,7 @@ function render() {
     let html = `<div class="mwia-train-head">
         <button class="mwia-link" data-loop="toggle" title="Show or hide the details">${L.collapsed ? "▸" : "▾"}</button>
         <b>🔁 ${item} → ${plus} 🧪</b>
+        <button class="mwia-link" data-loop="minimize" title="Shrink to a 🧪 icon (tap it to open again)">➖</button>
         <button class="mwia-link" data-loop="end" title="End the loop">✕</button>
       </div>
       <div class="mwia-train-now">${headline}</div>`;
@@ -234,7 +258,8 @@ async function onClick(event) {
     if (action === "toggle") {
         L.collapsed = !L.collapsed;
         render();
-    } else if (action === "end") endLoop();
+    } else if (action === "minimize") setMinimized(true);
+    else if (action === "end") endLoop();
     else if (action === "next") openNext();
     else if (action === "decompose") openDecompose();
     else if (action === "again") {
@@ -264,6 +289,18 @@ export function mountEnhanceLoop(win) {
     L.root.addEventListener("click", onClick);
     enableTapTips(L.root);
     document.body.appendChild(L.root);
+    L.icon = document.createElement("button");
+    L.icon.className = "mwia-launcher mwia-loop-icon mwia-hidden";
+    L.icon.setAttribute("aria-label", "Enhance loop");
+    L.icon.innerHTML = `🧪<span class="mwia-loop-count"></span>`;
+    L.icon.addEventListener("click", () => setMinimized(false));
+    document.body.appendChild(L.icon);
+    makeDraggable(L.icon, ICON_POSITION_KEY);
+    try {
+        L.minimized = !!localStorage.getItem(MINIMIZED_KEY);
+    } catch {
+        L.minimized = false;
+    }
     restore();
     render();
     onStateChange(onGameMessage);

@@ -1273,7 +1273,7 @@ try {
         await page.evaluate((h) => [...document.querySelectorAll(".mwia-skill-row")].find((x) => x.dataset.hrid === h).querySelector('[data-action="enhance-loop"]').click(), loopRow.hrid);
         await page.waitForFunction(() => window.enhanceTarget !== undefined, { timeout: 5000 }).catch(() => null);
         await new Promise((r) => setTimeout(r, 300));
-        const panel = () => page.evaluate(() => { const p = document.querySelector(".mwia-loop"); return p ? { shown: !p.classList.contains("mwia-hidden"), title: p.querySelector(".mwia-train-head b")?.textContent, now: p.querySelector(".mwia-train-now")?.textContent, buttons: [...p.querySelectorAll("[data-loop]")].map((b) => b.textContent).filter((t) => !/^[▾▸✕]$/.test(t)), text: p.textContent } : null; });
+        const panel = () => page.evaluate(() => { const p = document.querySelector(".mwia-loop"); return p ? { shown: !p.classList.contains("mwia-hidden"), title: p.querySelector(".mwia-train-head b")?.textContent, now: p.querySelector(".mwia-train-now")?.textContent, buttons: [...p.querySelectorAll("[data-loop]")].map((b) => b.textContent).filter((t) => !/^[▾▸✕➖]$/.test(t)), text: p.textContent } : null; });
         let lp = await panel();
         const first = await page.evaluate(() => ({ hash: window.enhanceCall, target: window.enhanceTarget, marked: !!document.querySelector(".lvl .mwia-loop-target") }));
         check("🔁 Loop opens the first +0 with the target, its Add to queue outlined", first.hash === gameHash(0) && first.target === String(plus) && first.marked, JSON.stringify(first));
@@ -1284,12 +1284,21 @@ try {
         await sendAll({ type: "actions_updated", endCharacterActions: [job(7001), job(7002)] });
         lp = await panel();
         check("…the jobs the game confirms are counted", lp.now === "2/3 queued", lp.now);
+        // ➖ shrinks the panel to a 🧪 icon with the progress; it follows the game, and a tap opens the panel again.
+        const icon = () => page.evaluate(() => { const b = document.querySelector(".mwia-loop-icon"); return b ? { shown: !b.classList.contains("mwia-hidden"), count: b.querySelector(".mwia-loop-count")?.textContent, alert: b.classList.contains("mwia-has-alert"), panel: !document.querySelector(".mwia-loop").classList.contains("mwia-hidden") } : null; });
+        check("no 🧪 icon while the panel is open", (await icon())?.shown === false);
+        await page.click('.mwia-loop [data-loop="minimize"]');
+        check("➖ shrinks the panel to a 🧪 icon with the progress", JSON.stringify(await icon()) === JSON.stringify({ shown: true, count: "2/3", alert: false, panel: false }), JSON.stringify(await icon()));
+        if (MOBILE) await page.screenshot({ path: path.join(shotDir, "skilling-13a-loop-icon.png") });
         await sendAll({ type: "actions_updated", endCharacterActions: [job(7003)] });
         lp = await panel();
         check("…all queued: no ▶, waiting for the jobs", lp.now === "All 3 queued · 3 still in the queue" && lp.buttons.length === 0 && !(await page.$(".lvl .mwia-loop-target")), JSON.stringify(lp));
         // They end at the target: the +0 gone, three at +target.
         await sendAll({ type: "items_updated", endCharacterItems: [stock(zeroHash, 0, 0), stock(plusHash, plus, 3)] });
         await sendAll({ type: "actions_updated", endCharacterActions: [job(7001, { isDone: true }), job(7002, { isDone: true }), job(7003, { isDone: true })] });
+        check("…the icon follows the game, and has a dot when the +target waits", JSON.stringify(await icon()) === JSON.stringify({ shown: true, count: `+${plus}`, alert: true, panel: false }), JSON.stringify(await icon()));
+        await page.click(".mwia-loop-icon");
+        check("…a tap on it opens the panel again", JSON.stringify(await icon()) === JSON.stringify({ shown: false, count: `+${plus}`, alert: true, panel: true }), JSON.stringify(await icon()));
         lp = await panel();
         check("…all done: 🧪 Decompose the +target", lp.now === `3 × +${plus} ready to decompose` && lp.buttons.join() === `🧪 Decompose 3 × +${plus}` && /3 jobs done/.test(lp.text), JSON.stringify(lp));
         await page.screenshot({ path: path.join(shotDir, "skilling-13b-loop-decompose.png") });
@@ -1305,7 +1314,7 @@ try {
         const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("mwia-loop:")).map((k) => JSON.parse(localStorage.getItem(k))));
         check("…kept in the browser", stored.length === 1 && stored[0].queued === 3 && stored[0].decompose?.count === 3, JSON.stringify(stored));
         await page.click('.mwia-loop [data-loop="end"]');
-        check("✕ ends the loop", await page.$eval(".mwia-loop", (n) => n.classList.contains("mwia-hidden")));
+        check("✕ ends the loop, no icon either", await page.$eval(".mwia-loop", (n) => n.classList.contains("mwia-hidden")) && (await icon())?.shown === false);
         await sendAll({ type: "actions_updated", endCharacterActions: [{ id: 7010, actionHrid: "/actions/alchemy/decompose", primaryItemHash: gameHash(plus), isDone: true }] });
         await sendAll({ type: "items_updated", endCharacterItems: [stock(plusHash, plus, 0), stock(zeroHash, 0, own?.count || 0)] });
         await page.evaluate(() => document.querySelector(".lvl")?.remove());

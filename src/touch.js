@@ -47,7 +47,8 @@ export function enableTapTips(root) {
 
 // Drag to move; a short tap is still a click. The spot is kept as a share of
 // the screen, so it survives turning the phone.
-export function makeDraggable(button) {
+// key: where the spot is kept (each button its own).
+export function makeDraggable(button, key = POSITION_KEY) {
     let start = null;
     let moved = false;
     const place = (x, y) => {
@@ -58,7 +59,7 @@ export function makeDraggable(button) {
     };
     const placeSaved = () => {
         try {
-            const saved = JSON.parse(localStorage.getItem(POSITION_KEY) || "null");
+            const saved = JSON.parse(localStorage.getItem(key) || "null");
             if (saved) place(saved.x * innerWidth, saved.y * innerHeight);
         } catch {
             // stays in its default corner
@@ -67,7 +68,7 @@ export function makeDraggable(button) {
     const save = () => {
         const box = button.getBoundingClientRect();
         try {
-            localStorage.setItem(POSITION_KEY, JSON.stringify({ x: box.left / innerWidth, y: box.top / innerHeight }));
+            localStorage.setItem(key, JSON.stringify({ x: box.left / innerWidth, y: box.top / innerHeight }));
         } catch {
             // the spot is just not remembered
         }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.72.0
+// @version      0.72.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5079,7 +5079,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.72.0" : "dev";
+  var VERSION = true ? "0.72.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -6592,6 +6592,12 @@
 }
 .mwia-train p { margin: 5px 0; }
 .mwia-loop { bottom: auto; top: 70px; }
+.mwia-launcher.mwia-loop-icon { bottom: 122px; }
+.mwia-loop-count {
+  position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+  padding: 0 4px; border-radius: 6px; background: #171b2e; border: 1px solid #5b6bb0;
+  font: 600 9px/1.4 sans-serif; color: #e8ebff; white-space: nowrap; pointer-events: none;
+}
 .mwia-train-head { display: flex; align-items: center; gap: 4px; }
 .mwia-train-head b { flex: 1; }
 .mwia-train-now { margin: 4px 0; padding: 4px 8px; border-radius: 6px; background: #1d2b45; border-left: 3px solid #f2c25b; font-weight: 600; }
@@ -9803,7 +9809,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (owner && root.contains(owner) && owner.title) showTip(owner, owner.title);
     });
   }
-  function makeDraggable(button2) {
+  function makeDraggable(button2, key2 = POSITION_KEY) {
     let start2 = null;
     let moved = false;
     const place2 = (x, y) => {
@@ -9814,7 +9820,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     };
     const placeSaved = () => {
       try {
-        const saved = JSON.parse(localStorage.getItem(POSITION_KEY) || "null");
+        const saved = JSON.parse(localStorage.getItem(key2) || "null");
         if (saved) place2(saved.x * innerWidth, saved.y * innerHeight);
       } catch {
       }
@@ -9822,7 +9828,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const save5 = () => {
       const box = button2.getBoundingClientRect();
       try {
-        localStorage.setItem(POSITION_KEY, JSON.stringify({ x: box.left / innerWidth, y: box.top / innerHeight }));
+        localStorage.setItem(key2, JSON.stringify({ x: box.left / innerWidth, y: box.top / innerHeight }));
       } catch {
       }
     };
@@ -10619,11 +10625,16 @@ i.mwia-history-bid { background: #7ee2b0; }
 
   // src/enhance-loop-ui.js
   var STORE_PREFIX2 = "mwia-loop:";
+  var MINIMIZED_KEY = "mwia-loop-min";
+  var ICON_POSITION_KEY = "mwia-loop-icon-pos";
   var INVENTORY7 = "/item_locations/inventory";
   var NOT_QUEUED_AFTER_MS2 = 4e3;
   var L = {
     win: null,
     root: null,
+    icon: null,
+    // the 🧪 the panel shrinks to (➖), only while a loop runs
+    minimized: false,
     loop: null,
     notice: null,
     // { kind, text, diag }
@@ -10655,6 +10666,14 @@ i.mwia-history-bid { background: #7ee2b0; }
     const loop = L.loop;
     return loopStatus(loop, { inQueue: enhancingInQueue(state.character?.characterActions, loop.itemHrid), heldZero: heldAt2(loop.itemHrid, 0), heldTarget: heldAt2(loop.itemHrid, loop.target) });
   }
+  function setMinimized(minimized) {
+    L.minimized = minimized;
+    try {
+      localStorage.setItem(MINIMIZED_KEY, minimized ? "1" : "");
+    } catch {
+    }
+    render2();
+  }
   function setNotice2(kind, text, diag = "") {
     L.notice = text ? { kind, text, diag } : null;
     render2();
@@ -10665,6 +10684,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     L.loop = newLoop({ ...options, total, heldTarget: heldAt2(options.itemHrid, options.target) });
     L.notice = null;
     L.collapsed = false;
+    setMinimized(false);
     save4();
     render2();
     if (total > 0) openNext();
@@ -10761,9 +10781,15 @@ i.mwia-history-bid { background: #7ee2b0; }
   function render2() {
     if (!L.root) return;
     const loop = L.loop;
-    L.root.classList.toggle("mwia-hidden", !loop);
+    L.root.classList.toggle("mwia-hidden", !loop || L.minimized);
+    L.icon?.classList.toggle("mwia-hidden", !loop || !L.minimized);
     if (!loop) return;
     const st = status();
+    if (L.icon) {
+      L.icon.querySelector(".mwia-loop-count").textContent = st.phase === "decompose" || st.phase === "done" ? `+${loop.target}` : `${n4(st.queued)}/${n4(st.total)}`;
+      L.icon.classList.toggle("mwia-has-alert", st.phase === "decompose");
+      L.icon.title = `\u{1F501} ${itemName(loop.itemHrid)} \u2192 +${loop.target}: ${st.phase === "decompose" ? `${n4(st.heldTarget)} ready to decompose` : `${n4(st.queued)}/${n4(st.total)} queued`} \u2013 tap to open`;
+    }
     const item = esc(itemName(loop.itemHrid));
     const plus = `+${loop.target}`;
     const button2 = (action, text, title = "") => `<button class="mwia-cart-btn" data-loop="${action}"${title ? ` title="${esc(title)}"` : ""}>${text}</button>`;
@@ -10778,6 +10804,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     let html = `<div class="mwia-train-head">
         <button class="mwia-link" data-loop="toggle" title="Show or hide the details">${L.collapsed ? "\u25B8" : "\u25BE"}</button>
         <b>\u{1F501} ${item} \u2192 ${plus} \u{1F9EA}</b>
+        <button class="mwia-link" data-loop="minimize" title="Shrink to a \u{1F9EA} icon (tap it to open again)">\u2796</button>
         <button class="mwia-link" data-loop="end" title="End the loop">\u2715</button>
       </div>
       <div class="mwia-train-now">${headline}</div>`;
@@ -10811,7 +10838,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (action === "toggle") {
       L.collapsed = !L.collapsed;
       render2();
-    } else if (action === "end") endLoop();
+    } else if (action === "minimize") setMinimized(true);
+    else if (action === "end") endLoop();
     else if (action === "next") openNext();
     else if (action === "decompose") openDecompose();
     else if (action === "again") {
@@ -10840,6 +10868,18 @@ i.mwia-history-bid { background: #7ee2b0; }
     L.root.addEventListener("click", onClick8);
     enableTapTips(L.root);
     document.body.appendChild(L.root);
+    L.icon = document.createElement("button");
+    L.icon.className = "mwia-launcher mwia-loop-icon mwia-hidden";
+    L.icon.setAttribute("aria-label", "Enhance loop");
+    L.icon.innerHTML = `\u{1F9EA}<span class="mwia-loop-count"></span>`;
+    L.icon.addEventListener("click", () => setMinimized(false));
+    document.body.appendChild(L.icon);
+    makeDraggable(L.icon, ICON_POSITION_KEY);
+    try {
+      L.minimized = !!localStorage.getItem(MINIMIZED_KEY);
+    } catch {
+      L.minimized = false;
+    }
     restore2();
     render2();
     onStateChange(onGameMessage2);
@@ -13114,7 +13154,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.72.0" : "dev";
+  var VERSION3 = true ? "0.72.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

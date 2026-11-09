@@ -207,6 +207,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     and the catalyst); once that is queued, **🛒 N more** adds the next round (the items, their materials and
     protections over the attempts one takes, the catalyst) to the MWITools cart, less what you have, and **🔁 Again**
     starts over. The panel opens nothing by itself, and is kept in the browser per character over a reload.
+    **➖** shrinks it to a floating 🧪 icon (only there while a loop runs, dragged anywhere like 🧭) so it doesn't
+    cover the game's queue: it shows the progress (*4/14*, then *+6*), gets a red dot when the +target waits to be
+    decomposed, and a tap opens the panel again.
   - **Alchemy:** every coinify, decompose and transmute of an item on the market, bought at the ask. Success = base
     (70%, 60%, the item's transmute rate) × (1 + catalyst + Catalytic Tea + 0.9 / item level per level below the item);
     20 s / (1 + speed) with efficiency +1% per level above the item; the bulk size (10 essences at once), the coins it
