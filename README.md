@@ -320,10 +320,13 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   - **The market takes only so much**: of each product 50% of what sells a day; the rest waits in stock and sells
     first in later blocks (a job is chosen by what sells in its block, so stock doesn't pile up). The same share
     caps what you can buy of a material in a block. Coins pay for a block's materials and teas when it starts.
+    Jobs are ranked by the gold an hour the market leaves of them, so gear worth a fortune on paper that sells a
+    few a day doesn't push a job that earns out of the ones tried.
   - **Levels and tools**: XP becomes levels as the game's table gives them, and with them new jobs and tools. A
-    better tool for the skill being worked is bought when its extra gold over the days left pays for it, less what
-    it sells for again (the old one is sold at the bid; one in your inventory is put on for nothing); it may take at
-    most half your coins unless a block of the job's materials is still paid for.
+    better tool for the skill being worked is bought when its extra gold over the days left (within the market's
+    limits) pays for it, less what it sells for again (the old one is sold at the bid; one in your inventory is put
+    on for nothing); it may take at most half your coins unless a block of the job's materials is still paid for.
+    Only tools so far: clothes, jewellery, charms and capes stay as you wear them.
   - **Worth** = coins + tools at the bid + stock (at the bid for up to a day of sales, the shop price for the rest).
     Levels can't be sold, so the **score** adds *Levels worth* days (7 by default) of the gold a day the character
     earns at the end – otherwise a plan would never train near its end.

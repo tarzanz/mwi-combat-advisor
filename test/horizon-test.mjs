@@ -94,6 +94,22 @@ check("a tool you have is put on for nothing", owned.purchases.some((x) => x.ite
 const noLevels = simulatePlan(snapshot, data, prices, [], { days, levelDays: 0 });
 check("level days 0: score is the worth", Math.abs(noLevels.score - noLevels.worth) < 1e-6);
 
+// Jobs are ranked by what the market takes: things worth a fortune on paper that
+// sell one a day must not push a job that earns out of the earning jobs tried.
+const paper = pricesWith(200000);
+for (const action of Object.values(data.actionDetailMap)) {
+    if (!action.inputItems?.length) continue;
+    for (const out of action.outputItems || []) {
+        const sp = data.itemDetailMap[out.itemHrid]?.sellPrice || 1;
+        paper[out.itemHrid] = { a: 3000 * sp, b: 2000 * sp, aLow: 2800 * sp, aHigh: 3300 * sp, bLow: 1900 * sp, sold: 0.01 };
+    }
+}
+const cheeseSp = data.itemDetailMap["/items/cheese"].sellPrice;
+paper["/items/cheese"] = { a: 60 * cheeseSp, b: 50 * cheeseSp, aLow: 58 * cheeseSp, aHigh: 62 * cheeseSp, bLow: 48 * cheeseSp, sold: 1e7 };
+const deep = simulatePlan(snapshot, data, paper, [], { days: 1 });
+check("earning jobs are ranked within the market's limits", deep.timeline[0].ran[0]?.r.name === "Cheese", deep.timeline[0].ran.map((x) => x.r.name).join(" + "));
+check("…and so is the end value of levels", deep.endRate > 0 && Math.abs(deep.endRate - 3 * (deep.timeline.at(-1).income - deep.timeline.at(-1).costs)) < 0.2 * deep.endRate, `${Math.round(deep.endRate)} a day`);
+
 // A missing level table is said, not guessed.
 let error = null;
 try {

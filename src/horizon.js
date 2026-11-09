@@ -48,7 +48,7 @@ const BEAM = 6;
 // Plans also run with cautious prices, and plans shown.
 const CAUTIOUS_TOP = 6;
 export const PLANS_SHOWN = 8;
-// The earning jobs tried in a block: the best by gold an hour before the market's limits.
+// The earning jobs tried in a block: the best by gold an hour within the market's limits.
 const CANDIDATES = 40;
 const NO_MATERIALS = 8;
 // A block is one job, and at most one more queued behind it when the first
@@ -179,6 +179,21 @@ function rates(ctx, market, action, level, tool, mode) {
     });
     const inputs = e.inputs.map((input) => ({ hrid: input.itemHrid, perHour: input.count * e.actionsPerHour, price: input.price || 0 }));
     const costPerHour = inputs.reduce((sum, i) => sum + i.perHour * i.price, 0) + e.teaPerHour;
+    // The gold an hour the market leaves of it over a block (nothing in stock, coins aside):
+    // what jobs are ranked by – a pair of trousers worth 277M an hour on paper sells a few a day.
+    const hours = ctx.o.blockHours;
+    const room = (hrid) => {
+        const sold = ctx.sold(hrid);
+        return sold === null ? Infinity : (sold * ctx.o.marketShare * hours) / 24;
+    };
+    let h = hours;
+    for (const input of inputs) if (input.perHour > 0) h = Math.min(h, room(input.hrid) / input.perHour);
+    let marketPerHour = -Infinity;
+    if (h >= MIN_JOB_HOURS) {
+        let value = -costPerHour * h;
+        for (const out of outputs) value += (out.limited ? Math.min(out.perHour * h, room(out.hrid)) : out.perHour * h) * out.list;
+        marketPerHour = value / h;
+    }
     r = {
         id: action.hrid,
         name: action.name,
@@ -196,6 +211,7 @@ function rates(ctx, market, action, level, tool, mode) {
         teaPerHour: e.teaPerHour,
         costPerHour,
         profitPerHour: e.profitPerHour,
+        marketPerHour,
     };
     ctx.rateCache.set(key, r);
     return r;
@@ -213,7 +229,7 @@ function jobs(ctx, market, state, mode, skill = null) {
         const r = rates(ctx, market, action, state.level[s], state.tools[toolTypeOf(action.type)] || null, mode);
         if (r.valid) list.push(r);
     }
-    list.sort((x, y) => (mode === "xp" ? y.xpPerHour - x.xpPerHour : y.profitPerHour - x.profitPerHour));
+    list.sort((x, y) => (mode === "xp" ? y.xpPerHour - x.xpPerHour : y.marketPerHour - x.marketPerHour || 0));
     // The best earners, and the best jobs that need no materials: those still run when coins are short.
     if (!skill) list = [...list.slice(0, CANDIDATES), ...list.slice(CANDIDATES).filter((r) => !r.inputs.length).slice(0, NO_MATERIALS)];
     ctx.listCache.set(key, list);
@@ -373,7 +389,7 @@ function maybeBuyTool(ctx, market, state, actionType, phase, daysLeft) {
     const tool = { itemHrid: next.itemHrid, level: 0 };
     const best = (t) => {
         const list = jobs(ctx, market, { ...state, tools: { ...state.tools, [toolType]: t } }, "gold", skill);
-        return list.length ? list[0].profitPerHour : 0;
+        return list.length ? Math.max(0, list[0].marketPerHour) : 0;
     };
     const gainPerDay = (best(tool) - best(current)) * 24;
     // Coins must still buy a block of the job's materials and teas afterwards,
