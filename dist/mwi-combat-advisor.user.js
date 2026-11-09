@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.72.1
+// @version      0.73.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -690,7 +690,7 @@
     const plusAsk = plus > 0 ? plusBuy(action.itemHrid, plus) : null;
     const forSale = plus === 0 || plusAsk !== null;
     const price = itemPrice !== null ? itemPrice : plus > 0 ? plusAsk ?? plusHeld(action.itemHrid, plus) : market.buy(action.itemHrid);
-    const coins9 = coinCost(kind, detail);
+    const coins10 = coinCost(kind, detail);
     const drinksPerHour = 12 * who.concentration;
     const teaCosts = teas.map((hrid) => {
       const p2 = market.buy(hrid) ?? market.sell(hrid).bid ?? 0;
@@ -721,7 +721,7 @@
       add(essence.itemHrid, essence.count, "essence");
       add(rare.itemHrid, rare.count, "rare");
       const inputs = [{ itemHrid: action.itemHrid, enhancementLevel: plus, count: bulk - selfBack, price, value: (bulk - selfBack) * (price || 0), ...forSale ? {} : { forSale: false } }];
-      if (coins9) inputs.push({ itemHrid: COIN, count: coins9, price: 1, value: coins9 });
+      if (coins10) inputs.push({ itemHrid: COIN, count: coins10, price: 1, value: coins10 });
       if (catalyst.itemHrid) inputs.push({ itemHrid: catalyst.itemHrid, count: successRate, price: catalyst.price, value: successRate * catalyst.price, catalyst: true });
       const revenuePerAction = outputs.reduce((sum, o2) => sum + o2.value, 0);
       const costPerAction = inputs.reduce((sum, i) => sum + i.value, 0);
@@ -764,7 +764,7 @@
         warnings,
         buffsKnown: !!who.buffs,
         bulk,
-        coinCost: coins9,
+        coinCost: coins10,
         baseRate,
         successRate,
         penalty,
@@ -833,15 +833,15 @@
       const guarded = L2 >= from;
       const b1 = b[L2 + 1];
       const b2 = b[L2 + 2];
-      const keep = 1 - up1 * b1 - up2 * b2 * b1;
-      if (keep <= 1e-15) return null;
+      const keep2 = 1 - up1 * b1 - up2 * b2 * b1;
+      if (keep2 <= 1e-15) return null;
       const cost = [1, xpPer[L2], guarded ? fail : 0];
       for (let i = 0; i < 3; i++) {
         const a1 = a[3 * (L2 + 1) + i];
-        a[3 * L2 + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L2 + 2) + i] + b2 * a1)) / keep;
+        a[3 * L2 + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L2 + 2) + i] + b2 * a1)) / keep2;
       }
-      b[L2] = guarded ? fail / keep : 0;
-      d[L2] = (up1 * d[L2 + 1] + up2 * (b2 * d[L2 + 1] + d[L2 + 2]) + (guarded ? 0 : fail)) / keep;
+      b[L2] = guarded ? fail / keep2 : 0;
+      d[L2] = (up1 * d[L2 + 1] + up2 * (b2 * d[L2 + 1] + d[L2 + 2]) + (guarded ? 0 : fail)) / keep2;
     }
     const rest = 1 - d[0];
     if (rest <= 1e-15) return null;
@@ -1154,7 +1154,7 @@
   }
   function reachable(entry, steps) {
     const seen = /* @__PURE__ */ new Set();
-    let frontier = entry.outputs.map((o2) => o2.itemHrid).filter((h2) => h2 !== COIN2);
+    let frontier = entry.outputs.map((o2) => o2.itemHrid).filter((h3) => h3 !== COIN2);
     for (let depth = 0; depth < MAX_DEPTH && frontier.length && seen.size < MAX_ITEMS; depth++) {
       const next = [];
       for (const hrid of frontier) {
@@ -1167,24 +1167,24 @@
     return [...seen];
   }
   function choose(items, sell, steps, charge, teaPerHour) {
-    const worth = new Map(items.map((h2) => [h2, sell(h2)]));
-    const value = (h2) => h2 === COIN2 ? 1 : worth.has(h2) ? worth.get(h2) : sell(h2);
+    const worth = new Map(items.map((h3) => [h3, sell(h3)]));
+    const value = (h3) => h3 === COIN2 ? 1 : worth.has(h3) ? worth.get(h3) : sell(h3);
     const choice = /* @__PURE__ */ new Map();
     for (let sweep = 0; sweep < SWEEPS; sweep++) {
       let moved = 0;
-      for (const h2 of items) {
-        let best = sell(h2);
+      for (const h3 of items) {
+        let best = sell(h3);
         let pick2 = null;
-        for (const step of steps(h2)) {
+        for (const step of steps(h3)) {
           const v = (step.outputs.reduce((sum, o2) => sum + o2.count * value(o2.itemHrid), 0) - step.paid - (teaPerHour + charge) * step.hours) / step.net;
           if (v > best + 1e-9) {
             best = v;
             pick2 = step;
           }
         }
-        moved = Math.max(moved, Math.abs(best - worth.get(h2)) / Math.max(1, Math.abs(best)));
-        worth.set(h2, best);
-        choice.set(h2, pick2);
+        moved = Math.max(moved, Math.abs(best - worth.get(h3)) / Math.max(1, Math.abs(best)));
+        worth.set(h3, best);
+        choice.set(h3, pick2);
       }
       if (moved < 1e-9) break;
     }
@@ -1195,29 +1195,29 @@
     const gold = /* @__PURE__ */ new Map();
     const hours = /* @__PURE__ */ new Map();
     const xp = /* @__PURE__ */ new Map();
-    const val = (map, h2, sold) => h2 === COIN2 ? map === gold ? 1 : 0 : map.has(h2) ? map.get(h2) : sold(h2);
-    for (const h2 of items) {
-      gold.set(h2, sell(h2));
-      hours.set(h2, 0);
-      xp.set(h2, 0);
+    const val = (map, h3, sold) => h3 === COIN2 ? map === gold ? 1 : 0 : map.has(h3) ? map.get(h3) : sold(h3);
+    for (const h3 of items) {
+      gold.set(h3, sell(h3));
+      hours.set(h3, 0);
+      xp.set(h3, 0);
     }
     const none = () => 0;
     for (let sweep = 0; sweep < SWEEPS; sweep++) {
       let moved = 0;
-      for (const h2 of items) {
-        const step = choice.get(h2);
+      for (const h3 of items) {
+        const step = choice.get(h3);
         if (!step) continue;
         const g4 = (step.outputs.reduce((sum, o2) => sum + o2.count * val(gold, o2.itemHrid, sell), 0) - step.paid) / step.net;
         const t4 = (step.hours + step.outputs.reduce((sum, o2) => sum + o2.count * val(hours, o2.itemHrid, none), 0)) / step.net;
         const x = (step.xp + step.outputs.reduce((sum, o2) => sum + o2.count * val(xp, o2.itemHrid, none), 0)) / step.net;
-        moved = Math.max(moved, Math.abs(g4 - gold.get(h2)) / Math.max(1, Math.abs(g4)), Math.abs(t4 - hours.get(h2)) / Math.max(1e-9, t4));
-        gold.set(h2, g4);
-        hours.set(h2, t4);
-        xp.set(h2, x);
+        moved = Math.max(moved, Math.abs(g4 - gold.get(h3)) / Math.max(1, Math.abs(g4)), Math.abs(t4 - hours.get(h3)) / Math.max(1e-9, t4));
+        gold.set(h3, g4);
+        hours.set(h3, t4);
+        xp.set(h3, x);
       }
       if (moved < 1e-9) break;
     }
-    return { gold: (h2) => val(gold, h2, sell), hours: (h2) => val(hours, h2, none), xp: (h2) => val(xp, h2, none) };
+    return { gold: (h3) => val(gold, h3, sell), hours: (h3) => val(hours, h3, none), xp: (h3) => val(xp, h3, none) };
   }
   function flows(entry, items, choice) {
     const amount2 = /* @__PURE__ */ new Map();
@@ -1226,18 +1226,18 @@
     const sold = /* @__PURE__ */ new Map();
     for (let sweep = 0; sweep < SWEEPS * 4; sweep++) {
       let pushed = false;
-      for (const h2 of [...amount2.keys()]) {
-        const n5 = amount2.get(h2);
+      for (const h3 of [...amount2.keys()]) {
+        const n5 = amount2.get(h3);
         if (n5 < 1e-12) continue;
-        amount2.set(h2, 0);
-        const step = choice.get(h2);
+        amount2.set(h3, 0);
+        const step = choice.get(h3);
         if (!step) {
-          sold.set(h2, (sold.get(h2) || 0) + n5);
+          sold.set(h3, (sold.get(h3) || 0) + n5);
           continue;
         }
         pushed = true;
         const times = n5 / step.net;
-        actions.set(h2, { step, count: (actions.get(h2)?.count || 0) + times });
+        actions.set(h3, { step, count: (actions.get(h3)?.count || 0) + times });
         for (const o2 of step.outputs) if (o2.itemHrid !== COIN2) amount2.set(o2.itemHrid, (amount2.get(o2.itemHrid) || 0) + o2.count * times);
       }
       if (!pushed) break;
@@ -1249,15 +1249,15 @@
     const teaKey = entry.teas.join(",");
     if (!caches.has(teaKey)) caches.set(teaKey, /* @__PURE__ */ new Map());
     const cache = caches.get(teaKey);
-    const steps = (h2) => stepsFor(h2, who, data, market, entry.teas, cache);
+    const steps = (h3) => stepsFor(h3, who, data, market, entry.teas, cache);
     const sellCache = /* @__PURE__ */ new Map();
-    const sell = (h2) => {
-      if (h2 === COIN2) return 1;
-      if (!sellCache.has(h2)) sellCache.set(h2, entry.outputs.find((o2) => o2.itemHrid === h2)?.price ?? market.sell(h2).price ?? 0);
-      return sellCache.get(h2);
+    const sell = (h3) => {
+      if (h3 === COIN2) return 1;
+      if (!sellCache.has(h3)) sellCache.set(h3, entry.outputs.find((o2) => o2.itemHrid === h3)?.price ?? market.sell(h3).price ?? 0);
+      return sellCache.get(h3);
     };
     const items = reachable(entry, steps);
-    if (!items.some((h2) => steps(h2).length)) return null;
+    if (!items.some((h3) => steps(h3).length)) return null;
     const ownHours = 1 / entry.actionsPerHour;
     const ownCost = entry.costPerAction;
     let rate2 = Math.max(0, entry.profitPerHour);
@@ -1266,7 +1266,7 @@
     for (let round = 0; round < ROUNDS; round++) {
       const choice2 = choose(items, sell, steps, Math.max(0, rate2), entry.teaPerHour);
       if (!choice2) return null;
-      const key2 = items.map((h2) => choice2.get(h2)?.kind || "").join("|");
+      const key2 = items.map((h3) => choice2.get(h3)?.kind || "").join("|");
       if (key2 === last) break;
       last = key2;
       const f2 = follow(items, sell, choice2);
@@ -1654,8 +1654,8 @@
     const lowest = Math.min(...book.asks.map((o2) => o2.price));
     const top = lowest * (1 + ASK_WINDOW);
     const near = book.asks.filter((o2) => o2.price <= top).reduce((sum, o2) => sum + o2.quantity, 0);
-    const mine = (stock.listings || []).filter((l2) => l2.price > 0 && l2.price <= top).reduce((sum, l2) => sum + l2.quantity, 0);
-    return { quantity: Math.max(0, near - mine), lowest };
+    const mine2 = (stock.listings || []).filter((l2) => l2.price > 0 && l2.price <= top).reduce((sum, l2) => sum + l2.quantity, 0);
+    return { quantity: Math.max(0, near - mine2), lowest };
   }
   function breakEvenPrice(entry) {
     const main = entry.outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0];
@@ -1704,7 +1704,7 @@
     const low = price.diff !== null && price.diff < -PRICE_BAND;
     return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
   }
-  function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins9 = Infinity, have: have6 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now: now2 = Date.now() }) {
+  function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins10 = Infinity, have: have6 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now: now2 = Date.now() }) {
     if (entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o2) => o2.price >= breakEven).reduce((sum, o2) => sum + o2.quantity, 0) : null;
@@ -1802,7 +1802,7 @@
       }
     }
     const share = coinShare[rating.rating] ?? coinShare.thin;
-    const budget = coins9 * share;
+    const budget = coins10 * share;
     let limitedByCoins = false;
     if (spend(count3) > budget) {
       let low = 0;
@@ -1886,17 +1886,17 @@
     }
     return { value, saving };
   }
-  function enhanceBudget(entry, { hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins9 = Infinity, inputMarket = null }) {
+  function enhanceBudget(entry, { hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins10 = Infinity, inputMarket = null }) {
     if (!entry.valid || entry.action.function !== ENHANCE_FUNCTION) return null;
     const rating = inputMarket?.(entry.action.itemHrid)?.liquidity || { rating: "thin", known: false };
     const share = coinShare[rating.rating] ?? coinShare.thin;
-    const budget = coins9 * share;
+    const budget = coins10 * share;
     const item = entry.base.owned ? 0 : entry.base.price;
     const perHour = (entry.costPerAttempt * entry.actionsPerHour + entry.teaPerHour) * (entry.enhanceShare ?? 1);
     const fill = item > budget ? 0 : perHour > 0 ? Math.min(1, (budget - item) / (perHour * hours)) : 1;
     return { rating, share, budget, item, perHour, need: item + perHour * hours, fill, hours: fill * hours, plannedHours: hours };
   }
-  function suggestChainCount(entry, chain, { stock, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins9 = Infinity, price = null, liquidity: liquidity2 = null, inputMarket = null }) {
+  function suggestChainCount(entry, chain, { stock, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins10 = Infinity, price = null, liquidity: liquidity2 = null, inputMarket = null }) {
     if (!chain || !entry.mainCount || chain.profitPerHour <= 0) return null;
     const planned = Math.max(1, Math.floor(hours / chain.hoursPerAction));
     const held = stock.inventory + stock.listed;
@@ -1915,7 +1915,7 @@
       }
     }
     const share = coinShare[rating.rating] ?? coinShare.thin;
-    const budget = coins9 * share;
+    const budget = coins10 * share;
     const limitedByCoins = chain.cashPerAction > 0 && count3 * chain.cashPerAction > budget;
     if (limitedByCoins) count3 = Math.floor(budget / chain.cashPerAction);
     return { count: count3, hours: count3 * chain.hoursPerAction, cash: count3 * chain.cashPerAction, liquidity: rating, ratedBy, coinShare: share, budget, limitedByCoins, held, heldOff };
@@ -2059,14 +2059,14 @@
       }
       if (n5 > 1e-12) sold.push({ ...o2, count: n5, value: n5 * o2.price, kind: o2.kind === "product" ? "recovered" : o2.kind });
     }
-    const coins9 = r.coinCost * per;
+    const coins10 = r.coinCost * per;
     const catalyst = r.inputs.find((i) => i.catalyst);
-    if (coins9 > 0) inputs.push({ itemHrid: COIN3, count: coins9, price: 1, value: coins9 });
+    if (coins10 > 0) inputs.push({ itemHrid: COIN3, count: coins10, price: 1, value: coins10 });
     if (catalyst) inputs.push({ ...catalyst, count: catalyst.count * per, value: catalyst.value * per });
     const craftHours = 1 / entry.actionsPerHour;
     const alchemyHours = per / r.actionsPerHour;
     const share = craftHours / (craftHours + alchemyHours);
-    const back = reused.reduce((sum, x) => sum + x.count * x.price, 0) + sold.reduce((sum, x) => sum + x.value, 0) - coins9 - (catalyst ? catalyst.value * per : 0) - r.teaPerHour * alchemyHours;
+    const back = reused.reduce((sum, x) => sum + x.count * x.price, 0) + sold.reduce((sum, x) => sum + x.value, 0) - coins10 - (catalyst ? catalyst.value * per : 0) - r.teaPerHour * alchemyHours;
     const valuePerItem = back / out.count;
     if (!(valuePerItem > out.price)) return null;
     const outputs = [...entry.outputs.map((o2) => o2 === out ? { ...o2, price: 0, value: 0, decomposed: true } : o2), ...sold];
@@ -2098,7 +2098,7 @@
   var leveling = (action) => action.function === ENHANCE_FUNCTION || action.function === ALCHEMY_FUNCTION;
   var sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
   var SHORTLIST = 40;
-  function shortlist(candidates, keep = () => false) {
+  function shortlist(candidates, keep2 = () => false) {
     if (candidates.length <= 3 * SHORTLIST) return candidates;
     const tried = candidates.map((c2) => {
       const gold = c2.evaluate([], (r) => r.goldPerDay);
@@ -2106,9 +2106,9 @@
       const cheap = c2.evaluate([], (r) => -coinsPerXp(r));
       return { c: c2, gold: gold.valid ? gold.goldPerDay : -Infinity, xp: xp.valid ? xp.xpPerDay : -Infinity, perCoin: -coinsPerXp(cheap) };
     });
-    const kept = new Set(candidates.filter(keep));
-    for (const key2 of ["gold", "xp", "perCoin"]) [...tried].sort((a, b) => b[key2] - a[key2]).slice(0, SHORTLIST).forEach((t4) => kept.add(t4.c));
-    return candidates.filter((c2) => kept.has(c2));
+    const kept2 = new Set(candidates.filter(keep2));
+    for (const key2 of ["gold", "xp", "perCoin"]) [...tried].sort((a, b) => b[key2] - a[key2]).slice(0, SHORTLIST).forEach((t4) => kept2.add(t4.c));
+    return candidates.filter((c2) => kept2.has(c2));
   }
   function rankSkilling(who, data, market, { skill = "all", teaMode = "current", plan = null, goldWeight = 1, countLevels = false, leveling: levelingOptions2 = {} } = {}) {
     var _a;
@@ -2433,8 +2433,8 @@
     let check = null;
     if (gameEquipmentBuffs) {
       const game = (gameEquipmentBuffs[type] || []).filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((sum, b) => sum + (b.flatBoost || 0) + (b.ratioBoost || 0), 0);
-      const mine = Object.values(equipped).reduce((sum, e2) => sum + itemSkillBuffs(e2.itemHrid, e2.enhancementLevel, skill, data).buffs.filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((s2, b) => s2 + b.flatBoost, 0), 0);
-      check = { game, mine, matches: Math.abs(game - mine) < 5e-3 };
+      const mine2 = Object.values(equipped).reduce((sum, e2) => sum + itemSkillBuffs(e2.itemHrid, e2.enhancementLevel, skill, data).buffs.filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((s2, b) => s2 + b.flatBoost, 0), 0);
+      check = { game, mine: mine2, matches: Math.abs(game - mine2) < 5e-3 };
     }
     return { base, upgrades, check, xpPrice };
   }
@@ -2724,7 +2724,7 @@
   function historyCsv(items, hours, days, exportedAt = /* @__PURE__ */ new Date(), { hourlySold = false } = {}) {
     const num2 = (v) => Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "";
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
-    const dayText = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
+    const dayText2 = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
     const id = (hrid) => hrid.replace(/^\/items\//, "");
     const sold = (d, i) => at(d.vn, i) ? `${num2(at(d.v, i) || 0)},${at(d.vn, i)},${num2(at(d.p, i))}` : ",,";
     const lines = [
@@ -2756,13 +2756,13 @@
     }
     for (const d of hourlySold ? [] : rollUpDays(hours.filter((r) => r.sold), items.length)) {
       items.forEach((hrid, i) => {
-        if (at(d.v, i) > 0) lines.push(`sold,${dayText(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
+        if (at(d.v, i) > 0) lines.push(`sold,${dayText2(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
       });
     }
     for (const d of days) {
       items.forEach((hrid, i) => {
         if (!at(d.n, i)) return;
-        lines.push(`day,${dayText(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)},${sold(d, i)}`);
+        lines.push(`day,${dayText2(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)},${sold(d, i)}`);
       });
     }
     return { csv: lines.join("\n") + "\n", items: items.length, hours: hours.length, days: days.length };
@@ -3227,7 +3227,7 @@
     const cut = planned && coins(shownDay) !== coins(day);
     const gold = entry.valid ? `<span class="${shownDay < 0 && !leveling2 ? "mwia-bad" : shownDay > 0 && (best || leveling2) ? "mwia-ok" : ""}">${coins(shownDay)}/day</span>` : `<span class="mwia-dim">\u2013</span>`;
     const full = cut ? `<span class="mwia-skill-full${fill < SHORT_FILL ? " mwia-warn" : ""}" title="The rate while it runs, with the materials at their lowest ask">${fill < 1 ? `full ${hoursText(entry.suggestion.plannedHours)}` : "at the lowest ask"}: ${coins(day)}/day</span>` : "";
-    const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1 ? `<span class="mwia-skill-hint">\u26D3 ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>` : !upcoming && entry.decomposeCraft ? `<span class="mwia-skill-hint">\u{1F9EA} decompose them: ${esc(names(entry.decomposeCraft.reused.map((x) => x.itemHrid).filter((h2) => h2 !== COIN4)) || "materials")} back</span>` : !upcoming && entry.alchemyChain ? `<span class="mwia-skill-hint">\u26D3 then ${esc(entry.alchemyChain.further.slice(0, 2).map((f) => f.name).join(", "))}${entry.alchemyChain.further.length > 2 ? ` +${entry.alchemyChain.further.length - 2} more` : ""}</span>` : "";
+    const chainHint = !upcoming && entry.chain && entry.chain.goldPerDay > entry.goldPerDay + 1 ? `<span class="mwia-skill-hint">\u26D3 ${coins(entry.chain.goldPerDay)}/day making the materials yourself</span>` : !upcoming && entry.decomposeCraft ? `<span class="mwia-skill-hint">\u{1F9EA} decompose them: ${esc(names(entry.decomposeCraft.reused.map((x) => x.itemHrid).filter((h3) => h3 !== COIN4)) || "materials")} back</span>` : !upcoming && entry.alchemyChain ? `<span class="mwia-skill-hint">\u26D3 then ${esc(entry.alchemyChain.further.slice(0, 2).map((f) => f.name).join(", "))}${entry.alchemyChain.further.length > 2 ? ` +${entry.alchemyChain.further.length - 2} more` : ""}</span>` : "";
     const waiting = !upcoming ? decomposeHeld(entry) : null;
     const heldHint = waiting?.held ? `<span class="mwia-skill-hint">\u{1F9EA} ${waiting.held.toLocaleString("en-US")}${waiting.level ? ` \xD7 +${waiting.level}` : ""} in your inventory to decompose</span>` : "";
     const faded = !entry.valid || !leveling2 && day <= 0 || entry.suggestion?.count === 0 || entry.budget?.fill === 0 || entry.thinMargin;
@@ -3981,7 +3981,7 @@
   }
   var ENHANCING_PANEL = '[class*="SkillActionDetail_enhancingComponent"]';
   var ALCHEMY_PANEL = '[class*="SkillActionDetail_alchemyComponent"]';
-  var inventoryItemHash = (characterId3, itemHrid, level = 0) => `${characterId3}::/item_locations/inventory::${itemHrid}::${level}`;
+  var inventoryItemHash = (characterId4, itemHrid, level = 0) => `${characterId4}::/item_locations/inventory::${itemHrid}::${level}`;
   function componentWith(element, method) {
     const nodes = element ? [element, ...element.querySelectorAll("input, button, select")].map(pageView) : [];
     const upFrom = (start2) => {
@@ -4204,8 +4204,8 @@
   }
   function lotsLeft(ledger, except = null) {
     const lots = Object.values(ledger.purchases).filter((b) => b.filled > 0).map((b) => ({ key: b.key, qty: b.filled, left: b.filled, unit: b.cost / b.filled, at: b.at, timed: !!b.timed, estimate: !!b.estimate })).sort((a, b) => a.at - b.at);
-    const results = Object.entries(ledger.history).filter(([key2]) => key2 !== except).map(([, h2]) => h2).sort((a, b) => a.endedAt - b.endedAt);
-    for (const h2 of results) for (const [key2, qty2] of h2.used || []) takeLots(lots, key2, qty2, h2.endedAt);
+    const results = Object.entries(ledger.history).filter(([key2]) => key2 !== except).map(([, h3]) => h3).sort((a, b) => a.endedAt - b.endedAt);
+    for (const h3 of results) for (const [key2, qty2] of h3.used || []) takeLots(lots, key2, qty2, h3.endedAt);
     return lots;
   }
   function takeLots(lots, key2, qty2, by = Infinity) {
@@ -4246,7 +4246,7 @@
     const all = Object.keys(ledger.history).sort((a, b) => ledger.history[a].endedAt - ledger.history[b].endedAt);
     for (const k of all.slice(0, Math.max(0, all.length - MAX_HISTORY))) delete ledger.history[k];
   }
-  var newerReport = (incoming, kept) => !kept || incoming.actions > kept.actions || incoming.endedAt > kept.endedAt;
+  var newerReport = (incoming, kept2) => !kept2 || incoming.actions > kept2.actions || incoming.endedAt > kept2.endedAt;
   function mergeFromPi2(ledger, wire) {
     let changed2 = false;
     for (const { key: key2, report } of wire.reports || []) {
@@ -4258,8 +4258,8 @@
     }
     for (const { uid, purchase } of wire.purchases || []) {
       if (!uid || !purchase || !(purchase.filled > 0)) continue;
-      const mine = ledger.purchases[uid];
-      if (!mine || purchase.filled > mine.filled) {
+      const mine2 = ledger.purchases[uid];
+      if (!mine2 || purchase.filled > mine2.filled) {
         ledger.purchases[uid] = { key: purchase.key, filled: purchase.filled, cost: purchase.cost, at: purchase.at, timed: !!purchase.timed, estimate: !!purchase.estimate };
         changed2 = true;
       }
@@ -4278,20 +4278,20 @@
     ledger.unsent.purchases = ledger.unsent.purchases.filter((id) => !purchases.includes(id) && ledger.purchases[id]);
   }
   function groupHistory(ledger, group, except = null) {
-    const list = Object.entries(ledger.history).filter(([key2, h2]) => key2 !== except && h2.group === group).map(([, h2]) => h2);
+    const list = Object.entries(ledger.history).filter(([key2, h3]) => key2 !== except && h3.group === group).map(([, h3]) => h3);
     if (!list.length) return null;
-    const sum = (f) => list.reduce((s2, h2) => s2 + (f(h2) || 0), 0);
-    const revenue = sum((h2) => h2.revenue);
-    const hours = sum((h2) => h2.hours);
-    const profit = sum((h2) => h2.profit);
-    const expected = list.filter((h2) => Number.isFinite(h2.expectedMargin));
+    const sum = (f) => list.reduce((s2, h3) => s2 + (f(h3) || 0), 0);
+    const revenue = sum((h3) => h3.revenue);
+    const hours = sum((h3) => h3.hours);
+    const profit = sum((h3) => h3.profit);
+    const expected = list.filter((h3) => Number.isFinite(h3.expectedMargin));
     return {
       jobs: list.length,
-      days: (Math.max(...list.map((h2) => h2.endedAt)) - Math.min(...list.map((h2) => h2.endedAt))) / 864e5,
+      days: (Math.max(...list.map((h3) => h3.endedAt)) - Math.min(...list.map((h3) => h3.endedAt))) / 864e5,
       profit,
       perHour: hours > 0 ? profit / hours : null,
       margin: revenue > 0 ? profit / revenue : null,
-      expectedMargin: expected.length ? expected.reduce((s2, h2) => s2 + h2.expectedMargin, 0) / expected.length : null
+      expectedMargin: expected.length ? expected.reduce((s2, h3) => s2 + h3.expectedMargin, 0) / expected.length : null
     };
   }
   function jobReport(ledger, job, prices2, now2 = Date.now()) {
@@ -4467,10 +4467,10 @@
     const L2 = j.ledger;
     const running2 = runningAction(state.character?.characterActions);
     if (!running2 || !counted(running2.actionHrid)) return;
-    const kept = L2.forecasts[running2.id];
-    if (kept && (kept.settled || !completed)) return;
+    const kept2 = L2.forecasts[running2.id];
+    if (kept2 && (kept2.settled || !completed)) return;
     if (!whenReady(() => keepForecast(completed))) return;
-    L2.forecasts[running2.id] = { at: kept?.at ?? Date.now(), settled: completed, forecast: forecastFor(running2.actionHrid, itemOfHash2(running2.primaryItemHash), levelOfHash2(running2.primaryItemHash)) };
+    L2.forecasts[running2.id] = { at: kept2?.at ?? Date.now(), settled: completed, forecast: forecastFor(running2.actionHrid, itemOfHash2(running2.primaryItemHash), levelOfHash2(running2.primaryItemHash)) };
     const ids = Object.keys(L2.forecasts).sort((a, b) => L2.forecasts[a].at - L2.forecasts[b].at);
     for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORECASTS))) delete L2.forecasts[id];
     save();
@@ -4502,7 +4502,7 @@
     if (!queue) return !ended(e2);
     return queue.some((a) => a.id === e2.characterActionId && a.actionHrid === e2.actionHrid && !a.isDone);
   }
-  var stale = (kept, e2) => kept.actions !== (Number(e2.actionCount) || 0) || kept.endedAt !== time(e2.endTime);
+  var stale = (kept2, e2) => kept2.actions !== (Number(e2.actionCount) || 0) || kept2.endedAt !== time(e2.endTime);
   var changed = () => {
     for (const listener of j.changed) listener();
   };
@@ -4532,9 +4532,9 @@
     const data = getClientData();
     for (const e2 of todo.sort((a, b) => time(a.endTime) - time(b.endTime))) {
       const keptEntry = L2.forecasts[e2.characterActionId];
-      const kept = keptEntry?.forecast || null;
+      const kept2 = keptEntry?.forecast || null;
       const item = itemOfHash2(e2.primaryItemHash);
-      const forecast = kept || forecastFor(e2.actionHrid, item);
+      const forecast = kept2 || forecastFor(e2.actionHrid, item);
       const job = {
         id: e2.characterActionId,
         actionHrid: e2.actionHrid,
@@ -4544,8 +4544,8 @@
         hours: (time(e2.endTime) - time(e2.startTime)) / 36e5,
         deltas: entryDeltas(e2, data, forecast),
         forecast,
-        forecastNow: !kept && !!forecast,
-        forecastSettled: kept ? keptEntry.settled !== false : null
+        forecastNow: !kept2 && !!forecast,
+        forecastSettled: kept2 ? keptEntry.settled !== false : null
       };
       job.name = forecast?.name || jobName(e2, data);
       const key2 = entryKey(e2);
@@ -4575,8 +4575,8 @@
       const bulk = bulkOf(detail);
       const level = levelOfHash2(e2.primaryItemHash);
       add(keyOf(item, level), -bulk * count3);
-      const coins9 = coinCost(kind, detail) * count3;
-      if (coins9) add(keyOf(COIN6), -coins9);
+      const coins10 = coinCost(kind, detail) * count3;
+      if (coins10) add(keyOf(COIN6), -coins10);
       const catalyst = itemOfHash2(e2.secondaryItemHash);
       if (catalyst) {
         const per = successOutputs(kind, detail, level).filter((o2) => o2.count > 0);
@@ -4646,9 +4646,9 @@
       if (!card) continue;
       const key2 = entryKey(e2);
       const report = j.ledger.reports[key2];
-      const kept = j.ledger.history[key2];
+      const kept2 = j.ledger.history[key2];
       const soFar = j.soFar.get(key2);
-      const html = running(e2) ? soFar && soFar.actions === (Number(e2.actionCount) || 0) ? lineHtml(soFar, "running") : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>` : report && kept && !stale(kept, e2) ? lineHtml(report) : soFar ? lineHtml(soFar, "ended") : `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>`;
+      const html = running(e2) ? soFar && soFar.actions === (Number(e2.actionCount) || 0) ? lineHtml(soFar, "running") : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>` : report && kept2 && !stale(kept2, e2) ? lineHtml(report) : soFar ? lineHtml(soFar, "ended") : `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>`;
       let line = [...card.children].find((c2) => c2.classList.contains("mwia-jobline"));
       if (!line) {
         line = document.createElement("div");
@@ -4711,7 +4711,7 @@
     let d = 1 - (a + b) * x / (a + 1);
     if (Math.abs(d) < tiny) d = tiny;
     d = 1 / d;
-    let h2 = d;
+    let h3 = d;
     for (let m2 = 1; m2 <= 200; m2++) {
       const m22 = 2 * m2;
       let aa = m2 * (b - m2) * x / ((a + m22 - 1) * (a + m22));
@@ -4720,7 +4720,7 @@
       c2 = 1 + aa / c2;
       if (Math.abs(c2) < tiny) c2 = tiny;
       d = 1 / d;
-      h2 *= d * c2;
+      h3 *= d * c2;
       aa = -(a + m2) * (a + b + m2) * x / ((a + m22) * (a + m22 + 1));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
@@ -4728,10 +4728,10 @@
       if (Math.abs(c2) < tiny) c2 = tiny;
       d = 1 / d;
       const delta = d * c2;
-      h2 *= delta;
+      h3 *= delta;
       if (Math.abs(delta - 1) < 3e-12) break;
     }
-    return h2;
+    return h3;
   }
   function incompleteBeta(x, a, b) {
     if (x <= 0) return 0;
@@ -5079,7 +5079,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.72.1" : "dev";
+  var VERSION = true ? "0.73.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5164,15 +5164,15 @@
   var opening = null;
   function hash(text) {
     let h1 = 3735928559;
-    let h2 = 1103547991;
+    let h22 = 1103547991;
     for (let i = 0; i < text.length; i++) {
       const ch = text.charCodeAt(i);
       h1 = Math.imul(h1 ^ ch, 2654435761);
-      h2 = Math.imul(h2 ^ ch, 1597334677);
+      h22 = Math.imul(h22 ^ ch, 1597334677);
     }
-    h1 = Math.imul(h1 ^ h1 >>> 16, 2246822507) ^ Math.imul(h2 ^ h2 >>> 13, 3266489909);
-    h2 = Math.imul(h2 ^ h2 >>> 16, 2246822507) ^ Math.imul(h1 ^ h1 >>> 13, 3266489909);
-    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+    h1 = Math.imul(h1 ^ h1 >>> 16, 2246822507) ^ Math.imul(h22 ^ h22 >>> 13, 3266489909);
+    h22 = Math.imul(h22 ^ h22 >>> 16, 2246822507) ^ Math.imul(h1 ^ h1 >>> 13, 3266489909);
+    return (4294967296 * (2097151 & h22) + (h1 >>> 0)).toString(36);
   }
   function generation() {
     const tables = engineTables();
@@ -5296,9 +5296,9 @@
       } else if (job.telemetry) toRun[slotOf.get(key2)] = job;
       return { run: slotOf.get(key2) };
     });
-    const kept = jobs.length - plan.filter((p2) => p2.run !== void 0).length;
-    if (kept) onProgress?.(kept, jobs.length);
-    const results = toRun.length ? await pool.runAll(toRun, (done2) => onProgress?.(kept + done2, kept + toRun.length)) : [];
+    const kept2 = jobs.length - plan.filter((p2) => p2.run !== void 0).length;
+    if (kept2) onProgress?.(kept2, jobs.length);
+    const results = toRun.length ? await pool.runAll(toRun, (done2) => onProgress?.(kept2 + done2, kept2 + toRun.length)) : [];
     const used = now();
     const writes = /* @__PURE__ */ new Map();
     const out = plan.map((p2, i) => {
@@ -5873,7 +5873,7 @@
     const count3 = kind === "food" ? slots.food : slots.drinks;
     const current = (kind === "food" ? profile.food : profile.drinks).slice(0, count3);
     while (current.length < count3) current.push(null);
-    const empty = current.findIndex((h2) => !h2);
+    const empty = current.findIndex((h3) => !h3);
     const placements = empty !== -1 ? [empty] : replace !== null && current[replace] ? [replace] : current.map((_, i) => i);
     const candidates = [];
     for (const hrid of combatConsumables(kind)) {
@@ -6003,15 +6003,15 @@
     const firstItems = items.map((item) => ({ ...item, seeds: item.seeds.slice(0, 1) }));
     let total = items.reduce((sum, item) => sum + item.seeds.length, 0);
     const first = await simulateRuns(pool, firstItems, zone, settings2.hours, (done2) => onProgress?.(done2, total));
-    const keep = items.map((item, i) => item.seeds.length < 2 || NOT_SCREENED.has(candidates[i].kind) || !ruledOut(first[i][0], baseRuns, goals));
-    const restItems = items.map((item, i) => keep[i] ? { ...item, seeds: item.seeds.slice(1) } : null).filter(Boolean);
+    const keep2 = items.map((item, i) => item.seeds.length < 2 || NOT_SCREENED.has(candidates[i].kind) || !ruledOut(first[i][0], baseRuns, goals));
+    const restItems = items.map((item, i) => keep2[i] ? { ...item, seeds: item.seeds.slice(1) } : null).filter(Boolean);
     const done0 = firstItems.length;
     total = done0 + restItems.reduce((sum, item) => sum + item.seeds.length, 0);
     const rest = await simulateRuns(pool, restItems, zone, settings2.hours, (done2) => onProgress?.(done0 + done2, total));
     let r = 0;
     return items.map((item, i) => {
       if (item.telemetry) item.telemetryOut = [...firstItems[i].telemetryOut || []];
-      if (!keep[i]) {
+      if (!keep2[i]) {
         candidates[i].screened = true;
         return first[i];
       }
@@ -6101,8 +6101,8 @@
     const mean = (list) => list.reduce((a, b) => a + b, 0) / list.length;
     let id = Math.max(...raw.candidates.map((c2) => c2.id)) + 1;
     for (const plain of top.map((r) => raw.candidates.find((x) => x.id === r.id))) {
-      const mine = tries.map((t4, i) => ({ ...t4, result: summarize3(runs[i], raw.zone.tier, t4.profile), runs: runs[i] })).filter((t4) => t4.hrid === plain.hrid && t4.slot === plain.slot);
-      const better2 = mine.filter((t4) => mean(scores(t4)) > mean(scores(plain)) && (confidenceGreater(scores(t4), scores(plain)) ?? 0) >= TUNED_CONFIDENCE).sort((a, b) => mean(scores(b)) - mean(scores(a)))[0];
+      const mine2 = tries.map((t4, i) => ({ ...t4, result: summarize3(runs[i], raw.zone.tier, t4.profile), runs: runs[i] })).filter((t4) => t4.hrid === plain.hrid && t4.slot === plain.slot);
+      const better2 = mine2.filter((t4) => mean(scores(t4)) > mean(scores(plain)) && (confidenceGreater(scores(t4), scores(plain)) ?? 0) >= TUNED_CONFIDENCE).sort((a, b) => mean(scores(b)) - mean(scores(a)))[0];
       if (better2) raw.candidates[raw.candidates.indexOf(plain)] = { ...better2, id: id++ };
     }
     return tries.length;
@@ -6504,7 +6504,15 @@
   content: ""; position: absolute; top: -2px; right: -2px; width: 11px; height: 11px;
   border-radius: 50%; background: #e5484d; border: 2px solid #171b2e;
 }
+.mwia-launcher.mwia-has-news::before {
+  content: ""; position: absolute; top: -2px; left: -2px; width: 11px; height: 11px;
+  border-radius: 50%; background: #3e8ef7; border: 2px solid #171b2e;
+}
 .mwia-alert-row td { background: rgba(229,72,77,.08); }
+.mwia-horizon-best { border: 1px solid #3e8ef7; border-radius: 6px; padding: 4px 10px; margin: 6px 0 10px; background: rgba(62,142,247,.07); }
+.mwia-horizon-plan { border-top: 1px solid rgba(255,255,255,.08); padding: 6px 0; }
+.mwia-horizon-plan > summary { cursor: pointer; }
+.mwia-horizon-spark { width: 160px; height: 24px; vertical-align: middle; color: #3e8ef7; }
 .mwia-version {
   align-self: center; margin-left: 5px; font: 400 9px/1 sans-serif; color: #aab3d9; opacity: .6;
   text-decoration: none; white-space: nowrap; cursor: default;
@@ -7268,8 +7276,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!added) return 0;
     L2.list.sort((a, b) => a.at - b.at);
     if (L2.list.length > MAX_KEPT) L2.list.splice(0, L2.list.length - MAX_KEPT);
-    const kept = new Set(L2.list.map((a) => a.uid));
-    L2.unsent = L2.unsent.filter((u) => kept.has(u));
+    const kept2 = new Set(L2.list.map((a) => a.uid));
+    L2.unsent = L2.unsent.filter((u) => kept2.has(u));
     save2();
     for (const fn of g.listeners) fn();
     return added;
@@ -7380,7 +7388,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var ORDER_BATCHES = 10;
   var JOB_BATCH = 25;
   var ATTEMPT_BATCH = 100;
-  var NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null, labyrinth: null };
+  var NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null, labyrinth: null, plan: false };
   var p = { running: null, sending: null, jobSync: null, labSync: null, labTimer: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: /* @__PURE__ */ new Set() };
   function readPairing(win2) {
     const match = /(?:^#|&)mwia-pi=([A-Za-z0-9_-]+)/.exec(win2.location.hash);
@@ -7452,7 +7460,8 @@ i.mwia-history-bid { background: #7ee2b0; }
         const takesOrders = !!wire.status?.orders;
         const takesJobs = !!wire.status?.jobs;
         const takesLabyrinth = !!wire.status?.labyrinth;
-        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? p.status.labyrinth || { at: null, error: "" } : null };
+        const makesPlans = !!wire.status?.plan;
+        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? p.status.labyrinth || { at: null, error: "" } : null, plan: makesPlans };
         if (takesOrders) await sendOrders();
         if (takesJobs) await syncJobs();
         if (takesLabyrinth) await syncLabyrinth();
@@ -7948,7 +7957,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const analysed = setup.tier || 0;
     if (tier !== null && tier !== analysed) return `<div class="mwia-guide-note mwia-guide-dim">The advice is for T${analysed}. Pick T${tier} as the zone's tier under <b>Upgrades</b> and analyze it for drinks, food and fight counts at T${tier}.</div>`;
     const picked = g2.hours.get(action.hrid);
-    const buttons = FIGHT_HOURS.map((h2) => `<button class="mwia-guide-hour${h2 === picked ? " mwia-guide-picked" : ""}" data-guide-hours="${h2}" title="${Math.max(1, Math.round(rate2 * h2)).toLocaleString("en-US")} fights">${h2}</button>`).join("");
+    const buttons = FIGHT_HOURS.map((h3) => `<button class="mwia-guide-hour${h3 === picked ? " mwia-guide-picked" : ""}" data-guide-hours="${h3}" title="${Math.max(1, Math.round(rate2 * h3)).toLocaleString("en-US")} fights">${h3}</button>`).join("");
     return `<div class="mwia-guide-sub">Fights for hours <span>\xB7 ${Math.round(rate2).toLocaleString("en-US")} an hour</span></div><div class="mwia-guide-hours">${buttons}</div>`;
   }
   function combatHtml(action, tier = null) {
@@ -8574,7 +8583,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   function part(title, final, start2, label3, extra = () => "") {
     const want = final.filter(Boolean);
     const now2 = start2.filter(Boolean);
-    const lines = [...want.map((h2) => itemLine2(now2.includes(h2) ? "keep" : "add", esc(label3(h2)), extra(h2))), ...now2.filter((h2) => !want.includes(h2)).map((h2) => itemLine2("remove", esc(label3(h2))))];
+    const lines = [...want.map((h3) => itemLine2(now2.includes(h3) ? "keep" : "add", esc(label3(h3)), extra(h3))), ...now2.filter((h3) => !want.includes(h3)).map((h3) => itemLine2("remove", esc(label3(h3))))];
     return lines.length ? `<div class="mwia-guide-sub">${title}</div><ul class="mwia-guide-list">${lines.join("")}</ul>` : "";
   }
   function gainText(entry) {
@@ -8592,16 +8601,16 @@ i.mwia-history-bid { background: #7ee2b0; }
     const { start: start2, final } = entry;
     const same2 = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     const unchanged = done2 || same2(start2.abilities.filter(Boolean), final.abilities.filter(Boolean)) && same2(start2.special, final.special) && same2(start2.drinks.filter(Boolean).sort(), final.drinks.filter(Boolean).sort()) && same2(start2.food.filter(Boolean).sort(), final.food.filter(Boolean).sort());
-    const perHour = (h2) => entry.after.consumables[h2] || 0;
-    const stock = (h2) => {
-      const need = Math.ceil(perHour(h2) * 8);
-      const text = `${n2(have4(h2))} in inventory${perHour(h2) ? `, ${n2(perHour(h2))}/h` : ""}`;
-      return have4(h2) < need ? `<b class="mwia-guide-low">${text}</b>` : text;
+    const perHour = (h3) => entry.after.consumables[h3] || 0;
+    const stock = (h3) => {
+      const need = Math.ceil(perHour(h3) * 8);
+      const text = `${n2(have4(h3))} in inventory${perHour(h3) ? `, ${n2(perHour(h3))}/h` : ""}`;
+      return have4(h3) < need ? `<b class="mwia-guide-low">${text}</b>` : text;
     };
     const from = done2 ? final : start2;
     const order = final.abilities.filter(Boolean);
     const newOrder = order.length > 1 && !same2(order, from.abilities.filter(Boolean));
-    let html = part("Abilities", [final.special, ...final.abilities], [from.special, ...from.abilities], abilityName) + (newOrder ? `<div class="mwia-guide-note">In this order: <b>${order.map((h2) => esc(abilityName(h2))).join(" \u2192 ")}</b></div>` : "") + part("Drinks", final.drinks, from.drinks, itemName, stock) + part("Food", final.food, from.food, itemName, stock);
+    let html = part("Abilities", [final.special, ...final.abilities], [from.special, ...from.abilities], abilityName) + (newOrder ? `<div class="mwia-guide-note">In this order: <b>${order.map((h3) => esc(abilityName(h3))).join(" \u2192 ")}</b></div>` : "") + part("Drinks", final.drinks, from.drinks, itemName, stock) + part("Food", final.food, from.food, itemName, stock);
     html += `<div class="mwia-guide-note">${unchanged ? "\u2713 This loadout is the best the advisor found for this fight." : `Change it as above and save the loadout: ${gainText(entry)}.`}</div>`;
     if (found) markSlots(found, final, marked);
     const buttons = CART_HOURS.map((hours) => cartButton3(cartItems(entry, hours), hours)).join(" ");
@@ -8618,9 +8627,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   function markSlots(found, final, marked) {
     const abilities = new Set([final.special, ...final.abilities].filter(Boolean));
     const consumables = new Set([...final.drinks, ...final.food].filter(Boolean));
-    const check = (slots, keep, label3) => {
+    const check = (slots, keep2, label3) => {
       for (const slot of slots) {
-        if (!slot.hrid || keep.has(slot.hrid)) continue;
+        if (!slot.hrid || keep2.has(slot.hrid)) continue;
         const title = `Take out ${label3(slot.hrid)} (MWI Advisor)`;
         if (slot.el.dataset.mwiaSlot !== "wrong") slot.el.dataset.mwiaSlot = "wrong";
         if (slot.el.title !== title) slot.el.title = title;
@@ -9239,13 +9248,13 @@ i.mwia-history-bid { background: #7ee2b0; }
   var pct4 = (x) => `${Math.round(100 * x)}%`;
   function rememberLabyrinth(lab) {
     if (!lab) return;
-    const kept = {
+    const kept2 = {
       at: Date.now(),
       monsters: lab.monsters.map((x) => ({ hrid: x.hrid, setupId: x.setupId, setupName: x.setupName, safe: x.safe, curve: x.curve.map((p2) => ({ level: p2.level, wins: p2.wins, attempts: p2.attempts })) }))
     };
-    m.stored = kept;
+    m.stored = kept2;
     try {
-      localStorage.setItem(STORE, JSON.stringify(kept));
+      localStorage.setItem(STORE, JSON.stringify(kept2));
     } catch {
     }
     scheduleScan8();
@@ -9543,21 +9552,21 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function withStock(plan, have6) {
     const owned = (hrid) => Math.max(0, (have6(hrid) || 0) - (hrid === plan.itemHrid && plan.start === 0 ? 1 : 0));
-    const coins9 = have6(COIN8) || 0;
+    const coins10 = have6(COIN8) || 0;
     const needs = (t4, outcome) => {
       if (!outcome) return null;
       const list = plan.perAttempt.map((i) => ({ itemHrid: i.itemHrid, price: i.price, tea: !!i.tea, count: Math.ceil(i.count * outcome.attempts) }));
       if (t4.protect) list.push({ itemHrid: t4.protect.itemHrid, price: t4.protect.price, protection: true, count: Math.ceil(outcome.protections) });
       for (const n5 of list) {
-        n5.have = n5.itemHrid === COIN8 ? coins9 : owned(n5.itemHrid);
+        n5.have = n5.itemHrid === COIN8 ? coins10 : owned(n5.itemHrid);
         n5.short = Math.max(0, n5.count - n5.have);
       }
       const coinsNeeded = list.reduce((sum, n5) => sum + (n5.itemHrid === COIN8 ? n5.count : n5.short * n5.price), 0);
-      return { ...outcome, list, coinsNeeded, affordable: coinsNeeded <= coins9 };
+      return { ...outcome, list, coinsNeeded, affordable: coinsNeeded <= coins10 };
     };
     const targets = plan.targets.map((t4) => ({ ...t4, mean: needs(t4, t4.mean), typical: needs(t4, t4.typical), unlucky: needs(t4, t4.unlucky) }));
     const reach = (pick2) => targets.reduce((top, t4) => pick2(t4)?.affordable ? t4.target : top, null);
-    return { ...plan, coins: coins9, targets, reach: { typical: reach((t4) => t4.typical || t4.mean), unlucky: reach((t4) => t4.unlucky) } };
+    return { ...plan, coins: coins10, targets, reach: { typical: reach((t4) => t4.typical || t4.mean), unlucky: reach((t4) => t4.unlucky) } };
   }
 
   // src/enhance-plan-ui.js
@@ -9641,19 +9650,19 @@ i.mwia-history-bid { background: #7ee2b0; }
   var head3 = (title, note2) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note2}</span></div>`;
   function boxHtml3(itemHrid, start2, id, key2) {
     const status2 = e.statuses.get(id);
-    const statusHtml2 = status2 ? `<div class="mwia-guide-status">${esc(status2)}</div>` : "";
+    const statusHtml3 = status2 ? `<div class="mwia-guide-status">${esc(status2)}</div>` : "";
     const title = head3("\u{1F3AF} Enhancing plan", `MWI Advisor \xB7 ${esc(itemName(itemHrid))}${start2 ? ` +${start2}` : ""}`);
     if (start2 >= 20) return title + `<div class="mwia-guide-note">Already at +20.</div>`;
     const saved = e.plans.get(id);
     const button2 = (label3) => `<button class="mwia-guide-cart mwia-plan-run" data-plan-run="${esc(id)}" ${e.busy ? "disabled" : ""}>${label3}</button>`;
     if (e.busy === id) return title + `<div class="mwia-guide-note mwia-plan-busy">\u{1F3B2} Simulating thousands of tries from +${start2} to every target\u2026 this can take a few seconds.</div>`;
     if (!saved) {
-      return title + `<div class="mwia-guide-note">What reaching each +level typically costs and takes, with bad luck, which protection is worth it and the materials against what you have \u2013 simulated with your odds here (it can take a few seconds).</div>` + button2(`\u{1F3B2} Simulate +${start2 + 1} \u2026 +20`) + statusHtml2;
+      return title + `<div class="mwia-guide-note">What reaching each +level typically costs and takes, with bad luck, which protection is worth it and the materials against what you have \u2013 simulated with your odds here (it can take a few seconds).</div>` + button2(`\u{1F3B2} Simulate +${start2 + 1} \u2026 +20`) + statusHtml3;
     }
-    if (!saved.plan) return title + `<div class="mwia-guide-note">Can't plan this item: it has no enhancing materials, or one of them isn't for sale.</div>` + statusHtml2;
+    if (!saved.plan) return title + `<div class="mwia-guide-note">Can't plan this item: it has no enhancing materials, or one of them isn't for sale.</div>` + statusHtml3;
     const plan = withStock(saved.plan, have5);
     const stale2 = saved.key !== key2 ? `<div class="mwia-guide-note mwia-guide-low">Prices, your teas or your Enhancing have changed since. ${button2("\u{1F3B2} Simulate again")}</div>` : "";
-    return title + stale2 + summaryHtml(plan) + tableHtml(plan, id) + statusHtml2;
+    return title + stale2 + summaryHtml(plan) + tableHtml(plan, id) + statusHtml3;
   }
   function summaryHtml(plan) {
     const odds = [];
@@ -9731,9 +9740,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   async function setTarget(button2, id) {
     const target = Number(button2.dataset.planSet);
     const where = e.panels.get(id);
-    const characterId3 = state.character?.character?.id;
+    const characterId4 = state.character?.character?.id;
     const protectHrid = button2.dataset.protect;
-    const protect = protectHrid && characterId3 ? { hash: inventoryItemHash(characterId3, protectHrid), from: Number(button2.dataset.from) } : null;
+    const protect = protectHrid && characterId4 ? { hash: inventoryItemHash(characterId4, protectHrid), from: Number(button2.dataset.from) } : null;
     const result = where ? await setEnhancing(where.panel, target, protect) : false;
     e.statuses.set(
       id,
@@ -10092,15 +10101,15 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var COIN10 = "/items/coin";
   function boughtCost(rows, price) {
-    let coins9 = 0;
+    let coins10 = 0;
     const unpriced = [];
     for (const row of rows.values()) {
       if (row.action || row.need <= 0 || row.hrid === COIN10) continue;
       const each = price(row.hrid);
       if (each === null || each === void 0) unpriced.push(row.name);
-      else coins9 += Math.ceil(row.need - 1e-9) * each;
+      else coins10 += Math.ceil(row.need - 1e-9) * each;
     }
-    return { coins: coins9, unpriced };
+    return { coins: coins10, unpriced };
   }
   function planCosts({ goals, policies }, data, { owned, houseLevels = {}, price }) {
     const actions = productionActions(data);
@@ -10119,13 +10128,13 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function itemCosts(hrid, count3, data, { owned, price }) {
     const actions = productionActions(data);
-    const name = (h2) => data.itemDetailMap[h2]?.name || h2.split("/").pop();
+    const name = (h3) => data.itemDetailMap[h3]?.name || h3.split("/").pop();
     const run = (produced) => boughtCost(resolve(/* @__PURE__ */ new Map([[hrid, count3]]), produced, actions, owned, name).rows, price);
     const craftable = actions.has(hrid);
     return {
       buy: run(() => false),
-      single: craftable ? run((h2) => h2 === hrid) : null,
-      chain: craftable ? run((h2) => actions.has(h2)) : null
+      single: craftable ? run((h3) => h3 === hrid) : null,
+      chain: craftable ? run((h3) => actions.has(h3)) : null
     };
   }
 
@@ -10467,7 +10476,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (!train.stops.length) html += `<p>Nothing needs to be made \u2014 your inventory already covers the plan.</p>`;
       if (train.covered.length) html += `<p class="mwia-dim">Already in inventory: ${esc(train.covered.join(", "))}</p>`;
       const buyable = toBuy(train).filter((s2) => s2.itemHrid !== "/items/coin");
-      const coins9 = train.shortages.find((s2) => s2.itemHrid === "/items/coin");
+      const coins10 = train.shortages.find((s2) => s2.itemHrid === "/items/coin");
       const gatherable = new Map((train.gather || []).map((item) => [item.itemHrid, item]));
       const gatherButton = (s2) => {
         const item = gatherable.get(s2.itemHrid);
@@ -10478,7 +10487,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         html += `<p><b>Missing materials:</b> ${buyable.map((s2) => `${esc(s2.name)} \xD7${n3(s2.need)}${gatherButton(s2)}`).join(", ")}
               <button class="mwia-cart-btn" data-train="cart" title="Add the missing materials to the MWITools shopping cart">\u{1F6D2} Add to cart</button></p>`;
       }
-      if (coins9) html += `<p class="mwia-warn">Coins short: ${n3(coins9.need)}</p>`;
+      if (coins10) html += `<p class="mwia-warn">Coins short: ${n3(coins10.need)}</p>`;
       for (const warning of train.warnings) html += `<p class="mwia-warn">\u26A0 ${esc(warning)}</p>`;
     }
     t3.root.innerHTML = html;
@@ -10913,8 +10922,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function editHook(fiber) {
     const found = [];
-    for (let h2 = fiber?.memoizedState, i = 0; h2 && typeof h2 === "object" && "next" in h2 && i < 40; h2 = h2.next, i++) {
-      if (Array.isArray(h2.memoizedState) && h2.memoizedState.length > 0 && holdsTriggers(h2.memoizedState) && typeof h2.queue?.dispatch === "function") found.push(h2);
+    for (let h3 = fiber?.memoizedState, i = 0; h3 && typeof h3 === "object" && "next" in h3 && i < 40; h3 = h3.next, i++) {
+      if (Array.isArray(h3.memoizedState) && h3.memoizedState.length > 0 && holdsTriggers(h3.memoizedState) && typeof h3.queue?.dispatch === "function") found.push(h3);
     }
     return found[found.length - 1] || null;
   }
@@ -11077,7 +11086,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var isClass = (f) => !!(f.stateNode && typeof f.stateNode === "object" && !(f.stateNode instanceof Element) && f.stateNode.setState);
   function hookValues(f) {
     const out = [];
-    for (let h2 = f.memoizedState, i = 0; h2 && typeof h2 === "object" && "next" in h2 && i < 30; h2 = h2.next, i++) out.push(attempt2(() => h2.memoizedState));
+    for (let h3 = f.memoizedState, i = 0; h3 && typeof h3 === "object" && "next" in h3 && i < 30; h3 = h3.next, i++) out.push(attempt2(() => h3.memoizedState));
     return out;
   }
   var propsText = (props) => Object.entries(props || {}).filter(([k]) => k !== "children").map(([k, v]) => `${k}=${valueText(v)}`).join("; ");
@@ -11146,8 +11155,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       lines.push(...windowFibers(box));
       const setting = settingFiber(box);
       lines.push(`setting component: ${setting ? typeName(setting) : "not found"}, for ${windowTarget(setting) || "?"}`);
-      for (let h2 = setting?.memoizedState, i = 0; h2 && typeof h2 === "object" && "next" in h2 && i < 40; h2 = h2.next, i++) {
-        lines.push(`  hook ${i}: ${valueText(attempt2(() => h2.memoizedState))}${typeof h2.queue?.dispatch === "function" ? " (dispatch)" : ""}`);
+      for (let h3 = setting?.memoizedState, i = 0; h3 && typeof h3 === "object" && "next" in h3 && i < 40; h3 = h3.next, i++) {
+        lines.push(`  hook ${i}: ${valueText(attempt2(() => h3.memoizedState))}${typeof h3.queue?.dispatch === "function" ? " (dispatch)" : ""}`);
       }
     }
     lines.push(...triggerComponents());
@@ -11211,9 +11220,9 @@ ${triggerWindowReport()}`, false);
   // src/listing-price.js
   var WALL_SHARE = 0.2;
   function otherLevels(levels, own = [], range = null, side = "sell") {
-    const mine = /* @__PURE__ */ new Map();
-    for (const listing of own) mine.set(listing.price, (mine.get(listing.price) || 0) + listing.quantity);
-    return levels.map((level) => ({ price: level.price, quantity: level.quantity - (mine.get(level.price) || 0) })).filter((level) => level.quantity > 0 && (!range || level.price >= range.min && level.price <= range.max)).sort((a, b) => side === "sell" ? a.price - b.price : b.price - a.price);
+    const mine2 = /* @__PURE__ */ new Map();
+    for (const listing of own) mine2.set(listing.price, (mine2.get(listing.price) || 0) + listing.quantity);
+    return levels.map((level) => ({ price: level.price, quantity: level.quantity - (mine2.get(level.price) || 0) })).filter((level) => level.quantity > 0 && (!range || level.price >= range.min && level.price <= range.max)).sort((a, b) => side === "sell" ? a.price - b.price : b.price - a.price);
   }
   function findWall(levels) {
     const total = levels.reduce((sum, level) => sum + level.quantity, 0);
@@ -11311,8 +11320,8 @@ ${triggerWindowReport()}`, false);
     const othersBest = book ? levels[0]?.price ?? null : best;
     const taken = takenPerHour(hours, side);
     for (const horizon of HORIZONS) {
-      const h2 = horizonPrice({ side, hours, horizon, quantity, best: othersBest, levels, range, taken });
-      out.push({ kind: "horizon", horizon, ...h2, capped: null, step: h2.under ? sell ? -1 : 1 : 0 });
+      const h3 = horizonPrice({ side, hours, horizon, quantity, best: othersBest, levels, range, taken });
+      out.push({ kind: "horizon", horizon, ...h3, capped: null, step: h3.under ? sell ? -1 : 1 : 0 });
     }
     const history = summary2 && summary2.hours7 >= MIN_HOURS ? summary2[sell ? "a" : "b"] : null;
     return { levels, suggestions: out, usual: history?.med7 ?? null, hours: summary2?.hours7 ?? 0, taken, quantity };
@@ -11395,19 +11404,19 @@ ${triggerWindowReport()}`, false);
     out.generous = !!vs && (sell ? vs.label === "below" : vs.label === "above");
     return out;
   }
-  function sellSuggestions(items, { data, entryOf, summaryOf = () => null, reserved = /* @__PURE__ */ new Map(), keep = /* @__PURE__ */ new Set(), listed = () => 0, rules = MARKET_RULES }) {
+  function sellSuggestions(items, { data, entryOf, summaryOf = () => null, reserved = /* @__PURE__ */ new Map(), keep: keep2 = /* @__PURE__ */ new Set(), listed = () => 0, rules = MARKET_RULES }) {
     const rows = [];
-    const kept = [];
+    const kept2 = [];
     for (const { hrid, level = 0, count: count3 } of items) {
       const item = data.itemDetailMap[hrid];
       if (hrid === "/items/coin" || !item || !(count3 > 0)) continue;
       const key2 = keepKey(hrid, level);
-      if (keep.has(key2)) {
-        kept.push({ hrid, level, count: count3, why: "pinned" });
+      if (keep2.has(key2)) {
+        kept2.push({ hrid, level, count: count3, why: "pinned" });
         continue;
       }
       if (reserved.has(hrid)) {
-        kept.push({ hrid, level, count: count3, why: reserved.get(hrid) });
+        kept2.push({ hrid, level, count: count3, why: reserved.get(hrid) });
         continue;
       }
       if (!item.isTradable) continue;
@@ -11449,7 +11458,7 @@ ${triggerWindowReport()}`, false);
       });
     }
     rows.sort((a, b) => b.value - a.value);
-    return { rows, kept };
+    return { rows, kept: kept2 };
   }
   var keepKey = (hrid, level = 0) => `${hrid}#${level}`;
   function reservedItems(character, items, data, trainActions = []) {
@@ -11502,11 +11511,11 @@ ${triggerWindowReport()}`, false);
   }
   var keepSet = () => new Set(readJson2(KEEP_KEY, []));
   function toggleKeep(hrid, level) {
-    const keep = keepSet();
+    const keep2 = keepSet();
     const key2 = keepKey(hrid, Number(level) || 0);
-    if (keep.has(key2)) keep.delete(key2);
-    else keep.add(key2);
-    writeJson2(KEEP_KEY, [...keep]);
+    if (keep2.has(key2)) keep2.delete(key2);
+    else keep2.add(key2);
+    writeJson2(KEEP_KEY, [...keep2]);
   }
   function toggleShowAllMarket() {
     view2.showAll = !view2.showAll;
@@ -11625,7 +11634,7 @@ ${triggerWindowReport()}`, false);
         return [];
       }
     })();
-    const { rows, kept } = sellSuggestions(inventoryItems(), {
+    const { rows, kept: kept2 } = sellSuggestions(inventoryItems(), {
       data,
       entryOf: marketEntry,
       summaryOf: priceSummary,
@@ -11642,8 +11651,8 @@ ${triggerWindowReport()}`, false);
     }
     const hidden = rows.length - shown.length;
     html += `<p><button class="mwia-link" data-action="market-all">${view2.showAll ? "Hide small amounts" : `Show all${hidden ? ` (${hidden} under ${coins7(MARKET_RULES.minValue)})` : ""}`}</button></p>`;
-    if (kept.length) {
-      html += `<details class="mwia-skill-sec"><summary>Kept, not offered (${kept.length})</summary><ul>${kept.map((k) => `<li>${label(k.hrid, k.level)} \xD7 ${k.count.toLocaleString("en-US")} \u2013 ${esc(WHY[k.why] || k.why)}${k.why === "pinned" ? ` <button class="mwia-link" data-action="market-keep" data-item="${esc(k.hrid)}" data-level="${k.level}">unpin</button>` : ""}</li>`).join("")}</ul></details>`;
+    if (kept2.length) {
+      html += `<details class="mwia-skill-sec"><summary>Kept, not offered (${kept2.length})</summary><ul>${kept2.map((k) => `<li>${label(k.hrid, k.level)} \xD7 ${k.count.toLocaleString("en-US")} \u2013 ${esc(WHY[k.why] || k.why)}${k.why === "pinned" ? ` <button class="mwia-link" data-action="market-keep" data-item="${esc(k.hrid)}" data-level="${k.level}">unpin</button>` : ""}</li>`).join("")}</ul></details>`;
     }
     html += `<p class="mwia-dim"><b>Sell now</b> when listing would gain under ${pctAbs(MARKET_RULES.quickSpread)}; else <b>List</b> at the lowest ask, never above the week's usual ask.
       Teas, food and drinks in your slots, materials for your queue or a running train, and what you pin \u{1F4CC} are never offered.</p>`;
@@ -11792,10 +11801,10 @@ ${triggerWindowReport()}`, false);
     html += `<p class="mwia-dim"><b>Better with</b> in the table above: an ability you know in place of one that monster's loadout uses.</p>`;
     return html;
   }
-  function pickText(p2, coins9) {
+  function pickText(p2, coins10) {
     const gear = (hrid, level) => `${esc(itemName(hrid))}${level ? " +" + level : ""}`;
     const levels = `<span class="mwia-dim">\u2248 +${p2.levels.toFixed(1)} room levels</span>`;
-    const price = p2.cost ? coins9(p2.cost) : p2.owned ? '<span class="mwia-ok">you own it</span>' : "free";
+    const price = p2.cost ? coins10(p2.cost) : p2.owned ? '<span class="mwia-ok">you own it</span>' : "free";
     if (p2.kind === "gear") {
       const how = p2.enhance ? ` <span class="mwia-dim">(\u{1F528} enhance it yourself)</span>` : "";
       return `${cap2(p2.slot.replace("_", " "))}: <b>${gear(p2.hrid, p2.enhancementLevel)}</b>${p2.replaces ? ` instead of ${gear(p2.replaces.hrid, p2.replaces.enhancementLevel)}` : ""}${how} \u2013 ${price} \xB7 ${levels}`;
@@ -11816,23 +11825,23 @@ ${triggerWindowReport()}`, false);
     }
     return items;
   }
-  function buildHtml(build, data, settings2, busy, settingsHtml2, cartButton5, coins9) {
+  function buildHtml(build, data, settings2, busy, settingsHtml3, cartButton5, coins10) {
     const style = buildStyleSetting(settings2);
-    const targets = monstersFor(data, style).map((h2) => esc(monsterName(h2)));
+    const targets = monstersFor(data, style).map((h3) => esc(monsterName(h3)));
     let html = `<h3>Build a loadout for the Labyrinth</h3>
       <p>Starts from your gear (<b>Gear from</b>) with a weapon for the style \u2013 yours, else the cheapest \u2013 and tries every piece of gear, every ability
       (new, or levelled with books), taking abilities off and running them without triggers against the room types weak to that style, at the room level where you now
       win about half. Ranked by room levels per coin \u2013 for winning 2-minute duels, not for XP or loot.</p>
       <div class="mwia-settings"><label title="The attack style to build for; the room types weak to it are the targets">Fight as
         <select data-setting="labyStyle">${ATTACK_STYLES.map((s2) => `<option value="${s2}" ${s2 === style ? "selected" : ""}>${cap2(s2)}</option>`).join("")}</select></label></div>
-      ${settingsHtml2(["gear", "budget", "spending"])}
+      ${settingsHtml3(["gear", "budget", "spending"])}
       <p class="mwia-dim">For: ${targets.join(", ") || "no room type"}.</p>
       <button class="mwia-btn" data-action="laby-build" ${busy ? "disabled" : ""}>Build loadout</button>`;
     if (!build || build.style !== style) return html;
     const before = new Map(build.before.map((m2) => [m2.hrid, m2]));
-    html += `<div class="mwia-reco"><b>${cap2(build.style)} loadout</b> \u2013 ${build.picks.length || build.starter ? `for ${coins9(build.spent)} of your ${coins9(build.budget)}` : "nothing to buy"}`;
-    if (build.starter) html += `<br>Weapon: <b>${esc(itemName(build.starter.hrid))}${build.starter.enhancementLevel ? " +" + build.starter.enhancementLevel : ""}</b> ${build.starter.owned ? '<span class="mwia-ok">you own it</span>' : "\u2013 " + coins9(build.starter.cost)}`;
-    html += `<ol class="mwia-plan">${build.picks.map((p2) => `<li>${pickText(p2, coins9)}</li>`).join("") || "<li>Nothing tested takes these rooms clearly further within the budget.</li>"}</ol>`;
+    html += `<div class="mwia-reco"><b>${cap2(build.style)} loadout</b> \u2013 ${build.picks.length || build.starter ? `for ${coins10(build.spent)} of your ${coins10(build.budget)}` : "nothing to buy"}`;
+    if (build.starter) html += `<br>Weapon: <b>${esc(itemName(build.starter.hrid))}${build.starter.enhancementLevel ? " +" + build.starter.enhancementLevel : ""}</b> ${build.starter.owned ? '<span class="mwia-ok">you own it</span>' : "\u2013 " + coins10(build.starter.cost)}`;
+    html += `<ol class="mwia-plan">${build.picks.map((p2) => `<li>${pickText(p2, coins10)}</li>`).join("") || "<li>Nothing tested takes these rooms clearly further within the budget.</li>"}</ol>`;
     const cart = cartOf(build);
     if (cart.length) html += cartButton5(cart, "\u{1F6D2} Add all to the cart");
     html += `</div><table class="mwia-table mwia-wide mwia-laby-built"><thead><tr><th>Monster</th><th class="mwia-num" title="Highest room level with at least ${pctText(SAFE_WIN)} of the rooms won">Safe: now</th><th class="mwia-num">Safe: built</th><th class="mwia-num" title="Room level where you win half the rooms">50%: now</th><th class="mwia-num">50%: built</th></tr></thead><tbody>`;
@@ -11844,7 +11853,7 @@ ${triggerWindowReport()}`, false);
     }
     html += `</tbody></table>`;
     if (build.nearMisses?.length) {
-      html += `<details class="mwia-skill-sec"><summary>Also tested: the closest that didn't make the list (on top of it)</summary><ul>${build.nearMisses.map((p2) => `<li>${pickText(p2, coins9)}</li>`).join("")}</ul></details>`;
+      html += `<details class="mwia-skill-sec"><summary>Also tested: the closest that didn't make the list (on top of it)</summary><ul>${build.nearMisses.map((p2) => `<li>${pickText(p2, coins10)}</li>`).join("")}</ul></details>`;
     }
     html += `<p class="mwia-dim">"Now" is your gear (Gear from)${build.starter ? " with the weapon above" : ""}. Put the list on in the game, save it as a
       loadout and pick it for these room types in the Labyrinth automation. ${build.tested} changes tested; each has to take you at least half a room level further
@@ -11869,12 +11878,12 @@ ${triggerWindowReport()}`, false);
     html += `<details class="mwia-skill-sec"><summary>The latest ${recent.length}</summary><ol class="mwia-plan">${recent.map((a) => `<li>${new Date(a.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} \xB7 floor ${a.floor} \xB7 Lv.${a.level} ${esc(attemptName(a))}: ${OUTCOME[a.outcome] || a.outcome}${a.loadout?.name ? ` \xB7 ${esc(a.loadout.name)}` : ""}${a.predicted ? ` \xB7 advisor ${pctText(a.predicted.win)}${a.predicted.forChosen === false ? " (another loadout)" : ""}` : ""}${a.late ? ` <span class="mwia-dim" title="Found on login: it happened while the game was closed">(late)</span>` : ""}</li>`).join("")}</ol></details>`;
     return html;
   }
-  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml2, slotted, setupsNote, cartButton: cartButton5, coins: coins9 = shortCoins, attempts = "" }) {
+  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml3, slotted, setupsNote, cartButton: cartButton5, coins: coins10 = shortCoins, attempts = "" }) {
     const level = roomLevelSetting(settings2);
     let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
       1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
       The game's Labyrinth automation can put on a loadout for each room type, so every monster is judged with the loadout that does best against it.</p>
-      ${settingsHtml2(["accuracy"])}${setupsNote}
+      ${settingsHtml3(["accuracy"])}${setupsNote}
       <div class="mwia-settings">${crateSelect(settings2, "coffee", slotted.coffee)}${crateSelect(settings2, "food", slotted.food)}${floorSelect(level)}
       <label title="The room level to judge the rooms at; changing it needs no new simulation">Room level
         <input data-setting="labyLevel" type="number" min="1" max="300" step="1" size="4" value="${level}"></label></div>
@@ -11889,7 +11898,7 @@ ${triggerWindowReport()}`, false);
       html += `<button class="mwia-btn" data-action="laby-improve" ${busy ? "disabled" : ""}>What should I improve?</button>`;
       if (improve) html += improveHtml(improve);
     }
-    html += buildHtml(build, data, settings2, busy, settingsHtml2, cartButton5, coins9);
+    html += buildHtml(build, data, settings2, busy, settingsHtml3, cartButton5, coins10);
     html += attempts;
     html += `<h3>On the Labyrinth map</h3>
       <p>Next: marks on the game's Labyrinth map (and later its automation settings) saying which loadout to use in each room. For that the script
@@ -12001,7 +12010,7 @@ ${triggerWindowReport()}`, false);
       const chain = [];
       for (let node = table.parentElement; node && node !== document.body && chain.length < 5; node = node.parentElement) chain.push(describe(node));
       lines.push(`\u2014 ${describe(table)} in ${chain.join(" < ")}`);
-      const heads = [...table.querySelectorAll("th, [role=columnheader]")].map((h2) => clean4(h2.textContent));
+      const heads = [...table.querySelectorAll("th, [role=columnheader]")].map((h3) => clean4(h3.textContent));
       if (heads.length) lines.push(`  headers: ${heads.join(" | ")}`);
       const rows = [...table.querySelectorAll('tr, [role="row"]')].filter((r) => !r.querySelector("th")).map((r) => {
         const copy = r.cloneNode(true);
@@ -12052,9 +12061,339 @@ ${triggerWindowReport()}`, false);
     return lines.join("\n");
   }
 
+  // src/horizon.js
+  var ACTION_TYPE = "/action_types/";
+  function planAdviceKey(plan) {
+    const best = plan?.plans?.[plan.best];
+    if (!best) return "";
+    return [best.name, best.first?.jobs?.[0]?.hrid || ""].join("|");
+  }
+  var ACTION_FIELDS = ["hrid", "function", "type", "category", "name", "levelRequirement", "baseTimeCost", "experienceGain", "dropTable", "essenceDropTable", "rareDropTable", "upgradeItemHrid", "inputItems", "outputItems", "sortIndex"];
+  function planData(data) {
+    const pick2 = (object, fields) => Object.fromEntries(fields.filter((f) => object[f] !== void 0).map((f) => [f, object[f]]));
+    const types = new Set(SKILLING_SKILLS.map((s2) => ACTION_TYPE + s2));
+    const actionDetailMap = {};
+    for (const [hrid, action] of Object.entries(data.actionDetailMap || {})) {
+      if (types.has(action.type) && /\/(gathering|production)$/.test(action.function || "")) actionDetailMap[hrid] = pick2(action, ACTION_FIELDS);
+    }
+    const itemDetailMap = {};
+    for (const [hrid, item] of Object.entries(data.itemDetailMap || {})) {
+      const out = pick2(item, ["hrid", "name", "isTradable", "sellPrice", "sortIndex"]);
+      if (item.consumableDetail) out.consumableDetail = pick2(item.consumableDetail, ["usableInActionTypeMap", "buffs"]);
+      if (item.equipmentDetail) out.equipmentDetail = pick2(item.equipmentDetail, ["type", "levelRequirements", "noncombatStats", "noncombatEnhancementBonuses"]);
+      itemDetailMap[hrid] = out;
+    }
+    const trimmed = {
+      actionDetailMap,
+      itemDetailMap,
+      openableLootDropMap: data.openableLootDropMap || {},
+      levelExperienceTable: data.levelExperienceTable || null,
+      enhancementLevelTotalBonusMultiplierTable: data.enhancementLevelTotalBonusMultiplierTable || null
+    };
+    return { hash: textHash(JSON.stringify(trimmed)), data: trimmed };
+  }
+  function textHash(text) {
+    let h1 = 2166136261;
+    let h22 = 16777619 ^ text.length;
+    for (let i = 0; i < text.length; i++) {
+      const c2 = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c2, 16777619);
+      h22 = Math.imul(h22 ^ c2, 1540483477);
+    }
+    return (h1 >>> 0).toString(16).padStart(8, "0") + (h22 >>> 0).toString(16).padStart(8, "0");
+  }
+
+  // src/horizon-sync.js
+  var KEPT_KEY = "mwia-horizon";
+  var SEND_EVERY_MS = 30 * 60 * 1e3;
+  var POLL_MS = 15 * 1e3;
+  var POLLS = 12;
+  var COIN11 = "/items/coin";
+  var INVENTORY9 = "/item_locations/inventory";
+  var h2 = { plan: null, status: null, error: "", sentAt: 0, sending: null, reading: null, piHash: null, asked: 0, polls: 0, settings: () => ({}), listeners: /* @__PURE__ */ new Set(), packed: null };
+  var characterId3 = () => state.character?.character?.id ?? null;
+  function kept() {
+    try {
+      return JSON.parse(localStorage.getItem(KEPT_KEY) || "{}");
+    } catch {
+      return {};
+    }
+  }
+  function keep(fields) {
+    const id = characterId3();
+    if (id === null) return;
+    try {
+      const all = kept();
+      all[id] = { ...all[id] || {}, ...fields };
+      localStorage.setItem(KEPT_KEY, JSON.stringify(all));
+    } catch {
+    }
+  }
+  var mine = () => characterId3() === null ? {} : kept()[characterId3()] || {};
+  function onHorizonChange(listener) {
+    h2.listeners.add(listener);
+  }
+  var notify2 = () => h2.listeners.forEach((listener) => listener());
+  function startHorizonSync({ settings: settings2, prepare = async () => {
+  } }) {
+    h2.settings = settings2;
+    h2.prepare = prepare;
+    onPiSync(() => {
+      if (!piStatus().plan || characterId3() === null) return;
+      readPlan();
+      if (Date.now() - h2.sentAt > SEND_EVERY_MS) sendSnapshot();
+    });
+  }
+  var horizonOptions = (settings2) => ({ days: Number(settings2.horizonDays) || 30, levelDays: Number(settings2.horizonLevelDays ?? 7) });
+  function horizonState() {
+    const plan = h2.plan || mine().plan || null;
+    return { linked: !!piConfig(), makesPlans: !!piStatus().plan, piOk: piStatus().ok, plan, status: h2.status, error: h2.error, sentAt: h2.sentAt, asked: h2.asked, waiting: h2.asked > 0 && !(plan?.snapshotAt >= h2.asked) && h2.polls < POLLS };
+  }
+  function horizonNews() {
+    const plan = horizonState().plan;
+    const key2 = planAdviceKey(plan);
+    return !!key2 && key2 !== mine().seen;
+  }
+  function markHorizonSeen() {
+    const key2 = planAdviceKey(horizonState().plan);
+    if (key2 && key2 !== mine().seen) {
+      keep({ seen: key2 });
+      notify2();
+    }
+  }
+  function horizonSnapshot(options) {
+    const data = getClientData();
+    if (!state.character || !data) return null;
+    const who = skillingCharacter(state.character, state.items, data);
+    const owned = {};
+    for (const item of state.items.values()) {
+      if (item.itemLocationHrid !== INVENTORY9 || item.enhancementLevel || !/_tool$/.test(data.itemDetailMap[item.itemHrid]?.equipmentDetail?.type || "")) continue;
+      owned[item.itemHrid] = (owned[item.itemHrid] || 0) + (item.count || 1);
+    }
+    h2.packed = h2.packed?.source === data ? h2.packed : { source: data, ...planData(data) };
+    return {
+      character: { id: characterId3(), name: state.character.character?.name || null },
+      at: Date.now(),
+      version: scriptVersion(),
+      who,
+      coins: heldStock(state.character, state.items, COIN11).inventory,
+      owned,
+      options,
+      dataHash: h2.packed.hash
+    };
+  }
+  function sendSnapshot({ run = false } = {}) {
+    const config = piConfig();
+    if (!config || !piStatus().plan) return Promise.resolve(false);
+    h2.sending || (h2.sending = (async () => {
+      try {
+        await h2.prepare?.();
+        const snapshot2 = horizonSnapshot(horizonOptions(h2.settings()));
+        if (!snapshot2) throw new Error("the game's data isn't loaded yet");
+        const post = (withData) => fetch(`${config.url}/snapshot`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ snapshot: snapshot2, run, ...withData ? { data: { hash: h2.packed.hash, data: h2.packed.data } } : {} }),
+          cache: "no-store",
+          signal: AbortSignal.timeout?.(12e4)
+        });
+        let response = await post(h2.piHash !== snapshot2.dataHash);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        let answer = await response.json();
+        if (answer.needData) {
+          response = await post(true);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          answer = await response.json();
+        }
+        h2.piHash = answer.dataHash ?? h2.piHash;
+        h2.sentAt = Date.now();
+        h2.error = "";
+        if (run) {
+          h2.asked = snapshot2.at;
+          h2.polls = 0;
+          setTimeout(poll, POLL_MS);
+        }
+        return true;
+      } catch (error) {
+        h2.error = `Sending to the Pi: ${error.message || error}`;
+        return false;
+      } finally {
+        h2.sending = null;
+        notify2();
+      }
+    })());
+    return h2.sending;
+  }
+  function poll() {
+    h2.polls++;
+    readPlan().then(() => {
+      if (h2.asked && !(h2.plan?.snapshotAt >= h2.asked) && h2.polls < POLLS) setTimeout(poll, POLL_MS);
+      else notify2();
+    });
+  }
+  function readPlan() {
+    const config = piConfig();
+    const id = characterId3();
+    if (!config || id === null) return Promise.resolve();
+    h2.reading || (h2.reading = (async () => {
+      try {
+        const response = await fetch(`${config.url}/plan?character=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${config.key}` }, cache: "no-store", signal: AbortSignal.timeout?.(6e4) });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const answer = await response.json();
+        h2.status = { ...answer.status, snapshotAt: answer.snapshotAt ?? null };
+        h2.piHash = answer.dataHash ?? h2.piHash;
+        if (answer.plan && !(h2.plan?.at >= answer.plan.at)) {
+          h2.plan = answer.plan;
+          keep({ plan: answer.plan });
+        }
+        h2.error = "";
+      } catch (error) {
+        h2.error = `Reading the plan from the Pi: ${error.message || error}`;
+      } finally {
+        h2.reading = null;
+        notify2();
+      }
+    })());
+    return h2.reading;
+  }
+
+  // src/horizon-ui.js
+  var DAY_CHOICES = [7, 14, 30, 60, 90];
+  var LEVEL_DAY_CHOICES = [0, 3, 7, 14, 30];
+  var coins8 = (n5) => (n5 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n5));
+  var signed2 = (n5) => (n5 >= 0 ? "+" : "\u2212") + shortCoins(Math.abs(n5));
+  var skillLabel4 = (hrid) => {
+    const name = String(hrid || "").split("/").pop();
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  };
+  var dayText = (d) => {
+    const rounded = Math.round(d * 3) / 3;
+    const whole2 = Math.floor(rounded + 1e-9);
+    const third = Math.round((rounded - whole2) * 3);
+    return third ? `${whole2}${third === 1 ? "\u2153" : "\u2154"}` : String(whole2);
+  };
+  function ago2(ms) {
+    if (!ms) return "\u2014";
+    const minutes = Math.round((Date.now() - ms) / 6e4);
+    if (minutes < 1) return "just now";
+    if (minutes < 90) return `${minutes} min ago`;
+    const hours = Math.round(minutes / 60);
+    return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
+  }
+  function inTime(ms) {
+    const minutes = Math.round((ms - Date.now()) / 6e4);
+    if (minutes <= 0) return "now";
+    if (minutes < 90) return `in ${minutes} min`;
+    return `in ${Math.round(minutes / 60)} h`;
+  }
+  var teaText = (teas) => teas?.length ? teas.map((t4) => esc(itemName(t4))).join(", ") : "no teas";
+  function settingsHtml(settings2) {
+    const o2 = horizonOptions(settings2);
+    const option = (value, label3, current) => `<option value="${value}" ${Number(current) === value ? "selected" : ""}>${label3}</option>`;
+    return `<div class="mwia-settings">
+      <label title="How far ahead the plan looks.">Days <select data-setting="horizonDays">${DAY_CHOICES.map((d) => option(d, `${d} days`, o2.days)).join("")}</select></label>
+      <label title="Levels can't be sold, so the plan counts what the character can earn a day at the end, this many times, on top of what it is worth. With 0 a plan never trains near its end.">Levels worth <select data-setting="horizonLevelDays">${LEVEL_DAY_CHOICES.map((d) => option(d, d ? `${d} days of income` : "nothing", o2.levelDays)).join("")}</select></label>
+      <button class="mwia-btn" data-action="horizon-run" title="Send your character to the Pi now and have it work the plan out (it takes the Pi up to a minute or two).">\u25B6 Plan now</button>
+    </div>`;
+  }
+  function statusHtml2(st, settings2) {
+    const lines = [];
+    const plan = st.plan;
+    if (plan) {
+      const o2 = horizonOptions(settings2);
+      const changed2 = plan.options && (plan.options.days !== o2.days || plan.options.levelDays !== o2.levelDays);
+      lines.push(`Worked out ${ago2(plan.at)} (${Math.round((plan.ms || 0) / 100) / 10} s on the Pi, ${plan.tried} plans tried) from your character as it was ${ago2(plan.snapshotAt)}${changed2 ? ` \u2013 <b>with other settings</b> (${plan.options.days} days, levels worth ${plan.options.levelDays} days): tap \u25B6 Plan now` : ""}.`);
+    }
+    if (st.waiting) lines.push(`<span class="mwia-warn">\u23F3 The Pi is working the plan out\u2026</span>`);
+    else if (st.status?.running) lines.push(`<span class="mwia-warn">\u23F3 The Pi is working the plan out\u2026</span>`);
+    else if (st.status?.next) lines.push(`Next plan ${inTime(st.status.next)}.`);
+    if (st.status?.error) lines.push(`<span class="mwia-bad">The Pi's last try failed: ${esc(st.status.error)}</span>`);
+    if (st.error) lines.push(`<span class="mwia-bad">${esc(st.error)}</span>`);
+    return lines.length ? `<p class="mwia-dim">${lines.join(" ")}</p>` : "";
+  }
+  function firstHtml(plan, best) {
+    const first = best.first;
+    if (!first?.jobs?.length) return `<p>Nothing pays right now \u2013 the plan has no job for the next ${plan.options.blockHours} hours.</p>`;
+    const jobs = first.jobs.slice().sort((x, y) => y.hours - x.hours);
+    const rows = jobs.map((j2) => `<li><b>${esc(j2.name)}</b> (${skillLabel4(j2.skill)}) \u2013 ${Math.round(j2.hours * 10) / 10} h, about ${j2.actions.toLocaleString("en-US")} actions, ${teaText(j2.teas)}; ${coins8(j2.goldPerHour)}/h, ${j2.xpPerHour.toLocaleString("en-US")} XP/h</li>`).join("");
+    const buys = best.purchases.filter((x) => x.day === 0).map((x) => `<li>\u{1F6E0} ${x.owned ? "Put on" : "Buy"} <b>${esc(itemName(x.itemHrid))}</b>${x.owned ? " (you have it)" : ` for ${coins8(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} (${coins8(x.resale)})` : ""}</li>`).join("");
+    const idle = first.idle > 0.1 ? `<li class="mwia-dim">${Math.round(first.idle * 10) / 10} h left: your coins or the market don't carry more.</li>` : "";
+    return `<p><b>The next ${plan.options.blockHours} hours:</b></p><ul>${buys}${rows}${idle}</ul>`;
+  }
+  function compareHtml(plan) {
+    const best = plan.plans[plan.best];
+    const out = [];
+    const against = (index, label3) => {
+      if (index < 0 || index === plan.best) return;
+      const other = plan.plans[index];
+      const diff = (n5) => n5 >= 0 ? `${coins8(n5)} more` : `${coins8(-n5)} less`;
+      out.push(`${label3} (<i>${esc(other.name)}</i>): ${diff(best.gain - other.gain)} in ${plan.options.days} days, ${diff(best.endRate - other.endRate)} a day at the end`);
+    };
+    against(plan.only, "Against keeping to what earns now");
+    against(plan.baseline, "Against earning the most every block");
+    if (plan.cautiousBest !== null && plan.cautiousBest !== void 0) out.push(`<span class="mwia-warn">With cautious prices (buying at the week's upper quartile, selling at its lower) <i>${esc(plan.plans[plan.cautiousBest].name)}</i> does best \u2013 the choice is close.</span>`);
+    return out.length ? `<ul>${out.map((line) => `<li>${line}</li>`).join("")}</ul>` : "";
+  }
+  function sparkline(values) {
+    if (!values?.length || values.length < 2) return "";
+    const low = Math.min(...values);
+    const high = Math.max(...values);
+    const span = high - low || 1;
+    const points = values.map((v, i) => `${i / (values.length - 1) * 100},${28 - (v - low) / span * 26}`).join(" ");
+    return `<svg class="mwia-horizon-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-label="Worth day by day"><polyline points="${points}" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
+  }
+  function stepsHtml(p2) {
+    const segs = p2.segments.map((s2) => {
+      const xp = Object.entries(s2.xp).map(([skill, amount2]) => `${skillLabel4(skill)} ${shortCoins(amount2)} XP`).join(", ");
+      const also = s2.also.length ? ` <span class="mwia-dim">(also ${s2.also.slice(0, 4).map(esc).join(", ")}${s2.also.length > 4 ? ", \u2026" : ""} when the first can't fill the hours)</span>` : "";
+      return `<tr><td>Day ${dayText(s2.from)}\u2013${dayText(s2.to)}</td><td><b>${esc(s2.name)}</b>${s2.skill ? ` (${skillLabel4(s2.skill)})` : ""}${also}<br><span class="mwia-dim">${teaText(s2.teas)}${s2.tool ? ` \xB7 ${esc(itemName(s2.tool))}` : ""}</span></td><td class="mwia-num">${coins8(s2.gold)}</td><td>${xp}</td></tr>`;
+    }).join("");
+    const buys = p2.purchases.map((x) => `<li>Day ${dayText(x.day)}: ${x.owned ? "put on" : "buy"} ${esc(itemName(x.itemHrid))}${x.owned ? "" : ` for ${coins8(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} for ${coins8(x.resale)}` : ""} (+${coins8(x.gainPerDay)}/day)</li>`).join("");
+    const levels = Object.entries(p2.levels).map(([skill, [from, to]]) => `${skillLabel4(skill)} ${from} \u2192 ${to}`).join(", ");
+    return `<table class="mwia-horizon-steps"><thead><tr><th>When</th><th>Job</th><th>Gold</th><th>XP</th></tr></thead><tbody>${segs}</tbody></table>
+      ${buys ? `<p><b>Tools</b></p><ul>${buys}</ul>` : ""}
+      ${levels ? `<p><b>Levels</b>: ${levels}</p>` : ""}
+      <p class="mwia-dim">Worth day by day: ${sparkline(p2.worthByDay)}</p>`;
+  }
+  function plansHtml(plan) {
+    return plan.plans.map((p2, i) => {
+      const tags = [i === plan.best ? "\u{1F4C8} best" : "", i === plan.baseline ? "earn the most" : "", i === plan.only ? "what earns now" : ""].filter(Boolean).join(" \xB7 ");
+      const cautious = p2.cautious ? `cautious ${signed2(p2.cautious.gain)}` : "";
+      return `<details class="mwia-horizon-plan" ${i === plan.best ? "open" : ""}><summary><b>${esc(p2.name)}</b>${tags ? ` <span class="mwia-dim">${tags}</span>` : ""}<br>
+          <span class="mwia-num">${signed2(p2.gain)}</span> in ${plan.options.days} days \xB7 ${coins8(p2.endRate)}/day at the end \xB7 score ${coins8(p2.score)}${cautious ? ` \xB7 <span class="mwia-dim">${cautious}</span>` : ""}</summary>
+          ${stepsHtml(p2)}</details>`;
+    }).join("");
+  }
+  function aboutHtml(plan) {
+    const o2 = plan.options;
+    const unknown = plan.unknownSales?.length ? ` No sales are known yet for ${plan.unknownSales.slice(0, 5).map((h3) => esc(itemName(h3))).join(", ")}${plan.unknownSales.length > 5 ? ", \u2026" : ""}: the market takes any number of them.` : "";
+    return `<details><summary class="mwia-dim">How the plan is worked out</summary><p class="mwia-dim">
+      Time goes in ${o2.blockHours}-hour blocks. In each the character runs the job that earns the most \u2013 or, while a plan trains a skill to a level where a job or tool unlocks, that skill's job with the most gold or the fastest XP; when your coins or the market cut a job short, the rest of the block goes to the next best one queued behind it (two jobs at most, none under an hour).
+      Prices are the usual ones, not today's: the week's median ask to buy and to list at (never above 1.5\xD7 the usual bid), the median bid as the floor.
+      The market takes ${Math.round(o2.marketShare * 100)}% of what sells of an item a day: the rest waits in stock and sells first in later blocks; the same share caps what you can buy of a material.
+      A better tool for the skill you work is bought when its extra gold over the days left pays for it (less what it sells for again); the old one is sold at the bid.
+      Worth = coins + tools at the bid + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o2.levelDays} days of what the character earns a day at the end, so levels count.
+      Plans compared: earning the most every block, keeping to one skill, and up to two training phases before earning. Gathering and production only \u2013 no Enhancing, Alchemy or combat yet, and materials are bought, not gathered yourself.${unknown}
+    </p></details>`;
+  }
+  function renderHorizon(settings2) {
+    const st = horizonState();
+    let html = `<h3>\u{1F4C8} Plan ${horizonOptions(settings2).days} days ahead</h3>`;
+    if (!st.linked) return html + `<p>The plan is worked out on your own Pi, a few times a day: link this browser to it first (the price box in the marketplace, <i>Chart and details</i>; setup in <code>pi/README.md</code>).</p>`;
+    if (st.piOk && !st.makesPlans) return html + `<p>Your Pi doesn't make plans: it needs <code>MWIA_ORDERS=1</code> in <code>pi/.env</code> and the newest server (<code>git pull && docker compose up -d --build</code> in <code>pi/</code>).</p>`;
+    html += settingsHtml(settings2) + statusHtml2(st, settings2);
+    const plan = st.plan;
+    if (!plan?.plans?.length) return html + `<p>No plan yet. ${st.makesPlans ? "Your character goes to the Pi with the next sync (every 15 minutes) and the plan comes 10 minutes later \u2013 or tap <b>\u25B6 Plan now</b>." : "Waiting for the Pi\u2026"}</p>`;
+    markHorizonSeen();
+    const best = plan.plans[plan.best];
+    html += `<div class="mwia-horizon-best"><p>\u{1F4C8} <b>${esc(best.name)}</b>: ${signed2(best.gain)} in ${plan.options.days} days, then ${coins8(best.endRate)}/day.</p>${firstHtml(plan, best)}${compareHtml(plan)}</div>`;
+    html += `<h3>Plans</h3>${plansHtml(plan)}${aboutHtml(plan)}`;
+    return html;
+  }
+
   // src/ui.js
   var SETTINGS_KEY = "mwia-settings";
-  var DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30 };
+  var DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30, horizonDays: 30, horizonLevelDays: 7 };
   var SKILL_NAMES = {
     stamina: "Stamina",
     intelligence: "Intelligence",
@@ -12142,7 +12481,7 @@ ${triggerWindowReport()}`, false);
   var pct5 = (n5) => (n5 >= 0 ? "+" : "") + dec3(n5 * 100, 1) + "%";
   var HOURS_PER_DAY3 = 24;
   var perDay = (perHour) => perHour * HOURS_PER_DAY3;
-  function coins8(n5) {
+  function coins9(n5) {
     if (n5 === null || n5 === void 0) return "\u2013";
     const abs = Math.abs(n5);
     if (abs >= 1e9) return dec3(n5 / 1e9, 2) + "B";
@@ -12163,7 +12502,7 @@ ${triggerWindowReport()}`, false);
     if (deaths < 1) return `<span class="mwia-warn" title="Deaths per hour">\u26A0 ${dec3(deaths, 2)}/h</span>`;
     return `<span class="mwia-bad" title="Deaths per hour">\u2716 ${dec3(deaths, 1)}/h</span>`;
   }
-  var signed2 = (text, n5) => (n5 >= 0 ? "+" : "\u2212") + text(Math.abs(n5));
+  var signed3 = (text, n5) => (n5 >= 0 ? "+" : "\u2212") + text(Math.abs(n5));
   var focusText = (gold) => gold === 0 ? "XP only" : gold === 100 ? "Gold only" : `${100 - gold}% XP \xB7 ${gold}% gold`;
   var countingLevels = () => !!ui.settings.countLevels && Array.isArray(getClientData()?.levelExperienceTable);
   var xpLabel = () => countingLevels() ? "Levels/day" : "Combat XP/h";
@@ -12310,11 +12649,11 @@ ${triggerWindowReport()}`, false);
       data,
       settings: ui.settings,
       busy: ui.busy,
-      settingsHtml,
+      settingsHtml: settingsHtml2,
       slotted: { coffee: slottedCrate(state.character, "coffee"), food: slottedCrate(state.character, "food") },
       setupsNote: `<p class="mwia-dim">Loadouts: ${setups.map((s2) => `<b>${esc(s2.name)}</b>`).join(", ")}${setups.length < 2 ? " \u2013 save a loadout per combat style in the game to compare them here" : ""}.</p>`,
       cartButton: cartButton4,
-      coins: coins8,
+      coins: coins9,
       attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse())
     });
   }
@@ -12399,6 +12738,7 @@ ${triggerWindowReport()}`, false);
     else if (ui.tab === "zones") html += renderZones();
     else if (ui.tab === "upgrades") html += renderUpgrades();
     else if (ui.tab === "skilling") html += renderSkillingTab();
+    else if (ui.tab === "horizon") html += renderHorizon(ui.settings);
     else if (ui.tab === "market") html += renderMarketTab();
     else if (ui.tab === "labyrinth") html += renderLabyrinthTab();
     else html += renderGuide();
@@ -12426,8 +12766,11 @@ ${triggerWindowReport()}`, false);
   function updateAlertDot() {
     if (!ui.launcher) return;
     const alerts = marketAlerts();
+    const news = horizonNews();
     ui.launcher.classList.toggle("mwia-has-alert", alerts > 0);
-    ui.launcher.title = alerts ? `MWI Advisor \u2013 ${alerts} market order${alerts === 1 ? "" : "s"} behind a wall of better offers` : "MWI Advisor";
+    ui.launcher.classList.toggle("mwia-has-news", news);
+    const lines = [alerts ? `${alerts} market order${alerts === 1 ? "" : "s"} behind a wall of better offers` : "", news ? "a new \u{1F4C8} plan" : ""].filter(Boolean);
+    ui.launcher.title = lines.length ? `MWI Advisor \u2013 ${lines.join("; ")}` : "MWI Advisor";
   }
   var MARKET_REFRESH_MS = 10 * 60 * 1e3;
   var MARKET_FIRST_CHECK_MS = 60 * 1e3;
@@ -12461,7 +12804,7 @@ ${triggerWindowReport()}`, false);
     node.querySelector(".mwia-progress-label span").textContent = `${p2.label} ${p2.total ? `${p2.done}/${p2.total}` : ""}`;
     node.querySelector(".mwia-bar div").style.width = `${p2.total ? 100 * p2.done / p2.total : 0}%`;
   }
-  function settingsHtml(fields) {
+  function settingsHtml2(fields) {
     const s2 = ui.settings;
     const parts = [];
     if (fields.includes("focus")) {
@@ -12545,7 +12888,7 @@ ${triggerWindowReport()}`, false);
     }
     const consumableList = (list, count3) => Array.from({ length: count3 }, (_, i) => `<li>${list[i] ? esc(itemName(list[i])) : '<span class="mwia-warn">empty slot</span>'}</li>`).join("");
     return `
-    ${combatLoadouts(state.character).length ? settingsHtml(["gear"]) : ""}${loadoutNote(profile)}
+    ${combatLoadouts(state.character).length ? settingsHtml2(["gear"]) : ""}${loadoutNote(profile)}
     <div class="mwia-grid">
       <section><h3>Levels</h3>
         <table class="mwia-table">${levelRows}
@@ -12662,19 +13005,19 @@ ${triggerWindowReport()}`, false);
   function renderZones() {
     let html = `<p>Simulates your current setup against every combat zone and shows where you get the most XP or gold per hour
       <b>${ui.settings.acceptRareDeaths ? "while dying rarely at most" : "without dying"}</b>.</p>
-      ${settingsHtml(["focus", "levels", "gear", "style", "risk", "accuracy", "maxTier"])}${loadoutNote(currentProfile())}
+      ${settingsHtml2(["focus", "levels", "gear", "style", "risk", "accuracy", "maxTier"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="zones" ${ui.busy ? "disabled" : ""}>Run zone analysis</button>`;
     if (!ui.zoneResults) return html;
     const goal = zoneGoal(ui.zoneResults, ui.settings);
     const best = pickBestZone(ui.zoneResults, ui.settings);
     if (ui.zoneStarter) {
       const w = ui.zoneStarter;
-      html += `<p class="mwia-reco">Simulated with <b>${gearLabel(w)}</b> ${w.owned ? "from your inventory" : `(${coins8(w.cost)} on the market)`} instead of your weapon.
+      html += `<p class="mwia-reco">Simulated with <b>${gearLabel(w)}</b> ${w.owned ? "from your inventory" : `(${coins9(w.cost)} on the market)`} instead of your weapon.
           <b>Upgrades</b> shows what else to buy for this style.</p>`;
     }
     const profile = currentProfile();
     const current = profile?.currentZone && ui.zoneResults.find((z) => z.zone.zoneHrid === profile.currentZone.zoneHrid && z.zone.tier === profile.currentZone.tier);
-    const summary2 = (r) => `<b>${xpNum(xpValue(r, ui.settings))} ${xpLabel()}</b> and <b>${coins8(perDay(r.profit))}</b> profit/day`;
+    const summary2 = (r) => `<b>${xpNum(xpValue(r, ui.settings))} ${xpLabel()}</b> and <b>${coins9(perDay(r.profit))}</b> profit/day`;
     if (best) {
       html += `<div class="mwia-reco"><b>Recommendation:</b> ${zoneLabel(best.zone)} \u2013 about ${summary2(best.result)}, ${deathBadge(best.result.deaths)}.`;
       if (isSpawnCapped(best.result)) {
@@ -12693,7 +13036,7 @@ ${triggerWindowReport()}`, false);
       const r = z.result;
       const match = bestScore > 0 ? int(100 * score(r, goal) / bestScore) : "\u2013";
       html += `<tr class="${z === best ? "mwia-best" : ""}"><td>${zoneLabel(z.zone)}${cappedBadge(r)}</td><td class="mwia-num">${match}</td><td class="mwia-num">${xpNum(xpValue(r, ui.settings))}</td>
-          <td class="mwia-num">${coins8(perDay(r.profit))}</td><td class="mwia-num">${dec3(r.killsTotal, 0)}</td><td>${deathBadge(r.deaths)}</td></tr>`;
+          <td class="mwia-num">${coins9(perDay(r.profit))}</td><td class="mwia-num">${dec3(r.killsTotal, 0)}</td><td>${deathBadge(r.deaths)}</td></tr>`;
     }
     html += `</tbody></table><p class="mwia-dim">Simulated ${int(Math.max(1, runSettings().hours / 2))} h per zone. These are estimates \u2013 differences of a few percent are noise.
       \u23F1 = you kill faster than monsters appear there.</p>`;
@@ -12709,7 +13052,7 @@ ${triggerWindowReport()}`, false);
   }
   function cartItems2(c2) {
     const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c2.result?.consumables?.[hrid] || 0)));
-    if (c2.kind === "house") return c2.materials.filter((m2) => m2.hrid !== COIN11).map((m2) => ({ hrid: m2.hrid, quantity: m2.count }));
+    if (c2.kind === "house") return c2.materials.filter((m2) => m2.hrid !== COIN12).map((m2) => ({ hrid: m2.hrid, quantity: m2.count }));
     if (c2.kind === "abilityOrder" || c2.kind === "skillLevel" || c2.kind === "trigger") return [];
     if (c2.enhance) return mergeCart([...enhanceCart(c2), ...c2.extraFood ? [{ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) }] : []]);
     if (c2.kind === "abilityLevel") return [{ hrid: c2.bookHrid, quantity: c2.books }];
@@ -12719,11 +13062,11 @@ ${triggerWindowReport()}`, false);
     if (c2.extraFood) items.push({ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) });
     return items;
   }
-  var COIN11 = "/items/coin";
+  var COIN12 = "/items/coin";
   function enhanceCart(c2) {
     const e2 = c2.enhance;
     const items = e2.start === "buy" ? [{ hrid: c2.hrid, quantity: 1, enhancementLevel: 0 }] : [];
-    for (const m2 of e2.materials) if (m2.itemHrid !== COIN11) items.push({ hrid: m2.itemHrid, quantity: Math.ceil(m2.count * e2.attempts) });
+    for (const m2 of e2.materials) if (m2.itemHrid !== COIN12) items.push({ hrid: m2.itemHrid, quantity: Math.ceil(m2.count * e2.attempts) });
     if (e2.protect && e2.protections > 0) items.push({ hrid: e2.protect.itemHrid, quantity: Math.ceil(e2.protections), enhancementLevel: 0 });
     for (const tea of e2.teas) items.push({ hrid: tea, quantity: Math.ceil(e2.drinks) });
     return items;
@@ -12738,24 +13081,24 @@ ${triggerWindowReport()}`, false);
     }
     return [...merged.values()];
   }
-  function hoursText2(h2) {
-    if (h2 === null || h2 === void 0 || !Number.isFinite(h2)) return "\u2013";
-    if (h2 < 1) return `${Math.max(1, Math.round(h2 * 60))} min`;
-    if (h2 < 48) return `${dec3(h2, 1)} h`;
-    return `${dec3(h2 / 24, 1)} days`;
+  function hoursText2(h3) {
+    if (h3 === null || h3 === void 0 || !Number.isFinite(h3)) return "\u2013";
+    if (h3 < 1) return `${Math.max(1, Math.round(h3 * 60))} min`;
+    if (h3 < 48) return `${dec3(h3, 1)} h`;
+    return `${dec3(h3 / 24, 1)} days`;
   }
   function enhanceDetail(c2) {
     const e2 = c2.enhance;
-    const from = e2.start === "worn" ? `your +${e2.from}` : e2.start === "owned" ? `your copy at +${e2.from}` : `a +0 bought for ${coins8(e2.basePrice)}`;
-    const parts = [`from ${from} to +${c2.enhancementLevel}: about ${int(e2.attempts)} attempts (${hoursText2(e2.hours)} of Enhancing), materials and teas ${coins8(c2.price - e2.basePrice)}`];
+    const from = e2.start === "worn" ? `your +${e2.from}` : e2.start === "owned" ? `your copy at +${e2.from}` : `a +0 bought for ${coins9(e2.basePrice)}`;
+    const parts = [`from ${from} to +${c2.enhancementLevel}: about ${int(e2.attempts)} attempts (${hoursText2(e2.hours)} of Enhancing), materials and teas ${coins9(c2.price - e2.basePrice)}`];
     if (e2.protect) parts.push(`protected from +${e2.protect.from} with ${itemName(e2.protect.itemHrid)} (about ${dec3(e2.protections, 1)})`);
     parts.push(e2.teas.length ? `teas: ${e2.teas.map(itemName).join(", ")}` : "no teas");
     return parts.join("; ");
   }
   function costText2(c2) {
     if (!c2.cost && !c2.resale) return "(free)";
-    const sold = c2.resale ? ` (${coins8(c2.price)} \u2212 ${coins8(c2.resale)} selling your ${c2.sold.map((g4) => gearLabel(g4)).join(" and ")})` : "";
-    return `for ${c2.cost ? coins8(c2.cost) : "nothing"}${sold}`;
+    const sold = c2.resale ? ` (${coins9(c2.price)} \u2212 ${coins9(c2.resale)} selling your ${c2.sold.map((g4) => gearLabel(g4)).join(" and ")})` : "";
+    return `for ${c2.cost ? coins9(c2.cost) : "nothing"}${sold}`;
   }
   var starterCart = (w) => w?.cost ? [{ hrid: w.hrid, quantity: 1, enhancementLevel: w.enhancementLevel }] : [];
   var cartLabel = (i) => `${i.quantity ? i.quantity + "\xD7 " : ""}${itemName(i.hrid)}${i.enhancementLevel ? " +" + i.enhancementLevel : ""}`;
@@ -12788,7 +13131,7 @@ ${triggerWindowReport()}`, false);
     let html = `<p>Tests one change at a time (gear incl. enhanced +N copies \u2013 bought or enhanced yourself \u2013, new abilities, levelling abilities with extra books,
       the order of your abilities and their triggers, combat house rooms, drinks, food and their triggers, and a few more levels in each skill) in the chosen zone
       and measures how much it improves your focus \u2013 XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
-      ${settingsHtml(["focus", "levels", "gear", "style", "zone", "budget", "spending", "risk", "accuracy"])}${loadoutNote(currentProfile())}
+      ${settingsHtml2(["focus", "levels", "gear", "style", "zone", "budget", "spending", "risk", "accuracy"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>
       <button class="mwia-btn" data-action="upgrades-abilities" ${ui.busy ? "disabled" : ""} title="Only abilities, their levels and order, and the triggers of your abilities and food \u2013 much quicker">Abilities &amp; triggers only</button>
       <button class="mwia-link" data-action="trigger-window" title="Open a loadout's \u2699 under an ability in the game first. Reads how the game's Combat Triggers window is built \u2013 changes nothing \u2013 for filling it in later.">\u{1F4CB} Read the game's trigger window</button>`;
@@ -12796,8 +13139,8 @@ ${triggerWindowReport()}`, false);
     if (!result) return html;
     const base = result.base;
     const label3 = xpLabel();
-    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${xpNum(xpValue(base, ui.settings))} ${label3}</b>, profit <b>${coins8(perDay(base.profit))}/day</b>
-      (loot ${coins8(perDay(base.loot))} \u2212 food/drinks ${coins8(perDay(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
+    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${xpNum(xpValue(base, ui.settings))} ${label3}</b>, profit <b>${coins9(perDay(base.profit))}/day</b>
+      (loot ${coins9(perDay(base.loot))} \u2212 food/drinks ${coins9(perDay(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
     if (isSpawnCapped(base)) {
       html += `<p class="mwia-reco">\u23F1 In ${zoneLabel(result.zone)} you kill monsters as fast as they appear, so upgrades that add damage hardly matter here.
           A harder zone or tier is the biggest improvement \u2013 run <b>Where to fight</b> with a higher Max tier.</p>`;
@@ -12821,7 +13164,7 @@ ${triggerWindowReport()}`, false);
       if (plan.starter) {
         const w = plan.starter;
         html += `<li>${w.owned ? "Equip" : "Buy"} <b>${gearLabel(w)}</b> ${w.owned ? "from your inventory " : ""}to fight as ${STYLE_NAMES[ui.settings.combatStyle] || "the chosen style"}${w.replaces ? ` \u2013 replaces ${gearLabel(w.replaces)}` : ""}
-              ${w.cost ? `for ${coins8(w.cost)}` : "(free)"} <span class="mwia-dim">(everything here was simulated with it)</span> ${cartButton4(starterCart(w))}</li>`;
+              ${w.cost ? `for ${coins9(w.cost)}` : "(free)"} <span class="mwia-dim">(everything here was simulated with it)</span> ${cartButton4(starterCart(w))}</li>`;
       }
       for (const p2 of plan.picks) {
         let what;
@@ -12830,7 +13173,7 @@ ${triggerWindowReport()}`, false);
         } else if (p2.kind === "ability") {
           what = `ability <b>${esc(abilityName(p2.hrid))}</b>${p2.cost ? ` (buy the book ${esc(itemName(p2.bookHrid))})` : ` (level ${p2.level})`}${p2.triggers ? `, triggers: <b>${esc(describeTriggers(p2.triggers, getClientData()))}</b>` : ""}`;
         } else if (p2.kind === "house") {
-          html += `<li>Build <b>${esc(p2.name)}</b> level ${p2.fromLevel} \u2192 ${p2.level} <span class="mwia-dim">(${houseMaterials(p2)})</span>: ${gainText2(p2)} for ${coins8(p2.cost)} ${cartButton4(cartItems2(p2), "\u{1F6D2} Materials")}</li>`;
+          html += `<li>Build <b>${esc(p2.name)}</b> level ${p2.fromLevel} \u2192 ${p2.level} <span class="mwia-dim">(${houseMaterials(p2)})</span>: ${gainText2(p2)} for ${coins9(p2.cost)} ${cartButton4(cartItems2(p2), "\u{1F6D2} Materials")}</li>`;
           continue;
         } else if (p2.enhance) {
           const own = p2.enhance.start === "worn" ? `your <b>${gearLabel(p2.replaces)}</b>` : p2.enhance.start === "owned" ? `your <b>${gearLabel({ hrid: p2.hrid, enhancementLevel: p2.enhance.from })}</b>` : `a <b>${gearLabel({ hrid: p2.hrid })}</b>`;
@@ -12845,8 +13188,8 @@ ${triggerWindowReport()}`, false);
         html += `<li>${p2.cost || p2.price ? "Buy" : "Use"} ${what}${replaces}: ${gainText2(p2)} ${costText2(p2)} ${cartButton4(cartItems2(p2))}</li>`;
       }
       if (plan.order) {
-        html += `<li>Put your abilities in this order: <b>${plan.order.order.map((h2) => esc(abilityName(h2))).join(" \u2192 ")}</b>
-              <span class="mwia-dim">(now ${plan.order.was.map((h2) => esc(abilityName(h2))).join(" \u2192 ")})</span>: ${gainText2(plan.order)} (free)</li>`;
+        html += `<li>Put your abilities in this order: <b>${plan.order.order.map((h3) => esc(abilityName(h3))).join(" \u2192 ")}</b>
+              <span class="mwia-dim">(now ${plan.order.was.map((h3) => esc(abilityName(h3))).join(" \u2192 ")})</span>: ${gainText2(plan.order)} (free)</li>`;
       }
       for (const t4 of plan.triggers || []) {
         html += `<li>Set the triggers of <b>${esc(triggerTargetName(t4))}</b> to <b>${esc(describeTriggers(t4.triggers, getClientData()))}</b>
@@ -12856,27 +13199,27 @@ ${triggerWindowReport()}`, false);
         if (!pick2) continue;
         if (pick2.remove) {
           html += `<li>Stop using <b>${esc(itemName(pick2.hrid))}</b> (empty that ${kind.toLowerCase()} slot): ${gainText2(pick2)},
-                  saves about ${coins8(perDay(-pick2.costPerHourDelta))}/day`;
+                  saves about ${coins9(perDay(-pick2.costPerHourDelta))}/day`;
         } else {
           const where = pick2.replaces ? `instead of ${esc(itemName(pick2.replaces))}` : "in an empty slot";
-          const money = pick2.costPerHourDelta < 0 ? `saves about ${coins8(perDay(-pick2.costPerHourDelta))}/day` : `costs about ${coins8(perDay(pick2.costPerHourDelta))}/day extra`;
+          const money = pick2.costPerHourDelta < 0 ? `saves about ${coins9(perDay(-pick2.costPerHourDelta))}/day` : `costs about ${coins9(perDay(pick2.costPerHourDelta))}/day extra`;
           html += `<li>${kind} <b>${esc(itemName(pick2.hrid))}</b> ${where}: ${gainText2(pick2)}, ${money}
                   <span class="mwia-dim">(optional \u2013 a running cost)</span> ${cartButton4(cartItems2(pick2), "\u{1F6D2} 1 day")}`;
         }
         if (dropsHpFood(pick2)) {
           html += `<br><span class="mwia-warn">You don't need HP food in this zone, but keep some at hand \u2013 put it back before you move to a harder zone or tier.</span>`;
         }
-        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText2(max)}) at ${coins8(perDay(max.costPerHourDelta))}/day.</span>`;
+        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText2(max)}) at ${coins9(perDay(max.costPerHourDelta))}/day.</span>`;
         html += `</li>`;
       }
-      html += `</ol><p>Total one-time cost: <b>${coins8(plan.spent)}</b> of your ${coins8(Number(ui.settings.budget) || 0)} budget.
+      html += `</ol><p>Total one-time cost: <b>${coins9(plan.spent)}</b> of your ${coins9(Number(ui.settings.budget) || 0)} budget.
           ${cartButton4([...starterCart(plan.starter), ...plan.picks.flatMap(cartItems2)], "\u{1F6D2} Add all purchases to cart")}</p>`;
       if (ui.verified) {
         const v = ui.verified;
         const before = xpValue(v.base, ui.settings);
         const after = xpValue(v.planned, ui.settings);
         html += `<div class="mwia-reco">Everything combined (simulated): <b>${xpNum(before)} \u2192 ${xpNum(after)} ${label3}</b> (${pct5(after / Math.max(countingLevels() ? 1e-9 : 1, before) - 1)}),
-              profit <b>${coins8(perDay(v.base.profit))} \u2192 ${coins8(perDay(v.planned.profit))}</b> per day (food/drinks ${coins8(perDay(v.base.cost))} \u2192 ${coins8(perDay(v.planned.cost))}),
+              profit <b>${coins9(perDay(v.base.profit))} \u2192 ${coins9(perDay(v.planned.profit))}</b> per day (food/drinks ${coins9(perDay(v.base.cost))} \u2192 ${coins9(perDay(v.planned.cost))}),
               deaths ${dec3(v.base.deaths, 2)} \u2192 ${dec3(v.planned.deaths, 2)} per hour.
               <br><span class="mwia-dim">Run the zone analysis again after buying \u2013 with better gear a harder zone may become the best.</span></div>`;
       }
@@ -12926,14 +13269,14 @@ ${triggerWindowReport()}`, false);
     const heals = (hrid) => (items[hrid]?.consumableDetail?.hitpointRestore || 0) > 0;
     const before = currentProfile()?.food || [];
     const after = c2.profile?.food || [];
-    return before.some((h2) => h2 && heals(h2)) && !after.some((h2) => h2 && heals(h2));
+    return before.some((h3) => h3 && heals(h3)) && !after.some((h3) => h3 && heals(h3));
   }
   function gainText2(c2) {
     const gold = ui.upgradeResult.goal.gold;
-    const profit = `${signed2(coins8, perDay(c2.profitDelta))} profit/day`;
+    const profit = `${signed3(coins9, perDay(c2.profitDelta))} profit/day`;
     if (gold === 0) return `${pct5(c2.deltaPct)} ${xpLabel()}`;
     if (gold === 1) return profit;
-    return `${pct5(c2.deltaPct)} gain (${signed2(xpNum, c2.xpDelta)} ${xpLabel()}, ${profit})`;
+    return `${pct5(c2.deltaPct)} gain (${signed3(xpNum, c2.xpDelta)} ${xpLabel()}, ${profit})`;
   }
   function confidenceCell(c2) {
     const value = Math.round(c2.confidence * 100);
@@ -12953,14 +13296,14 @@ ${triggerWindowReport()}`, false);
     for (const c2 of shown) {
       const efficiency = c2.cost > 0 ? pct5(c2.delta / c2.cost * 1e6) : "\u221E";
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${slotText(c2)}</td><td>${nameHtml(c2)}</td><td>${replacesHtml(c2)}</td>
-          <td class="mwia-num"${c2.resale ? ` title="${coins8(c2.price)} \u2212 ${coins8(c2.resale)} for what it replaces"` : ""}>${c2.cost ? coins8(c2.cost) : "0"}${c2.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td>
+          <td class="mwia-num"${c2.resale ? ` title="${coins9(c2.price)} \u2212 ${coins9(c2.resale)} for what it replaces"` : ""}>${c2.cost ? coins9(c2.cost) : "0"}${c2.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed3(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed3(coins9, perDay(c2.profitDelta))}</td>
           <td class="mwia-num">${pct5(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td>${upgradeNotes(c2, base)}</td><td>${cartButton4(cartItems2(c2))}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
   function houseMaterials(c2) {
-    return c2.materials.map((m2) => m2.hrid === COIN11 ? `${coins8(m2.count)} coins` : `${int(m2.count)}\xD7 ${esc(itemName(m2.hrid))}`).join(", ");
+    return c2.materials.map((m2) => m2.hrid === COIN12 ? `${coins9(m2.count)} coins` : `${int(m2.count)}\xD7 ${esc(itemName(m2.hrid))}`).join(", ");
   }
   function orderTable(list) {
     const shown = list.filter((c2) => c2.delta > 0).slice(0, 5);
@@ -12970,8 +13313,8 @@ ${triggerWindowReport()}`, false);
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Order</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th></tr></thead><tbody>`;
     for (const c2 of shown) {
-      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${c2.order.map((h2) => esc(abilityName(h2))).join(" \u2192 ")}</td>
-          <td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td>
+      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${c2.order.map((h3) => esc(abilityName(h3))).join(" \u2192 ")}</td>
+          <td class="mwia-num">${signed3(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed3(coins9, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td>
           <td class="mwia-num">${confidenceCell(c2)}</td><td>${upgradeNotes(c2, ui.upgradeResult.base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
@@ -12992,7 +13335,7 @@ ${triggerWindowReport()}`, false);
     for (const c2 of shown) {
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${esc(triggerTargetName(c2))}</td><td>${esc(describeTriggers(c2.triggers, data))}</td>
           <td class="mwia-dim">${esc(describeTriggers(c2.was, data))}</td>
-          <td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td>
+          <td class="mwia-num">${signed3(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed3(coins9, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td>
           <td class="mwia-num">${confidenceCell(c2)}</td><td>${upgradeNotes(c2, ui.upgradeResult.base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
@@ -13005,7 +13348,7 @@ ${triggerWindowReport()}`, false);
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num" title="Time to get there at the XP an hour the skill gets now">Time</th><th></th></tr></thead><tbody>`;
     for (const c2 of list) {
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${SKILL_NAMES[c2.hrid] || esc(c2.hrid)}</td><td>${c2.fromLevel} \u2192 ${c2.level}</td>
-          <td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td>
+          <td class="mwia-num">${signed3(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed3(coins9, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td>
           <td class="mwia-num">${confidenceCell(c2)}</td><td class="mwia-num">${hoursText2(c2.hoursToReach)}</td><td>${upgradeNotes(c2, base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
@@ -13019,11 +13362,11 @@ ${triggerWindowReport()}`, false);
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num">Deaths/h</th><th class="mwia-num" title="${countingLevels() ? "Extra cost per extra level" : "Extra cost per 1000 extra XP"}">${countingLevels() ? "Cost per level" : "Cost per 1000 XP"}</th><th></th></tr></thead><tbody>`;
     for (const c2 of shown) {
       const unit = countingLevels() ? 1 : 1e3;
-      const per1000 = c2.xpDelta > 0 ? coins8(c2.costPerHourDelta / c2.xpDelta * unit) : c2.remove && c2.xpDelta < 0 ? `saves ${coins8(c2.costPerHourDelta / c2.xpDelta * unit)}` : "\u2013";
+      const per1000 = c2.xpDelta > 0 ? coins9(c2.costPerHourDelta / c2.xpDelta * unit) : c2.remove && c2.xpDelta < 0 ? `saves ${coins9(c2.costPerHourDelta / c2.xpDelta * unit)}` : "\u2013";
       const name = (c2.remove ? `<i>Stop using</i> ${esc(itemName(c2.hrid))}` : esc(itemName(c2.hrid))) + (dropsHpFood(c2) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
       html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c2.replaces ? esc(itemName(c2.replaces)) : "\u2013"}</td>
-          <td class="mwia-num">${c2.remove ? "\u2013" : coins8(askPrice(c2.hrid))}</td><td class="mwia-num">${coins8(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed2(xpNum, c2.xpDelta)}</td>
-          <td class="mwia-num">${signed2(coins8, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
+          <td class="mwia-num">${c2.remove ? "\u2013" : coins9(askPrice(c2.hrid))}</td><td class="mwia-num">${coins9(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed3(xpNum, c2.xpDelta)}</td>
+          <td class="mwia-num">${signed3(coins9, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct5(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
           <td class="mwia-num ${c2.safe ? "" : "mwia-bad"}">${dec3(c2.result.deaths, 2)}${c2.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
           <td>${cartButton4(cartItems2(c2), "\u{1F6D2} 1 day")}</td></tr>`;
     }
@@ -13132,10 +13475,10 @@ ${triggerWindowReport()}`, false);
     const steps = [`${kind} ${item}${level ? ` +${level}` : ""} ${kind === "enhance" ? `\u2192 +${value}` : `${label3} \xD7${value}`}`];
     steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
     const owned = held > 0;
-    const characterId3 = state.character?.character?.id;
-    if (owned && !characterId3) steps.push("no character id");
-    const hash2 = owned && characterId3 ? inventoryItemHash(characterId3, item, level) : null;
-    const ownHash = (hrid) => hrid && characterId3 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId3, hrid) : null;
+    const characterId4 = state.character?.character?.id;
+    if (owned && !characterId4) steps.push("no character id");
+    const hash2 = owned && characterId4 ? inventoryItemHash(characterId4, item, level) : null;
+    const ownHash = (hrid) => hrid && characterId4 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId4, hrid) : null;
     const protect = dataset.protect ? { hash: ownHash(dataset.protect), from: Number(dataset.protectFrom) } : null;
     const catalyst = dataset.catalyst ? { hash: ownHash(dataset.catalyst) } : null;
     clearNotice();
@@ -13154,7 +13497,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.72.1" : "dev";
+  var VERSION3 = true ? "0.73.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -13220,6 +13563,8 @@ ${triggerWindowReport()}`, false);
       case "close":
         ui.root.classList.add("mwia-hidden");
         break;
+      case "horizon-run":
+        return sendSnapshot({ run: true }).then(() => ui.tab === "horizon" && render3());
       case "zones":
         runTask(doZones);
         break;
@@ -13348,7 +13693,7 @@ ${triggerWindowReport()}`, false);
       ui.settings[key2] = event.target.value;
     }
     saveSettings();
-    if (key2.startsWith("skilling")) {
+    if (key2.startsWith("skilling") || key2.startsWith("horizon")) {
       render3();
       return;
     }
@@ -13412,6 +13757,7 @@ ${triggerWindowReport()}`, false);
         <button class="mwia-tab" data-tab="zones">Where to fight</button>
         <button class="mwia-tab" data-tab="upgrades">Upgrades</button>
         <button class="mwia-tab" data-tab="skilling">Skilling</button>
+        <button class="mwia-tab" data-tab="horizon">\u{1F4C8} Plan</button>
         <button class="mwia-tab" data-tab="market">Market</button>
         <button class="mwia-tab" data-tab="labyrinth">Labyrinth</button>
         <button class="mwia-tab" data-tab="guide">Guide</button>
@@ -13434,6 +13780,11 @@ ${triggerWindowReport()}`, false);
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
     startLabyrinthLog({ predict: roomPrediction });
     startEnhancePlan(gameDeps);
+    startHorizonSync({ settings: () => ui.settings, prepare: () => loadClientData(ui.win) });
+    onHorizonChange(() => {
+      scheduleDot();
+      if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "horizon") render3();
+    });
     watchTriggerClicks();
     startTriggerWindow({
       advice: (hrid) => loadTriggerAdvice()[hrid] || null,

@@ -1,0 +1,107 @@
+// Checks the 📈 N-day plan (src/horizon.js) without a browser: plans ranked by
+// score, the market's share and stock, coins, tools bought when they pay, a
+// training phase that reaches its level, the end value of levels, cautious prices.
+// Usage: node test/horizon-test.mjs
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { fixtureCharacter } from "./fixture-character.js";
+import { skillingCharacter } from "../src/skilling.js";
+import { HORIZON_DEFAULTS, planAdviceKey, planHorizon, planMarkets, planName, simulatePlan } from "../src/horizon.js";
+
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const dataDir = path.join(root, "engine/data");
+const data = {};
+for (const f of readdirSync(dataDir)) data[f.replace(".json", "")] = JSON.parse(readFileSync(path.join(dataDir, f), "utf8"));
+data.levelExperienceTable = Array.from({ length: 201 }, (_, level) => Math.round(30 * level ** 2.2));
+
+let failures = 0;
+const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
+
+const character = fixtureCharacter();
+for (const s of ["woodcutting", "cheesesmithing", "crafting", "tailoring"]) character.characterSkills.push({ skillHrid: "/skills/" + s, level: s === "tailoring" ? 33 : 20, experience: 0 });
+character.equipmentActionTypeBuffsMap = {};
+const items = new Map(character.characterItems.map((i) => [i.hash, i]));
+const who = skillingCharacter(character, items, data);
+
+// Usual prices: ask 3×, bid 2× the shop price; a third of the items with no known sales.
+const pricesWith = (sold, scale = 1) => {
+    const prices = {};
+    for (const item of Object.values(data.itemDetailMap)) {
+        const sp = item.sellPrice || 1;
+        prices[item.hrid] = { a: 3 * sp * scale, b: 2 * sp * scale, aLow: 2.8 * sp * scale, aHigh: 3.3 * sp * scale, bLow: 1.9 * sp * scale, sold: item.hrid.length % 3 ? sold : null };
+    }
+    return prices;
+};
+const prices = pricesWith(200000);
+const snapshot = { who, coins: 2_000_000, owned: {} };
+const days = 10;
+
+const started = Date.now();
+const plan = planHorizon(snapshot, data, prices, { days });
+const ms = Date.now() - started;
+check("a plan is worked out", plan.plans.length >= 3 && plan.tried > 50, `${plan.plans.length} shown of ${plan.tried} tried in ${ms} ms`);
+const ranked = plan.plans.slice(0, plan.plans.length - 2);
+check("plans are ranked by score", ranked.every((p, i) => i === 0 || ranked[i - 1].score >= p.score));
+check("earning the most every block is shown to compare", plan.baseline >= 0 && plan.plans[plan.baseline].name === planName([]));
+check("so is keeping to the skill that earns now", plan.only >= 0 && /^Only /.test(plan.plans[plan.only].name), plan.plans[plan.only]?.name);
+check("score = worth + level days × the gold a day at the end", plan.plans.every((p) => Math.abs(p.score - (p.worth + HORIZON_DEFAULTS.levelDays * p.endRate)) <= HORIZON_DEFAULTS.levelDays + 2));
+check("worth is counted every day", plan.plans.every((p) => p.worthByDay.length === days));
+check("the first block says what to do", plan.plans[0].first?.jobs?.length > 0 && plan.plans[0].first.jobs.every((j) => j.hours > 0 && j.name));
+check("segments cover the whole plan", plan.plans.every((p) => Math.abs(p.segments.at(-1).to - days) < 1e-9 && p.segments[0].from === 0));
+check("the advice key names the best plan and its first job", planAdviceKey(plan).startsWith(plan.plans[0].name + "|/actions/"));
+const markets = planMarkets(prices, data);
+const sample = ["/items/milk", "/items/cheese", "/items/linen_fabric", "/items/azure_needle"];
+check("cautious prices buy higher and sell lower", sample.every((h) => markets.cautious.buy(h) >= markets.typical.buy(h) && markets.cautious.sell(h).price <= markets.typical.sell(h).price));
+check("the plans shown first are run with cautious prices too", plan.plans.slice(0, 3).every((p) => p.cautious && Number.isFinite(p.cautious.score)));
+
+// A plan run on its own: coins never go below zero, every block filled from a few jobs.
+const earn = simulatePlan(snapshot, data, prices, [], { days });
+let coins = snapshot.coins;
+let negative = false;
+for (const block of earn.timeline) {
+    coins += block.income - block.costs;
+    if (block.costs > coins + block.income + 1e-6) negative = true;
+}
+check("coins pay for every block", !negative && earn.end.coins >= 0);
+check("a block is one job, two at most, none under an hour", earn.timeline.every((b) => b.ran.length <= 2 && b.ran.every((x) => x.hours >= 1 - 1e-9)));
+
+// Training: a phase reaches its level before the next one starts.
+const target = 60;
+const train = simulatePlan(snapshot, data, prices, [{ skill: "/skills/cheesesmithing", level: target, style: "xp" }], { days });
+const reachedAt = train.levelUps.find((u) => u.skill === "/skills/cheesesmithing" && u.to >= target)?.block;
+check("a training phase reaches its level", reachedAt !== undefined, `block ${reachedAt}`);
+check("…working that skill until then", train.timeline.slice(0, reachedAt).every((b) => b.ran[0]?.r.skill === "/skills/cheesesmithing"));
+check("…and earning after it", reachedAt === undefined || train.timeline.slice(reachedAt + 1).some((b) => b.phase === null));
+
+// The market's share: what it can't take waits in stock; a bigger share sells more at the listing price.
+const thin = simulatePlan(snapshot, data, pricesWith(50), [{ skill: "/skills/tailoring", level: Infinity, style: "gold" }], { days: 3 });
+const wide = simulatePlan(snapshot, data, pricesWith(50), [{ skill: "/skills/tailoring", level: Infinity, style: "gold" }], { days: 3, marketShare: 1 });
+const stockOf = (run) => Object.values(run.end.stock).reduce((sum, n) => sum + n, 0);
+check("a thin market leaves stock", stockOf(thin) > 0, String(Math.round(stockOf(thin))));
+check("a bigger share of the market is worth more", wide.worth >= thin.worth, `${Math.round(thin.worth)} → ${Math.round(wide.worth)}`);
+
+// Tools: bought when the skill being worked allows a better one that pays; not when it costs a fortune.
+const tools = simulatePlan(snapshot, data, prices, [{ skill: "/skills/tailoring", level: Infinity, style: "gold" }], { days: 3 });
+check("a better tool is bought when it pays", tools.purchases.some((x) => /needle/.test(x.itemHrid)), tools.purchases.map((x) => x.itemHrid).join(", "));
+const dear = pricesWith(200000);
+for (const hrid of Object.keys(dear)) if (/needle/.test(hrid)) Object.assign(dear[hrid], { a: 1e15, aHigh: 1e15, aLow: 1e15, b: 1e14, bLow: 1e14 });
+const noTools = simulatePlan(snapshot, data, dear, [{ skill: "/skills/tailoring", level: Infinity, style: "gold" }], { days: 3 });
+check("…and not when it never pays back", !noTools.purchases.some((x) => /needle/.test(x.itemHrid)));
+const owned = simulatePlan({ ...snapshot, owned: { "/items/burble_needle": 1 } }, data, dear, [{ skill: "/skills/tailoring", level: Infinity, style: "gold" }], { days: 3 });
+check("a tool you have is put on for nothing", owned.purchases.some((x) => x.itemHrid === "/items/burble_needle" && x.owned && x.price === 0));
+
+// The end value of levels: without it the score is the worth.
+const noLevels = simulatePlan(snapshot, data, prices, [], { days, levelDays: 0 });
+check("level days 0: score is the worth", Math.abs(noLevels.score - noLevels.worth) < 1e-6);
+
+// A missing level table is said, not guessed.
+let error = null;
+try {
+    planHorizon(snapshot, { ...data, levelExperienceTable: undefined }, prices, { days: 1 });
+} catch (e) {
+    error = e;
+}
+check("without the game's level table it says so", /levelExperienceTable/.test(error?.message || ""));
+
+console.log(failures ? `\n${failures} FAILED` : "\nall passed");
+process.exit(failures ? 1 : 0);

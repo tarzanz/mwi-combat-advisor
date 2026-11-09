@@ -14,7 +14,15 @@ export const CSS = `
   content: ""; position: absolute; top: -2px; right: -2px; width: 11px; height: 11px;
   border-radius: 50%; background: #e5484d; border: 2px solid #171b2e;
 }
+.mwia-launcher.mwia-has-news::before {
+  content: ""; position: absolute; top: -2px; left: -2px; width: 11px; height: 11px;
+  border-radius: 50%; background: #3e8ef7; border: 2px solid #171b2e;
+}
 .mwia-alert-row td { background: rgba(229,72,77,.08); }
+.mwia-horizon-best { border: 1px solid #3e8ef7; border-radius: 6px; padding: 4px 10px; margin: 6px 0 10px; background: rgba(62,142,247,.07); }
+.mwia-horizon-plan { border-top: 1px solid rgba(255,255,255,.08); padding: 6px 0; }
+.mwia-horizon-plan > summary { cursor: pointer; }
+.mwia-horizon-spark { width: 160px; height: 24px; vertical-align: middle; color: #3e8ef7; }
 .mwia-version {
   align-self: center; margin-left: 5px; font: 400 9px/1 sans-serif; color: #aab3d9; opacity: .6;
   text-decoration: none; white-space: nowrap; cursor: default;

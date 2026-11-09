@@ -14,6 +14,7 @@ import { openStore } from "../pi/history-store.mjs";
 import { openOrderStore } from "../pi/order-store.mjs";
 import { openJobStore } from "../pi/job-store.mjs";
 import { openLabyrinthStore } from "../pi/labyrinth-store.mjs";
+import { openPlanStore } from "../pi/plan-store.mjs";
 import { DAILY_FIELDS, HOURLY_FIELDS, decodeRecords } from "../src/price-history.js";
 import { unpackRecord } from "../src/history-wire.js";
 
@@ -159,9 +160,65 @@ try {
     check("labyrinth: read again after a restart, the same", rereadLab.seq === 3 && rereadLab.attempts[2].attempt.levels.magic === 68, JSON.stringify(rereadLab));
     const withLab = await fetch(base + "/history?epoch=" + all.epoch, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
     check("the history says Labyrinth attempts are taken", withLab.status.labyrinth?.attempts === 3, JSON.stringify(withLab.status));
+
+    // The 📈 plan: a snapshot in, the plan out (the planning itself is checked below, without the server).
+    const postSnap = (body, key = KEY) => fetch(base + "/snapshot", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Origin: "https://www.milkywayidle.com" }, body: JSON.stringify(body) });
+    const snap = { character: { id: 77, name: "Tester" }, at: Date.now(), who: { levels: { "/skills/tailoring": 30 } }, coins: 1000 };
+    check("plan: no key, nothing written or read", (await postSnap({ snapshot: snap }, "nope")).status === 401 && (await fetch(base + "/plan?character=77")).status === 401);
+    check("plan: a snapshot without its parts is refused", (await postSnap({ snapshot: { who: {} } })).status === 400);
+    const took = await postSnap({ snapshot: snap }).then((r) => r.json());
+    check("plan: a snapshot is taken, and the Pi asks for the game's data", took.ok && took.character === "77" && took.needData === true, JSON.stringify(took));
+    const planAnswer = await fetch(base + "/plan?character=77", { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
+    check("plan: none yet, the next run is planned", planAnswer.plan === null && planAnswer.status.next > Date.now() && planAnswer.snapshotAt === snap.at, JSON.stringify(planAnswer));
+    check("the history says plans are made", withLab.status.plan?.characters === 0 && (await fetch(base + "/history?epoch=" + all.epoch, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json())).status.plan.characters === 1);
 } finally {
     server.kill();
     market.close();
+}
+
+// The plan store on its own: usual prices from the history, a snapshot with the
+// game's data, the planner run as a process of its own, the plan read back.
+const typical = store.typical();
+check("usual prices: the week's medians, quartiles and sales a day", typical["/items/item_0"]?.a > 0 && typical["/items/item_0"].aLow <= typical["/items/item_0"].a && typical["/items/item_0"].aHigh >= typical["/items/item_0"].a && typical["/items/item_0"].sold > 0 && !Object.keys(typical).some((k) => k.includes("+")), JSON.stringify(typical["/items/item_0"]));
+{
+    const engineData = {};
+    for (const f of readdirSync(path.join(root, "engine/data"))) engineData[f.replace(".json", "")] = JSON.parse(readFileSync(path.join(root, "engine/data", f), "utf8"));
+    engineData.levelExperienceTable = Array.from({ length: 201 }, (_, level) => Math.round(30 * level ** 2.2));
+    const { planData } = await import("../src/horizon.js");
+    const { skillingCharacter } = await import("../src/skilling.js");
+    const { fixtureCharacter } = await import("./fixture-character.js");
+    const character = fixtureCharacter();
+    character.characterSkills.push({ skillHrid: "/skills/tailoring", level: 30, experience: 0 });
+    const who = skillingCharacter(character, new Map(character.characterItems.map((i) => [i.hash, i])), engineData);
+    const prices = {};
+    for (const item of Object.values(engineData.itemDetailMap)) prices[item.hrid] = { a: 3 * (item.sellPrice || 1), b: 2 * (item.sellPrice || 1), aLow: null, aHigh: null, bLow: null, sold: 5000 };
+    const planDir = mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), "mwia-plan-"));
+    let busy = true;
+    const logs = [];
+    const plans = openPlanStore(planDir, { typical: () => prices, log: (line) => logs.push(line), delayMs: 60000, soonMs: 10, postponeMs: 50, busy: () => busy });
+    check("plan store: a bad character id is refused", !plans.put({ snapshot: { character: { id: "../x" }, who: { levels: {} }, coins: 1 } }).ok);
+    const shipped = planData(engineData);
+    const snapshot = { character: { id: 5, name: "Tester" }, at: 123, who, coins: 1_000_000, owned: {}, options: { days: 2 }, dataHash: shipped.hash };
+    const put = plans.put({ snapshot, data: shipped, run: true });
+    check("plan store: snapshot and game data taken", put.ok && put.character === "5" && put.dataHash === shipped.hash && !put.needData, JSON.stringify(put));
+    await new Promise((r) => setTimeout(r, 120));
+    check("plan store: a busy Pi waits", logs.some((l) => /busy/.test(l)) && plans.get(5).plan === null, logs.join(" | "));
+    busy = false;
+    let got = null;
+    for (let k = 0; k < 600 && !got?.plan; k++) {
+        await new Promise((r) => setTimeout(r, 100));
+        await plans.idle();
+        got = plans.get(5);
+    }
+    check("plan store: the planner works the plan out at the lowest priority", got?.plan?.plans?.length > 0 && got.plan.options.days === 2 && got.plan.snapshotAt === 123 && got.plan.character === "Tester" && !got.status.error && got.status.ms > 0, JSON.stringify(got?.status) + " " + logs.join(" | "));
+    check("plan store: the next run is in a few hours", got.status.next > Date.now() + 3600 * 1000, JSON.stringify(got.status));
+    const reopenedPlans = openPlanStore(planDir, { typical: () => prices, busy: () => true, delayMs: 60000 });
+    check("plan store: read again after a restart", reopenedPlans.get(5).plan?.plans?.length === got.plan.plans.length && reopenedPlans.status().dataHash === shipped.hash && reopenedPlans.status().characters === 1, JSON.stringify(reopenedPlans.status()));
+    const noData = openPlanStore(mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), "mwia-plan-")), { typical: () => prices, soonMs: 10, busy: () => false });
+    noData.put({ snapshot, run: true });
+    await new Promise((r) => setTimeout(r, 100));
+    await noData.idle();
+    check("plan store: without the game's data it says so", /game data/.test(noData.get(5).status.error || ""), JSON.stringify(noData.get(5).status));
 }
 
 // Without MWIA_ORDERS nothing can be posted.
@@ -175,7 +232,7 @@ try {
     }
     const history = await fetch(`http://127.0.0.1:${PORT2}/history`, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
     const jobsAnswer = await fetch(`http://127.0.0.1:${PORT2}/jobs`, { headers: { Authorization: `Bearer ${KEY}` } });
-    check("orders off (the default): posting refused, and the history says so", answer?.status === 405 && history.status.orders === null && history.status.jobs === null && history.status.labyrinth === null && jobsAnswer.status === 404, String(answer?.status));
+    check("orders off (the default): posting refused, and the history says so", answer?.status === 405 && history.status.orders === null && history.status.jobs === null && history.status.labyrinth === null && history.status.plan === null && jobsAnswer.status === 404, String(answer?.status));
 } finally {
     plain.kill();
 }

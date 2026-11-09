@@ -3,7 +3,8 @@
 // sends the userscript the hours and days it lacks. With MWIA_ORDERS=1 it also
 // keeps what your devices send about your own market orders (order-store.mjs),
 // and your job results and purchases, shared between your devices (job-store.mjs),
-// and your Labyrinth attempts (labyrinth-store.mjs).
+// and your Labyrinth attempts (labyrinth-store.mjs), and works out the 📈 N-day
+// plan for your character from what a device sends about it (plan-store.mjs).
 // No dependencies.
 //
 //   node pi/server.mjs              serve (the default)
@@ -15,7 +16,7 @@
 // Settings (environment): MWIA_KEY (required to serve, at least 24 characters),
 // MWIA_DATA (default /data), PORT (default 8787), MWIA_MARKET_URL, MWIA_ORIGINS
 // (the game's sites allowed to read, comma separated), MWIA_ORDERS (1: take your
-// devices' order events, job results and purchases, and Labyrinth attempts), MWIA_LOG_REQUESTS (0: don't log each request; the key is never logged).
+// devices' order events, job results and purchases, Labyrinth attempts, and the 📈 plan), MWIA_LOG_REQUESTS (0: don't log each request; the key is never logged).
 
 import http from "node:http";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -24,6 +25,7 @@ import { openStore } from "./history-store.mjs";
 import { MAX_EVENTS, openOrderStore } from "./order-store.mjs";
 import { MAX_JOB_RECORDS, openJobStore } from "./job-store.mjs";
 import { MAX_ATTEMPTS, openLabyrinthStore } from "./labyrinth-store.mjs";
+import { MAX_SNAPSHOT_BYTES, openPlanStore } from "./plan-store.mjs";
 
 const DATA = process.env.MWIA_DATA || "/data";
 const PORT = Number(process.env.PORT || 8787);
@@ -88,6 +90,7 @@ function serve() {
     const orders = ORDERS ? openOrderStore(DATA) : null;
     const jobs = ORDERS ? openJobStore(DATA) : null;
     const labyrinth = ORDERS ? openLabyrinthStore(DATA) : null;
+    const plans = ORDERS ? openPlanStore(DATA, { typical: store.typical, log }) : null;
     const health = { lastFetch: null, lastError: null };
 
     async function poll() {
@@ -107,15 +110,15 @@ function serve() {
     setInterval(poll, POLL_MS);
 
     // The request's body as JSON, or null when it is too big.
-    const readJson = (req) => new Promise((resolve, reject) => {
+    const readJson = (req, limit = MAX_BODY) => new Promise((resolve, reject) => {
         const chunks = [];
         let size = 0;
         req.on("data", (chunk) => {
             size += chunk.length;
-            if (size <= MAX_BODY) chunks.push(chunk);
+            if (size <= limit) chunks.push(chunk);
         });
         req.on("end", () => {
-            if (size > MAX_BODY) return resolve(null);
+            if (size > limit) return resolve(null);
             try {
                 resolve(JSON.parse(Buffer.concat(chunks).toString() || "null"));
             } catch (error) {
@@ -182,7 +185,20 @@ function serve() {
                 res.mwiaEvents = `${result.accepted}+${result.duplicates}dup${result.rejected ? `+${result.rejected}bad` : ""}`;
                 return send(200, result);
             }
-            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders, /jobs or /labyrinth" : "GET only" });
+            // What a device sees of your character, for the 📈 plan (switched on with the orders).
+            if (req.method === "POST" && url.pathname === "/snapshot" && plans) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                const body = await readJson(req, MAX_SNAPSHOT_BYTES);
+                if (!body) return send(413, { error: "too big" });
+                const result = plans.put(body);
+                res.mwiaEvents = result.ok ? `snapshot${body.data ? "+data" : ""}${body.run ? "+run" : ""}` : "bad";
+                return send(result.ok ? 200 : 400, result);
+            }
+            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders, /jobs, /labyrinth or /snapshot" : "GET only" });
+            if (url.pathname === "/plan" && plans) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                return send(200, plans.get(url.searchParams.get("character")));
+            }
             if (url.pathname === "/labyrinth" && labyrinth) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
                 return send(200, labyrinth.since(url.searchParams.get("after")));
@@ -195,7 +211,7 @@ function serve() {
             if (url.pathname === "/status") return send(200, { ok: true, newest: store.status().newest, lastError: health.lastError });
             if (url.pathname !== "/history") return send(404, { error: "not found" });
             if (!authorized(req)) return send(401, { error: "wrong or missing key" });
-            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health, orders: orders ? orders.status() : null, jobs: jobs ? jobs.status() : null, labyrinth: labyrinth ? labyrinth.status() : null } });
+            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health, orders: orders ? orders.status() : null, jobs: jobs ? jobs.status() : null, labyrinth: labyrinth ? labyrinth.status() : null, plan: plans ? plans.status() : null } });
         } catch (error) {
             if (error.status === 400) return send(400, { error: "not JSON" });
             log("request failed:", error);

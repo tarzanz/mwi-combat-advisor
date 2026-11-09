@@ -303,6 +303,39 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   have. The advice is kept in the browser until the loadout's gear, abilities, drinks or food, the zone or the
   focus change (once you've saved the advised loadout it says ✓ without simulating again); *↻ Simulate again*
   works it out anew. Nothing is changed in the game: you set the slots and save the loadout.
+- **📈 Plan (N days ahead, worked out on your Pi)** – which order of 8-hour skilling jobs leaves your character
+  worth the most in 30 days (7 to 90): keep to what earns most now (say Tailoring), or first level another skill
+  towards a job or a tool that unlocks soon. The browser sends your character (levels, XP, buffs, teas, tools, coins)
+  to your Pi at most every 30 minutes, and after a game patch the part of the game's data the plan needs (under
+  1 MB); the Pi works the plan out 10 minutes after a new snapshot, and every 6 hours for new prices, in a process
+  of its own at the lowest priority (nice 19, given back when done), and the tab reads it with every sync.
+  **▶ Plan now** sends your character and has it worked out at once (a minute or two). The model:
+  - Time goes in **8-hour blocks**: one job, and at most one more queued behind it when coins or materials cut the
+    first short – no job under an hour. Each block runs the job that earns the most, or, while a plan trains a
+    skill towards a level, that skill's job with the most gold (*earning in it*) or the fastest XP.
+  - **Usual prices, not today's**: the week's median ask to buy materials and teas and to list at (never above 1.5×
+    the usual bid), the median bid as the floor – from the Pi's own history. The plans shown first are also run
+    with **cautious prices** (buying at the week's upper quartile, listing at its lower); when another plan does
+    best then, the tab says the choice is close.
+  - **The market takes only so much**: of each product 50% of what sells a day; the rest waits in stock and sells
+    first in later blocks (a job is chosen by what sells in its block, so stock doesn't pile up). The same share
+    caps what you can buy of a material in a block. Coins pay for a block's materials and teas when it starts.
+  - **Levels and tools**: XP becomes levels as the game's table gives them, and with them new jobs and tools. A
+    better tool for the skill being worked is bought when its extra gold over the days left pays for it, less what
+    it sells for again (the old one is sold at the bid; one in your inventory is put on for nothing); it may take at
+    most half your coins unless a block of the job's materials is still paid for.
+  - **Worth** = coins + tools at the bid + stock (at the bid for up to a day of sales, the shop price for the rest).
+    Levels can't be sold, so the **score** adds *Levels worth* days (7 by default) of the gold a day the character
+    earns at the end – otherwise a plan would never train near its end.
+  - **Plans compared**: earning the most every block, keeping to one skill (*Only Tailoring*), and up to two
+    training phases (a skill to the next levels where a job or tool unlocks, earning in it or at its fastest XP)
+    before earning the most – the best single phases get each second phase tried (a few hundred plans).
+  The tab shows the best plan with **the next 8 hours** (jobs, hours, about how many actions, teas, a tool to buy or
+  put on), how it compares with keeping to what earns now and with earning the most every block, and every plan
+  shown step by step: from which day to which each job runs, its gold and XP, tools bought, levels reached and the
+  worth day by day. A plan you haven't seen puts a **blue dot** on the 🧭 button (the red one is the Market tab's);
+  opening the tab clears it. Gathering and production only (no Enhancing, Alchemy or combat yet); materials are
+  bought, not gathered yourself. Needs a Pi with `MWIA_ORDERS=1` ([pi/README.md](pi/README.md)).
 - **Market** – your own orders and what to sell.
   - *Your orders*: every open sell and buy order with its standing. ✅ first in line (or sharing the price); a few
     better offers first; ⛔ behind a wall – more than a day of sales comes before yours (from the sales the price
@@ -434,7 +467,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   prices come from, with **Read the Pi now** and **Unlink the Pi**. Switched on there (`MWIA_ORDERS=1`), each device
   also sends what it sees of your own market orders – placed, filled, done, and for one placed from a listing
   window what its price buttons said – so the listing prices can be judged later; the box says whether they're all
-  on the Pi. Your Labyrinth attempts go there too. Setup: [pi/README.md](pi/README.md).
+  on the Pi. Your Labyrinth attempts go there too, and your character for the 📈 plan, which the Pi works out. Setup: [pi/README.md](pi/README.md).
 - **Listing prices** – the game's *Sell Listing* and *Buy Listing* windows get price buttons under the price box:
   **Match** (the best offer now), **Wall** (one price step in front of the first level in the order book holding a
   fifth of everything others offer within the tradable range – passing the small undercuts, staying in front of the
@@ -584,6 +617,8 @@ node test/market-test.mjs                                 # Market tab rules in 
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
 node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts, Pi down, unlink
+node test/horizon-test.mjs                                # the 📈 plan in Node: blocks, the market's share, coins, tools, training, cautious prices
+node test/horizon-browser-test.mjs /tmp                   # the 📈 plan end to end: snapshot to a real Pi, ▶ Plan now, the tab, the blue dot
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
 node test/export-browser-test.mjs /tmp                    # Export for chat: under the inventory, share sheet or download
 node test/labyrinth-browser-test.mjs /tmp                 # Labyrinth tab: loadouts per room type, floors, improvements, builder

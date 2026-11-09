@@ -65,9 +65,11 @@ import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./m
 import { analyzeImprovements, analyzeLabyrinth, buildLoadout, chosenCrates, floorLevel, labyrinthLoadouts, slottedCrate } from "./labyrinth.js";
 import { attemptsHtml, buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSetting } from "./labyrinth-ui.js";
 import { labyrinthReport } from "./labyrinth-read.js";
+import { renderHorizon } from "./horizon-ui.js";
+import { horizonNews, onHorizonChange, sendSnapshot, startHorizonSync } from "./horizon-sync.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30 };
+const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30, horizonDays: 30, horizonLevelDays: 7 };
 
 const SKILL_NAMES = {
     stamina: "Stamina",
@@ -461,6 +463,7 @@ function render() {
     else if (ui.tab === "zones") html += renderZones();
     else if (ui.tab === "upgrades") html += renderUpgrades();
     else if (ui.tab === "skilling") html += renderSkillingTab();
+    else if (ui.tab === "horizon") html += renderHorizon(ui.settings);
     else if (ui.tab === "market") html += renderMarketTab();
     else if (ui.tab === "labyrinth") html += renderLabyrinthTab();
     else html += renderGuide();
@@ -490,12 +493,16 @@ function renderMarketTab() {
     return `<p>Loading the game data and market prices…</p>`;
 }
 
-// A red dot on the 🧭 button while one of your orders sits behind a wall of better offers.
+// A red dot on the 🧭 button while one of your orders sits behind a wall of better offers;
+// a blue one while the 📈 plan says something you haven't seen.
 function updateAlertDot() {
     if (!ui.launcher) return;
     const alerts = marketAlerts();
+    const news = horizonNews();
     ui.launcher.classList.toggle("mwia-has-alert", alerts > 0);
-    ui.launcher.title = alerts ? `MWI Advisor – ${alerts} market order${alerts === 1 ? "" : "s"} behind a wall of better offers` : "MWI Advisor";
+    ui.launcher.classList.toggle("mwia-has-news", news);
+    const lines = [alerts ? `${alerts} market order${alerts === 1 ? "" : "s"} behind a wall of better offers` : "", news ? "a new 📈 plan" : ""].filter(Boolean);
+    ui.launcher.title = lines.length ? `MWI Advisor – ${lines.join("; ")}` : "MWI Advisor";
 }
 
 // While you have orders, the market file is read every MARKET_REFRESH_MS so their standing stays current.
@@ -1434,6 +1441,8 @@ function act(target) {
         case "close":
             ui.root.classList.add("mwia-hidden");
             break;
+        case "horizon-run":
+            return sendSnapshot({ run: true }).then(() => ui.tab === "horizon" && render());
         case "zones":
             runTask(doZones);
             break;
@@ -1562,7 +1571,7 @@ function onChange(event) {
         ui.settings[key] = event.target.value;
     }
     saveSettings();
-    if (key.startsWith("skilling")) {
+    if (key.startsWith("skilling") || key.startsWith("horizon")) {
         render();
         return;
     }
@@ -1635,6 +1644,7 @@ export function mountUI(win, workerSource) {
         <button class="mwia-tab" data-tab="zones">Where to fight</button>
         <button class="mwia-tab" data-tab="upgrades">Upgrades</button>
         <button class="mwia-tab" data-tab="skilling">Skilling</button>
+        <button class="mwia-tab" data-tab="horizon">📈 Plan</button>
         <button class="mwia-tab" data-tab="market">Market</button>
         <button class="mwia-tab" data-tab="labyrinth">Labyrinth</button>
         <button class="mwia-tab" data-tab="guide">Guide</button>
@@ -1657,6 +1667,11 @@ export function mountUI(win, workerSource) {
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
     startLabyrinthLog({ predict: roomPrediction });
     startEnhancePlan(gameDeps);
+    startHorizonSync({ settings: () => ui.settings, prepare: () => loadClientData(ui.win) });
+    onHorizonChange(() => {
+        scheduleDot();
+        if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "horizon") render();
+    });
     watchTriggerClicks();
     startTriggerWindow({
         advice: (hrid) => loadTriggerAdvice()[hrid] || null,

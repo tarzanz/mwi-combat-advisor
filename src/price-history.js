@@ -260,6 +260,29 @@ export function summarize(i, hours, days, nowHour) {
     return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS, liquidity: liquidity(i, hours, nowHour) };
 }
 
+// The usual prices of every item at +0, for the 📈 plan (src/horizon.js): the
+// week's median ask and bid (today's while there is too little history), the
+// week's quartiles, and how many sell a day (null until that is known).
+// { hrid: { a, b, aLow, aHigh, bLow, sold } }, values rounded, null when none.
+export function typicalPrices(items, hours, days) {
+    const out = {};
+    if (!hours.length) return out;
+    const nowHour = hours[hours.length - 1].hour;
+    const latest = hours[hours.length - 1];
+    const num = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null);
+    items.forEach((key, i) => {
+        if (key.includes("+")) return;
+        const s = summarize(i, hours, days, nowHour);
+        const usual = s.enough;
+        const a = num(usual ? s.a.med7 : at(latest.a, i));
+        const b = num(usual ? s.b.med7 : at(latest.b, i));
+        if (a === null && b === null) return;
+        const sold = s.liquidity.sold;
+        out[key] = { a, b, aLow: usual ? num(s.a.q25) : null, aHigh: usual ? num(s.a.q75) : null, bLow: usual ? num(s.b.q25) : null, sold: sold.enough && Number.isFinite(sold.perDay) ? Math.round(sold.perDay * 10) / 10 : null };
+    });
+    return out;
+}
+
 // How lively the week's market was: the share of hours with both a buyer and
 // a seller, the median spread between them, how often the lowest ask moved
 // from one hour with data to the next – a sign that things sell and get

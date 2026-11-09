@@ -2,8 +2,17 @@
 !package.json
 !src/price-history.js
 !src/history-wire.js
+!src/horizon.js
+!src/skilling.js
+!src/skilling-upgrades.js
+!src/levels.js
+!src/alchemy.js
+!src/alchemy-chain.js
+!src/enhancing.js
 !pi/history-store.mjs
 !pi/order-store.mjs
 !pi/job-store.mjs
 !pi/labyrinth-store.mjs
+!pi/plan-store.mjs
+!pi/planner.mjs
 !pi/server.mjs

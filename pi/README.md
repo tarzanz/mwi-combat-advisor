@@ -5,8 +5,9 @@ file every 10 minutes around the clock, keeps every new one, and sends linked
 browsers the hours they lack. Browsers still save prices themselves; the Pi's
 hours replace theirs, theirs fill in where the Pi has none (while it was down).
 Switched on, it also keeps what your devices see of your own market orders, to
-judge the listing prices by later (see *Your orders*), and shares your job results
-and purchases between your devices (see *Job results*).
+judge the listing prices by later (see *Your orders*), shares your job results
+and purchases between your devices (see *Job results*), and works out the 📈
+N-day plan for your character (see *The 📈 plan*).
 
 - **Data** in `pi/data/`: `raw/<date>/<timestamp>.json.gz` – every market file
   as it came (about 0.6 MB a day, 220 MB a year; the backup, from which
@@ -64,6 +65,27 @@ and purchases between your devices (see *Job results*).
 - Backup: copy `pi/data/raw/`, `pi/data/orders/` (and `.env`) somewhere else now and then.
 - The history as CSV, with what sold in every hour (the browser's export gives it per day):
   `docker compose exec mwia-history node pi/server.mjs csv > history.csv`.
+
+## The 📈 plan
+
+Switched on with the orders (`MWIA_ORDERS=1`). Each linked device sends what the
+game says about your character – a snapshot: levels, XP, buffs, teas, tools,
+coins, and the plan's settings – at most every 30 minutes (`POST /snapshot`), and
+after a game patch the part of the game's data the plan needs (under 1 MB). The
+Pi works the plan out 10 minutes after a new snapshot (at once with ▶ Plan now)
+and every 6 hours for new prices, from its own usual prices; the devices read it
+with `GET /plan?character=<id>`.
+
+- The planning runs as a process of its own (`pi/planner.mjs`) at the lowest
+  priority (nice 19), so anything else on the Pi goes first; one plan at a time,
+  with at most 384 MB of heap, given back when it is done (a few seconds to a
+  minute on a Pi 4 – 90 days take about three times as long as 30). While the
+  Pi's load is above its number of cores it waits 10 minutes (up to two hours).
+- Files in `data/plan/`: `game-data.json` (the game's data as sent), `prices.json`
+  (the usual prices of the last run), and per character `snapshot.json`,
+  `plan.json` and `status.json` (when it last ran, how long it took, the error if
+  it failed, when it runs next).
+- Logs: `plan <character>: done in … ms`, or why it failed.
 
 ## Your orders
 
