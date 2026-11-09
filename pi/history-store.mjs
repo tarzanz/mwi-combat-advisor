@@ -134,7 +134,7 @@ export function openStore(dataDir) {
     const csv = () => historyCsv(s.items, s.hours, s.days, new Date(), { hourlySold: true }).csv;
 
     // The usual price of every item, for the 📈 plan.
-    const typical = () => typicalPrices(s.items, s.hours, s.days);
+    const typical = (options) => typicalPrices(s.items, s.hours, s.days, options);
 
     load();
     return { addFile, rebuild, since, status, csv, typical };

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.74.0
+// @version      0.75.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -1414,8 +1414,14 @@
     processingCache.set(data, map);
     return map;
   }
+  var teasByData = /* @__PURE__ */ new WeakMap();
   function usableTeas(data, type) {
-    return Object.values(data.itemDetailMap).filter((item) => item.consumableDetail?.usableInActionTypeMap?.[type] && item.consumableDetail.buffs?.length && !item.consumableDetail.usableInActionTypeMap["/action_types/combat"]).map((item) => item.hrid);
+    let byType = teasByData.get(data);
+    if (!byType) teasByData.set(data, byType = /* @__PURE__ */ new Map());
+    if (!byType.has(type)) {
+      byType.set(type, Object.values(data.itemDetailMap).filter((item) => item.consumableDetail?.usableInActionTypeMap?.[type] && item.consumableDetail.buffs?.length && !item.consumableDetail.usableInActionTypeMap["/action_types/combat"]).map((item) => item.hrid));
+    }
+    return byType.get(type).slice();
   }
   function totals(buffs) {
     const sum = /* @__PURE__ */ new Map();
@@ -5079,7 +5085,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.74.0" : "dev";
+  var VERSION = true ? "0.75.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -12083,9 +12089,12 @@ ${triggerWindowReport()}`, false);
       if (item.equipmentDetail) out.equipmentDetail = pick2(item.equipmentDetail, ["type", "levelRequirements", "noncombatStats", "noncombatEnhancementBonuses"]);
       itemDetailMap[hrid] = out;
     }
+    const houseRoomDetailMap = {};
+    for (const [hrid, room] of Object.entries(data.houseRoomDetailMap || {})) houseRoomDetailMap[hrid] = pick2(room, ["hrid", "name", "skillHrid", "usableInActionTypeMap", "actionBuffs", "globalBuffs", "upgradeCostsMap"]);
     const trimmed = {
       actionDetailMap,
       itemDetailMap,
+      houseRoomDetailMap,
       openableLootDropMap: data.openableLootDropMap || {},
       levelExperienceTable: data.levelExperienceTable || null,
       enhancementLevelTotalBonusMultiplierTable: data.enhancementLevelTotalBonusMultiplierTable || null
@@ -12294,6 +12303,18 @@ ${triggerWindowReport()}`, false);
     if (minutes < 90) return `in ${minutes} min`;
     return `in ${Math.round(minutes / 60)} h`;
   }
+  var plusName = (hrid, level) => `${esc(itemName(hrid))}${level ? ` +${level}` : ""}`;
+  var roomName = (hrid) => String(hrid || "").split("/").pop().split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  function purchaseText2(x, day) {
+    const when = day === null ? "" : `Day ${dayText(day)}: `;
+    const verb = (word) => day === null ? word.charAt(0).toUpperCase() + word.slice(1) : word;
+    const gain = ` (+${coins8(x.gainPerDay)}/day)`;
+    if (x.kind === "house") return `\u{1F3E0} ${when}${verb("build")} the ${esc(roomName(x.roomHrid))} to level ${x.level} for ${coins8(x.price)}${gain}`;
+    const icon = x.gear ? "\u{1F455}" : "\u{1F6E0}";
+    const what = day === null ? `<b>${plusName(x.itemHrid, x.level)}</b>` : plusName(x.itemHrid, x.level);
+    const sold = x.sold ? `, sell ${plusName(x.sold, x.soldLevel)} for ${coins8(x.resale)}` : "";
+    return `${icon} ${when}${x.owned ? `${verb("put on")} ${what} (you have it)` : `${verb("buy")} ${what} for ${coins8(x.price)}`}${sold}${gain}`;
+  }
   var teaText = (teas) => teas?.length ? teas.map((t4) => esc(itemName(t4))).join(", ") : "no teas";
   function settingsHtml(settings2) {
     const o2 = horizonOptions(settings2);
@@ -12301,7 +12322,7 @@ ${triggerWindowReport()}`, false);
     return `<div class="mwia-settings">
       <label title="How far ahead the plan looks.">Days <select data-setting="horizonDays">${DAY_CHOICES.map((d) => option(d, `${d} days`, o2.days)).join("")}</select></label>
       <label title="Levels can't be sold, so the plan counts what the character can earn a day at the end, this many times, on top of what it is worth. With 0 a plan never trains near its end.">Levels worth <select data-setting="horizonLevelDays">${LEVEL_DAY_CHOICES.map((d) => option(d, d ? `${d} days of income` : "nothing", o2.levelDays)).join("")}</select></label>
-      <button class="mwia-btn" data-action="horizon-run" title="Send your character to the Pi now and have it work the plan out (it takes the Pi up to a minute or two).">\u25B6 Plan now</button>
+      <button class="mwia-btn" data-action="horizon-run" title="Send your character to the Pi now and have it work the plan out (it takes the Pi a minute or two, up to a few minutes for 90 days).">\u25B6 Plan now</button>
     </div>`;
   }
   function statusHtml2(st, settings2) {
@@ -12325,7 +12346,7 @@ ${triggerWindowReport()}`, false);
     if (!first?.jobs?.length) return `<p>Nothing pays right now \u2013 the plan has no job for the next ${plan.options.blockHours} hours.</p>`;
     const jobs = first.jobs.slice().sort((x, y) => y.hours - x.hours);
     const rows = jobs.map((j2) => `<li><b>${esc(j2.name)}</b> (${skillLabel4(j2.skill)}) \u2013 ${Math.round(j2.hours * 10) / 10} h, about ${j2.actions.toLocaleString("en-US")} actions, ${teaText(j2.teas)}; ${coins8(j2.goldPerHour)}/h, ${j2.xpPerHour.toLocaleString("en-US")} XP/h${gearText(j2.gear, "<br>")}</li>`).join("");
-    const buys = best.purchases.filter((x) => x.day === 0).map((x) => `<li>${x.gear ? "\u{1F455}" : "\u{1F6E0}"} ${x.owned ? "Put on" : "Buy"} <b>${esc(itemName(x.itemHrid))}</b>${x.owned ? " (you have it)" : ` for ${coins8(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} (${coins8(x.resale)})` : ""}</li>`).join("");
+    const buys = best.purchases.filter((x) => x.day === 0).map((x) => `<li>${purchaseText2(x, null)}</li>`).join("");
     const idle = first.idle > 0.1 ? `<li class="mwia-dim">${Math.round(first.idle * 10) / 10} h left: your coins or the market don't carry more.</li>` : "";
     return `<p><b>The next ${plan.options.blockHours} hours:</b></p><ul>${buys}${rows}${idle}</ul>`;
   }
@@ -12341,6 +12362,11 @@ ${triggerWindowReport()}`, false);
     against(plan.only, "Against keeping to what earns now");
     against(plan.baseline, "Against earning the most every block");
     if (plan.cautiousBest !== null && plan.cautiousBest !== void 0) out.push(`<span class="mwia-warn">With cautious prices (buying at the week's upper quartile, selling at its lower) <i>${esc(plan.plans[plan.cautiousBest].name)}</i> does best \u2013 the choice is close.</span>`);
+    if (best.noCommunity) {
+      const lost = best.gain - best.noCommunity.gain;
+      out.push(`Without the community buffs it would be ${signed2(best.noCommunity.gain)} (${coins8(lost)} less, ${Math.round(lost / Math.max(1, Math.abs(best.gain)) * 100)}%).`);
+    }
+    if (plan.noCommunityBest !== null && plan.noCommunityBest !== void 0) out.push(`<span class="mwia-warn">Without the community buffs <i>${esc(plan.plans[plan.noCommunityBest].name)}</i> would do best \u2013 this plan leans on them.</span>`);
     return out.length ? `<ul>${out.map((line) => `<li>${line}</li>`).join("")}</ul>` : "";
   }
   function sparkline(values) {
@@ -12357,17 +12383,19 @@ ${triggerWindowReport()}`, false);
       const also = s2.also.length ? ` <span class="mwia-dim">(also ${s2.also.slice(0, 4).map(esc).join(", ")}${s2.also.length > 4 ? ", \u2026" : ""} when the first can't fill the hours)</span>` : "";
       return `<tr><td>Day ${dayText(s2.from)}\u2013${dayText(s2.to)}</td><td><b>${esc(s2.name)}</b>${s2.skill ? ` (${skillLabel4(s2.skill)})` : ""}${also}<br><span class="mwia-dim">${teaText(s2.teas)}${s2.tool ? ` \xB7 ${esc(itemName(s2.tool))}` : ""}</span>${gearText(s2.gear)}</td><td class="mwia-num">${coins8(s2.gold)}</td><td>${xp}</td></tr>`;
     }).join("");
-    const buys = p2.purchases.map((x) => `<li>${x.gear ? "\u{1F455}" : "\u{1F6E0}"} Day ${dayText(x.day)}: ${x.owned ? "put on" : "buy"} ${esc(itemName(x.itemHrid))}${x.owned ? "" : ` for ${coins8(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} for ${coins8(x.resale)}` : ""} (+${coins8(x.gainPerDay)}/day)</li>`).join("");
+    const buys = p2.purchases.map((x) => `<li>${purchaseText2(x, x.day)}</li>`).join("");
     const levels = Object.entries(p2.levels).map(([skill, [from, to]]) => `${skillLabel4(skill)} ${from} \u2192 ${to}`).join(", ");
+    const house = Object.entries(p2.house || {}).map(([room, [from, to]]) => `${esc(roomName(room))} ${from} \u2192 ${to}`).join(", ");
     return `<table class="mwia-horizon-steps"><thead><tr><th>When</th><th>Job</th><th>Gold</th><th>XP</th></tr></thead><tbody>${segs}</tbody></table>
-      ${buys ? `<p><b>Tools and clothes</b></p><ul>${buys}</ul>` : ""}
+      ${buys ? `<p><b>Tools, clothes and house</b></p><ul>${buys}</ul>` : ""}
       ${levels ? `<p><b>Levels</b>: ${levels}</p>` : ""}
+      ${house ? `<p><b>House</b>: ${house}</p>` : ""}
       <p class="mwia-dim">Worth day by day: ${sparkline(p2.worthByDay)}</p>`;
   }
   function plansHtml(plan) {
     return plan.plans.map((p2, i) => {
       const tags = [i === plan.best ? "\u{1F4C8} best" : "", i === plan.baseline ? "earn the most" : "", i === plan.only ? "what earns now" : ""].filter(Boolean).join(" \xB7 ");
-      const cautious = p2.cautious ? `cautious ${signed2(p2.cautious.gain)}` : "";
+      const cautious = [p2.cautious ? `cautious ${signed2(p2.cautious.gain)}` : "", p2.noCommunity ? `no community buffs ${signed2(p2.noCommunity.gain)}` : ""].filter(Boolean).join(" \xB7 ");
       return `<details class="mwia-horizon-plan" ${i === plan.best ? "open" : ""}><summary><b>${esc(p2.name)}</b>${tags ? ` <span class="mwia-dim">${tags}</span>` : ""}<br>
           <span class="mwia-num">${signed2(p2.gain)}</span> in ${plan.options.days} days \xB7 ${coins8(p2.endRate)}/day at the end \xB7 score ${coins8(p2.score)}${cautious ? ` \xB7 <span class="mwia-dim">${cautious}</span>` : ""}</summary>
           ${stepsHtml(p2)}</details>`;
@@ -12380,9 +12408,11 @@ ${triggerWindowReport()}`, false);
       Time goes in ${o2.blockHours}-hour blocks. In each the character runs the job that earns the most \u2013 or, while a plan trains a skill to a level where a job or tool unlocks, that skill's job with the most gold or the fastest XP; when your coins or the market cut a job short, the rest of the block goes to the next best one queued behind it (two jobs at most, none under an hour).
       Prices are the usual ones, not today's: the week's median ask to buy and to list at (never above 1.5\xD7 the usual bid), the median bid as the floor.
       The market takes ${Math.round(o2.marketShare * 100)}% of what sells of an item a day: the rest waits in stock and sells first in later blocks; the same share caps what you can buy of a material.
-      A better tool for the skill you work is bought when its extra gold over the days left pays for it (less what it sells for again); the old one is sold at the bid.
-      Each skill is worked in a loadout of its own: of each slot, the clothes, jewellery, charm or cape you own (worn or in the inventory) that earn the most on its best job \u2013 switch loadouts in the game as the plan switches skill. A piece for the skill you work is bought the same way as a tool; what it replaces is kept for other skills. The pouch and task badges stay as they are.
-      Worth = coins + tools and clothes at the bid + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o2.levelDays} days of what the character earns a day at the end, so levels count.
+      A better tool for the skill you work is bought when its extra gold over the days left pays for it (less what it sells for again); the old one is sold at the bid. Any tier your level allows, at +0 or at a +level the market has had for sale this week (at its usual ask) \u2013 enhancing it yourself isn't weighed.
+      Each skill is worked in a loadout of its own: of each slot, the clothes, jewellery, charm or cape you own (worn or in the inventory) that earn the most on its best job \u2013 switch loadouts in the game as the plan switches skill. A piece for the skill you work is bought the same way as a tool, also at a +level (a lower level of the same piece is sold); what it replaces is kept for other skills. The pouch and task badges stay as they are.
+      The skill's house room goes up a level when its extra gold over the days left pays for the coins and materials (at the ask, no more of a material than the market sells in a week); it can't be sold again.
+      Worth = coins + tools and clothes at the bid for their +level + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o2.levelDays} days of what the character earns a day at the end, so levels and house rooms count.
+      Prices stay as they are now for the whole plan, and so do the community buffs${plan.community ? " \u2013 the best plans are also run without them (\u201Cno community buffs\u201D)" : ""}.
       Plans compared: earning the most every block, keeping to one skill, and up to two training phases before earning. Gathering and production only \u2013 no Enhancing, Alchemy or combat yet, and materials are bought, not gathered yourself.${unknown}
     </p></details>`;
   }
@@ -13507,7 +13537,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.74.0" : "dev";
+  var VERSION3 = true ? "0.75.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

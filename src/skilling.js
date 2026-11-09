@@ -139,10 +139,17 @@ function processedProducts(data) {
     return map;
 }
 
+// The teas of an action type – worked out once per game data (the list is copied, so callers may change it).
+const teasByData = new WeakMap();
 export function usableTeas(data, type) {
-    return Object.values(data.itemDetailMap)
-        .filter((item) => item.consumableDetail?.usableInActionTypeMap?.[type] && item.consumableDetail.buffs?.length && !item.consumableDetail.usableInActionTypeMap["/action_types/combat"])
-        .map((item) => item.hrid);
+    let byType = teasByData.get(data);
+    if (!byType) teasByData.set(data, (byType = new Map()));
+    if (!byType.has(type)) {
+        byType.set(type, Object.values(data.itemDetailMap)
+            .filter((item) => item.consumableDetail?.usableInActionTypeMap?.[type] && item.consumableDetail.buffs?.length && !item.consumableDetail.usableInActionTypeMap["/action_types/combat"])
+            .map((item) => item.hrid));
+    }
+    return byType.get(type).slice();
 }
 
 export function totals(buffs) {

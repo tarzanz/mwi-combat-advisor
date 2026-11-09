@@ -117,6 +117,48 @@ check("…a loadout per skill: what helps only gathering isn't worn to tailor", 
 check("…and they earn more than going without", heldTailoring.timeline[0].income - heldTailoring.timeline[0].costs > bare.timeline[0].income - bare.timeline[0].costs);
 check("clothes you own count in the worth at the bid", Math.abs(heldTailoring.startWorth - bare.startWorth - 2 * 1e12 * (1 - MARKET_TAX)) < 1e3, `${heldTailoring.startWorth - bare.startWorth}`);
 
+// Enhanced tools and clothes: a +level for sale is bought when it pays better than +0, and sold again at its own bid.
+const plusPrices = pricesWith(200000);
+for (const item of Object.values(data.itemDetailMap)) {
+    if (!/_needle$/.test(item.hrid) || !plusPrices[item.hrid]) continue;
+    const base = plusPrices[item.hrid];
+    plusPrices[`${item.hrid}+10`] = { a: base.a * 1.3, b: base.b * 1.3, aLow: base.aLow * 1.3, aHigh: base.aHigh * 1.3, bLow: base.bLow * 1.3, sold: 1 };
+}
+const plus = simulatePlan(snapshot, data, plusPrices, tailoring, { days: 3 });
+const plusTool = plus.purchases.find((x) => x.kind === "tool" && /needle/.test(x.itemHrid));
+check("an enhanced tool for sale is bought when it pays more than +0", plusTool?.level === 10, plus.purchases.map((x) => `${x.itemHrid}+${x.level}`).join(", "));
+check("…and counts in the worth at its own bid", plus.end.tools["/equipment_types/tailoring_tool"]?.level === 10 && plus.worth > simulatePlan(snapshot, data, prices, tailoring, { days: 3 }).worth);
+const noPlus = simulatePlan(snapshot, data, prices, tailoring, { days: 3 });
+check("without +levels for sale only +0 is bought", noPlus.purchases.every((x) => x.kind === "house" || !x.level));
+
+// House rooms: the skill's room goes up when it pays, not when its materials cost a fortune.
+const PARLOR = "/house_rooms/sewing_parlor";
+const built = simulatePlan(snapshot, data, prices, tailoring, { days: 10 });
+const builds = built.purchases.filter((x) => x.kind === "house");
+check("the skill's house room is built up when it pays", builds.some((x) => x.roomHrid === PARLOR && x.gainPerDay > 0 && x.price > 0), builds.map((x) => `${x.roomHrid} ${x.level}`).join(", "));
+check("…one level at a time, never past 8", builds.every((x, i) => x.level <= 8 && (i === 0 || x.level === builds[i - 1].level + 1)) && built.end.house.levels[PARLOR] === builds.at(-1)?.level);
+// (Its needles cost a fortune: they are tools for Tailoring, not what it makes or uses.)
+const dearRoom = pricesWith(200000);
+for (const level of Object.values(data.houseRoomDetailMap[PARLOR].upgradeCostsMap)) for (const c of level) if (/_needle$/.test(c.itemHrid)) dearRoom[c.itemHrid] = { a: 1e12, b: 1e12, aLow: 1e12, aHigh: 1e12, bLow: 1e12, sold: 1e9 };
+check("…and not when its materials never pay back", !simulatePlan(snapshot, data, dearRoom, tailoring, { days: 10 }).purchases.some((x) => x.kind === "house"));
+// A block where only the room went up, on the same job at the same level as the block before: more actions an hour.
+const steps = built.purchases.filter((x) => x.kind === "house" && x.block > 0 && !built.purchases.some((y) => y !== x && y.block === x.block)).map((x) => {
+    const before = built.timeline[x.block - 1].ran[0]?.r;
+    const after = built.timeline[x.block].ran.find((y) => y.r.id === before?.id && y.r.level === before?.level)?.r;
+    return before && after ? [before.actionsPerHour, after.actionsPerHour] : null;
+}).filter(Boolean);
+check("a room built up makes its skill's jobs faster", steps.length > 0 && steps.every(([from, to]) => to > from), JSON.stringify(steps.map(([a, b]) => [Math.round(a), Math.round(b)])));
+
+// Community buffs: the plans are also run without them, and a gathering plan that leans on them earns less there.
+const communityWho = { ...who, buffs: { ...who.buffs, "/action_types/milking": [...(who.buffs["/action_types/milking"] || []), { uniqueHrid: "/buff_uniques/gathering_community_buff", typeHrid: "/buff_types/gathering", flatBoost: 0.3, ratioBoost: 0 }] } };
+const community = { ...snapshot, who: communityWho };
+const withBuff = simulatePlan(community, data, prices, milking, { days: 3 });
+const withoutBuff = simulatePlan(community, data, prices, milking, { days: 3 }, "noCommunity");
+check("without the community buffs a gathering plan earns less", withoutBuff.gain < withBuff.gain, `${Math.round(withBuff.gain)} → ${Math.round(withoutBuff.gain)}`);
+const communityPlan = planHorizon(community, data, prices, { days: 3 });
+check("the best plans say what they'd earn without them", communityPlan.community && communityPlan.plans[0].noCommunity && Number.isFinite(communityPlan.plans[0].noCommunity.gain));
+check("…not when there are none", !plan.community && plan.plans.every((p) => !p.noCommunity));
+
 // The end value of levels: without it the score is the worth.
 const noLevels = simulatePlan(snapshot, data, prices, [], { days, levelDays: 0 });
 check("level days 0: score is the worth", Math.abs(noLevels.score - noLevels.worth) < 1e-6);

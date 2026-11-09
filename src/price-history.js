@@ -264,14 +264,15 @@ export function summarize(i, hours, days, nowHour) {
 // week's median ask and bid (today's while there is too little history), the
 // week's quartiles, and how many sell a day (null until that is known).
 // { hrid: { a, b, aLow, aHigh, bLow, sold } }, values rounded, null when none.
-export function typicalPrices(items, hours, days) {
+// plus: also every enhanced level ("hrid+10") the market has had.
+export function typicalPrices(items, hours, days, { plus = false } = {}) {
     const out = {};
     if (!hours.length) return out;
     const nowHour = hours[hours.length - 1].hour;
     const latest = hours[hours.length - 1];
     const num = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null);
     items.forEach((key, i) => {
-        if (key.includes("+")) return;
+        if (!plus && key.includes("+")) return;
         const s = summarize(i, hours, days, nowHour);
         const usual = s.enough;
         const a = num(usual ? s.a.med7 : at(latest.a, i));

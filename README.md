@@ -310,7 +310,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   needs (under 1 MB); the Pi works the plan out 10 minutes after a new snapshot, and every 6 hours for new prices,
   in a process of its own at the lowest priority (nice 19, given back when done), and the tab reads it with every
   sync.
-  **▶ Plan now** sends your character and has it worked out at once (a minute or two). The model:
+  **▶ Plan now** sends your character and has it worked out at once (a minute or two; up to a few minutes for 90 days on a small Pi). The model:
   - Time goes in **8-hour blocks**: one job, and at most one more queued behind it when coins or materials cut the
     first short – no job under an hour. Each block runs the job that earns the most, or, while a plan trains a
     skill towards a level, that skill's job with the most gold (*earning in it*) or the fastest XP.
@@ -327,24 +327,35 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     better tool for the skill being worked is bought when its extra gold over the days left (within the market's
     limits) pays for it, less what it sells for again (the old one is sold at the bid; one in your inventory is put
     on for nothing); it may take at most half your coins unless a block of the job's materials is still paid for.
+    Of every tier your level allows, at +0 or at any **+level the market has had asks for this week** (bought at
+    its usual ask), the one that pays the most – a Holy Hatchet +10 may beat a Celestial at +0. Enhancing it
+    yourself isn't weighed.
   - **Clothes, jewellery, charms and capes**: each skill is worked in a **loadout of its own** – of each slot, what
     you own (worn or in the inventory, at its +level) that earns the most on the skill's best job; you switch
     loadouts in the game as the plan switches skill. A piece for the skill being worked is bought the same way as a
-    tool (at +0, when its extra gold within the market's limits over the days left pays for it, less what it sells
-    for again); what it replaces is kept, since another skill may wear it. The pouch (it sets the drink slots) and
-    task badges stay as they are.
-  - **Worth** = coins + tools and clothes at the bid + stock (at the bid for up to a day of sales, the shop price for the rest).
-    Levels can't be sold, so the **score** adds *Levels worth* days (7 by default) of the gold a day the character
+    tool (at +0 or a +level for sale, when its extra gold within the market's limits over the days left pays for
+    it, less what it sells for again); what it replaces is kept, since another skill may wear it, but a lower level
+    of the same piece is sold. The pouch (it sets the drink slots) and task badges stay as they are.
+  - **House**: the skill being worked gets its house room (Log Shed, Sewing Parlor …) a level up when the extra gold
+    over the days left pays for the coins and materials of that level – bought at the usual ask, and no more of a
+    material than the market's share of a week's sales. A room can't be sold again, so it isn't in the worth;
+    its gold after the plan counts through the score.
+  - **Worth** = coins + tools and clothes at the bid for their +level (with nobody buying that level, the nearest
+    lower one's) + stock (at the bid for up to a day of sales, the shop price for the rest).
+    Levels and rooms can't be sold, so the **score** adds *Levels worth* days (7 by default) of the gold a day the character
     earns at the end – otherwise a plan would never train near its end.
+  - **Community buffs** (gathering quantity, production efficiency, XP) are counted as they are now, but last only
+    as long as players keep buying them: the plans shown first are also run **without them** – the tab says what the
+    best plan would gain then, and when another plan would do best, that the plan leans on them.
   - **Plans compared**: earning the most every block, keeping to one skill (*Only Tailoring*), and up to two
     training phases (a skill to the next levels where a job or tool unlocks, earning in it or at its fastest XP)
     before earning the most – the best single phases get each second phase tried (a few hundred plans).
   The tab shows the best plan with **the next 8 hours** (jobs, hours, about how many actions, teas, the clothes to
-  wear, a tool or a piece of clothing to buy or put on), how it compares with keeping to what earns now and with earning the most every block, and every plan
-  shown step by step: from which day to which each job runs, its gold, XP and loadout, tools and clothes bought, levels reached and the
+  wear, a tool, a piece of clothing or a house room to buy, build or put on), how it compares with keeping to what earns now and with earning the most every block, and every plan
+  shown step by step: from which day to which each job runs, its gold, XP and loadout, tools, clothes (with their +level) and house rooms bought, levels and room levels reached and the
   worth day by day. A plan you haven't seen puts a **blue dot** on the 🧭 button (the red one is the Market tab's);
   opening the tab clears it. Gathering and production only (no Enhancing, Alchemy or combat yet); materials are
-  bought, not gathered yourself. Needs a Pi with `MWIA_ORDERS=1` ([pi/README.md](pi/README.md)).
+  bought, not gathered yourself; prices stay as they are now for the whole plan. Needs a Pi with `MWIA_ORDERS=1` ([pi/README.md](pi/README.md)).
 - **Market** – your own orders and what to sell.
   - *Your orders*: every open sell and buy order with its standing. ✅ first in line (or sharing the price); a few
     better offers first; ⛔ behind a wall – more than a day of sales comes before yours (from the sales the price
@@ -626,7 +637,7 @@ node test/market-test.mjs                                 # Market tab rules in 
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
 node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts, Pi down, unlink
-node test/horizon-test.mjs                                # the 📈 plan in Node: blocks, the market's share, coins, tools, clothes, training, cautious prices
+node test/horizon-test.mjs                                # the 📈 plan in Node: blocks, the market's share, coins, tools, clothes, +levels, house, training, cautious prices, no community buffs
 node test/horizon-browser-test.mjs /tmp                   # the 📈 plan end to end: snapshot to a real Pi, ▶ Plan now, the tab, the blue dot
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
 node test/export-browser-test.mjs /tmp                    # Export for chat: under the inventory, share sheet or download

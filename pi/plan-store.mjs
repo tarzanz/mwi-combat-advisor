@@ -46,7 +46,7 @@ const validSnapshot = (s) =>
     && s.who && typeof s.who === "object" && s.who.levels && typeof s.who.levels === "object"
     && Number.isFinite(Number(s.coins)) && characterKey(s.character?.id);
 
-// typical(): the usual prices (history-store's typical). Options for the tests:
+// typical({ plus }): the usual prices (history-store's typical; the plan asks for the +levels too). Options for the tests:
 // delayMs (after a snapshot), soonMs (when asked to plan now), everyMs, busy() (true: wait).
 export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 * 60 * 1000, soonMs = 5000, everyMs = 6 * 3600 * 1000, busy = () => os.loadavg()[0] > os.cpus().length, postponeMs = 10 * 60 * 1000 } = {}) {
     const dir = path.join(dataDir, "plan");
@@ -98,7 +98,7 @@ export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 *
                 setStatus(key, { at: started, error: "no game data yet – open the game with the advisor once", next: null });
                 return resolve();
             }
-            writeAtomic(pricesFile, JSON.stringify({ at: started, prices: typical() }));
+            writeAtomic(pricesFile, JSON.stringify({ at: started, prices: typical({ plus: true }) }));
             setStatus(key, { running: started, next: null });
             const child = spawn(process.execPath, [`--max-old-space-size=${HEAP_MB}`, PLANNER, charDir(key), dataFile, pricesFile], { stdio: ["ignore", "ignore", "pipe"] });
             try {
