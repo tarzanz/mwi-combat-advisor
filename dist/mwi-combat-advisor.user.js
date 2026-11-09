@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.75.0
+// @version      0.76.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5085,7 +5085,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.75.0" : "dev";
+  var VERSION = true ? "0.76.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -12322,7 +12322,7 @@ ${triggerWindowReport()}`, false);
     return `<div class="mwia-settings">
       <label title="How far ahead the plan looks.">Days <select data-setting="horizonDays">${DAY_CHOICES.map((d) => option(d, `${d} days`, o2.days)).join("")}</select></label>
       <label title="Levels can't be sold, so the plan counts what the character can earn a day at the end, this many times, on top of what it is worth. With 0 a plan never trains near its end.">Levels worth <select data-setting="horizonLevelDays">${LEVEL_DAY_CHOICES.map((d) => option(d, d ? `${d} days of income` : "nothing", o2.levelDays)).join("")}</select></label>
-      <button class="mwia-btn" data-action="horizon-run" title="Send your character to the Pi now and have it work the plan out (it takes the Pi a minute or two, up to a few minutes for 90 days).">\u25B6 Plan now</button>
+      <button class="mwia-btn" data-action="horizon-run" title="Send your character to the Pi now and have it work the plan out (it takes the Pi a minute or two).">\u25B6 Plan now</button>
     </div>`;
   }
   function statusHtml2(st, settings2) {
@@ -12331,7 +12331,7 @@ ${triggerWindowReport()}`, false);
     if (plan) {
       const o2 = horizonOptions(settings2);
       const changed2 = plan.options && (plan.options.days !== o2.days || plan.options.levelDays !== o2.levelDays);
-      lines.push(`Worked out ${ago2(plan.at)} (${Math.round((plan.ms || 0) / 100) / 10} s on the Pi, ${plan.tried} plans tried) from your character as it was ${ago2(plan.snapshotAt)}${changed2 ? ` \u2013 <b>with other settings</b> (${plan.options.days} days, levels worth ${plan.options.levelDays} days): tap \u25B6 Plan now` : ""}.`);
+      lines.push(`Worked out ${ago2(plan.at)} (${Math.round((plan.ms || 0) / 100) / 10} s on the Pi, ${plan.weighed ? `${plan.weighed.toLocaleString("en-US")} plans weighed, ${plan.tried} simulated` : `${plan.tried} plans tried`}) from your character as it was ${ago2(plan.snapshotAt)}${changed2 ? ` \u2013 <b>with other settings</b> (${plan.options.days} days, levels worth ${plan.options.levelDays} days): tap \u25B6 Plan now` : ""}.`);
     }
     if (st.waiting) lines.push(`<span class="mwia-warn">\u23F3 The Pi is working the plan out\u2026</span>`);
     else if (st.status?.running) lines.push(`<span class="mwia-warn">\u23F3 The Pi is working the plan out\u2026</span>`);
@@ -12408,12 +12408,12 @@ ${triggerWindowReport()}`, false);
       Time goes in ${o2.blockHours}-hour blocks. In each the character runs the job that earns the most \u2013 or, while a plan trains a skill to a level where a job or tool unlocks, that skill's job with the most gold or the fastest XP; when your coins or the market cut a job short, the rest of the block goes to the next best one queued behind it (two jobs at most, none under an hour).
       Prices are the usual ones, not today's: the week's median ask to buy and to list at (never above 1.5\xD7 the usual bid), the median bid as the floor.
       The market takes ${Math.round(o2.marketShare * 100)}% of what sells of an item a day: the rest waits in stock and sells first in later blocks; the same share caps what you can buy of a material.
-      A better tool for the skill you work is bought when its extra gold over the days left pays for it (less what it sells for again); the old one is sold at the bid. Any tier your level allows, at +0 or at a +level the market has had for sale this week (at its usual ask) \u2013 enhancing it yourself isn't weighed.
+      A better tool for the skill you work is bought when its extra gold over the days left (on a detour: until it ends) pays for it (less what it sells for again); the old one is sold at the bid. Any tier your level allows, at +0 or at a +level the market has had for sale this week (at its usual ask) \u2013 enhancing it yourself isn't weighed.
       Each skill is worked in a loadout of its own: of each slot, the clothes, jewellery, charm or cape you own (worn or in the inventory) that earn the most on its best job \u2013 switch loadouts in the game as the plan switches skill. A piece for the skill you work is bought the same way as a tool, also at a +level (a lower level of the same piece is sold); what it replaces is kept for other skills. The pouch and task badges stay as they are.
       The skill's house room goes up a level when its extra gold over the days left pays for the coins and materials (at the ask, no more of a material than the market sells in a week); it can't be sold again.
       Worth = coins + tools and clothes at the bid for their +level + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o2.levelDays} days of what the character earns a day at the end, so levels and house rooms count.
       Prices stay as they are now for the whole plan, and so do the community buffs${plan.community ? " \u2013 the best plans are also run without them (\u201Cno community buffs\u201D)" : ""}.
-      Plans compared: earning the most every block, keeping to one skill, and up to two training phases before earning. Gathering and production only \u2013 no Enhancing, Alchemy or combat yet, and materials are bought, not gathered yourself.${unknown}
+      Plans compared: up to three detours \u2013 a skill to a level where a job, tool or clothes unlock (or a multiple of 5), earning in it or at its fastest XP \u2013 and then one skill to the end. Each skill is first run on its own to the end; any such plan is then valued by looking up those runs (a search over hundreds of thousands of plans), and the best few dozen are simulated as they are, with earning the most every block and keeping to each skill. A purchase made on a detour pays only until the detour ends. Of plans within 0.25% of the best, the simplest is shown first. Gathering and production only \u2013 no Enhancing, Alchemy or combat yet, and materials are bought, not gathered yourself.${unknown}
     </p></details>`;
   }
   function renderHorizon(settings2) {
@@ -13537,7 +13537,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.75.0" : "dev";
+  var VERSION3 = true ? "0.76.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

@@ -41,10 +41,12 @@
 // - The community buffs (gathering quantity, production efficiency, XP) last
 //   only as long as players keep buying them: the best plans are also run
 //   without them, to show how much a plan leans on them.
-// - Plans compared: earning the most every block; "only skill S"; and up to two
-//   training phases (skill S to a level where a job or tool unlocks, earning in
-//   S or at its fastest XP) before earning – the best single phases are
-//   extended with a second one (a beam search).
+// - Plans compared: up to three detours (skill S to a level where a job, a tool
+//   or clothes unlock, or a multiple of 5 – earning in S or at its fastest XP)
+//   and then one skill earned in to the end, found by a search over lookups in
+//   runs of each skill on its own (see propose: dynamic programming over the
+//   detours); its best proposals are simulated as they are, along with earning
+//   the most every block and "only skill S" for every skill.
 //
 // Combat can join later as another kind of activity: everything below works
 // on activities with an XP rate per skill, items made and used per hour and
@@ -55,11 +57,21 @@ import { itemSkillBuffs } from "./skilling-upgrades.js";
 import { experienceOf, fractionalLevel } from "./levels.js";
 
 export const HORIZON_DEFAULTS = { days: 30, blockHours: 8, marketShare: 0.5, levelDays: 7 };
-// Training targets per skill: the next levels where a job or a tool unlocks, within this many levels.
-const UNLOCK_TARGETS = 4;
-const UNLOCK_REACH = 30;
-// Single-phase plans extended with a second phase.
-const BEAM = 6;
+// The search (see propose): detours to levels within DP_REACH of now, up to
+// DP_DETOURS of them before the final skill, DP_BEAM partial plans kept per
+// depth; what-if runs for the DP_FINALS best final skills, DP_VARIANTS each
+// (clothes another skill's level unlocks); the DP_SIMULATED best proposals are
+// simulated exactly, the DP_EARN_MOST best also ending in "earn the most".
+const DP_REACH = 40;
+const DP_DETOURS = 3;
+const DP_BEAM = 250;
+const DP_FINALS = 4;
+const DP_VARIANTS = 3;
+const DP_SIMULATED = 24;
+const DP_EARN_MOST = 6;
+const DP_RESULTS = 2000;
+// Plans within this share of the best score count as as good: the simplest of them is shown as the best.
+const SIMPLER_WITHIN = 0.0025;
 // Plans also run with cautious prices, and plans shown.
 const CAUTIOUS_TOP = 6;
 export const PLANS_SHOWN = 8;
@@ -678,9 +690,8 @@ function offersFor(ctx, market, state, skill, job, slotKey, candidates, replace)
 
 // Before a block: a better tool for the skill being worked, when it pays – of
 // every tier the levels allow, at +0 or a +level for sale, the one whose extra
-// gold over the days left (plus levelDays) beats its cost less its resale by
-// the most. While training for XP, the next tier at +0 is bought anyway when cheap.
-function maybeBuyTool(ctx, market, state, actionType, phase, daysLeft) {
+// gold over payDays (see simulate) beats its cost less its resale by the most. While training for XP, the next tier at +0 is bought anyway when cheap.
+function maybeBuyTool(ctx, market, state, actionType, phase, payDays) {
     if (!actionType) return null;
     const toolType = toolTypeOf(actionType);
     const tiers = ctx.tiers[toolType];
@@ -714,7 +725,7 @@ function maybeBuyTool(ctx, market, state, actionType, phase, daysLeft) {
     let chosen = null;
     for (const o of front) {
         if (o.price > state.coins || !leaves(ctx, state, job.top, state.coins - o.price + resale)) continue;
-        const value = o.gainPerDay * (daysLeft + ctx.o.levelDays) - o.netCost;
+        const value = o.gainPerDay * payDays - o.netCost;
         if (value > 0 && (!chosen || value > chosen.value)) chosen = { ...o, value };
     }
     if (!chosen && phase?.style === "xp" && phase.skill === skill) {
@@ -738,10 +749,9 @@ function maybeBuyTool(ctx, market, state, actionType, phase, daysLeft) {
 
 // Before a block: one piece of clothing for the skill being worked, at +0 or a
 // +level for sale, when its extra gold (within the market's limits, on the
-// skill's best job) over the days left plus levelDays pays for it, less what it
-// sells for again. What it replaces is kept – another skill may wear it – but
+// skill's best job) over payDays pays for it, less what it sells for again. What it replaces is kept – another skill may wear it – but
 // a lower level of the same piece is sold.
-function maybeBuyGear(ctx, market, state, actionType, daysLeft) {
+function maybeBuyGear(ctx, market, state, actionType, payDays) {
     if (!actionType) return null;
     const skill = "/skills/" + actionType.slice(ACTION_TYPE.length);
     const shop = ctx.shop[skill];
@@ -772,7 +782,7 @@ function maybeBuyGear(ctx, market, state, actionType, daysLeft) {
         const old = ownedLevel.has(o.item.itemHrid) ? state.gear.find((g) => g.itemHrid === o.item.itemHrid && g.level === ownedLevel.get(o.item.itemHrid)) : null;
         const oldResale = toolResale(ctx, market, old);
         if (o.price > state.coins || !leaves(ctx, state, job.top, state.coins - o.price + oldResale)) continue;
-        const value = o.gainPerDay * (daysLeft + ctx.o.levelDays) - o.netCost;
+        const value = o.gainPerDay * payDays - o.netCost;
         if (value > 0 && (!best || value > best.value)) best = { ...o, old, oldResale, value };
     }
     if (!best) return null;
@@ -784,9 +794,9 @@ function maybeBuyGear(ctx, market, state, actionType, daysLeft) {
 }
 
 // Before a block: the skill's house room one level up, when its extra gold over
-// the days left plus levelDays pays for the coins and materials (at the ask; no
+// payDays pays for the coins and materials (at the ask; no
 // material more than HOUSE_BUY_DAYS of the market's share of its sales).
-function maybeBuyHouse(ctx, market, state, actionType, daysLeft) {
+function maybeBuyHouse(ctx, market, state, actionType, payDays) {
     if (!actionType) return null;
     const skill = "/skills/" + actionType.slice(ACTION_TYPE.length);
     const room = ctx.rooms[skill];
@@ -806,7 +816,7 @@ function maybeBuyHouse(ctx, market, state, actionType, daysLeft) {
     const house = houseState(ctx, { ...state.house.levels, [room.hrid]: level + 1 });
     const r = rates(ctx, market, job.action, state.level[skill], job.tool, "gold", job.gear, job.top.teas, house);
     const gainPerDay = r.valid ? (r.marketPerHour - Math.max(0, job.top.marketPerHour)) * 24 : 0;
-    if (!(gainPerDay * (daysLeft + ctx.o.levelDays) > price)) return null;
+    if (!(gainPerDay * payDays > price)) return null;
     state.coins -= price;
     state.house = house;
     return { kind: "house", roomHrid: room.hrid, level: level + 1, price, owned: false, sold: null, resale: 0, gainPerDay };
@@ -822,27 +832,47 @@ function earnRate(ctx, market, state) {
 }
 
 // One plan run through every block. Returns its worth at the end, score and timeline.
-function simulate(ctx, market, phases) {
+// A purchase pays back over payDays: the days left plus levelDays – but in a
+// training phase whose skill no later phase works, only the days until the
+// phase reaches its level (a tool bought for a detour is no use after it).
+// run: { blocks (default the plan's), levels: { skill: level } to start at
+// instead (the planner's "what if" runs), record: true for the worth, XP and
+// level of every skill after each block }.
+function simulate(ctx, market, phases, run = {}) {
     const state = initialState(ctx);
+    for (const [skill, level] of Object.entries(run.levels || {})) {
+        if (state.level[skill] === undefined || state.level[skill] >= level) continue;
+        state.level[skill] = level;
+        state.xp[skill] = Math.max(state.xp[skill], ctx.table[level] || 0);
+    }
     const startWorth = worthOf(ctx, market, state);
     const blockHours = ctx.o.blockHours;
+    const blocks = run.blocks ?? ctx.blocks;
     const timeline = [];
     const purchases = [];
     const levelUps = [];
     const worthByDay = [];
+    const record = run.record ? { worth: [startWorth], xp: [{ ...state.xp }], level: [{ ...state.level }], net: [] } : null;
     let p = 0;
     let lastType = null;
-    for (let b = 0; b < ctx.blocks; b++) {
+    for (let b = 0; b < blocks; b++) {
         while (p < phases.length && state.level[phases[p].skill] >= phases[p].level) p++;
         const phase = phases[p] || null;
-        const daysLeft = ((ctx.blocks - b) * blockHours) / 24;
+        const daysLeft = (Math.max(0, ctx.blocks - b) * blockHours) / 24;
+        let payDays = daysLeft + ctx.o.levelDays;
+        if (phase && phase.level !== Infinity && !phases.slice(p + 1).some((ph) => ph.skill === phase.skill)) {
+            const top = jobs(ctx, market, state, phase.style, phase.skill)[0];
+            const perDay = (top?.xpPerHour || 0) * 24;
+            const need = (ctx.table[phase.level] || 0) - state.xp[phase.skill];
+            payDays = Math.min(payDays, perDay > 0 ? Math.max(blockHours / 24, need / perDay) : blockHours / 24);
+        }
         // The skill this block works: the phase's, else the best earner's (or the last block's).
-        const focusType = phase ? ctx.actions.find((a) => a.levelRequirement.skillHrid === phase.skill)?.type : jobs(ctx, market, state, "gold")[0]?.type || lastType;
-        const bought = maybeBuyTool(ctx, market, state, focusType, phase, daysLeft);
+        const focusType = phase ? ctx.skillTypes[phase.skill] : jobs(ctx, market, state, "gold")[0]?.type || lastType;
+        const bought = maybeBuyTool(ctx, market, state, focusType, phase, payDays);
         if (bought) purchases.push({ block: b, ...bought });
-        const clothes = maybeBuyGear(ctx, market, state, focusType, daysLeft);
+        const clothes = maybeBuyGear(ctx, market, state, focusType, payDays);
         if (clothes) purchases.push({ block: b, ...clothes });
-        const room = maybeBuyHouse(ctx, market, state, focusType, daysLeft);
+        const room = maybeBuyHouse(ctx, market, state, focusType, payDays);
         if (room) purchases.push({ block: b, ...room });
         const block = runBlock(ctx, market, state, phase, blockHours);
         for (const up of levelUp(ctx, state)) levelUps.push({ block: b, ...up });
@@ -850,25 +880,254 @@ function simulate(ctx, market, phases) {
         lastType = main?.r.type || lastType;
         timeline.push({ phase: p < phases.length ? p : null, ran: block.ran.map(({ r, hours }) => ({ r, hours })), income: block.income, costs: block.costs, idle: block.idle });
         if (((b + 1) * blockHours) % 24 === 0) worthByDay.push(Math.round(worthOf(ctx, market, state)));
+        if (record) {
+            record.worth.push(worthOf(ctx, market, state));
+            record.xp.push({ ...state.xp });
+            record.level.push({ ...state.level });
+            record.net.push(block.income - block.costs);
+        }
     }
     const worth = worthOf(ctx, market, state);
     const endRate = earnRate(ctx, market, state);
-    return { phases, startWorth, worth, gain: worth - startWorth, endRate, score: worth + ctx.o.levelDays * endRate, timeline, purchases, levelUps, worthByDay, end: state };
+    return { phases, startWorth, worth, gain: worth - startWorth, endRate, score: worth + ctx.o.levelDays * endRate, timeline, purchases, levelUps, worthByDay, end: state, record };
 }
 
-// Training targets: the next levels of each skill where a job or a tool unlocks.
-function phaseOptions(ctx) {
-    const options = [];
+// ---- The search: dynamic programming over detours ---------------------------
+//
+// A plan is a few detours – skill A to level L, earning in it or at its fastest
+// XP – and then a final skill earned in to the end. A skill's jobs depend only
+// on its own level, tool, clothes and room, so each skill is simulated once on
+// its own from now to the end ("runs"), earning (gold) and training (xp); the
+// worth, XP and level after every block of those runs then value any detour
+// (from where its XP stands to where it reaches its level) and any final stretch
+// (from there to the end, plus levelDays of its gold a day there) by looking
+// them up – hundreds of thousands of plans in a second or two instead of a
+// simulation each. Clothes another skill's level unlocks (Collector's Boots
+// want Woodcutting 60 for Foraging) get what-if runs of the final skill with
+// that level reached, used when the detours before reach it. The search goes
+// depth by depth (a beam): every plan with one detour, the best DP_BEAM of them
+// with a second, and so on. Coins, the market's limits shared between skills,
+// stock and clothes bought in one skill worn in another are left out of the
+// lookups, so the best proposals are then simulated as they are.
+
+// Levels a detour may aim for: where a skill's job or tool unlocks, where some
+// clothes want it, and every 5 levels – within DP_REACH of now.
+function detourTargets(ctx) {
+    const wanted = new Map(ctx.skills.map((s) => [s, new Set()]));
+    for (const list of Object.values(ctx.shop)) {
+        for (const { itemHrid } of list) for (const req of ctx.data.itemDetailMap[itemHrid]?.equipmentDetail?.levelRequirements || []) wanted.get(req.skillHrid)?.add(req.level);
+    }
+    for (const a of ctx.actions) wanted.get(a.levelRequirement.skillHrid)?.add(a.levelRequirement.level);
+    for (const list of Object.values(ctx.tiers)) for (const t of list) wanted.get(t.skillHrid)?.add(t.level);
+    const out = [];
     for (const skill of ctx.skills) {
         const now = ctx.who.levels[skill];
-        const levels = new Set();
-        for (const a of ctx.actions) if (a.levelRequirement.skillHrid === skill && a.levelRequirement.level > now) levels.add(a.levelRequirement.level);
-        for (const list of Object.values(ctx.tiers)) for (const t of list) if (t.skillHrid === skill && t.level > now) levels.add(t.level);
-        const targets = [...levels].filter((l) => l <= now + UNLOCK_REACH && l < ctx.table.length).sort((x, y) => x - y).slice(0, UNLOCK_TARGETS);
-        for (const level of targets) for (const style of ["gold", "xp"]) options.push({ skill, level, style });
-        options.push({ skill, level: Infinity, style: "gold" });
+        for (let level = Math.ceil((now + 1) / 5) * 5; level <= now + DP_REACH; level += 5) wanted.get(skill).add(level);
+        const levels = [...wanted.get(skill)].filter((l) => l > now && l <= now + DP_REACH && l < ctx.table.length).sort((x, y) => x - y);
+        for (const level of levels) for (const style of ["gold", "xp"]) out.push({ skill, level, style });
     }
-    return options;
+    return out;
+}
+
+// The what-if levels for a final skill: of each piece of clothing for it, the
+// other skills' levels it wants that aren't reached yet (all within reach and
+// skills the plan can train) – the ones asking least first.
+function unlockVariants(ctx, skill) {
+    const sets = new Map();
+    for (const { itemHrid } of ctx.shop[skill] || []) {
+        const raise = {};
+        let reachable = true;
+        for (const req of ctx.data.itemDetailMap[itemHrid]?.equipmentDetail?.levelRequirements || []) {
+            const now = ctx.who.levels[req.skillHrid];
+            if (req.skillHrid === skill || (now ?? 0) >= req.level) continue;
+            if (!ctx.skills.includes(req.skillHrid) || req.level - now > DP_REACH) reachable = false;
+            raise[req.skillHrid] = req.level;
+        }
+        const key = Object.entries(raise).sort().map(([s, l]) => `${s}=${l}`).join(",");
+        if (reachable && key) sets.set(key, raise);
+    }
+    const need = (raise) => Object.entries(raise).reduce((sum, [s, l]) => sum + l - ctx.who.levels[s], 0);
+    return [...sets.values()].sort((x, y) => need(x) - need(y)).slice(0, DP_VARIANTS);
+}
+
+// One skill on its own to the end, earning (gold) or training (xp), from now or
+// with some other skills' levels reached (raise): after each block k (0 = now)
+// the worth, the skill's XP and level, and the gold of the block.
+function skillRun(ctx, market, skill, style, raise = null) {
+    const run = simulate(ctx, market, [{ skill, level: Infinity, style }], { levels: raise, record: true });
+    const r = run.record;
+    return { skill, style, raise, worth: r.worth, xp: r.xp.map((x) => x[skill]), level: r.level.map((l) => l[skill]), net: r.net };
+}
+
+// Where in a run its skill's XP first reaches x (the run's last block + 1 when never).
+function positionOf(run, x) {
+    let lo = 0;
+    let hi = run.xp.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (run.xp[mid] >= x - 1e-6) hi = mid;
+        else lo = mid + 1;
+    }
+    return lo;
+}
+
+// The first block from `from` on after which the run's skill is at `level` (-1 when never).
+function reachOf(run, level, from) {
+    let lo = from;
+    let hi = run.level.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (run.level[mid] >= level) hi = mid;
+        else lo = mid + 1;
+    }
+    return lo < run.level.length ? lo : -1;
+}
+
+// A run's worth after k blocks; past its end, its last block's gold goes on.
+const worthAt = (run, k) => (k < run.worth.length ? run.worth[k] : run.worth.at(-1) + (k - run.worth.length + 1) * (run.net.at(-1) || 0));
+const netAt = (run, k) => run.net[Math.min(Math.max(0, k), run.net.length - 1)] || 0;
+
+// The search's lookups need only this of the plan: space = { blocks, levelDays,
+// blockHours, skills, levels (now) }; dp = { runs: { gold, xp }: skill -> run,
+// finals: skill -> [run (the gold run, then its what-if runs)] }.
+const spaceOf = (ctx) => ({ blocks: ctx.blocks, levelDays: ctx.o.levelDays, blockHours: ctx.o.blockHours, skills: ctx.skills, levels: ctx.who.levels });
+
+// A partial plan: { t (blocks used), gold (worth gained), xp, level (of the skills trained), steps }.
+const levelIn = (space, plan, skill) => plan.level[skill] ?? space.levels[skill];
+const emptyPlan = () => ({ t: 0, gold: 0, xp: {}, level: {}, steps: [] });
+
+// One more detour: its skill from where its XP stands to the level, in the
+// run of its style. null when it is there already, never gets there or runs past the end.
+function withDetour(space, dp, plan, step) {
+    const run = dp.runs[step.style]?.[step.skill];
+    if (!run) return null;
+    const from = positionOf(run, plan.xp[step.skill] ?? run.xp[0]);
+    if (from >= run.level.length || run.level[from] >= step.level) return null;
+    const to = reachOf(run, step.level, from);
+    if (to < 0) return null;
+    const t = plan.t + to - from;
+    if (t >= space.blocks) return null;
+    return { t, gold: plan.gold + run.worth[to] - run.worth[from], xp: { ...plan.xp, [step.skill]: run.xp[to] }, level: { ...plan.level, [step.skill]: run.level[to] }, steps: [...plan.steps, step] };
+}
+
+// The final stretch: the skill earned in from where its XP stands to the end,
+// in its best run the levels reached allow, plus levelDays of its gold a day there.
+function finalValue(space, dp, plan, skill) {
+    let best = null;
+    const left = space.blocks - plan.t;
+    for (const run of dp.finals[skill] || []) {
+        if (run.raise && !Object.entries(run.raise).every(([s, l]) => levelIn(space, plan, s) >= l)) continue;
+        const from = positionOf(run, plan.xp[skill] ?? run.xp[0]);
+        const value = worthAt(run, from + left) - worthAt(run, from) + space.levelDays * netAt(run, from + left - 1) * (24 / space.blockHours);
+        if (!best || value > best.value) best = { value, raise: run.raise };
+    }
+    return best;
+}
+
+// What the lookups give a plan of detours and a final skill (null: a detour can't be made).
+function lookupValue(space, dp, steps, final) {
+    let plan = emptyPlan();
+    for (const step of steps) {
+        plan = withDetour(space, dp, plan, step);
+        if (!plan) return null;
+    }
+    const f = finalValue(space, dp, plan, final);
+    return f ? plan.gold + f.value : null;
+}
+
+// The search itself: every final skill after no detour, after each one detour,
+// and after the best DP_BEAM plans of each depth with one more, up to
+// DP_DETOURS. steps: the detours that may be made ({ skill, level, style }).
+// Returns the best DP_RESULTS plans [{ steps, final, value }] (value: the worth
+// gained plus levelDays of the gold a day at the end), best first, and how many were weighed.
+export function searchDetours(space, dp, steps) {
+    let results = [];
+    let floor = -Infinity;
+    let weighed = 0;
+    const keep = (result) => {
+        if (result.value <= floor) return;
+        results.push(result);
+        if (results.length >= 2 * DP_RESULTS) {
+            results.sort((x, y) => y.value - x.value);
+            results = results.slice(0, DP_RESULTS);
+            floor = results.at(-1).value;
+        }
+    };
+    const complete = (plan) => {
+        let best = -Infinity;
+        const last = plan.steps.at(-1);
+        for (const skill of space.skills) {
+            // Earning in a skill and then going on earning in it is the final stretch alone.
+            if (last && last.skill === skill && last.style === "gold") continue;
+            weighed++;
+            const f = finalValue(space, dp, plan, skill);
+            if (!f) continue;
+            const value = plan.gold + f.value;
+            keep({ steps: plan.steps, final: skill, value });
+            if (value > best) best = value;
+        }
+        return best;
+    };
+    let beam = [emptyPlan()];
+    complete(beam[0]);
+    for (let depth = 1; depth <= DP_DETOURS; depth++) {
+        const next = [];
+        for (const plan of beam) {
+            for (const step of steps) {
+                if (plan.steps.at(-1)?.skill === step.skill) continue;
+                const longer = withDetour(space, dp, plan, step);
+                if (!longer) continue;
+                longer.best = complete(longer);
+                if (longer.best > -Infinity) next.push(longer);
+            }
+        }
+        next.sort((x, y) => y.best - x.best);
+        beam = next.slice(0, DP_BEAM);
+    }
+    results.sort((x, y) => y.value - x.value);
+    return { results: results.slice(0, DP_RESULTS), weighed };
+}
+
+// The plans worth simulating, best first: [{ phases, estimate }] (estimate:
+// the score the lookups give), and how many plans were weighed and runs made.
+function propose(ctx, market) {
+    const dp = { runs: { gold: {}, xp: {} }, finals: {} };
+    let runs = 0;
+    for (const skill of ctx.skills) {
+        for (const style of ["gold", "xp"]) {
+            dp.runs[style][skill] = skillRun(ctx, market, skill, style);
+            runs++;
+        }
+        dp.finals[skill] = [dp.runs.gold[skill]];
+    }
+    const gainOf = (skill) => dp.runs.gold[skill].worth.at(-1) - dp.runs.gold[skill].worth[0];
+    for (const skill of ctx.skills.slice().sort((x, y) => gainOf(y) - gainOf(x)).slice(0, DP_FINALS)) {
+        for (const raise of unlockVariants(ctx, skill)) {
+            dp.finals[skill].push(skillRun(ctx, market, skill, "gold", raise));
+            runs++;
+        }
+    }
+    const space = spaceOf(ctx);
+    const startWorth = dp.runs.gold[ctx.skills[0]].worth[0];
+    const { results, weighed } = searchDetours(space, dp, detourTargets(ctx));
+    const proposals = [];
+    const seen = new Set();
+    const add = (phases, value) => {
+        const key = phases.map((ph) => `${ph.skill}:${ph.level}:${ph.style}`).join("|");
+        if (seen.has(key)) return;
+        seen.add(key);
+        proposals.push({ phases, estimate: value === null ? null : startWorth + value });
+    };
+    for (const r of results) {
+        if (proposals.length >= DP_SIMULATED) break;
+        // The plan without its detours in the final skill too: often all but as good, and simpler.
+        const others = r.steps.filter((step) => step.skill !== r.final);
+        if (others.length < r.steps.length) add([...others, { skill: r.final, level: Infinity, style: "gold" }], lookupValue(space, dp, others, r.final));
+        add([...r.steps, { skill: r.final, level: Infinity, style: "gold" }], r.value);
+    }
+    // The best detours also ending in "earn the most" (it may switch skill as the market fills).
+    for (const r of results.filter((x) => x.steps.length).slice(0, DP_EARN_MOST)) add([...r.steps], r.value);
+    return { proposals, weighed, runs };
 }
 
 export function planName(phases) {
@@ -953,6 +1212,8 @@ function summary(ctx, run, cautious = null, bare = null) {
         noCommunity: short(bare),
         segments: segments(ctx, run),
         purchases: run.purchases.map((x) => ({ day: (x.block * ctx.o.blockHours) / 24, kind: x.kind, itemHrid: x.itemHrid || null, roomHrid: x.roomHrid || null, level: x.level || 0, price: Math.round(x.price), owned: x.owned, sold: x.sold, soldLevel: x.soldLevel || 0, resale: Math.round(x.resale), gainPerDay: Math.round(x.gainPerDay), gear: !!x.gear })),
+        // What the search's lookups said the plan would score (null: not proposed by it).
+        estimate: Number.isFinite(run.estimate) ? Math.round(run.estimate) : null,
         levels: Object.fromEntries(ctx.skills.filter((s) => run.end.level[s] !== startLevels[s]).map((s) => [s, [startLevels[s], run.end.level[s]]])),
         house: Object.fromEntries(ctx.allRooms.filter((r) => (run.end.house.levels[r.hrid] || 0) !== (ctx.house[r.hrid] || 0)).map((r) => [r.hrid, [ctx.house[r.hrid] || 0, run.end.house.levels[r.hrid]]])),
         worthByDay: run.worthByDay,
@@ -969,18 +1230,25 @@ export function planHorizon(snapshot, data, prices, options = {}, now = Date.now
     const started = Date.now();
     const ctx = context(snapshot, data, prices, options);
     const market = ctx.markets.typical;
-    const options1 = phaseOptions(ctx);
+    // The search proposes; each proposal, earning the most every block and keeping to each skill are simulated.
+    const search = propose(ctx, market);
     const runs = [simulate(ctx, market, [])];
-    for (const option of options1) runs.push(simulate(ctx, market, [option]));
-    // The best single training phases, each with a second phase after it.
-    const beam = runs.filter((r) => r.phases.length === 1 && r.phases[0].level !== Infinity).sort((x, y) => y.score - x.score).slice(0, BEAM);
-    for (const first of beam) {
-        for (const second of options1) {
-            if (second.skill === first.phases[0].skill && second.level !== Infinity && second.level <= first.phases[0].level) continue;
-            runs.push(simulate(ctx, market, [first.phases[0], second]));
-        }
-    }
+    const simulated = new Set([""]);
+    const tryPlan = (phases, estimate = null) => {
+        const key = phases.map((ph) => `${ph.skill}:${ph.level}:${ph.style}`).join("|");
+        if (simulated.has(key)) return;
+        simulated.add(key);
+        const run = simulate(ctx, market, phases);
+        run.estimate = estimate;
+        runs.push(run);
+    };
+    for (const p of search.proposals) tryPlan(p.phases, p.estimate);
+    for (const skill of ctx.skills) tryPlan([{ skill, level: Infinity, style: "gold" }]);
     runs.sort((x, y) => y.score - x.score || x.phases.length - y.phases.length);
+    // Of plans all but as good as the best, the one with the fewest phases goes first.
+    const simplest = runs.filter((r) => r.score >= runs[0].score - SIMPLER_WITHIN * Math.abs(runs[0].score)).sort((x, y) => x.phases.length - y.phases.length || y.score - x.score)[0];
+    runs.splice(runs.indexOf(simplest), 1);
+    runs.unshift(simplest);
     const seen = new Set();
     const distinct = [];
     for (const run of runs) {
@@ -1024,6 +1292,9 @@ export function planHorizon(snapshot, data, prices, options = {}, now = Date.now
         noCommunityBest: bareBest && bareBest !== best ? plans.indexOf(bareBest) : null,
         community: !!bareSnapshot,
         tried: runs.length,
+        // Plans the search weighed by its lookups, and the runs of single skills they took.
+        weighed: search.weighed,
+        skillRuns: search.runs,
         unknownSales: [...ctx.unknownSales].slice(0, 20),
         ms: Date.now() - started,
     };

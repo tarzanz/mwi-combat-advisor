@@ -58,7 +58,7 @@ function settingsHtml(settings) {
     return `<div class="mwia-settings">
       <label title="How far ahead the plan looks.">Days <select data-setting="horizonDays">${DAY_CHOICES.map((d) => option(d, `${d} days`, o.days)).join("")}</select></label>
       <label title="Levels can't be sold, so the plan counts what the character can earn a day at the end, this many times, on top of what it is worth. With 0 a plan never trains near its end.">Levels worth <select data-setting="horizonLevelDays">${LEVEL_DAY_CHOICES.map((d) => option(d, d ? `${d} days of income` : "nothing", o.levelDays)).join("")}</select></label>
-      <button class="mwia-btn" data-action="horizon-run" title="Send your character to the Pi now and have it work the plan out (it takes the Pi a minute or two, up to a few minutes for 90 days).">▶ Plan now</button>
+      <button class="mwia-btn" data-action="horizon-run" title="Send your character to the Pi now and have it work the plan out (it takes the Pi a minute or two).">▶ Plan now</button>
     </div>`;
 }
 
@@ -68,7 +68,7 @@ function statusHtml(st, settings) {
     if (plan) {
         const o = horizonOptions(settings);
         const changed = plan.options && (plan.options.days !== o.days || plan.options.levelDays !== o.levelDays);
-        lines.push(`Worked out ${ago(plan.at)} (${Math.round((plan.ms || 0) / 100) / 10} s on the Pi, ${plan.tried} plans tried) from your character as it was ${ago(plan.snapshotAt)}${changed ? ` – <b>with other settings</b> (${plan.options.days} days, levels worth ${plan.options.levelDays} days): tap ▶ Plan now` : ""}.`);
+        lines.push(`Worked out ${ago(plan.at)} (${Math.round((plan.ms || 0) / 100) / 10} s on the Pi, ${plan.weighed ? `${plan.weighed.toLocaleString("en-US")} plans weighed, ${plan.tried} simulated` : `${plan.tried} plans tried`}) from your character as it was ${ago(plan.snapshotAt)}${changed ? ` – <b>with other settings</b> (${plan.options.days} days, levels worth ${plan.options.levelDays} days): tap ▶ Plan now` : ""}.`);
     }
     if (st.waiting) lines.push(`<span class="mwia-warn">⏳ The Pi is working the plan out…</span>`);
     else if (st.status?.running) lines.push(`<span class="mwia-warn">⏳ The Pi is working the plan out…</span>`);
@@ -154,12 +154,12 @@ function aboutHtml(plan) {
       Time goes in ${o.blockHours}-hour blocks. In each the character runs the job that earns the most – or, while a plan trains a skill to a level where a job or tool unlocks, that skill's job with the most gold or the fastest XP; when your coins or the market cut a job short, the rest of the block goes to the next best one queued behind it (two jobs at most, none under an hour).
       Prices are the usual ones, not today's: the week's median ask to buy and to list at (never above 1.5× the usual bid), the median bid as the floor.
       The market takes ${Math.round(o.marketShare * 100)}% of what sells of an item a day: the rest waits in stock and sells first in later blocks; the same share caps what you can buy of a material.
-      A better tool for the skill you work is bought when its extra gold over the days left pays for it (less what it sells for again); the old one is sold at the bid. Any tier your level allows, at +0 or at a +level the market has had for sale this week (at its usual ask) – enhancing it yourself isn't weighed.
+      A better tool for the skill you work is bought when its extra gold over the days left (on a detour: until it ends) pays for it (less what it sells for again); the old one is sold at the bid. Any tier your level allows, at +0 or at a +level the market has had for sale this week (at its usual ask) – enhancing it yourself isn't weighed.
       Each skill is worked in a loadout of its own: of each slot, the clothes, jewellery, charm or cape you own (worn or in the inventory) that earn the most on its best job – switch loadouts in the game as the plan switches skill. A piece for the skill you work is bought the same way as a tool, also at a +level (a lower level of the same piece is sold); what it replaces is kept for other skills. The pouch and task badges stay as they are.
       The skill's house room goes up a level when its extra gold over the days left pays for the coins and materials (at the ask, no more of a material than the market sells in a week); it can't be sold again.
       Worth = coins + tools and clothes at the bid for their +level + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o.levelDays} days of what the character earns a day at the end, so levels and house rooms count.
       Prices stay as they are now for the whole plan, and so do the community buffs${plan.community ? " – the best plans are also run without them (“no community buffs”)" : ""}.
-      Plans compared: earning the most every block, keeping to one skill, and up to two training phases before earning. Gathering and production only – no Enhancing, Alchemy or combat yet, and materials are bought, not gathered yourself.${unknown}
+      Plans compared: up to three detours – a skill to a level where a job, tool or clothes unlock (or a multiple of 5), earning in it or at its fastest XP – and then one skill to the end. Each skill is first run on its own to the end; any such plan is then valued by looking up those runs (a search over hundreds of thousands of plans), and the best few dozen are simulated as they are, with earning the most every block and keeping to each skill. A purchase made on a detour pays only until the detour ends. Of plans within 0.25% of the best, the simplest is shown first. Gathering and production only – no Enhancing, Alchemy or combat yet, and materials are bought, not gathered yourself.${unknown}
     </p></details>`;
 }
 

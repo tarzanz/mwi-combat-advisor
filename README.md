@@ -310,7 +310,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   needs (under 1 MB); the Pi works the plan out 10 minutes after a new snapshot, and every 6 hours for new prices,
   in a process of its own at the lowest priority (nice 19, given back when done), and the tab reads it with every
   sync.
-  **▶ Plan now** sends your character and has it worked out at once (a minute or two; up to a few minutes for 90 days on a small Pi). The model:
+  **▶ Plan now** sends your character and has it worked out at once (a minute or two on a small Pi). The model:
   - Time goes in **8-hour blocks**: one job, and at most one more queued behind it when coins or materials cut the
     first short – no job under an hour. Each block runs the job that earns the most, or, while a plan trains a
     skill towards a level, that skill's job with the most gold (*earning in it*) or the fastest XP.
@@ -324,8 +324,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     Jobs are ranked by the gold an hour the market leaves of them, so gear worth a fortune on paper that sells a
     few a day doesn't push a job that earns out of the ones tried.
   - **Levels and tools**: XP becomes levels as the game's table gives them, and with them new jobs and tools. A
-    better tool for the skill being worked is bought when its extra gold over the days left (within the market's
-    limits) pays for it, less what it sells for again (the old one is sold at the bid; one in your inventory is put
+    better tool for the skill being worked is bought when its extra gold over the days left (on a detour: until it
+    ends; within the market's limits) pays for it, less what it sells for again (the old one is sold at the bid; one in your inventory is put
     on for nothing); it may take at most half your coins unless a block of the job's materials is still paid for.
     Of every tier your level allows, at +0 or at any **+level the market has had asks for this week** (bought at
     its usual ask), the one that pays the most – a Holy Hatchet +10 may beat a Celestial at +0. Enhancing it
@@ -347,9 +347,18 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   - **Community buffs** (gathering quantity, production efficiency, XP) are counted as they are now, but last only
     as long as players keep buying them: the plans shown first are also run **without them** – the tab says what the
     best plan would gain then, and when another plan would do best, that the plan leans on them.
-  - **Plans compared**: earning the most every block, keeping to one skill (*Only Tailoring*), and up to two
-    training phases (a skill to the next levels where a job or tool unlocks, earning in it or at its fastest XP)
-    before earning the most – the best single phases get each second phase tried (a few hundred plans).
+  - **Plans compared – a search over detours**: a plan is up to three *detours* (a skill to a level where a job, a
+    tool or clothes unlock, or a multiple of 5 – earning in it or at its fastest XP) and then one skill earned in
+    to the end. Each skill is first simulated on its own to the end, earning and training (and, for the best final
+    skills, with another skill's level reached that unlocks clothes for them – Collector's Boots want Woodcutting
+    60 for Foraging); the worth, XP and level after every block of those runs then value any detour (from where
+    its XP stands to where it reaches its level) and any final stretch by looking them up – dynamic programming
+    over the detours, a beam of 250 per depth, some 600,000 plans in a few seconds. Coins, the market's limits
+    shared between skills and clothes bought in one skill worn in another aren't in the lookups, so the best few
+    dozen proposals (each also without its detours in the final skill, the best also ending in *earning the most
+    every block*) are simulated as they are, with earning the most every block and keeping to each skill
+    (*Only Tailoring*). A tool, piece of clothing or room bought on a detour pays back only until the detour ends.
+    Of plans within 0.25% of the best score, the one with the fewest phases is shown as the best.
   The tab shows the best plan with **the next 8 hours** (jobs, hours, about how many actions, teas, the clothes to
   wear, a tool, a piece of clothing or a house room to buy, build or put on), how it compares with keeping to what earns now and with earning the most every block, and every plan
   shown step by step: from which day to which each job runs, its gold, XP and loadout, tools, clothes (with their +level) and house rooms bought, levels and room levels reached and the

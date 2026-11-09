@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fixtureCharacter } from "./fixture-character.js";
 import { MARKET_TAX, skillingCharacter } from "../src/skilling.js";
-import { HORIZON_DEFAULTS, planAdviceKey, planHorizon, planMarkets, planName, simulatePlan } from "../src/horizon.js";
+import { HORIZON_DEFAULTS, planAdviceKey, planHorizon, planMarkets, planName, searchDetours, simulatePlan } from "../src/horizon.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const dataDir = path.join(root, "engine/data");
@@ -39,9 +39,13 @@ const days = 10;
 const started = Date.now();
 const plan = planHorizon(snapshot, data, prices, { days });
 const ms = Date.now() - started;
-check("a plan is worked out", plan.plans.length >= 3 && plan.tried > 50, `${plan.plans.length} shown of ${plan.tried} tried in ${ms} ms`);
-const ranked = plan.plans.slice(0, plan.plans.length - 2);
+check("a plan is worked out", plan.plans.length >= 3 && plan.tried >= 10, `${plan.plans.length} shown of ${plan.tried} simulated in ${ms} ms`);
+check("…the search weighs far more plans than are simulated", plan.weighed > 10 * plan.tried && plan.skillRuns >= 2, `${plan.weighed} weighed, ${plan.skillRuns} runs of single skills`);
+const ranked = plan.plans.slice(1, plan.plans.length - 2);
+const top = Math.max(...plan.plans.map((p) => p.score));
 check("plans are ranked by score", ranked.every((p, i) => i === 0 || ranked[i - 1].score >= p.score));
+check("…the best is within 0.25% of the highest score, the simplest of those", plan.plans[0].score >= top - 0.0025 * Math.abs(top) && plan.plans.filter((p) => p.score >= top - 0.0025 * Math.abs(top)).every((p) => p.phases.length >= plan.plans[0].phases.length));
+check("proposals carry the search's estimate", plan.plans.some((p) => Number.isFinite(p.estimate)));
 check("earning the most every block is shown to compare", plan.baseline >= 0 && plan.plans[plan.baseline].name === planName([]));
 check("so is keeping to the skill that earns now", plan.only >= 0 && /^Only /.test(plan.plans[plan.only].name), plan.plans[plan.only]?.name);
 check("score = worth + level days × the gold a day at the end", plan.plans.every((p) => Math.abs(p.score - (p.worth + HORIZON_DEFAULTS.levelDays * p.endRate)) <= HORIZON_DEFAULTS.levelDays + 2));
@@ -158,6 +162,18 @@ check("without the community buffs a gathering plan earns less", withoutBuff.gai
 const communityPlan = planHorizon(community, data, prices, { days: 3 });
 check("the best plans say what they'd earn without them", communityPlan.community && communityPlan.plans[0].noCommunity && Number.isFinite(communityPlan.plans[0].noCommunity.gain));
 check("…not when there are none", !plan.community && plan.plans.every((p) => !p.noCommunity));
+
+// The search over detours, on runs made up: skill A earns 1 a block and levels one a block (two
+// training for XP, earning nothing); B earns 2 a block, or 4 once A is at 3 (clothes A's level
+// unlocks). Best: train A to 3 for one block, then B for the other nine.
+const made = (gain, levels, raise = null) => ({ raise, worth: Array.from({ length: 11 }, (_, k) => gain * k), xp: Array.from({ length: 11 }, (_, k) => 100 * k), level: Array.from({ length: 11 }, (_, k) => 1 + levels * k), net: Array(10).fill(gain) });
+const dp = { runs: { gold: { A: made(1, 1), B: made(2, 0) }, xp: { A: made(0, 2), B: made(0, 0) } }, finals: { A: [made(1, 1)], B: [made(2, 0), made(4, 0, { A: 3 })] } };
+const space = { blocks: 10, levelDays: 0, blockHours: 8, skills: ["A", "B"], levels: { A: 1, B: 1 } };
+const found = searchDetours(space, dp, [{ skill: "A", level: 3, style: "gold" }, { skill: "A", level: 3, style: "xp" }]);
+const first = found.results[0];
+check("the search finds the detour that unlocks clothes for the final skill", first?.final === "B" && first.steps.length === 1 && first.steps[0].style === "xp" && first.value === 36, JSON.stringify(first));
+check("…and weighs the rest below it", found.results.some((r) => r.final === "B" && r.steps.length === 0 && r.value === 20) && found.results.some((r) => r.steps[0]?.style === "gold" && r.final === "B" && r.value === 34));
+check("…levelDays add the final skill's gold a day at the end", searchDetours({ ...space, levelDays: 1 }, dp, []).results[0].value === 20 + 2 * 3);
 
 // The end value of levels: without it the score is the worth.
 const noLevels = simulatePlan(snapshot, data, prices, [], { days, levelDays: 0 });
