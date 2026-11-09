@@ -537,7 +537,7 @@ function levelingButtons(e) {
     let buy;
     if (isEnhance(e)) {
         const guard = e.protect ? ` data-protect="${esc(e.protect.itemHrid)}" data-protect-from="${e.protect.from}"` : "";
-        open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e.target}${e.protect ? `, protected from +${e.protect.from} with ${esc(itemName(e.protect.itemHrid))}` : ""}">▶ Enhance to +${e.target}</button>${decomposeButton(decomposeHeld(e))}`;
+        open = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e.target}${e.protect ? `, protected from +${e.protect.from} with ${esc(itemName(e.protect.itemHrid))}` : ""}">▶ Enhance to +${e.target}</button>${loopButton(e)}${decomposeButton(decomposeHeld(e))}`;
         // Decomposing the +target (finish) takes part of the hours: fewer attempts in them.
         const attempts = Math.ceil(e.actionsPerHour * hours * (e.enhanceShare ?? 1));
         const items = e.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN);
@@ -591,6 +591,25 @@ function decomposeButton(d) {
     const name = `${esc(itemName(d.item))}${d.level ? ` +${d.level}` : ""}`;
     const catalyst = d.catalyst ? ` data-catalyst="${esc(d.catalyst)}"` : "";
     return `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(d.item)}"${d.level ? ` data-level="${d.level}"` : ""} data-label="Decompose" data-value="${d.actions}" data-all="${d.bulk}"${catalyst} title="Opens Decompose with the ${d.held.toLocaleString("en-US")} ${name} you have${d.catalyst ? `, with ${esc(itemName(d.catalyst))}` : ""}">🧪 Decompose ${d.actions.toLocaleString("en-US")}${d.level ? ` × +${d.level}` : ""}</button>`;
+}
+
+// 🔁 Loop N: an enhancing job that decomposes its +target, for each of the N
+// items you hold at +0 – one job each (the game stops each at the target), then
+// the +target decomposed (enhance-loop-ui.js). perItem: what one item takes, for
+// buying the next round: the item, its materials and protections over the
+// attempts one takes, and the decompose's catalyst.
+function loopButton(e) {
+    const r = e.finish?.entry;
+    if (!r) return "";
+    const item = e.action.itemHrid;
+    const per = new Map([[item, 1]]);
+    for (const i of e.inputs) if (!i.upgrade && i.itemHrid !== COIN) per.set(i.itemHrid, (per.get(i.itemHrid) || 0) + i.count * e.attempts);
+    const catalyst = r.inputs.find((i) => i.catalyst);
+    if (catalyst) per.set(catalyst.itemHrid, (per.get(catalyst.itemHrid) || 0) + catalyst.count);
+    const loop = { itemHrid: item, target: e.target, protect: e.protect ? { itemHrid: e.protect.itemHrid, from: e.protect.from } : null, catalyst: r.catalyst?.itemHrid || null, perItem: [...per].map(([hrid, quantity]) => ({ hrid, quantity })) };
+    const held = have(item);
+    if (!held) return `<button class="mwia-btn" disabled title="No ${esc(itemName(item))} at +0 in your inventory – buy them first (🛒 Materials)">🔁 Loop</button>`;
+    return `<button class="mwia-btn" data-action="enhance-loop" data-loop="${esc(JSON.stringify(loop))}" title="A loop for the ${held.toLocaleString("en-US")} ${esc(itemName(item))} you have at +0: one enhancing job each to +${e.target} (queue them one after another), then decompose them all. A small panel counts what the game confirms.">🔁 Loop ${held.toLocaleString("en-US")}</button>`;
 }
 
 // ▶ Make N, 🍵 Buy teas and 🏪 Market, always in view when a row is open.

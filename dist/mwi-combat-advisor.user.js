@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.71.0
+// @version      0.72.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -806,16 +806,16 @@
   }
   function enhanceCycles(p2, blessed, xpAt) {
     const reach = [1];
-    for (let L = 1; L <= MAX_TARGET; L++) reach[L] = reach[L - 1] * p2[L - 1] * (1 - blessed) + (L >= 2 ? reach[L - 2] * p2[L - 2] * blessed : 0);
+    for (let L2 = 1; L2 <= MAX_TARGET; L2++) reach[L2] = reach[L2 - 1] * p2[L2 - 1] * (1 - blessed) + (L2 >= 2 ? reach[L2 - 2] * p2[L2 - 2] * blessed : 0);
     const attempts = [0];
     const xp = [0];
     let visits = 0;
     let gained = 0;
     for (let T = 1; T <= MAX_TARGET; T++) {
-      const L = T - 1;
-      visits += reach[L];
-      gained += reach[L] * (p2[L] + FAIL_XP2 * (1 - p2[L])) * xpAt[L];
-      const done2 = reach[L] * p2[L] + (L >= 1 ? reach[L - 1] * p2[L - 1] * blessed : 0);
+      const L2 = T - 1;
+      visits += reach[L2];
+      gained += reach[L2] * (p2[L2] + FAIL_XP2 * (1 - p2[L2])) * xpAt[L2];
+      const done2 = reach[L2] * p2[L2] + (L2 >= 1 ? reach[L2 - 1] * p2[L2 - 1] * blessed : 0);
       attempts[T] = done2 > 0 ? visits / done2 : Infinity;
       xp[T] = done2 > 0 ? gained / done2 : Infinity;
     }
@@ -826,28 +826,28 @@
     const { a, b, d } = SOLVE;
     a.fill(0, 3 * target, 3 * (target + 2));
     b[target] = b[target + 1] = d[target] = d[target + 1] = 0;
-    for (let L = target - 1; L >= 0; L--) {
-      const up1 = p2[L] * (1 - blessed);
-      const up2 = p2[L] * blessed;
-      const fail = 1 - p2[L];
-      const guarded = L >= from;
-      const b1 = b[L + 1];
-      const b2 = b[L + 2];
+    for (let L2 = target - 1; L2 >= 0; L2--) {
+      const up1 = p2[L2] * (1 - blessed);
+      const up2 = p2[L2] * blessed;
+      const fail = 1 - p2[L2];
+      const guarded = L2 >= from;
+      const b1 = b[L2 + 1];
+      const b2 = b[L2 + 2];
       const keep = 1 - up1 * b1 - up2 * b2 * b1;
       if (keep <= 1e-15) return null;
-      const cost = [1, xpPer[L], guarded ? fail : 0];
+      const cost = [1, xpPer[L2], guarded ? fail : 0];
       for (let i = 0; i < 3; i++) {
-        const a1 = a[3 * (L + 1) + i];
-        a[3 * L + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L + 2) + i] + b2 * a1)) / keep;
+        const a1 = a[3 * (L2 + 1) + i];
+        a[3 * L2 + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L2 + 2) + i] + b2 * a1)) / keep;
       }
-      b[L] = guarded ? fail / keep : 0;
-      d[L] = (up1 * d[L + 1] + up2 * (b2 * d[L + 1] + d[L + 2]) + (guarded ? 0 : fail)) / keep;
+      b[L2] = guarded ? fail / keep : 0;
+      d[L2] = (up1 * d[L2 + 1] + up2 * (b2 * d[L2 + 1] + d[L2 + 2]) + (guarded ? 0 : fail)) / keep;
     }
     const rest = 1 - d[0];
     if (rest <= 1e-15) return null;
     const e0 = [a[0] / rest, a[1] / rest, a[2] / rest];
     let e2 = e0;
-    for (let L = 1; L <= start2 && L < target; L++) e2 = e2.map((prev, i) => a[3 * L + i] + b[L] * prev + d[L] * e0[i]);
+    for (let L2 = 1; L2 <= start2 && L2 < target; L2++) e2 = e2.map((prev, i) => a[3 * L2 + i] + b[L2] * prev + d[L2] * e0[i]);
     return { attempts: e2[0], xp: e2[1], protections: e2[2] };
   }
   function protectedCycles(p2, blessed, target, from) {
@@ -856,9 +856,9 @@
     const rest = 1 - d[0];
     const attempts = [a[0] / rest];
     const protections = [a[2] / rest];
-    for (let L = 1; L < target; L++) {
-      attempts[L] = a[3 * L] + b[L] * attempts[L - 1] + d[L] * attempts[0];
-      protections[L] = a[3 * L + 2] + b[L] * protections[L - 1] + d[L] * protections[0];
+    for (let L2 = 1; L2 < target; L2++) {
+      attempts[L2] = a[3 * L2] + b[L2] * attempts[L2 - 1] + d[L2] * attempts[0];
+      protections[L2] = a[3 * L2 + 2] + b[L2] * protections[L2 - 1] + d[L2] * protections[0];
     }
     return { attempts, protections };
   }
@@ -944,7 +944,7 @@
     const { fraction, level, effectiveLevel, success, bonus, multiplier, rates, blessed, levelSpeed, speed, cycleSeconds } = enhanceRates(who, data, teas, itemLevel);
     const actionsPerHour = 3600 / cycleSeconds;
     const wisdom = fraction("/buff_types/wisdom");
-    const xpAt = rates.map((_, L) => 1.4 * (1 + L) * (10 + itemLevel) * (1 + wisdom));
+    const xpAt = rates.map((_, L2) => 1.4 * (1 + L2) * (10 + itemLevel) * (1 + wisdom));
     const cycles = enhanceCycles(rates, blessed, xpAt);
     const inputs = materials(detail, market) || [];
     const costPerAttempt = inputs.reduce((sum, i) => sum + i.value, 0);
@@ -1041,7 +1041,7 @@
       };
     };
     const results = [];
-    const xpPer = rates.map((r, L) => (r + FAIL_XP2 * (1 - r)) * xpAt[L]);
+    const xpPer = rates.map((r, L2) => (r + FAIL_XP2 * (1 - r)) * xpAt[L2]);
     const atZero = finish(action.itemHrid, 0);
     for (let target = 1; target <= MAX_TARGET; target++) {
       const attempts = cycles.attempts[target];
@@ -1227,16 +1227,16 @@
     for (let sweep = 0; sweep < SWEEPS * 4; sweep++) {
       let pushed = false;
       for (const h2 of [...amount2.keys()]) {
-        const n4 = amount2.get(h2);
-        if (n4 < 1e-12) continue;
+        const n5 = amount2.get(h2);
+        if (n5 < 1e-12) continue;
         amount2.set(h2, 0);
         const step = choice.get(h2);
         if (!step) {
-          sold.set(h2, (sold.get(h2) || 0) + n4);
+          sold.set(h2, (sold.get(h2) || 0) + n5);
           continue;
         }
         pushed = true;
-        const times = n4 / step.net;
+        const times = n5 / step.net;
         actions.set(h2, { step, count: (actions.get(h2)?.count || 0) + times });
         for (const o2 of step.outputs) if (o2.itemHrid !== COIN2) amount2.set(o2.itemHrid, (amount2.get(o2.itemHrid) || 0) + o2.count * times);
       }
@@ -1723,7 +1723,7 @@
       if (count3 < before) short3 = "swing";
     }
     const haveOf = (input) => have6(input.itemHrid, input.enhancementLevel || 0);
-    const toBuy2 = (input, n4) => input.itemHrid === COIN3 ? input.count * n4 : Math.max(0, input.count * n4 - haveOf(input));
+    const toBuy2 = (input, n5) => input.itemHrid === COIN3 ? input.count * n5 : Math.max(0, input.count * n5 - haveOf(input));
     const minMargin = hideThinMargins ? Math.max(RISKY_MARGIN, price?.swing > CALM_SWING ? price.swing : 0) : 0;
     const limitMargin = Math.max(RISKY_MARGIN, minMargin);
     for (const input of entry.inputs) {
@@ -1784,7 +1784,7 @@
       }
       return sum + Math.max(0, left) * asks2[asks2.length - 1].price;
     };
-    const spend = (n4) => entry.inputs.reduce((sum, input) => sum + (input.forSale === false ? 0 : cost(input, toBuy2(input, n4))), 0);
+    const spend = (n5) => entry.inputs.reduce((sum, input) => sum + (input.forSale === false ? 0 : cost(input, toBuy2(input, n5))), 0);
     let limitedByBook = null;
     for (const input of inputs) {
       if (input.maxCount < count3) {
@@ -1871,14 +1871,14 @@
     const ask = market.buy(hrid);
     return ask === null ? value : Math.min(ask, value);
   }
-  function heldUse(entry, n4, have6, heldPrice) {
+  function heldUse(entry, n5, have6, heldPrice) {
     let value = 0;
     let saving = 0;
     if (!heldPrice) return { value, saving };
     for (const input of entry.inputs) {
       if (input.itemHrid === COIN3 || !(input.count > 0)) continue;
       const level = input.enhancementLevel || 0;
-      const used = Math.min(have6(input.itemHrid, level), input.count * n4);
+      const used = Math.min(have6(input.itemHrid, level), input.count * n5);
       if (!(used > 0)) continue;
       const worth = heldPrice(input.itemHrid, level);
       value += used * worth;
@@ -2048,16 +2048,16 @@
     const reused = [];
     const sold = [];
     for (const o2 of r.outputs) {
-      let n4 = o2.count * per;
+      let n5 = o2.count * per;
       const input = inputs.find((i) => i.itemHrid === o2.itemHrid && i.count > 0);
       if (input) {
-        const take = Math.min(n4, input.count);
+        const take = Math.min(n5, input.count);
         input.count -= take;
         input.value = input.count * (input.price || 0);
         reused.push({ itemHrid: o2.itemHrid, count: take, price: input.price || 0 });
-        n4 -= take;
+        n5 -= take;
       }
-      if (n4 > 1e-12) sold.push({ ...o2, count: n4, value: n4 * o2.price, kind: o2.kind === "product" ? "recovered" : o2.kind });
+      if (n5 > 1e-12) sold.push({ ...o2, count: n5, value: n5 * o2.price, kind: o2.kind === "product" ? "recovered" : o2.kind });
     }
     const coins9 = r.coinCost * per;
     const catalyst = r.inputs.find((i) => i.catalyst);
@@ -2240,19 +2240,19 @@
     const factor = { "": 1, k: 1e3, m: 1e6, b: 1e9 }[suffix];
     return Number.isFinite(value) ? Math.round(value * factor) : null;
   }
-  function coinsInput(n4) {
-    if (n4 >= 1e9 && n4 % 1e7 === 0) return n4 / 1e9 + "B";
-    if (n4 >= 1e6 && n4 % 1e4 === 0) return n4 / 1e6 + "M";
-    if (n4 >= 1e3 && n4 % 10 === 0) return n4 / 1e3 + "k";
-    return String(n4);
+  function coinsInput(n5) {
+    if (n5 >= 1e9 && n5 % 1e7 === 0) return n5 / 1e9 + "B";
+    if (n5 >= 1e6 && n5 % 1e4 === 0) return n5 / 1e6 + "M";
+    if (n5 >= 1e3 && n5 % 10 === 0) return n5 / 1e3 + "k";
+    return String(n5);
   }
-  function shortCoins(n4) {
-    const abs = Math.abs(n4);
+  function shortCoins(n5) {
+    const abs = Math.abs(n5);
     const fixed = (value, digits) => value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-    if (abs >= 1e9) return fixed(n4 / 1e9, 2) + "B";
-    if (abs >= 1e6) return fixed(n4 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
-    if (abs >= 1e4) return fixed(n4 / 1e3, abs >= 1e5 ? 0 : 1) + "k";
-    return Math.round(n4).toLocaleString("en-US");
+    if (abs >= 1e9) return fixed(n5 / 1e9, 2) + "B";
+    if (abs >= 1e6) return fixed(n5 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
+    if (abs >= 1e4) return fixed(n5 / 1e3, abs >= 1e5 ? 0 : 1) + "k";
+    return Math.round(n5).toLocaleString("en-US");
   }
   var esc = (s2) => String(s2 ?? "").replace(/[&<>"']/g, (c2) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c2]);
 
@@ -2966,10 +2966,10 @@
   var SHORT_LIST = 25;
   var RATING = { stable: "\u{1F7E2} stable market", ok: "\u{1F7E1} ok market", thin: "\u{1F534} thin market" };
   var view = { upgradesKey: "", upgrades: null, showAll: false, open: /* @__PURE__ */ new Set() };
-  var dec = (n4, d = 1) => n4.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  var dec = (n5, d = 1) => n5.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   var pct = (fraction) => `${fraction >= 0 ? "+" : ""}${dec(fraction * 100, 1)}%`;
-  var count = (n4) => n4 >= 100 ? dec(n4, 0) : n4 >= 1 ? dec(n4, 2) : n4.toPrecision(2);
-  var coins = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
+  var count = (n5) => n5 >= 100 ? dec(n5, 0) : n5 >= 1 ? dec(n5, 2) : n5.toPrecision(2);
+  var coins = (n5) => (n5 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n5));
   var skillLabel = (skill) => skill.charAt(0).toUpperCase() + skill.slice(1);
   var skillOf = (entry) => entry.skill.split("/").pop();
   var names = (teas) => teas.map(itemName).join(", ");
@@ -3097,10 +3097,10 @@
   function rollWarnings(entry) {
     const plus = isAlchemy(entry) ? entry.action.enhancementLevel || 0 : isEnhance(entry) && entry.finish ? entry.target : 0;
     if (!plus) return [];
-    const n4 = isAlchemy(entry) ? entry.suggestion?.count ?? have(entry.action.itemHrid, plus) : Math.round(entry.itemsPerHour * (entry.budget?.hours ?? PLAN_MODES.away.hours));
-    if (n4 >= FEW_ROLLS) return [];
+    const n5 = isAlchemy(entry) ? entry.suggestion?.count ?? have(entry.action.itemHrid, plus) : Math.round(entry.itemsPerHour * (entry.budget?.hours ?? PLAN_MODES.away.hours));
+    if (n5 >= FEW_ROLLS) return [];
     const successRate = isAlchemy(entry) ? entry.successRate : entry.finish.entry.successRate;
-    return [{ kind: "oneroll", itemHrid: entry.action.itemHrid, level: plus, successRate, count: n4 }];
+    return [{ kind: "oneroll", itemHrid: entry.action.itemHrid, level: plus, successRate, count: n5 }];
   }
   function enhanceWarnings(entry) {
     const sell = entry.outputs[0]?.sell;
@@ -3297,7 +3297,7 @@
     const sections = [];
     const item = esc(itemName(e2.action.itemHrid));
     const parts = [e2.levelBonus && `level ${dec(e2.effectiveLevel, 0)} vs item ${e2.requiredLevel}: ${pct(e2.levelBonus)}`, e2.successBonus && `tool, house and buffs ${pct(e2.successBonus)}`].filter(Boolean);
-    const rates = e2.rates.slice(0, Math.max(e2.target, 3)).map((r, L) => `+${L}\u2192+${L + 1} ${dec(r * 100, 1)}%`).join(" \xB7 ");
+    const rates = e2.rates.slice(0, Math.max(e2.target, 3)).map((r, L2) => `+${L2}\u2192+${L2 + 1} ${dec(r * 100, 1)}%`).join(" \xB7 ");
     const pr = e2.protect;
     sections.push(section("\u{1F3AF} Odds", `${count(e2.attempts)} attempts per +${e2.target}${pr ? `, protected from +${pr.from}` : ""}`, [
       `Success = the game's rate for the +level \xD7 ${dec(e2.multiplier, 3)}${parts.length ? ` (1 ${parts.map((p2) => "+ " + p2).join(" ")})` : ""}: ${rates}.${e2.blessed ? ` Blessed: ${pct(e2.blessed).replace("+", "")} of successes jump two levels.` : ""}`,
@@ -3384,7 +3384,7 @@
     let buy;
     if (isEnhance(e2)) {
       const guard = e2.protect ? ` data-protect="${esc(e2.protect.itemHrid)}" data-protect-from="${e2.protect.from}"` : "";
-      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e2.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e2.target}${e2.protect ? `, protected from +${e2.protect.from} with ${esc(itemName(e2.protect.itemHrid))}` : ""}">\u25B6 Enhance to +${e2.target}</button>${decomposeButton(decomposeHeld(e2))}`;
+      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e2.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e2.target}${e2.protect ? `, protected from +${e2.protect.from} with ${esc(itemName(e2.protect.itemHrid))}` : ""}">\u25B6 Enhance to +${e2.target}</button>${loopButton(e2)}${decomposeButton(decomposeHeld(e2))}`;
       const attempts = Math.ceil(e2.actionsPerHour * hours * (e2.enhanceShare ?? 1));
       const items = e2.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN4);
       const guards = e2.protect?.itemHrid === item ? attempts * e2.protect.protections / e2.attempts : 0;
@@ -3396,12 +3396,12 @@
       buy = items.length ? { items, title: `Adds what ${hoursText(hours)} of enhancing uses: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
     } else {
       const k = ALCHEMY_KINDS[e2.action.kind];
-      const n4 = e2.suggestion?.count || 0;
+      const n5 = e2.suggestion?.count || 0;
       const plus = e2.action.enhancementLevel || 0;
       const catalyst = e2.catalyst?.itemHrid ? ` data-catalyst="${esc(e2.catalyst.itemHrid)}"` : "";
-      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}"${plus ? ` data-level="${plus}"` : ""} data-label="${esc(k.name)}" data-value="${n4}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))}${plus ? ` +${plus}` : ""} (from your inventory)${n4 ? ` and ${n4} actions` : ""}${e2.catalyst?.itemHrid ? `, with ${esc(itemName(e2.catalyst.itemHrid))}` : ""}">\u25B6 ${k.name}${n4 ? ` ${n4.toLocaleString("en-US")}` : ""}</button>`;
-      const items = n4 ? e2.inputs.filter((i) => i.itemHrid !== COIN4 && i.forSale !== false).map((i) => ({ hrid: i.itemHrid, ...i.enhancementLevel ? { enhancementLevel: i.enhancementLevel } : {}, quantity: Math.max(0, Math.ceil(i.count * n4) - have(i.itemHrid, i.enhancementLevel || 0)) })).filter((i) => i.quantity > 0) : [];
-      buy = items.length ? { items, title: `Adds what ${n4.toLocaleString("en-US")} actions use, less what you have: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`).join(", ")}` } : null;
+      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}"${plus ? ` data-level="${plus}"` : ""} data-label="${esc(k.name)}" data-value="${n5}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))}${plus ? ` +${plus}` : ""} (from your inventory)${n5 ? ` and ${n5} actions` : ""}${e2.catalyst?.itemHrid ? `, with ${esc(itemName(e2.catalyst.itemHrid))}` : ""}">\u25B6 ${k.name}${n5 ? ` ${n5.toLocaleString("en-US")}` : ""}</button>`;
+      const items = n5 ? e2.inputs.filter((i) => i.itemHrid !== COIN4 && i.forSale !== false).map((i) => ({ hrid: i.itemHrid, ...i.enhancementLevel ? { enhancementLevel: i.enhancementLevel } : {}, quantity: Math.max(0, Math.ceil(i.count * n5) - have(i.itemHrid, i.enhancementLevel || 0)) })).filter((i) => i.quantity > 0) : [];
+      buy = items.length ? { items, title: `Adds what ${n5.toLocaleString("en-US")} actions use, less what you have: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`).join(", ")}` } : null;
     }
     const cart = buy ? `<button class="mwia-btn mwia-btn-quiet" data-action="skilling-cart" data-job="${esc(e2.hrid)}" data-teas="${esc(JSON.stringify(buy.items))}" title="${esc(buy.title)}">\u{1F6D2} Materials</button>` : "";
     const plan = e2.teaPlan;
@@ -3426,6 +3426,19 @@
     const name = `${esc(itemName(d.item))}${d.level ? ` +${d.level}` : ""}`;
     const catalyst = d.catalyst ? ` data-catalyst="${esc(d.catalyst)}"` : "";
     return `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(d.item)}"${d.level ? ` data-level="${d.level}"` : ""} data-label="Decompose" data-value="${d.actions}" data-all="${d.bulk}"${catalyst} title="Opens Decompose with the ${d.held.toLocaleString("en-US")} ${name} you have${d.catalyst ? `, with ${esc(itemName(d.catalyst))}` : ""}">\u{1F9EA} Decompose ${d.actions.toLocaleString("en-US")}${d.level ? ` \xD7 +${d.level}` : ""}</button>`;
+  }
+  function loopButton(e2) {
+    const r = e2.finish?.entry;
+    if (!r) return "";
+    const item = e2.action.itemHrid;
+    const per = /* @__PURE__ */ new Map([[item, 1]]);
+    for (const i of e2.inputs) if (!i.upgrade && i.itemHrid !== COIN4) per.set(i.itemHrid, (per.get(i.itemHrid) || 0) + i.count * e2.attempts);
+    const catalyst = r.inputs.find((i) => i.catalyst);
+    if (catalyst) per.set(catalyst.itemHrid, (per.get(catalyst.itemHrid) || 0) + catalyst.count);
+    const loop = { itemHrid: item, target: e2.target, protect: e2.protect ? { itemHrid: e2.protect.itemHrid, from: e2.protect.from } : null, catalyst: r.catalyst?.itemHrid || null, perItem: [...per].map(([hrid, quantity]) => ({ hrid, quantity })) };
+    const held = have(item);
+    if (!held) return `<button class="mwia-btn" disabled title="No ${esc(itemName(item))} at +0 in your inventory \u2013 buy them first (\u{1F6D2} Materials)">\u{1F501} Loop</button>`;
+    return `<button class="mwia-btn" data-action="enhance-loop" data-loop="${esc(JSON.stringify(loop))}" title="A loop for the ${held.toLocaleString("en-US")} ${esc(itemName(item))} you have at +0: one enhancing job each to +${e2.target} (queue them one after another), then decompose them all. A small panel counts what the game confirms.">\u{1F501} Loop ${held.toLocaleString("en-US")}</button>`;
   }
   function actionButtons(e2) {
     if (isEnhance(e2) || isAlchemy(e2)) return levelingButtons(e2);
@@ -3468,8 +3481,8 @@
         (<span class="mwia-ok">${teaGain(best.result, current)}</span>). ${worthText(best.worth)}${purchaseText(entry.teaPlan)}`;
   }
   function slotsLine(entry) {
-    const n4 = entry.teaSlots;
-    return `<span class="mwia-dim">${n4} tea slot${n4 === 1 ? "" : "s"} (${entry.pouch ? esc(itemName(entry.pouch)) : "no pouch"}).</span>`;
+    const n5 = entry.teaSlots;
+    return `<span class="mwia-dim">${n5} tea slot${n5 === 1 ? "" : "s"} (${entry.pouch ? esc(itemName(entry.pouch)) : "no pouch"}).</span>`;
   }
   function worthText(worth) {
     if (!worth.length) return "";
@@ -3535,7 +3548,7 @@
     return `${RATING[l2.rating]} over the last ${l2.hours} hours of prices: ${parts.join(", ")}.${sold} <span class="mwia-dim">Stable needs \u2265 ${share(s2.both)}, \u2264 ${share(s2.spread)}, \u2264 \xB1${share(s2.swing)} and \u2265 ${share(sales ? s2.selling : s2.activity)}; ok \u2265 ${share(LIQUIDITY.ok.both)}, \u2264 ${share(LIQUIDITY.ok.spread)}, \u2264 \xB1${share(LIQUIDITY.ok.swing)}${sales ? ` and \u2265 ${share(LIQUIDITY.ok.selling)}` : ""}.${note2}</span>`;
   }
   var ago = (at2) => hoursText((Date.now() - at2) / 36e5);
-  var soldText = (n4) => n4 >= 10 ? Math.round(n4).toLocaleString("en-US") : dec(n4, 1);
+  var soldText = (n5) => n5 >= 10 ? Math.round(n5).toLocaleString("en-US") : dec(n5, 1);
   var have = (hrid, level = 0) => level > 0 ? heldAt(hrid, level) : heldStock(state.character, state.items, hrid).inventory;
   var heldAt = (hrid, level) => [...state.items.values()].filter((i) => i.itemHrid === hrid && i.itemLocationHrid === INVENTORY2 && (i.enhancementLevel || 0) === level).reduce((sum, i) => sum + (i.count || 0), 0);
   function heldLevels(hrid) {
@@ -3700,7 +3713,7 @@
   function skillingExportLines(settings2, count3 = 10) {
     const { available } = ranking(settings2);
     const mode = PLAN_MODES[planMode(settings2)];
-    const n4 = (x) => Math.round(x).toLocaleString("en-US");
+    const n5 = (x) => Math.round(x).toLocaleString("en-US");
     const lines = [`Skill ${settings2.skillingSkill} \xB7 sell at ${settings2.skillingSellAt} \xB7 teas ${settings2.skillingTeas} \xB7 plan ${planMode(settings2)} (${hoursText(mode.hours)}) \xB7 focus ${goldShare(settings2)}% gold${settings2.countLevels ? " \xB7 counting levels" : ""}`];
     available.filter((e2) => e2.valid).slice(0, count3).forEach((e2, i) => {
       const fill = e2.fill ?? 1;
@@ -3713,11 +3726,11 @@
       const lines2 = [head4, `   ${parts.join(" \xB7 ")}`];
       const s2 = e2.suggestion;
       if (s2?.known) {
-        const sold = s2.productLiquidity.sold?.enough ? `~${n4(s2.productLiquidity.sold.perDay)} sold/day` : "sales unknown";
+        const sold = s2.productLiquidity.sold?.enough ? `~${n5(s2.productLiquidity.sold.perDay)} sold/day` : "sales unknown";
         const job = [
-          `make ${n4(s2.count)} (${hoursText(s2.hours)} of ${hoursText(s2.plannedHours)}${s2.short ? `, cut by ${s2.short}` : ""})`,
+          `make ${n5(s2.count)} (${hoursText(s2.hours)} of ${hoursText(s2.plannedHours)}${s2.short ? `, cut by ${s2.short}` : ""})`,
           `market ${s2.liquidity.rating}${s2.ratedBy ? ` (set by ${itemName(s2.ratedBy)})` : ""}, product ${s2.productLiquidity.rating}, ${sold}`,
-          `you hold ${n4(s2.held)} (${n4(s2.stock.inventory)} inventory, ${n4(s2.stock.listed)} listed)${s2.heldOff ? `, ${n4(s2.heldOff)} taken off the job` : ""}`,
+          `you hold ${n5(s2.held)} (${n5(s2.stock.inventory)} inventory, ${n5(s2.stock.listed)} listed)${s2.heldOff ? `, ${n5(s2.heldOff)} taken off the job` : ""}`,
           `coins for materials ${coins(s2.budget)} (${Math.round(s2.coinShare * 100)}%)${s2.limitedByCoins ? " \u2013 the cap" : ""}`,
           `batch materials ${coins(s2.batch.materials)} (buy ${coins(s2.batch.toBuy)}), sells ${coins(s2.batch.revenue)}, profit ${coins(s2.batch.profit)}`
         ];
@@ -3968,7 +3981,7 @@
   }
   var ENHANCING_PANEL = '[class*="SkillActionDetail_enhancingComponent"]';
   var ALCHEMY_PANEL = '[class*="SkillActionDetail_alchemyComponent"]';
-  var inventoryItemHash = (characterId2, itemHrid, level = 0) => `${characterId2}::/item_locations/inventory::${itemHrid}::${level}`;
+  var inventoryItemHash = (characterId3, itemHrid, level = 0) => `${characterId3}::/item_locations/inventory::${itemHrid}::${level}`;
   function componentWith(element, method) {
     const nodes = element ? [element, ...element.querySelectorAll("input, button, select")].map(pageView) : [];
     const upFrom = (start2) => {
@@ -4336,33 +4349,33 @@
   function compare(f, made, used, teas, hours, actions) {
     const primary = f.inputs.filter((i) => i.itemHrid !== COIN5 && !i.catalyst).sort((a, b) => b.count * b.price - a.count * a.price)[0];
     const usedOf = (hrid) => used.find((u) => u.itemHrid === hrid && u.level === 0);
-    const n4 = primary && usedOf(primary.itemHrid) ? usedOf(primary.itemHrid).qty / primary.count : actions;
+    const n5 = primary && usedOf(primary.itemHrid) ? usedOf(primary.itemHrid).qty / primary.count : actions;
     const parts = { yield: 0, prices: 0, usage: 0, bought: 0, teas: 0 };
     const outs = new Map(f.outputs.map((o2) => [o2.itemHrid, o2]));
     for (const m2 of made) {
       const o2 = m2.level === 0 ? outs.get(m2.itemHrid) : null;
-      const expected = o2 ? o2.count * n4 : 0;
+      const expected = o2 ? o2.count * n5 : 0;
       parts.yield += (m2.qty - expected) * m2.unit;
       if (o2) parts.prices += expected * (m2.unit - o2.price);
     }
     for (const o2 of f.outputs) {
-      if (!made.some((m2) => m2.itemHrid === o2.itemHrid && m2.level === 0)) parts.yield -= o2.count * n4 * o2.price;
+      if (!made.some((m2) => m2.itemHrid === o2.itemHrid && m2.level === 0)) parts.yield -= o2.count * n5 * o2.price;
     }
     const ins = new Map(f.inputs.map((i) => [i.itemHrid, i]));
     for (const u of used) {
       const i = u.level === 0 ? ins.get(u.itemHrid) : null;
-      const expected = i ? i.count * n4 : 0;
+      const expected = i ? i.count * n5 : 0;
       const price = i ? i.price : u.unit;
       parts.usage -= (u.qty - expected) * price;
       parts.bought -= u.qty * (u.unit - price);
     }
     for (const i of f.inputs) {
-      if (!used.some((u) => u.itemHrid === i.itemHrid && u.level === 0)) parts.usage += i.count * n4 * i.price;
+      if (!used.some((u) => u.itemHrid === i.itemHrid && u.level === 0)) parts.usage += i.count * n5 * i.price;
     }
-    const expectedTeas = f.actionsPerHour > 0 ? f.teaPerHour / f.actionsPerHour * n4 : 0;
+    const expectedTeas = f.actionsPerHour > 0 ? f.teaPerHour / f.actionsPerHour * n5 : 0;
     parts.teas = expectedTeas - teas;
-    const profit = f.profitPerAction * n4;
-    return { actions: n4, profit, margin: f.margin, perHour: f.profitPerHour, actionsPerHour: f.actionsPerHour, parts };
+    const profit = f.profitPerAction * n5;
+    return { actions: n5, profit, margin: f.margin, perHour: f.profitPerHour, actionsPerHour: f.actionsPerHour, parts };
   }
   function compactForecast(row) {
     const entry = row?.single || row;
@@ -4392,11 +4405,11 @@
       const saved = JSON.parse(localStorage.getItem(KEY) || "null");
       if (saved && saved.purchases) return { ...emptyLedger(), ...saved, unsent: { reports: [], purchases: [], ...saved.unsent } };
       if (saved && Array.isArray(saved.lots)) {
-        const L = { ...emptyLedger(), fills: saved.fills || {}, forecasts: saved.forecasts || {}, since: saved.since || Date.now() };
-        for (const lot of saved.lots) L.purchases[`v051-${lot.id ?? lot.at}`] = { key: lot.key, filled: lot.qty, cost: lot.qty * lot.unit, at: lot.at, estimate: !!lot.estimate };
-        for (const [key2, report] of Object.entries(saved.reports || {})) if (report?.used && Number.isFinite(report.endedAt)) keepReport(L, key2, { ...report, key: key2 });
-        L.unsent.purchases = Object.keys(L.purchases);
-        return L;
+        const L2 = { ...emptyLedger(), fills: saved.fills || {}, forecasts: saved.forecasts || {}, since: saved.since || Date.now() };
+        for (const lot of saved.lots) L2.purchases[`v051-${lot.id ?? lot.at}`] = { key: lot.key, filled: lot.qty, cost: lot.qty * lot.unit, at: lot.at, estimate: !!lot.estimate };
+        for (const [key2, report] of Object.entries(saved.reports || {})) if (report?.used && Number.isFinite(report.endedAt)) keepReport(L2, key2, { ...report, key: key2 });
+        L2.unsent.purchases = Object.keys(L2.purchases);
+        return L2;
       }
     } catch {
     }
@@ -4420,10 +4433,10 @@
   }
   function onMessage2(type, data) {
     try {
-      const L = j.ledger;
+      const L2 = j.ledger;
       if (type === "init_character_data" || type === "market_listings_updated") {
         const listings = data.myMarketListings ?? data.marketListings ?? data.endMarketListings ?? [];
-        if (noteFills(L, listings, { now: Date.now(), live: type === "market_listings_updated", bookOf: (hrid, level) => orderBookAt(hrid, level)?.asks || null })) changed();
+        if (noteFills(L2, listings, { now: Date.now(), live: type === "market_listings_updated", bookOf: (hrid, level) => orderBookAt(hrid, level)?.asks || null })) changed();
         save();
       }
       if (type === "init_character_data" || type === "actions_updated" || type === "action_completed") keepForecast(type === "action_completed");
@@ -4451,15 +4464,15 @@
   var skillOf2 = (actionHrid) => String(actionHrid || "").split("/")[2] || "";
   var counted = (actionHrid) => !!actionHrid && !["combat", "enhancing"].includes(skillOf2(actionHrid));
   function keepForecast(completed = false) {
-    const L = j.ledger;
+    const L2 = j.ledger;
     const running2 = runningAction(state.character?.characterActions);
     if (!running2 || !counted(running2.actionHrid)) return;
-    const kept = L.forecasts[running2.id];
+    const kept = L2.forecasts[running2.id];
     if (kept && (kept.settled || !completed)) return;
     if (!whenReady(() => keepForecast(completed))) return;
-    L.forecasts[running2.id] = { at: kept?.at ?? Date.now(), settled: completed, forecast: forecastFor(running2.actionHrid, itemOfHash2(running2.primaryItemHash), levelOfHash2(running2.primaryItemHash)) };
-    const ids = Object.keys(L.forecasts).sort((a, b) => L.forecasts[a].at - L.forecasts[b].at);
-    for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORECASTS))) delete L.forecasts[id];
+    L2.forecasts[running2.id] = { at: kept?.at ?? Date.now(), settled: completed, forecast: forecastFor(running2.actionHrid, itemOfHash2(running2.primaryItemHash), levelOfHash2(running2.primaryItemHash)) };
+    const ids = Object.keys(L2.forecasts).sort((a, b) => L2.forecasts[a].at - L2.forecasts[b].at);
+    for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORECASTS))) delete L2.forecasts[id];
     save();
   }
   function forecastFor(actionHrid, item, level = 0) {
@@ -4512,13 +4525,13 @@
     save();
   }
   function reportLog() {
-    const L = j.ledger;
+    const L2 = j.ledger;
     const log2 = (state.lootLog || []).filter((e2) => counted(e2.actionHrid) && time(e2.startTime) !== null);
-    const todo = log2.filter((e2) => running(e2) ? ended(e2) : ended(e2) && (!L.history[entryKey(e2)] || stale(L.history[entryKey(e2)], e2)));
+    const todo = log2.filter((e2) => running(e2) ? ended(e2) : ended(e2) && (!L2.history[entryKey(e2)] || stale(L2.history[entryKey(e2)], e2)));
     if (!todo.length || !whenReady(() => (reportLog(), schedule()))) return;
     const data = getClientData();
     for (const e2 of todo.sort((a, b) => time(a.endTime) - time(b.endTime))) {
-      const keptEntry = L.forecasts[e2.characterActionId];
+      const keptEntry = L2.forecasts[e2.characterActionId];
       const kept = keptEntry?.forecast || null;
       const item = itemOfHash2(e2.primaryItemHash);
       const forecast = kept || forecastFor(e2.actionHrid, item);
@@ -4537,14 +4550,14 @@
       job.name = forecast?.name || jobName(e2, data);
       const key2 = entryKey(e2);
       job.key = key2;
-      const report = jobReport(L, job, pricesFor(forecast));
+      const report = jobReport(L2, job, pricesFor(forecast));
       report.catalyst = itemOfHash2(e2.secondaryItemHash);
       if (running(e2)) {
         j.soFar.set(key2, report);
         continue;
       }
       j.soFar.delete(key2);
-      keepReport(L, key2, report);
+      keepReport(L2, key2, report);
       changed();
     }
     save();
@@ -4552,7 +4565,7 @@
   function entryDeltas(e2, data, forecast) {
     const deltas = {};
     const add = (key2, d) => deltas[key2] = (deltas[key2] || 0) + d;
-    for (const [key2, n4] of Object.entries(e2.drops || {})) add(key2.includes("::") ? key2 : keyOf(key2), Number(n4) || 0);
+    for (const [key2, n5] of Object.entries(e2.drops || {})) add(key2.includes("::") ? key2 : keyOf(key2), Number(n5) || 0);
     const count3 = Number(e2.actionCount) || 0;
     const item = itemOfHash2(e2.primaryItemHash);
     if (skillOf2(e2.actionHrid) === "alchemy") {
@@ -4614,7 +4627,7 @@
       decorate();
     }, 300);
   }
-  var pad = (n4) => String(n4).padStart(2, "0");
+  var pad = (n5) => String(n5).padStart(2, "0");
   function localStamp(ms) {
     const d = new Date(ms);
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -4650,10 +4663,10 @@
       }
     }
   }
-  var coins2 = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
-  var signed = (n4) => (n4 >= 0 ? "+" : "\u2212") + shortCoins(Math.abs(n4));
+  var coins2 = (n5) => (n5 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n5));
+  var signed = (n5) => (n5 >= 0 ? "+" : "\u2212") + shortCoins(Math.abs(n5));
   var pct2 = (x) => x === null || x === void 0 ? "\u2013" : `${(x * 100).toFixed(1)}%`;
-  var qty = (n4) => Math.abs(n4 - Math.round(n4)) < 1e-6 ? Math.round(n4).toLocaleString("en-US") : n4.toLocaleString("en-US", { maximumFractionDigits: 1 });
+  var qty = (n5) => Math.abs(n5 - Math.round(n5)) < 1e-6 ? Math.round(n5).toLocaleString("en-US") : n5.toLocaleString("en-US", { maximumFractionDigits: 1 });
   var levelText = (level) => level ? ` +${level}` : "";
   function duration(hours) {
     const minutes = Math.round(hours * 60);
@@ -4746,13 +4759,13 @@
     return studentTCdf(diff / Math.sqrt(va + vb), df);
   }
   function confidenceOneRun(value, reference, margin = 0) {
-    const n4 = reference.length;
-    if (n4 < 2) return null;
-    const mean = reference.reduce((s2, v) => s2 + v, 0) / n4;
-    const sd = Math.sqrt(reference.reduce((s2, v) => s2 + (v - mean) ** 2, 0) / (n4 - 1));
+    const n5 = reference.length;
+    if (n5 < 2) return null;
+    const mean = reference.reduce((s2, v) => s2 + v, 0) / n5;
+    const sd = Math.sqrt(reference.reduce((s2, v) => s2 + (v - mean) ** 2, 0) / (n5 - 1));
     const diff = value - margin - mean;
     if (sd <= 1e-9) return diff > 0 ? 1 : diff < 0 ? 0 : 0.5;
-    return studentTCdf(diff / (sd * Math.sqrt(1 + 1 / n4)), n4 - 1);
+    return studentTCdf(diff / (sd * Math.sqrt(1 + 1 / n5)), n5 - 1);
   }
 
   // src/profile.js
@@ -5066,7 +5079,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.71.0" : "dev";
+  var VERSION = true ? "0.72.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5341,7 +5354,7 @@
       for (const [hrid, s2] of Object.entries(t4.abilities)) {
         const o2 = (_a = out.abilities)[hrid] || (_a[hrid] = { casts: 0, blocked: 0, enemiesAtCast: {}, hits: 0, hitDamage: 0, kills: [], healed: 0, overheal: 0, heals: 0, healSamples: [] });
         for (const k of ["casts", "blocked", "hits", "hitDamage", "healed", "overheal", "heals"]) o2[k] += s2[k];
-        for (const [n4, count3] of Object.entries(s2.enemiesAtCast)) o2.enemiesAtCast[n4] = (o2.enemiesAtCast[n4] || 0) + count3;
+        for (const [n5, count3] of Object.entries(s2.enemiesAtCast)) o2.enemiesAtCast[n5] = (o2.enemiesAtCast[n5] || 0) + count3;
         o2.kills.push(...s2.kills);
         o2.healSamples.push(...s2.healSamples);
       }
@@ -5407,7 +5420,7 @@
       }
       if (kinds.includes("damage:allEnemies") && telemetry.maxEnemies >= 2) {
         const now2 = valueOf(was, ENEMIES, C("number_of_active_units"), GTE) ?? 1;
-        const castsBelow = (k) => Object.entries(s2.enemiesAtCast).reduce((sum, [n4, count3]) => sum + (Number(n4) < k ? count3 : 0), 0);
+        const castsBelow = (k) => Object.entries(s2.enemiesAtCast).reduce((sum, [n5, count3]) => sum + (Number(n5) < k ? count3 : 0), 0);
         for (let k = 1; k <= telemetry.maxEnemies; k++) {
           if (k === now2) continue;
           if (k > now2 && castsBelow(k) < SHARE * Math.max(1, s2.casts)) continue;
@@ -5436,11 +5449,11 @@
       const used = telemetry.consumables[hrid]?.uses || 0;
       if (!detail || !used) continue;
       const was = consumableTriggers(profile, hrid, data);
-      for (const [condition, restore2, short3] of [
+      for (const [condition, restore3, short3] of [
         [C("missing_hp"), detail.hitpointRestore, telemetry.deaths > 0],
         [C("missing_mp"), detail.manapointRestore, blockedTotal >= SHARE * Math.max(1, castsTotal)]
       ]) {
-        if (!(restore2 > 0)) continue;
+        if (!(restore3 > 0)) continue;
         const now2 = valueOf(was, SELF, condition, GTE);
         if (now2 === null) continue;
         const value = short3 ? whole(now2 / 2) : whole(now2 * 1.5);
@@ -5534,11 +5547,11 @@
     return value;
   }
   function average(results) {
-    const n4 = results.length;
-    const mean = (pick2) => results.reduce((sum, r) => sum + pick2(r), 0) / n4;
+    const n5 = results.length;
+    const mean = (pick2) => results.reduce((sum, r) => sum + pick2(r), 0) / n5;
     const meanMap = (pick2) => {
       const out = {};
-      for (const r of results) for (const [k, v] of Object.entries(pick2(r))) out[k] = (out[k] || 0) + v / n4;
+      for (const r of results) for (const [k, v] of Object.entries(pick2(r))) out[k] = (out[k] || 0) + v / n5;
       return out;
     };
     return {
@@ -6012,7 +6025,7 @@
   async function analyzeUpgrades(pool, profile, zone, settings2, onProgress, onRefineProgress) {
     const budget = settings2.budget;
     const all = settings2.scope !== "abilities";
-    const seeds = (n4) => Array.from({ length: n4 }, (_, i) => i);
+    const seeds = (n5) => Array.from({ length: n5 }, (_, i) => i);
     const candidates = [
       ...all ? gearCandidates(profile, settings2) : [],
       ...abilityCandidates(profile, budget),
@@ -6062,7 +6075,7 @@
     return { kind: "trigger", slot: "trigger:" + change.hrid, hrid: change.hrid, target: change.target, triggers: change.triggers, was: change.was, rule: change.rule, why: change.why, cost: 0, owned: true, replaces: null, profile };
   }
   function summaryOfTelemetry(t4) {
-    const perHour = (n4) => t4.hours ? n4 / t4.hours : 0;
+    const perHour = (n5) => t4.hours ? n5 / t4.hours : 0;
     const abilities = {};
     for (const [hrid, s2] of Object.entries(t4.abilities)) {
       abilities[hrid] = { castsPerHour: perHour(s2.casts), waitingPerHour: perHour(s2.blocked), healed: s2.heals ? s2.healed / s2.heals : null };
@@ -6342,7 +6355,7 @@
   async function loadoutRound(pool, profile, zone, settings2, onProgress) {
     const data = getClientData();
     const slots = slotCounts(profile, data);
-    const seeds = (n4) => Array.from({ length: n4 }, (_, i) => i);
+    const seeds = (n5) => Array.from({ length: n5 }, (_, i) => i);
     const drinks = profile.drinks.slice(0, slots.drinks);
     const food = profile.food.slice(0, slots.food);
     const without = [];
@@ -6578,6 +6591,7 @@
   box-shadow: 0 8px 30px rgba(0,0,0,.55); font: 12px/1.45 sans-serif;
 }
 .mwia-train p { margin: 5px 0; }
+.mwia-loop { bottom: auto; top: 70px; }
 .mwia-train-head { display: flex; align-items: center; gap: 4px; }
 .mwia-train-head b { flex: 1; }
 .mwia-train-now { margin: 4px 0; padding: 4px 8px; border-radius: 6px; background: #1d2b45; border-left: 3px solid #f2c25b; font-weight: 600; }
@@ -7101,9 +7115,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   var REFRESH_MS = 2e3;
   var g = { log: null, prev: void 0, predict: null, timer: null, listeners: /* @__PURE__ */ new Set() };
   function failsOf(room) {
-    let n4 = 0;
-    for (const [k, v] of Object.entries(room || {})) if (FAIL.test(k) && Number.isFinite(v)) n4 += v;
-    return n4;
+    let n5 = 0;
+    for (const [k, v] of Object.entries(room || {})) if (FAIL.test(k) && Number.isFinite(v)) n5 += v;
+    return n5;
   }
   var roomKey = (room) => room?.monsterHrid || room?.skillHrid || "";
   function roomOutcomes(before, after) {
@@ -7223,33 +7237,33 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var log = () => g.log || (g.log = load2());
   function save2() {
-    const L = log();
+    const L2 = log();
     try {
-      localStorage.setItem(KEY2, JSON.stringify(L));
+      localStorage.setItem(KEY2, JSON.stringify(L2));
     } catch {
-      L.list.splice(0, Math.ceil(L.list.length / 3));
+      L2.list.splice(0, Math.ceil(L2.list.length / 3));
       try {
-        localStorage.setItem(KEY2, JSON.stringify(L));
+        localStorage.setItem(KEY2, JSON.stringify(L2));
       } catch {
       }
     }
   }
   function addAttempts(attempts, { fromPi = false } = {}) {
-    const L = log();
-    const have6 = new Set(L.list.map((a) => a.uid));
+    const L2 = log();
+    const have6 = new Set(L2.list.map((a) => a.uid));
     let added = 0;
     for (const a of attempts) {
       if (!a?.uid || have6.has(a.uid)) continue;
       have6.add(a.uid);
-      L.list.push(a);
-      if (!fromPi) L.unsent.push(a.uid);
+      L2.list.push(a);
+      if (!fromPi) L2.unsent.push(a.uid);
       added++;
     }
     if (!added) return 0;
-    L.list.sort((a, b) => a.at - b.at);
-    if (L.list.length > MAX_KEPT) L.list.splice(0, L.list.length - MAX_KEPT);
-    const kept = new Set(L.list.map((a) => a.uid));
-    L.unsent = L.unsent.filter((u) => kept.has(u));
+    L2.list.sort((a, b) => a.at - b.at);
+    if (L2.list.length > MAX_KEPT) L2.list.splice(0, L2.list.length - MAX_KEPT);
+    const kept = new Set(L2.list.map((a) => a.uid));
+    L2.unsent = L2.unsent.filter((u) => kept.has(u));
     save2();
     for (const fn of g.listeners) fn();
     return added;
@@ -7257,23 +7271,23 @@ i.mwia-history-bid { background: #7ee2b0; }
   var labyrinthAttempts = () => log().list;
   var onAttemptsChanged = (fn) => g.listeners.add(fn);
   function attemptsForPi() {
-    const L = log();
-    const unsent = new Set(L.unsent);
-    return L.list.filter((a) => unsent.has(a.uid));
+    const L2 = log();
+    const unsent = new Set(L2.unsent);
+    return L2.list.filter((a) => unsent.has(a.uid));
   }
   function attemptsSentToPi(uids) {
-    const L = log();
+    const L2 = log();
     const sent = new Set(uids);
-    L.unsent = L.unsent.filter((u) => !sent.has(u));
+    L2.unsent = L2.unsent.filter((u) => !sent.has(u));
     save2();
   }
   var attemptsPiSeq = () => log().piSeq;
   function attemptsFromPi(wire) {
     if (!Array.isArray(wire?.attempts)) return;
     addAttempts(wire.attempts.map((x) => x.attempt).filter(Boolean), { fromPi: true });
-    const L = log();
+    const L2 = log();
     if (Number.isFinite(wire.seq)) {
-      L.piSeq = wire.seq;
+      L2.piSeq = wire.seq;
       save2();
     }
   }
@@ -7789,7 +7803,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var HOURS_PER_DAY2 = 24;
   var FIGHT_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   var g2 = { deps: null, scanTimer: null, loading: null, statuses: /* @__PURE__ */ new Map(), hours: /* @__PURE__ */ new Map() };
-  var coins4 = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
+  var coins4 = (n5) => (n5 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n5));
   var have2 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
   var slotItems = (map, type) => (state.character?.[map]?.[type] || []).map((slot) => slot?.itemHrid).filter(Boolean);
   function rememberCombatSetup(zone, setup) {
@@ -7870,8 +7884,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (buttons) buttons.insertAdjacentElement("beforebegin", box);
       else panel.appendChild(box);
     }
-    const status = g2.statuses.get(key2);
-    const full = html + (status ? `<div class="mwia-guide-status">${esc(status)}</div>` : "");
+    const status2 = g2.statuses.get(key2);
+    const full = html + (status2 ? `<div class="mwia-guide-status">${esc(status2)}</div>` : "");
     if (box.dataset.action !== key2 || box.dataset.html !== full) {
       box.dataset.action = key2;
       box.dataset.html = full;
@@ -7902,8 +7916,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       return w.gainPerDay >= 0 ? ` \xB7 +${coins4(w.gainPerDay)}/day` : ` \xB7 +${coins4(w.xpPerDay)} XP/day`;
     };
     const stock = (hrid) => {
-      const n4 = have2(hrid);
-      return n4 < perDay2 ? `<b class="mwia-guide-low">${n4.toLocaleString("en-US")} in inventory</b>` : `${n4.toLocaleString("en-US")} in inventory`;
+      const n5 = have2(hrid);
+      return n5 < perDay2 ? `<b class="mwia-guide-low">${n5.toLocaleString("en-US")} in inventory</b>` : `${n5.toLocaleString("en-US")} in inventory`;
     };
     const lines = [
       ...best.map((hrid) => itemLine(current.includes(hrid) ? "keep" : "add", hrid, stock(hrid) + gain(hrid))),
@@ -7940,10 +7954,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const age = hours < 1 ? "less than an hour ago" : hours < 48 ? `${Math.round(hours)} h ago` : `${Math.round(hours / 24)} days ago`;
     const perDay2 = (hrid) => Math.ceil((setup.perHour?.[hrid] || 0) * HOURS_PER_DAY2);
     const stock = (hrid) => {
-      const n4 = have2(hrid);
+      const n5 = have2(hrid);
       const need2 = perDay2(hrid);
-      const text = `${n4.toLocaleString("en-US")} in inventory${need2 ? `, ${need2.toLocaleString("en-US")} a day` : ""}`;
-      return n4 < need2 ? `<b class="mwia-guide-low">${text}</b>` : text;
+      const text = `${n5.toLocaleString("en-US")} in inventory${need2 ? `, ${need2.toLocaleString("en-US")} a day` : ""}`;
+      return n5 < need2 ? `<b class="mwia-guide-low">${text}</b>` : text;
     };
     const part2 = (title, target, current) => {
       const wanted = target.filter(Boolean);
@@ -8006,7 +8020,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var INVENTORY5 = "/item_locations/inventory";
   var GRID_ICONS = 8;
   var t = { deps: null, scanTimer: null, loading: null, key: "", notices: [], status: "" };
-  var coins5 = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
+  var coins5 = (n5) => (n5 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n5));
   var skillLabel2 = (skill) => skill.charAt(0).toUpperCase() + skill.slice(1);
   function startToolNotice(deps) {
     t.deps = deps;
@@ -8079,23 +8093,23 @@ i.mwia-history-bid { background: #7ee2b0; }
   function cartButton2(items, label3) {
     return `<button class="mwia-guide-cart" data-tool-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(items.map((i) => itemName(i.hrid)).join(", "))}">${label3}</button>`;
   }
-  function rowHtml2(n4) {
-    const from = n4.current ? `${esc(itemName(n4.current.itemHrid))}${n4.current.enhancementLevel ? ` +${n4.current.enhancementLevel}` : ""} \u2192 ` : "";
+  function rowHtml2(n5) {
+    const from = n5.current ? `${esc(itemName(n5.current.itemHrid))}${n5.current.enhancementLevel ? ` +${n5.current.enhancementLevel}` : ""} \u2192 ` : "";
     let worth = "";
-    if (n4.gainPerDay !== null) {
-      if (n4.gainPerDay > 1) worth = ` \xB7 <span class="mwia-ok">+${coins5(n4.gainPerDay)}/day</span>${n4.paybackDays !== null && !n4.owned ? `, pays back in ${n4.paybackDays < 1 ? Math.max(1, Math.round(n4.paybackDays * 24)) + " h" : Math.round(n4.paybackDays * 10) / 10 + " days"}` : ""}`;
-      else if (n4.xpPerDay > 1) worth = ` \xB7 +${coins5(n4.xpPerDay)} XP/day`;
-      else if (n4.current) worth = ` \xB7 <span class="mwia-guide-low">not better than your ${esc(itemName(n4.current.itemHrid))}${n4.current.enhancementLevel ? ` +${n4.current.enhancementLevel}` : ""}</span>`;
+    if (n5.gainPerDay !== null) {
+      if (n5.gainPerDay > 1) worth = ` \xB7 <span class="mwia-ok">+${coins5(n5.gainPerDay)}/day</span>${n5.paybackDays !== null && !n5.owned ? `, pays back in ${n5.paybackDays < 1 ? Math.max(1, Math.round(n5.paybackDays * 24)) + " h" : Math.round(n5.paybackDays * 10) / 10 + " days"}` : ""}`;
+      else if (n5.xpPerDay > 1) worth = ` \xB7 +${coins5(n5.xpPerDay)} XP/day`;
+      else if (n5.current) worth = ` \xB7 <span class="mwia-guide-low">not better than your ${esc(itemName(n5.current.itemHrid))}${n5.current.enhancementLevel ? ` +${n5.current.enhancementLevel}` : ""}</span>`;
     }
-    const price = n4.owned ? "in your inventory \u2013 equip it" : n4.price === null ? "nobody sells it now" : coins5(n4.price);
-    const cart = !n4.owned && n4.price !== null ? cartButton2([{ hrid: n4.itemHrid, quantity: 1 }], "\u{1F6D2}") : "";
-    return `<li><span><b>${skillLabel2(n4.skill)}</b> <span class="mwia-dim">lvl ${n4.skillLevel}</span>: ${from}<b>${esc(itemName(n4.itemHrid))}</b> <span class="mwia-dim">(lvl ${n4.level})</span> \xB7 ${price}${worth}</span>${cart}</li>`;
+    const price = n5.owned ? "in your inventory \u2013 equip it" : n5.price === null ? "nobody sells it now" : coins5(n5.price);
+    const cart = !n5.owned && n5.price !== null ? cartButton2([{ hrid: n5.itemHrid, quantity: 1 }], "\u{1F6D2}") : "";
+    return `<li><span><b>${skillLabel2(n5.skill)}</b> <span class="mwia-dim">lvl ${n5.skillLevel}</span>: ${from}<b>${esc(itemName(n5.itemHrid))}</b> <span class="mwia-dim">(lvl ${n5.level})</span> \xB7 ${price}${worth}</span>${cart}</li>`;
   }
   function boxHtml(list) {
-    const buyable = list.filter((n4) => !n4.owned && n4.price !== null);
+    const buyable = list.filter((n5) => !n5.owned && n5.price !== null);
     return `<div class="mwia-guide-head"><b>\u2B06 Better tools unlocked</b> <span>MWI Advisor</span></div>
         <ul class="mwia-tool-list">${list.map(rowHtml2).join("")}</ul>
-        ${buyable.length > 1 ? cartButton2(buyable.map((n4) => ({ hrid: n4.itemHrid, quantity: 1 })), `\u{1F6D2} Add all ${buyable.length} (${coins5(buyable.reduce((sum, n4) => sum + n4.price, 0))})`) : ""}
+        ${buyable.length > 1 ? cartButton2(buyable.map((n5) => ({ hrid: n5.itemHrid, quantity: 1 })), `\u{1F6D2} Add all ${buyable.length} (${coins5(buyable.reduce((sum, n5) => sum + n5.price, 0))})`) : ""}
         ${t.status ? `<div class="mwia-guide-status">${esc(t.status)}</div>` : ""}
         <div class="mwia-guide-status">Gold a day on what you'd make now (the top of the skill's Skilling list), sold at the ${t.deps.settings().skillingSellAt === "bid" ? "bid" : "ask"}. Payback counts selling the tool again at the bid.</div>`;
   }
@@ -8138,7 +8152,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const id = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1];
     return id ? "/items/" + id : null;
   };
-  var ownText = (el) => [...el.childNodes].filter((n4) => n4.nodeType === 3).map((n4) => n4.textContent).join("").trim();
+  var ownText = (el) => [...el.childNodes].filter((n5) => n5.nodeType === 3).map((n5) => n5.textContent).join("").trim();
   var leaves = (root, test) => [...root.querySelectorAll("*")].filter((el) => test(ownText(el)));
   var ours = (el) => el.closest('[class*="mwia"]');
   function startTeaSlots(deps) {
@@ -8330,7 +8344,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var COMBAT_ACTIONS = "/actions/combat/";
   var g3 = { deps: null, scanTimer: null, running: null, failed: /* @__PURE__ */ new Map(), status: "", retry: null, loading: null };
   var ours2 = (el) => el.closest('[class*="mwia"]');
-  var ownText2 = (el) => [...el.childNodes].filter((n4) => n4.nodeType === 3).map((n4) => n4.textContent).join("").trim();
+  var ownText2 = (el) => [...el.childNodes].filter((n5) => n5.nodeType === 3).map((n5) => n5.textContent).join("").trim();
   var have4 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
   var n2 = (v) => Math.round(v).toLocaleString("en-US");
   function startLoadoutAdvice(deps) {
@@ -9501,8 +9515,8 @@ i.mwia-history-bid { background: #7ee2b0; }
         const { attempts, protections } = tries[pick2.target];
         const costs = attempts.map((a, i) => a * attemptCost + (pick2.guarded ? protections[i] * guard.price : 0));
         const at2 = (q) => {
-          const n4 = quantile2(attempts, q);
-          return { attempts: n4, protections: pick2.guarded ? quantile2(protections, q) : 0, cost: quantile2(costs, q), hours: n4 * cycleSeconds / 3600 };
+          const n5 = quantile2(attempts, q);
+          return { attempts: n5, protections: pick2.guarded ? quantile2(protections, q) : 0, cost: quantile2(costs, q), hours: n5 * cycleSeconds / 3600 };
         };
         spread.set(pick2.target, { typical: at2(TYPICAL), unlucky: at2(UNLUCKY), runs });
       }
@@ -9528,11 +9542,11 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (!outcome) return null;
       const list = plan.perAttempt.map((i) => ({ itemHrid: i.itemHrid, price: i.price, tea: !!i.tea, count: Math.ceil(i.count * outcome.attempts) }));
       if (t4.protect) list.push({ itemHrid: t4.protect.itemHrid, price: t4.protect.price, protection: true, count: Math.ceil(outcome.protections) });
-      for (const n4 of list) {
-        n4.have = n4.itemHrid === COIN8 ? coins9 : owned(n4.itemHrid);
-        n4.short = Math.max(0, n4.count - n4.have);
+      for (const n5 of list) {
+        n5.have = n5.itemHrid === COIN8 ? coins9 : owned(n5.itemHrid);
+        n5.short = Math.max(0, n5.count - n5.have);
       }
-      const coinsNeeded = list.reduce((sum, n4) => sum + (n4.itemHrid === COIN8 ? n4.count : n4.short * n4.price), 0);
+      const coinsNeeded = list.reduce((sum, n5) => sum + (n5.itemHrid === COIN8 ? n5.count : n5.short * n5.price), 0);
       return { ...outcome, list, coinsNeeded, affordable: coinsNeeded <= coins9 };
     };
     const targets = plan.targets.map((t4) => ({ ...t4, mean: needs(t4, t4.mean), typical: needs(t4, t4.typical), unlucky: needs(t4, t4.unlucky) }));
@@ -9548,8 +9562,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   var SHOWN = 5;
   var PAST_REACH = 3;
   var e = { deps: null, scanTimer: null, loading: null, plans: /* @__PURE__ */ new Map(), busy: null, open: /* @__PURE__ */ new Set(), statuses: /* @__PURE__ */ new Map(), panels: /* @__PURE__ */ new Map() };
-  var coins6 = (n4) => shortCoins(Math.round(n4));
-  var count2 = (n4) => Math.round(n4).toLocaleString("en-US");
+  var coins6 = (n5) => shortCoins(Math.round(n5));
+  var count2 = (n5) => Math.round(n5).toLocaleString("en-US");
   var have5 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
   function duration2(hours) {
     const s2 = hours * 3600;
@@ -9620,8 +9634,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var head3 = (title, note2) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note2}</span></div>`;
   function boxHtml3(itemHrid, start2, id, key2) {
-    const status = e.statuses.get(id);
-    const statusHtml2 = status ? `<div class="mwia-guide-status">${esc(status)}</div>` : "";
+    const status2 = e.statuses.get(id);
+    const statusHtml2 = status2 ? `<div class="mwia-guide-status">${esc(status2)}</div>` : "";
     const title = head3("\u{1F3AF} Enhancing plan", `MWI Advisor \xB7 ${esc(itemName(itemHrid))}${start2 ? ` +${start2}` : ""}`);
     if (start2 >= 20) return title + `<div class="mwia-guide-note">Already at +20.</div>`;
     const saved = e.plans.get(id);
@@ -9637,8 +9651,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function summaryHtml(plan) {
     const odds = [];
-    plan.rates.forEach((r, L) => {
-      if (L >= plan.start && (L === plan.start || Math.abs(r - plan.rates[L - 1]) > 1e-9)) odds.push(`+${L} ${(r * 100).toFixed(1)}%`);
+    plan.rates.forEach((r, L2) => {
+      if (L2 >= plan.start && (L2 === plan.start || Math.abs(r - plan.rates[L2 - 1]) > 1e-9)) odds.push(`+${L2} ${(r * 100).toFixed(1)}%`);
     });
     const teas = plan.teas.length ? plan.teas.map(itemName).join(", ") : "no teas";
     const reach = (t4) => t4 === null ? "not even the next level" : `<b>+${t4}</b>`;
@@ -9676,17 +9690,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     else lines.push(`Too many attempts to simulate: on average ${count2(t4.mean.attempts)} attempts (${duration2(t4.mean.hours)}), ${coins6(t4.mean.cost)}.`);
     const base = sim || t4.mean;
     const bad = t4.unlucky;
-    const items = base.list.map((n4, i) => {
+    const items = base.list.map((n5, i) => {
       const b = bad?.list[i];
-      const amount2 = `${count2(n4.count)}${b ? ` (bad luck ${count2(b.count)})` : ""}`;
-      const verdict3 = n4.short > 0 ? `<b class="mwia-guide-low">${count2(n4.short)} short</b>` : b?.short > 0 ? `enough typically, ${count2(b.short)} short with bad luck` : `<span class="mwia-ok">\u2713 ${count2(n4.have - (b || n4).count)} to spare</span>`;
-      return `<li>${esc(n4.itemHrid === COIN9 ? "Coins" : itemName(n4.itemHrid))}${n4.protection ? " (protection)" : ""}${n4.tea ? " (tea)" : ""}: ${amount2} \xB7 have ${count2(n4.have)} \xB7 ${verdict3}</li>`;
+      const amount2 = `${count2(n5.count)}${b ? ` (bad luck ${count2(b.count)})` : ""}`;
+      const verdict3 = n5.short > 0 ? `<b class="mwia-guide-low">${count2(n5.short)} short</b>` : b?.short > 0 ? `enough typically, ${count2(b.short)} short with bad luck` : `<span class="mwia-ok">\u2713 ${count2(n5.have - (b || n5).count)} to spare</span>`;
+      return `<li>${esc(n5.itemHrid === COIN9 ? "Coins" : itemName(n5.itemHrid))}${n5.protection ? " (protection)" : ""}${n5.tea ? " (tea)" : ""}: ${amount2} \xB7 have ${count2(n5.have)} \xB7 ${verdict3}</li>`;
     });
     const cart = (outcome, label3) => {
-      const list = outcome ? outcome.list.filter((n4) => n4.itemHrid !== COIN9 && n4.short > 0).map((n4) => ({ hrid: n4.itemHrid, quantity: n4.short })) : [];
+      const list = outcome ? outcome.list.filter((n5) => n5.itemHrid !== COIN9 && n5.short > 0).map((n5) => ({ hrid: n5.itemHrid, quantity: n5.short })) : [];
       return list.length ? `<button class="mwia-guide-cart" data-plan-cart="${esc(JSON.stringify(list))}" title="Adds to the MWITools cart: ${esc(list.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", "))}">${label3}</button>` : "";
     };
-    const protectHave = t4.protect ? base.list.find((n4) => n4.protection)?.have || 0 : 0;
+    const protectHave = t4.protect ? base.list.find((n5) => n5.protection)?.have || 0 : 0;
     const set = `<button class="mwia-guide-cart" data-plan-set="${t4.target}"${t4.protect && protectHave > 0 ? ` data-protect="${esc(t4.protect.itemHrid)}" data-from="${t4.protect.from}"` : ""}>\u25B6 Set +${t4.target}${t4.protect ? protectHave > 0 ? ` and protection from +${t4.protect.from}` : "" : ""}</button>`;
     return lines.map((l2) => `<div class="mwia-guide-note">${l2}</div>`).join("") + `<ul class="mwia-guide-list">${items.join("")}</ul><div class="mwia-plan-buttons">${set}${cart(sim ? sim : t4.mean, sim ? "\u{1F6D2} What's short (typical)" : "\u{1F6D2} What's short (average)")}${cart(bad, "\u{1F6D2} What's short (bad luck)")}</div>` + (t4.protect && protectHave <= 0 ? `<div class="mwia-guide-dim">Buy the protection first, then \u25B6 puts it in too.</div>` : "");
   }
@@ -9711,9 +9725,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   async function setTarget(button2, id) {
     const target = Number(button2.dataset.planSet);
     const where = e.panels.get(id);
-    const characterId2 = state.character?.character?.id;
+    const characterId3 = state.character?.character?.id;
     const protectHrid = button2.dataset.protect;
-    const protect = protectHrid && characterId2 ? { hash: inventoryItemHash(characterId2, protectHrid), from: Number(button2.dataset.from) } : null;
+    const protect = protectHrid && characterId3 ? { hash: inventoryItemHash(characterId3, protectHrid), from: Number(button2.dataset.from) } : null;
     const result = where ? await setEnhancing(where.panel, target, protect) : false;
     e.statuses.set(
       id,
@@ -9805,7 +9819,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       } catch {
       }
     };
-    const save4 = () => {
+    const save5 = () => {
       const box = button2.getBoundingClientRect();
       try {
         localStorage.setItem(POSITION_KEY, JSON.stringify({ x: box.left / innerWidth, y: box.top / innerHeight }));
@@ -9828,7 +9842,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       place2(start2.left + dx, start2.top + dy);
     });
     const end = () => {
-      if (start2 && moved) save4();
+      if (start2 && moved) save5();
       start2 = null;
     };
     button2.addEventListener("pointerup", end);
@@ -10553,6 +10567,285 @@ i.mwia-history-bid { background: #7ee2b0; }
     scheduleScan10();
   }
 
+  // src/enhance-loop.js
+  var ENHANCE_ACTION = "/actions/enhancing/enhance";
+  var DECOMPOSE_ACTION = "/actions/alchemy/decompose";
+  function hashItem2(hash2) {
+    const parts = String(hash2 || "").split("::");
+    return parts.length >= 4 && parts[2].startsWith("/items/") ? { itemHrid: parts[2], level: Number(parts[3]) || 0 } : null;
+  }
+  function newLoop({ itemHrid, target, protect = null, catalyst = null, total, heldTarget = 0, perItem = [] }) {
+    return { itemHrid, target, protect, catalyst, total: Math.max(0, Math.floor(total) || 0), perItem, heldAtStart: heldTarget, queued: 0, ended: 0, seen: [], endedIds: [], decompose: null };
+  }
+  function loopActions(loop, actions) {
+    let changed2 = false;
+    for (const a of actions || []) {
+      if (!a || a.id === void 0 || a.id === null) continue;
+      const item = hashItem2(a.primaryItemHash);
+      if (!item || item.itemHrid !== loop.itemHrid) continue;
+      if (a.actionHrid === ENHANCE_ACTION) {
+        const known = loop.seen.includes(a.id);
+        if (!known && !a.isDone && loop.queued < loop.total) {
+          loop.seen.push(a.id);
+          loop.queued++;
+          changed2 = true;
+        } else if (known && a.isDone && !loop.endedIds.includes(a.id)) {
+          loop.endedIds.push(a.id);
+          loop.ended++;
+          changed2 = true;
+        }
+      } else if (a.actionHrid === DECOMPOSE_ACTION && item.level === loop.target && !a.isDone && !loop.decompose) {
+        loop.decompose = { id: a.id, count: Number(a.maxCount) || null };
+        changed2 = true;
+      }
+    }
+    return changed2;
+  }
+  function loopStatus(loop, { inQueue = 0, heldZero = 0, heldTarget = 0 } = {}) {
+    const left = Math.max(0, loop.total - loop.queued);
+    let phase;
+    if (loop.decompose) phase = "done";
+    else if (left > 0) phase = heldZero > 0 ? "queue" : inQueue > 0 ? "running" : heldTarget > 0 ? "decompose" : "short";
+    else if (inQueue > 0) phase = "running";
+    else phase = heldTarget > 0 ? "decompose" : "empty";
+    return { phase, left, queued: loop.queued, ended: loop.ended, total: loop.total, inQueue, heldZero, heldTarget };
+  }
+  function enhancingInQueue(actions, itemHrid) {
+    return (actions || []).filter((a) => a && !a.isDone && a.actionHrid === ENHANCE_ACTION && hashItem2(a.primaryItemHash)?.itemHrid === itemHrid).length;
+  }
+  function loopCart(loop, count3, have6 = () => 0) {
+    return loop.perItem.map((p2) => ({ hrid: p2.hrid, quantity: Math.ceil(p2.quantity * count3 - 1e-9) - have6(p2.hrid) })).filter((p2) => p2.quantity > 0);
+  }
+
+  // src/enhance-loop-ui.js
+  var STORE_PREFIX2 = "mwia-loop:";
+  var INVENTORY7 = "/item_locations/inventory";
+  var NOT_QUEUED_AFTER_MS2 = 4e3;
+  var L = {
+    win: null,
+    root: null,
+    loop: null,
+    notice: null,
+    // { kind, text, diag }
+    collapsed: false,
+    timer: null,
+    hooked: /* @__PURE__ */ new WeakSet()
+    // the game's button rows the loop listens to
+  };
+  var n4 = (value) => Math.round(value).toLocaleString("en-US");
+  var characterId2 = () => state.character?.character?.id ?? null;
+  var storeKey2 = () => STORE_PREFIX2 + (characterId2() ?? "unknown");
+  function save4() {
+    try {
+      if (L.loop) localStorage.setItem(storeKey2(), JSON.stringify(L.loop));
+      else localStorage.removeItem(storeKey2());
+    } catch {
+    }
+  }
+  function restore2() {
+    try {
+      L.loop = JSON.parse(localStorage.getItem(storeKey2()) || "null");
+    } catch {
+      L.loop = null;
+    }
+  }
+  var heldAt2 = (hrid, level = 0) => [...state.items.values()].filter((i) => i.itemHrid === hrid && i.itemLocationHrid === INVENTORY7 && (i.enhancementLevel || 0) === level).reduce((sum, i) => sum + (i.count || 0), 0);
+  var ownedHash = (hrid, level = 0) => hrid && characterId2() !== null && heldAt2(hrid, level) > 0 ? inventoryItemHash(characterId2(), hrid, level) : null;
+  function status() {
+    const loop = L.loop;
+    return loopStatus(loop, { inQueue: enhancingInQueue(state.character?.characterActions, loop.itemHrid), heldZero: heldAt2(loop.itemHrid, 0), heldTarget: heldAt2(loop.itemHrid, loop.target) });
+  }
+  function setNotice2(kind, text, diag = "") {
+    L.notice = text ? { kind, text, diag } : null;
+    render2();
+  }
+  function startLoop(options) {
+    const total = heldAt2(options.itemHrid, 0);
+    clearTimeout(L.timer);
+    L.loop = newLoop({ ...options, total, heldTarget: heldAt2(options.itemHrid, options.target) });
+    L.notice = null;
+    L.collapsed = false;
+    save4();
+    render2();
+    if (total > 0) openNext();
+  }
+  async function openNext() {
+    const loop = L.loop;
+    if (!loop) return;
+    const hash2 = ownedHash(loop.itemHrid, 0);
+    const protect = loop.protect ? { hash: ownedHash(loop.protect.itemHrid, 0), from: loop.protect.from } : null;
+    const opened = await openEnhancing(hash2, loop.target, protect);
+    if (opened === "item") L.notice = null;
+    else if (opened === "partial") L.notice = { kind: "info", text: `Opened with the item, but couldn't put ${itemName(loop.protect.itemHrid)} in as protection from +${loop.protect.from} \u2013 do that in the game.`, diag: navDiagnostics() };
+    else L.notice = { kind: "warn", text: `Could not open ${itemName(loop.itemHrid)} in Enhancing${hash2 ? "" : " \u2013 no +0 in the inventory"}. Open it yourself with the target +${loop.target}.`, diag: navDiagnostics() };
+    render2();
+    scheduleMark();
+  }
+  async function openDecompose() {
+    const loop = L.loop;
+    if (!loop) return;
+    const count3 = heldAt2(loop.itemHrid, loop.target);
+    const catalyst = loop.catalyst ? { hash: ownedHash(loop.catalyst, 0) } : null;
+    const opened = await openAlchemy(ownedHash(loop.itemHrid, loop.target), "Decompose", count3, catalyst);
+    if (opened === "item") L.notice = null;
+    else if (opened === "partial") L.notice = { kind: "info", text: `Opened with the item, but couldn't put ${itemName(loop.catalyst)} in as the catalyst \u2013 do that in the game.`, diag: navDiagnostics() };
+    else L.notice = { kind: "warn", text: `Could not open Decompose. Pick ${itemName(loop.itemHrid)} +${loop.target} there yourself and enter ${count3}.`, diag: navDiagnostics() };
+    render2();
+    scheduleMark();
+  }
+  function endLoop() {
+    clearTimeout(L.timer);
+    unmark3();
+    L.loop = null;
+    L.notice = null;
+    save4();
+    render2();
+  }
+  function unmark3() {
+    document.querySelectorAll(".mwia-loop-target").forEach((node) => node.classList.remove("mwia-loop-target", "mwia-train-target"));
+  }
+  function markWindow() {
+    unmark3();
+    if (!L.loop) return;
+    const st = status();
+    const loop = L.loop;
+    const wanted = st.phase === "queue" ? "enhancing" : st.phase === "decompose" ? "alchemy" : null;
+    if (!wanted) return;
+    for (const p2 of levelingPanels()) {
+      const item = hashItem2(p2.itemHash);
+      if (p2.kind !== wanted || !p2.buttons || item?.itemHrid !== loop.itemHrid) continue;
+      if (wanted === "alchemy" && (p2.tab !== "Decompose" || item.level !== loop.target)) continue;
+      p2.buttons.classList.add("mwia-loop-target", "mwia-train-target");
+      if (!L.hooked.has(p2.buttons)) {
+        L.hooked.add(p2.buttons);
+        p2.buttons.addEventListener("click", onGameButton, true);
+      }
+    }
+  }
+  var markQueued = false;
+  function scheduleMark() {
+    if (markQueued) return;
+    markQueued = true;
+    requestAnimationFrame(() => {
+      markQueued = false;
+      markWindow();
+    });
+  }
+  function onGameButton(event) {
+    if (!L.loop || !event.target.closest?.("button") || !event.currentTarget.classList.contains("mwia-loop-target")) return;
+    const before = `${L.loop.queued}|${!!L.loop.decompose}`;
+    clearTimeout(L.timer);
+    L.timer = setTimeout(() => {
+      if (L.loop && `${L.loop.queued}|${!!L.loop.decompose}` === before) {
+        setNotice2("warn", "Nothing reached the queue yet. If your action queue is full, wait until a job is done and click \u201CAdd to queue\u201D again (or \u25B6 Next).");
+      }
+    }, NOT_QUEUED_AFTER_MS2);
+  }
+  function onGameMessage2(type, data) {
+    if (type === "init_character_data") {
+      restore2();
+      render2();
+      return;
+    }
+    if (!L.loop) return;
+    if (type === "actions_updated" && loopActions(L.loop, data?.endCharacterActions)) {
+      clearTimeout(L.timer);
+      if (L.notice?.kind === "warn") L.notice = null;
+      save4();
+    }
+    if (type === "actions_updated" || type === "items_updated") {
+      render2();
+      scheduleMark();
+    }
+  }
+  function render2() {
+    if (!L.root) return;
+    const loop = L.loop;
+    L.root.classList.toggle("mwia-hidden", !loop);
+    if (!loop) return;
+    const st = status();
+    const item = esc(itemName(loop.itemHrid));
+    const plus = `+${loop.target}`;
+    const button2 = (action, text, title = "") => `<button class="mwia-cart-btn" data-loop="${action}"${title ? ` title="${esc(title)}"` : ""}>${text}</button>`;
+    const headline = {
+      queue: `${n4(st.queued)}/${n4(st.total)} queued`,
+      short: `${n4(st.queued)}/${n4(st.total)} queued \u2013 no ${item} +0 left`,
+      running: `All ${n4(st.queued)} queued \xB7 ${n4(st.inQueue)} still in the queue`,
+      decompose: `${n4(st.heldTarget)} \xD7 ${plus} ready to decompose`,
+      empty: `Done \u2013 none reached ${plus}`,
+      done: `\u{1F9EA} Decompose of ${n4(loop.decompose?.count ?? st.heldTarget)} \xD7 ${plus} queued`
+    }[st.phase];
+    let html = `<div class="mwia-train-head">
+        <button class="mwia-link" data-loop="toggle" title="Show or hide the details">${L.collapsed ? "\u25B8" : "\u25BE"}</button>
+        <b>\u{1F501} ${item} \u2192 ${plus} \u{1F9EA}</b>
+        <button class="mwia-link" data-loop="end" title="End the loop">\u2715</button>
+      </div>
+      <div class="mwia-train-now">${headline}</div>`;
+    if (L.notice) html += `<div class="mwia-notice mwia-notice-${L.notice.kind}">${esc(L.notice.text)}${L.notice.diag ? `<div class="mwia-notice-diag">${esc(L.notice.diag)}</div>` : ""}</div>`;
+    const buttons = [];
+    if (st.phase === "queue") buttons.push(button2("next", `\u25B6 Next ${item}`, `Opens Enhancing with a +0 ${itemName(loop.itemHrid)} and the target ${plus}`));
+    if (st.phase === "decompose") buttons.push(button2("decompose", `\u{1F9EA} Decompose ${n4(st.heldTarget)} \xD7 ${plus}`, `Opens Decompose with the ${n4(st.heldTarget)} ${itemName(loop.itemHrid)} ${plus} you have`));
+    if (["done", "empty", "short"].includes(st.phase)) {
+      if (st.heldZero > 0) buttons.push(button2("again", `\u{1F501} Again (${n4(st.heldZero)})`, `A new loop with the ${n4(st.heldZero)} +0 you have`));
+      if (loop.perItem?.length) buttons.push(button2("cart", `\u{1F6D2} ${n4(loop.total)} more`, `Adds what ${n4(loop.total)} more take to the MWITools cart, less what you have`));
+    }
+    if (buttons.length) html += `<div class="mwia-train-buttons">${buttons.join("")}</div>`;
+    if (!L.collapsed) {
+      const help = {
+        queue: `Click the game's <b>Add to queue</b> (or <b>Start</b>) \u2013 again for each ${item} while the window stays open. The game stops each one at ${plus}.`,
+        short: `Buy more, or decompose what reached ${plus} once you have some.`,
+        running: `When they are done, decompose the ${plus} here. Nothing opens by itself.`,
+        decompose: `Click the game's <b>Start</b> or <b>Add to queue</b> in Decompose.`,
+        empty: "",
+        done: `Buy the next round with \u{1F6D2}, then \u{1F501} Again.`
+      }[st.phase];
+      if (help) html += `<p class="mwia-dim">${help}</p>`;
+      html += `<p class="mwia-dim">In the inventory: ${n4(st.heldZero)} at +0 \xB7 ${n4(st.heldTarget)} at ${plus}${st.ended ? ` \xB7 ${n4(st.ended)} jobs done` : ""}.</p>`;
+    }
+    L.root.innerHTML = html;
+  }
+  async function onClick8(event) {
+    const button2 = event.target.closest("[data-loop]");
+    if (!button2 || !L.loop) return;
+    const action = button2.dataset.loop;
+    if (action === "toggle") {
+      L.collapsed = !L.collapsed;
+      render2();
+    } else if (action === "end") endLoop();
+    else if (action === "next") openNext();
+    else if (action === "decompose") openDecompose();
+    else if (action === "again") {
+      const { itemHrid, target, protect, catalyst, perItem } = L.loop;
+      startLoop({ itemHrid, target, protect, catalyst, perItem });
+    } else if (action === "cart") {
+      const items = loopCart(L.loop, L.loop.total, (hrid) => heldAt2(hrid, 0)).map((i) => ({ ...i, enhancementLevel: 0 }));
+      if (!items.length) return setNotice2("ok", "You already have what the next round takes.");
+      try {
+        const outcome = await addToCart(L.win, items);
+        const parts = [];
+        if (outcome.added.length) parts.push(`${outcome.added.length} added`);
+        if (outcome.updated.length) parts.push(`${outcome.updated.length} topped up`);
+        if (outcome.present.length) parts.push(`${outcome.present.length} already there`);
+        if (outcome.failed.length) parts.push(`${outcome.failed.length} failed`);
+        setNotice2(outcome.failed.length ? "warn" : "ok", "Shopping cart: " + parts.join(", ") + ".");
+      } catch (error) {
+        setNotice2("bad", error.message);
+      }
+    }
+  }
+  function mountEnhanceLoop(win2) {
+    L.win = win2;
+    L.root = document.createElement("div");
+    L.root.className = "mwia-train mwia-loop mwia-hidden";
+    L.root.addEventListener("click", onClick8);
+    enableTapTips(L.root);
+    document.body.appendChild(L.root);
+    restore2();
+    render2();
+    onStateChange(onGameMessage2);
+    new MutationObserver(() => L.loop && scheduleMark()).observe(document.body, { childList: true, subtree: true });
+  }
+
   // src/trigger-fill.js
   var ROW = '[class*="CombatTriggersSetting_combatTrigger_"]';
   var COMBO = '[role="combobox"]';
@@ -10681,7 +10974,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   };
   var clean3 = (text) => String(text || "").replace(/\s+/g, " ").trim();
-  var short = (text, n4 = 40) => text.length > n4 ? text.slice(0, n4) + "\u2026" : text;
+  var short = (text, n5 = 40) => text.length > n5 ? text.slice(0, n5) + "\u2026" : text;
   function watchTriggerClicks() {
     document.addEventListener(
       "click",
@@ -10721,7 +11014,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     return out.length ? ` (${out.join(" ")})` : "";
   }
   function ownText3(el) {
-    return clean3([...el.childNodes].filter((n4) => n4.nodeType === 3).map((n4) => n4.textContent).join(" "));
+    return clean3([...el.childNodes].filter((n5) => n5.nodeType === 3).map((n5) => n5.textContent).join(" "));
   }
   function outline(root, maxDepth, lines) {
     const walk = (el, depth) => {
@@ -10766,12 +11059,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const lines = [];
     const host = walkFibers((f) => f.stateNode === box).fiber;
     if (!host) return ["window fiber: not found from the React root"];
-    let n4 = 0;
-    for (let f = host.return; f && n4 < 14; f = f.return) {
+    let n5 = 0;
+    for (let f = host.return; f && n5 < 14; f = f.return) {
       if (typeof f.type === "string") continue;
-      n4++;
+      n5++;
       const hooks = hookValues(f);
-      lines.push(`up ${n4}: ${typeName(f)}${isClass(f) ? " (class)" : ""}`);
+      lines.push(`up ${n5}: ${typeName(f)}${isClass(f) ? " (class)" : ""}`);
       const props = propsText(f.memoizedProps);
       if (props) lines.push(`  props: ${short(props, 400)}`);
       if (isClass(f)) {
@@ -10780,7 +11073,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       } else if (hooks.length) {
         lines.push(`  hooks: ${short(hooks.map((v, i) => `${i}:${valueText(v)}`).join("; "), 400)}`);
       }
-      if (Object.values(f.memoizedProps || {}).some(holdsTriggers2) && n4 > 2) break;
+      if (Object.values(f.memoizedProps || {}).some(holdsTriggers2) && n5 > 2) break;
     }
     for (const el of [box.querySelector("select"), box.querySelector("input"), box.querySelector('[role="button"],[aria-haspopup]')].filter(Boolean)) {
       const fiber = walkFibers((f) => f.stateNode === el).fiber;
@@ -10840,16 +11133,16 @@ i.mwia-history-bid { background: #7ee2b0; }
       else if (sameTriggers(now2, advice.triggers)) line = `\u{1F9ED} ${esc(deps.name(hrid))}: already as advised.`;
       else line = `\u{1F9ED} Advice for ${esc(deps.name(hrid))}: <b>${esc(deps.describe(advice.triggers))}</b> <button type="button" class="mwia-trig-fill">\u25B6 Fill in</button>`;
       bar.innerHTML = `<div class="mwia-trig-line">${line}</div><div><button type="button" class="mwia-trig-read" title="Read how this window is built, to paste into a chat">\u{1F4CB}</button> <span class="mwia-trig-status"></span></div>`;
-      const status = (text) => bar.querySelector(".mwia-trig-status").textContent = text;
+      const status2 = (text) => bar.querySelector(".mwia-trig-status").textContent = text;
       bar.querySelector(".mwia-trig-fill")?.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
-        status("Filling in\u2026");
+        status2("Filling in\u2026");
         const result = await fillTriggerWindow(box, settingFiber(box) || fiber, advice.triggers);
         if (result.ok) {
-          status("Filled in \u2013 check it and tap Save.");
+          status2("Filled in \u2013 check it and tap Save.");
         } else {
-          status("Couldn't fill it in \u2013 the details are under \u{1F9ED} Upgrades.");
+          status2("Couldn't fill it in \u2013 the details are under \u{1F9ED} Upgrades.");
           deps.onReport(`fill in ${hrid}: ${result.diag}
 ${triggerWindowReport()}`, false);
         }
@@ -10864,7 +11157,7 @@ ${triggerWindowReport()}`, false);
           copied = true;
         } catch {
         }
-        status(copied ? "Copied \u2013 paste it in the chat." : "Not copied \u2013 open \u{1F9ED} Upgrades and tap \u{1F4CB} Copy.");
+        status2(copied ? "Copied \u2013 paste it in the chat." : "Not copied \u2013 open \u{1F9ED} Upgrades and tap \u{1F4CB} Copy.");
         deps.onReport(report, copied);
       });
       box.prepend(bar);
@@ -11148,10 +11441,10 @@ ${triggerWindowReport()}`, false);
   // src/market-ui.js
   var KEEP_KEY = "mwia-keep";
   var FILLS_KEY = "mwia-listing-fills";
-  var INVENTORY7 = "/item_locations/inventory";
+  var INVENTORY8 = "/item_locations/inventory";
   var view2 = { showAll: false };
-  var dec2 = (n4, d = 1) => n4.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-  var coins7 = (n4) => (n4 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n4));
+  var dec2 = (n5, d = 1) => n5.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  var coins7 = (n5) => (n5 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n5));
   var pctAbs = (fraction) => `${dec2(Math.abs(fraction) * 100, fraction && Math.abs(fraction) < 0.1 ? 1 : 0)}%`;
   var label = (hrid, level) => esc(itemName(hrid)) + (level ? ` <span class="mwia-enh">+${level}</span>` : "");
   function readJson2(key2, fallback) {
@@ -11186,7 +11479,7 @@ ${triggerWindowReport()}`, false);
     return listings.map((listing) => {
       const level = Number(listing.enhancementLevel) || 0;
       const own = listings.filter((other) => other.itemHrid === listing.itemHrid && (Number(other.enhancementLevel) || 0) === level && !!other.isSell === !!listing.isSell).map((other) => ({ price: Number(other.price) || 0, quantity: remaining(other) }));
-      const status = listingStatus(listing, {
+      const status2 = listingStatus(listing, {
         entry: marketEntry(listing.itemHrid, level),
         book: orderBookAt(listing.itemHrid, level),
         own,
@@ -11194,7 +11487,7 @@ ${triggerWindowReport()}`, false);
         lastFillAt: fills[listing.id]?.at ?? null,
         now: now2
       });
-      return { listing, level, ...status };
+      return { listing, level, ...status2 };
     });
   }
   function marketAlerts() {
@@ -11243,7 +11536,7 @@ ${triggerWindowReport()}`, false);
   function inventoryItems() {
     const counts = /* @__PURE__ */ new Map();
     for (const item of state.items.values()) {
-      if (item.itemLocationHrid !== INVENTORY7 || !item.itemHrid) continue;
+      if (item.itemLocationHrid !== INVENTORY8 || !item.itemHrid) continue;
       const level = Number(item.enhancementLevel) || 0;
       const key2 = keepKey(item.itemHrid, level);
       const entry = counts.get(key2) || { hrid: item.itemHrid, level, count: 0 };
@@ -11596,7 +11889,7 @@ ${triggerWindowReport()}`, false);
     }
   };
   var clean4 = (text) => String(text || "").replace(/\s+/g, " ").trim();
-  var short2 = (text, n4 = 60) => text.length > n4 ? text.slice(0, n4) + "\u2026" : text;
+  var short2 = (text, n5 = 60) => text.length > n5 ? text.slice(0, n5) + "\u2026" : text;
   var LAB_WORDS = /labyrinth|maze|room|floor|beacon|torch|shroud|crate|automation/i;
   function shapeOf(value, depth = 0) {
     if (value === null || value === void 0) return String(value);
@@ -11635,7 +11928,7 @@ ${triggerWindowReport()}`, false);
     for (const key2 of fields) lines.push(`  ${key2}: ${short2(shapeOf(character[key2]), 1200)}`);
   }
   function ownText4(el) {
-    return clean4([...el.childNodes].filter((n4) => n4.nodeType === 3).map((n4) => n4.textContent).join(" "));
+    return clean4([...el.childNodes].filter((n5) => n5.nodeType === 3).map((n5) => n5.textContent).join(" "));
   }
   function pageLines(lines) {
     const all = [...document.querySelectorAll('[class*="abyrinth"]')].filter((el) => !el.closest('[class*="mwia"]'));
@@ -11672,7 +11965,7 @@ ${triggerWindowReport()}`, false);
       if (heads.length) lines.push(`  headers: ${heads.join(" | ")}`);
       const rows = [...table.querySelectorAll('tr, [role="row"]')].filter((r) => !r.querySelector("th")).map((r) => {
         const copy = r.cloneNode(true);
-        copy.querySelectorAll('[class*="mwia"]').forEach((n4) => n4.remove());
+        copy.querySelectorAll('[class*="mwia"]').forEach((n5) => n5.remove());
         return copy;
       });
       rows.slice(0, 30).forEach((row, i) => {
@@ -11804,18 +12097,18 @@ ${triggerWindowReport()}`, false);
     } catch {
     }
   }
-  var int = (n4) => Math.round(n4).toLocaleString("en-US");
-  var dec3 = (n4, d = 1) => n4.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-  var pct5 = (n4) => (n4 >= 0 ? "+" : "") + dec3(n4 * 100, 1) + "%";
+  var int = (n5) => Math.round(n5).toLocaleString("en-US");
+  var dec3 = (n5, d = 1) => n5.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  var pct5 = (n5) => (n5 >= 0 ? "+" : "") + dec3(n5 * 100, 1) + "%";
   var HOURS_PER_DAY3 = 24;
   var perDay = (perHour) => perHour * HOURS_PER_DAY3;
-  function coins8(n4) {
-    if (n4 === null || n4 === void 0) return "\u2013";
-    const abs = Math.abs(n4);
-    if (abs >= 1e9) return dec3(n4 / 1e9, 2) + "B";
-    if (abs >= 1e6) return dec3(n4 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
-    if (abs >= 1e4) return dec3(n4 / 1e3, 0) + "k";
-    return int(n4);
+  function coins8(n5) {
+    if (n5 === null || n5 === void 0) return "\u2013";
+    const abs = Math.abs(n5);
+    if (abs >= 1e9) return dec3(n5 / 1e9, 2) + "B";
+    if (abs >= 1e6) return dec3(n5 / 1e6, abs >= 1e7 ? 1 : 2) + "M";
+    if (abs >= 1e4) return dec3(n5 / 1e3, 0) + "k";
+    return int(n5);
   }
   function gearLabel(gear) {
     if (!gear) return '<span class="mwia-dim">empty</span>';
@@ -11830,7 +12123,7 @@ ${triggerWindowReport()}`, false);
     if (deaths < 1) return `<span class="mwia-warn" title="Deaths per hour">\u26A0 ${dec3(deaths, 2)}/h</span>`;
     return `<span class="mwia-bad" title="Deaths per hour">\u2716 ${dec3(deaths, 1)}/h</span>`;
   }
-  var signed2 = (text, n4) => (n4 >= 0 ? "+" : "\u2212") + text(Math.abs(n4));
+  var signed2 = (text, n5) => (n5 >= 0 ? "+" : "\u2212") + text(Math.abs(n5));
   var focusText = (gold) => gold === 0 ? "XP only" : gold === 100 ? "Gold only" : `${100 - gold}% XP \xB7 ${gold}% gold`;
   var countingLevels = () => !!ui.settings.countLevels && Array.isArray(getClientData()?.levelExperienceTable);
   var xpLabel = () => countingLevels() ? "Levels/day" : "Combat XP/h";
@@ -11857,7 +12150,7 @@ ${triggerWindowReport()}`, false);
     ui.busy = true;
     ui.error = null;
     ui.progress = { done: 0, total: 0, label: "Preparing\u2026" };
-    render2();
+    render3();
     try {
       await ensureReady();
       await task();
@@ -11869,7 +12162,7 @@ ${triggerWindowReport()}`, false);
     } finally {
       ui.busy = false;
       ui.progress = null;
-      render2();
+      render3();
     }
   }
   function progress(label3) {
@@ -12052,7 +12345,7 @@ ${triggerWindowReport()}`, false);
       saveCombatSetup();
     }
   }
-  function render2() {
+  function render3() {
     if (!ui.root) return;
     const body = ui.root.querySelector(".mwia-body");
     ui.root.querySelectorAll(".mwia-tab").forEach((t4) => t4.classList.toggle("mwia-active", t4.dataset.tab === ui.tab));
@@ -12085,7 +12378,7 @@ ${triggerWindowReport()}`, false);
     if (!ui.marketLoading) {
       ui.marketLoading = Promise.all([loadClientData(ui.win), loadPrices()]).catch((error) => ui.error = error.message || String(error)).finally(() => {
         ui.marketLoading = null;
-        if (ui.tab === "market") render2();
+        if (ui.tab === "market") render3();
       });
     }
     return `<p>Loading the game data and market prices\u2026</p>`;
@@ -12106,7 +12399,7 @@ ${triggerWindowReport()}`, false);
     } catch {
     }
     updateAlertDot();
-    if (!ui.root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "market") render2();
+    if (!ui.root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "market") render3();
   }
   function statusLine() {
     if (!state.character) return '<span class="mwia-warn">Waiting for character data \u2013 reload the page if this stays.</span>';
@@ -12123,7 +12416,7 @@ ${triggerWindowReport()}`, false);
   }
   function renderProgress() {
     const node = ui.root?.querySelector(".mwia-progress");
-    if (!node) return render2();
+    if (!node) return render3();
     const p2 = ui.progress;
     node.querySelector(".mwia-progress-label span").textContent = `${p2.label} ${p2.total ? `${p2.done}/${p2.total}` : ""}`;
     node.querySelector(".mwia-bar div").style.width = `${p2.total ? 100 * p2.done / p2.total : 0}%`;
@@ -12449,7 +12742,7 @@ ${triggerWindowReport()}`, false);
     } catch (error) {
       ui.notice = { level: "bad", text: error.message };
     }
-    render2();
+    render3();
   }
   function renderUpgrades() {
     let html = `<p>Tests one change at a time (gear incl. enhanced +N copies \u2013 bought or enhanced yourself \u2013, new abilities, levelling abilities with extra books,
@@ -12750,7 +13043,7 @@ ${triggerWindowReport()}`, false);
     }
     if (!load3?.loading) {
       ui.skillingLoad = { loading: true };
-      Promise.all([loadClientData(ui.win), loadPrices()]).then(() => ui.skillingLoad = null).catch((error) => ui.skillingLoad = { error: error.message || String(error) }).finally(() => ui.tab === "skilling" && render2());
+      Promise.all([loadClientData(ui.win), loadPrices()]).then(() => ui.skillingLoad = null).catch((error) => ui.skillingLoad = { error: error.message || String(error) }).finally(() => ui.tab === "skilling" && render3());
     }
     return `<p class="mwia-dim">Loading game data and market prices\u2026</p>`;
   }
@@ -12770,7 +13063,7 @@ ${triggerWindowReport()}`, false);
   }
   function showPanel() {
     ui.root.classList.remove("mwia-hidden");
-    render2();
+    render3();
     const row = ui.returnRow && ui.tab === "skilling" ? [...ui.root.querySelectorAll(".mwia-skill-row")].find((r) => r.dataset.hrid === ui.returnRow) : null;
     row?.scrollIntoView({ block: "start" });
     ui.returnRow = null;
@@ -12799,10 +13092,10 @@ ${triggerWindowReport()}`, false);
     const steps = [`${kind} ${item}${level ? ` +${level}` : ""} ${kind === "enhance" ? `\u2192 +${value}` : `${label3} \xD7${value}`}`];
     steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
     const owned = held > 0;
-    const characterId2 = state.character?.character?.id;
-    if (owned && !characterId2) steps.push("no character id");
-    const hash2 = owned && characterId2 ? inventoryItemHash(characterId2, item, level) : null;
-    const ownHash = (hrid) => hrid && characterId2 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId2, hrid) : null;
+    const characterId3 = state.character?.character?.id;
+    if (owned && !characterId3) steps.push("no character id");
+    const hash2 = owned && characterId3 ? inventoryItemHash(characterId3, item, level) : null;
+    const ownHash = (hrid) => hrid && characterId3 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId3, hrid) : null;
     const protect = dataset.protect ? { hash: ownHash(dataset.protect), from: Number(dataset.protectFrom) } : null;
     const catalyst = dataset.catalyst ? { hash: ownHash(dataset.catalyst) } : null;
     clearNotice();
@@ -12821,7 +13114,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.71.0" : "dev";
+  var VERSION3 = true ? "0.72.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -12829,7 +13122,7 @@ ${triggerWindowReport()}`, false);
   function showNotice(notice) {
     ui.notice = notice;
     ui.showNotice = true;
-    render2();
+    render3();
   }
   function buttonFailed(what, error) {
     ui.root?.classList.remove("mwia-hidden");
@@ -12865,7 +13158,7 @@ ${triggerWindowReport()}`, false);
     }
     button2.textContent = copied ? "\u2713 Copied" : "Select the text above to copy it";
   }
-  function onClick8(event) {
+  function onClick9(event) {
     const target = event.target.closest("[data-action],[data-tab]");
     if (!target || !ui.root.contains(target)) return;
     try {
@@ -12880,7 +13173,7 @@ ${triggerWindowReport()}`, false);
     if (target.dataset.tab) {
       if (ui.tab !== target.dataset.tab) ui.notice = null;
       ui.tab = target.dataset.tab;
-      render2();
+      render3();
       return;
     }
     switch (target.dataset.action) {
@@ -12905,7 +13198,7 @@ ${triggerWindowReport()}`, false);
       case "laby-read":
         ui.notice = { level: "info", text: "The game's Labyrinth, read (nothing changed). Copy it and paste it into the chat.", diag: labyrinthReport() };
         ui.showNotice = true;
-        render2();
+        render3();
         break;
       case "upgrades-abilities":
         runTask(() => doUpgrades("abilities"));
@@ -12918,7 +13211,7 @@ ${triggerWindowReport()}`, false);
           text: open2 ? "The game's trigger window, read (nothing changed). Copy it and paste it into the chat." : "No Combat Triggers window is open. In the game: Loadouts \u2192 your combat loadout \u2192 \u2699 under an ability, then tap this again.",
           diag
         };
-        render2();
+        render3();
         break;
       }
       case "refine":
@@ -12930,7 +13223,7 @@ ${triggerWindowReport()}`, false);
         break;
       case "skilling-load":
         ui.skillingLoad = null;
-        render2();
+        render3();
         break;
       case "skilling-make":
         ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
@@ -12938,6 +13231,11 @@ ${triggerWindowReport()}`, false);
       case "skilling-level":
         ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
         return openLeveling(target.dataset);
+      case "enhance-loop":
+        ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
+        clearNotice();
+        ui.root.classList.add("mwia-hidden");
+        return startLoop(JSON.parse(target.dataset.loop));
       case "copy-notice":
         return copyNotice(target);
       case "skilling-train": {
@@ -12958,7 +13256,7 @@ ${triggerWindowReport()}`, false);
           returnAfterMarket();
         } else {
           ui.notice = { level: "warn", text: "Could not open the marketplace automatically. Open it yourself and pick the item." };
-          render2();
+          render3();
         }
         break;
       case "export":
@@ -12966,7 +13264,7 @@ ${triggerWindowReport()}`, false);
         break;
       case "skilling-all":
         toggleShowAll();
-        render2();
+        render3();
         break;
       case "cart-add":
         sendToCart(target.dataset.cart);
@@ -12977,16 +13275,16 @@ ${triggerWindowReport()}`, false);
           returnAfterMarket();
         } else {
           ui.notice = { level: "warn", text: "Could not open the marketplace automatically. Open it yourself and pick the item." };
-          render2();
+          render3();
         }
         break;
       case "market-keep":
         toggleKeep(target.dataset.item, target.dataset.level);
-        render2();
+        render3();
         break;
       case "market-all":
         toggleShowAllMarket();
-        render2();
+        render3();
         break;
       case "cancel":
         ui.pool?.cancel();
@@ -13011,7 +13309,7 @@ ${triggerWindowReport()}`, false);
     }
     saveSettings();
     if (key2.startsWith("skilling")) {
-      render2();
+      render3();
       return;
     }
     if (key2.startsWith("laby")) {
@@ -13023,14 +13321,14 @@ ${triggerWindowReport()}`, false);
         ui.labResult = ui.labImprove = ui.labBuild = null;
       }
       scheduleScan8();
-      render2();
+      render3();
       return;
     }
     if (key2 === "combatStyle" || key2 === "combatGear") {
       ui.zoneResults = null;
       if (key2 === "combatGear") ui.labBuild = null;
       ui.upgradeRaw = ui.upgradeResult = ui.plan = ui.verified = null;
-      render2();
+      render3();
       return;
     }
     if (["budget", "spending", "goldWeight", "acceptRareDeaths", "countLevels"].includes(key2) && !ui.busy) {
@@ -13039,7 +13337,7 @@ ${triggerWindowReport()}`, false);
         ui.plan = buildPlan(ui.upgradeResult, Number(ui.settings.budget) || 0, ui.settings.spending);
         ui.verified = null;
       }
-      render2();
+      render3();
     }
   }
   var dotTimer = null;
@@ -13104,11 +13402,11 @@ ${triggerWindowReport()}`, false);
       onReport: (diag, copied) => {
         ui.tab = "upgrades";
         ui.notice = { level: "info", text: `The game's trigger window, read (nothing changed)${copied ? " and copied" : ""}. Paste it into the chat.`, diag };
-        render2();
+        render3();
       }
     });
     ui.root = root;
-    root.addEventListener("click", onClick8);
+    root.addEventListener("click", onClick9);
     root.addEventListener("change", onChange);
     root.addEventListener("toggle", rememberToggle, true);
     enableTapTips(root);
@@ -13133,10 +13431,10 @@ ${triggerWindowReport()}`, false);
       showPanel();
     });
     onHistoryChange(() => {
-      if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "skilling") render2();
+      if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "skilling") render3();
     });
     onAttemptsChanged(() => {
-      if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "labyrinth") render2();
+      if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "labyrinth") render3();
     });
     onStateChange(() => {
       if (!root.classList.contains("mwia-hidden") && !ui.busy) {
@@ -13159,7 +13457,7 @@ ${triggerWindowReport()}`, false);
   var LABELS = { match: "Match", wall: "Wall" };
   var label2 = (s2) => s2.kind === "horizon" ? `<${s2.horizon}h` : LABELS[s2.kind];
   var l = { win: null, scanTimer: null, loading: null, loadError: null, applying: false, cache: { key: null, prices: null }, clicked: null };
-  var num = (n4) => Math.round(n4).toLocaleString("en-US");
+  var num = (n5) => Math.round(n5).toLocaleString("en-US");
   var numberIn = (text) => {
     const found = String(text).match(/\d[\d\s,.]*[kmb]?/gi);
     return found ? parseCoins(found[found.length - 1].trim()) : null;
@@ -13171,7 +13469,7 @@ ${triggerWindowReport()}`, false);
       if (records.every((r) => r.target.closest?.(".mwia-listprice"))) return;
       scheduleScan11();
     }).observe(document.body, { childList: true, subtree: true });
-    document.addEventListener("click", onClick9, true);
+    document.addEventListener("click", onClick10, true);
     document.addEventListener("input", (event) => {
       if (event.target.closest?.(MODAL)) scheduleScan11();
     }, true);
@@ -13441,7 +13739,7 @@ ${triggerWindowReport()}`, false);
     }
     scheduleScan11();
   }
-  function onClick9(event) {
+  function onClick10(event) {
     const button2 = event.target.closest?.(".mwia-listprice [data-listprice]");
     if (!button2) return;
     event.preventDefault();
@@ -13465,6 +13763,7 @@ ${triggerWindowReport()}`, false);
   function mount() {
     mountUI(win, worker_source_default);
     mountPlanTrain(win);
+    mountEnhanceLoop(win);
     startPriceHistory(win);
     startListingPrices(win);
     startVersionTag();

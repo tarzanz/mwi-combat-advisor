@@ -2,6 +2,7 @@ import WORKER_SOURCE from "virtual:worker-source";
 import { installSocketHook } from "./game-state.js";
 import { mountUI } from "./ui.js";
 import { mountPlanTrain } from "./train-ui.js";
+import { mountEnhanceLoop } from "./enhance-loop-ui.js";
 import { startPriceHistory } from "./price-history-ui.js";
 import { startListingPrices } from "./listing-price-ui.js";
 import { readPairing } from "./pi-sync.js";
@@ -29,6 +30,7 @@ if (document.readyState === "loading") {
 function mount() {
     mountUI(win, WORKER_SOURCE);
     mountPlanTrain(win);
+    mountEnhanceLoop(win);
     startPriceHistory(win);
     startListingPrices(win);
     startVersionTag();

@@ -58,6 +58,7 @@ import { startEnhancePlan } from "./enhance-plan-ui.js";
 import { findActionPanel, inventoryItemHash, navDiagnostics, openAction, openAlchemy, openEnhancing, openMarketplace, setReactInput, visible } from "./game-nav.js";
 import { enableTapTips, isTouch, labelTableCells, makeDraggable } from "./touch.js";
 import { startTrain } from "./train-ui.js";
+import { startLoop } from "./enhance-loop-ui.js";
 import { describeTriggers } from "./triggers.js";
 import { startTriggerWindow, triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
@@ -1483,6 +1484,11 @@ function act(target) {
         case "skilling-level":
             ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
             return openLeveling(target.dataset);
+        case "enhance-loop":
+            ui.returnRow = target.closest(".mwia-skill-row")?.dataset.hrid || null;
+            clearNotice();
+            ui.root.classList.add("mwia-hidden");
+            return startLoop(JSON.parse(target.dataset.loop));
         case "copy-notice":
             return copyNotice(target);
         case "skilling-train": {

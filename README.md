@@ -199,6 +199,14 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     opens Alchemy's Decompose tab with all of them (counted again on the click) and the catalyst the row counts on; you
     start it in the game. Its 🛒 Materials then plans the attempts the enhancing share of the hours allows, and adds
     that catalyst for the +levels they make.
+    **🔁 Loop N:** the game stops an enhancing job when its item reaches the target, so each item is a job of its
+    own – and they can be queued one after another from the +0 stack. 🔁 takes the N you hold at +0, opens the first
+    in Enhancing (target and protection set) and shows a small panel: click the game's *Add to queue* again for each
+    while the window stays open (outlined); the panel counts the jobs the game confirms (*2/10 queued*), ▶ Next opens
+    the window again (after a full queue, say). When all are done it offers **🧪 Decompose N × +6** (Alchemy, the +target
+    and the catalyst); once that is queued, **🛒 N more** adds the next round (the items, their materials and
+    protections over the attempts one takes, the catalyst) to the MWITools cart, less what you have, and **🔁 Again**
+    starts over. The panel opens nothing by itself, and is kept in the browser per character over a reload.
   - **Alchemy:** every coinify, decompose and transmute of an item on the market, bought at the ask. Success = base
     (70%, 60%, the item's transmute rate) × (1 + catalyst + Catalytic Tea + 0.9 / item level per level below the item);
     20 s / (1 + speed) with efficiency +1% per level above the item; the bulk size (10 essences at once), the coins it
@@ -568,6 +576,7 @@ node test/skilling-browser-test.mjs /tmp                  # Skilling tab against
 node test/price-history-test.mjs                          # price-history maths in Node
 node test/leveling-test.mjs                               # Enhancing and Alchemy rules in Node
 node test/enhance-plan-test.mjs                           # the Enhancing plan (simulated tries, protection, stock)
+node test/enhance-loop-test.mjs                           # the enhance ⇄ decompose loop (jobs counted, phases, next round)
 node test/market-test.mjs                                 # Market tab rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node

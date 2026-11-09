@@ -146,7 +146,7 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
     const box = document.createElement("div");
     box.className = "lvl";
     const tabs = kind === "alchemy" ? ["Coinify", "Decompose", "Transmute", "Unrefine"].map((t) => '<button role="tab" aria-selected="' + (t === "Coinify") + '">' + t + "</button>").join("") : "";
-    box.innerHTML = tabs + '<div class="SkillActionDetail_' + kind + 'Component__q"><input type="text"></div>';
+    box.innerHTML = tabs + '<div class="SkillActionDetail_' + kind + 'Component__q"><input type="text"><div class="SkillActionDetail_buttonsContainer__q"><button>Add to Queue</button></div></div>';
     document.body.appendChild(box);
     const comp = { state: { primaryItemHash: hash },
       enhancingMaxLevelChanged: (e) => { window.enhanceTarget = e.target.value; comp.state.enhancingMaxLevel = Number(e.target.value); },
@@ -1249,6 +1249,67 @@ try {
         check("…a result that no longer matches its entry is worked out again", (await line(2)).includes("Expected for these 6 actions") && Math.abs(usedOf(stored, input.itemHrid) - 10 * settledInput.count) < 1e-6, JSON.stringify(stored.history));
         await page.evaluate(() => document.querySelector(".loot-page").remove());
     }
+
+    // 🔁 Loop: an enhancing row that decomposes its +target loops over the +0 you hold – one job each,
+    // counted as the game confirms them, then 🧪 Decompose of the +target. The panel opens nothing by itself.
+    const loopRow = expEnh.find((e) => e.finish);
+    if (loopRow) {
+        const item = loopRow.action.itemHrid;
+        const plus = loopRow.target;
+        const own = character.characterItems.find((i) => i.itemHrid === item && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel);
+        const zeroHash = own?.hash || `1::/item_locations/inventory::${item}::0`;
+        const plusHash = `1::/item_locations/inventory::${item}::${plus}`;
+        const gameHash = (level) => `1::/item_locations/inventory::${item}::${level}`;
+        const sendAll = async (message) => { for (const socket of sockets) socket.send(JSON.stringify(message)); await new Promise((r) => setTimeout(r, 300)); };
+        const stock = (hash, level, count) => ({ itemHrid: item, itemLocationHrid: "/item_locations/inventory", count, enhancementLevel: level, hash });
+        await sendAll({ type: "items_updated", endCharacterItems: [stock(zeroHash, 0, 3)] });
+        await page.evaluate(() => { document.querySelector(".lvl")?.remove(); document.querySelector(".mwia-notice")?.remove(); window.enhanceCall = window.enhanceTarget = undefined; });
+        if (await page.$eval(".mwia-panel", (n) => n.classList.contains("mwia-hidden")).catch(() => false)) await page.click(".mwia-launcher");
+        await page.click('[data-tab="skilling"]');
+        await select(page, "skillingSkill", "alchemy");
+        await select(page, "skillingSkill", "enhancing");
+        const loopButton = await page.evaluate((h) => { const r = [...document.querySelectorAll(".mwia-skill-row")].find((x) => x.dataset.hrid === h); if (!r) return null; r.open = true; return r.querySelector('[data-action="enhance-loop"]')?.textContent || ""; }, loopRow.hrid);
+        check("a row that decomposes its +target: 🔁 Loop with the +0 you hold", loopButton === "🔁 Loop 3", loopButton);
+        await page.evaluate((h) => [...document.querySelectorAll(".mwia-skill-row")].find((x) => x.dataset.hrid === h).querySelector('[data-action="enhance-loop"]').click(), loopRow.hrid);
+        await page.waitForFunction(() => window.enhanceTarget !== undefined, { timeout: 5000 }).catch(() => null);
+        await new Promise((r) => setTimeout(r, 300));
+        const panel = () => page.evaluate(() => { const p = document.querySelector(".mwia-loop"); return p ? { shown: !p.classList.contains("mwia-hidden"), title: p.querySelector(".mwia-train-head b")?.textContent, now: p.querySelector(".mwia-train-now")?.textContent, buttons: [...p.querySelectorAll("[data-loop]")].map((b) => b.textContent).filter((t) => !/^[▾▸✕]$/.test(t)), text: p.textContent } : null; });
+        let lp = await panel();
+        const first = await page.evaluate(() => ({ hash: window.enhanceCall, target: window.enhanceTarget, marked: !!document.querySelector(".lvl .mwia-loop-target") }));
+        check("🔁 Loop opens the first +0 with the target, its Add to queue outlined", first.hash === gameHash(0) && first.target === String(plus) && first.marked, JSON.stringify(first));
+        check("…and a panel: 0 of 3 queued, ▶ Next", lp?.shown && lp.title === `🔁 ${clientData.itemDetailMap[item].name} → +${plus} 🧪` && lp.now === "0/3 queued" && lp.buttons.join() === `▶ Next ${clientData.itemDetailMap[item].name}`, JSON.stringify(lp));
+        await page.screenshot({ path: path.join(shotDir, "skilling-13-loop-queue.png") });
+        // Add to queue twice while the window stays open: two jobs on the +0 stack.
+        const job = (id, extra = {}) => ({ id, actionHrid: "/actions/enhancing/enhance", primaryItemHash: gameHash(0), enhancingMaxLevel: plus, isDone: false, ...extra });
+        await sendAll({ type: "actions_updated", endCharacterActions: [job(7001), job(7002)] });
+        lp = await panel();
+        check("…the jobs the game confirms are counted", lp.now === "2/3 queued", lp.now);
+        await sendAll({ type: "actions_updated", endCharacterActions: [job(7003)] });
+        lp = await panel();
+        check("…all queued: no ▶, waiting for the jobs", lp.now === "All 3 queued · 3 still in the queue" && lp.buttons.length === 0 && !(await page.$(".lvl .mwia-loop-target")), JSON.stringify(lp));
+        // They end at the target: the +0 gone, three at +target.
+        await sendAll({ type: "items_updated", endCharacterItems: [stock(zeroHash, 0, 0), stock(plusHash, plus, 3)] });
+        await sendAll({ type: "actions_updated", endCharacterActions: [job(7001, { isDone: true }), job(7002, { isDone: true }), job(7003, { isDone: true })] });
+        lp = await panel();
+        check("…all done: 🧪 Decompose the +target", lp.now === `3 × +${plus} ready to decompose` && lp.buttons.join() === `🧪 Decompose 3 × +${plus}` && /3 jobs done/.test(lp.text), JSON.stringify(lp));
+        await page.screenshot({ path: path.join(shotDir, "skilling-13b-loop-decompose.png") });
+        await page.evaluate(() => { for (const k of ["alchemyCall", "alchemyItem", "alchemyCount"]) window[k] = undefined; document.querySelector('.mwia-loop [data-loop="decompose"]').click(); });
+        await page.waitForFunction(() => window.alchemyCount !== undefined, { timeout: 5000 }).catch(() => null);
+        await new Promise((r) => setTimeout(r, 300));
+        const dec = await page.evaluate(() => ({ call: window.alchemyCall, tab: document.querySelector('.lvl [aria-selected="true"]')?.textContent, count: window.alchemyCount, marked: !!document.querySelector(".lvl .mwia-loop-target") }));
+        check("…🧪 opens Decompose with the three, its buttons outlined", dec.call === plusHash && dec.tab === "Decompose" && dec.count === "3" && dec.marked, JSON.stringify(dec));
+        await sendAll({ type: "actions_updated", endCharacterActions: [{ id: 7010, actionHrid: "/actions/alchemy/decompose", primaryItemHash: gameHash(plus), maxCount: 3, isDone: false }] });
+        lp = await panel();
+        check("…the decompose queued ends the loop: 🛒 the next round", lp.now === `🧪 Decompose of 3 × +${plus} queued` && lp.buttons.join() === "🛒 3 more", JSON.stringify(lp));
+        // Kept over a reload of the page's data.
+        const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("mwia-loop:")).map((k) => JSON.parse(localStorage.getItem(k))));
+        check("…kept in the browser", stored.length === 1 && stored[0].queued === 3 && stored[0].decompose?.count === 3, JSON.stringify(stored));
+        await page.click('.mwia-loop [data-loop="end"]');
+        check("✕ ends the loop", await page.$eval(".mwia-loop", (n) => n.classList.contains("mwia-hidden")));
+        await sendAll({ type: "actions_updated", endCharacterActions: [{ id: 7010, actionHrid: "/actions/alchemy/decompose", primaryItemHash: gameHash(plus), isDone: true }] });
+        await sendAll({ type: "items_updated", endCharacterItems: [stock(plusHash, plus, 0), stock(zeroHash, 0, own?.count || 0)] });
+        await page.evaluate(() => document.querySelector(".lvl")?.remove());
+    } else console.log("NOTE no enhancing row decomposes its +target: no loop tested");
 
     check("no page errors", errors.length === 0, errors.join(" | "));
 } finally {

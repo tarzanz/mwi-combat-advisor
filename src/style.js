@@ -101,6 +101,7 @@ export const CSS = `
   box-shadow: 0 8px 30px rgba(0,0,0,.55); font: 12px/1.45 sans-serif;
 }
 .mwia-train p { margin: 5px 0; }
+.mwia-loop { bottom: auto; top: 70px; }
 .mwia-train-head { display: flex; align-items: center; gap: 4px; }
 .mwia-train-head b { flex: 1; }
 .mwia-train-now { margin: 4px 0; padding: 4px 8px; border-radius: 6px; background: #1d2b45; border-left: 3px solid #f2c25b; font-weight: 600; }
