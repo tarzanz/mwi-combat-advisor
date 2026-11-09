@@ -70,7 +70,7 @@ N-day plan for your character (see *The 📈 plan*).
 
 Switched on with the orders (`MWIA_ORDERS=1`). Each linked device sends what the
 game says about your character – a snapshot: levels, XP, buffs, teas, tools,
-coins, and the plan's settings – at most every 30 minutes (`POST /snapshot`), and
+clothes, coins, and the plan's settings – at most every 30 minutes (`POST /snapshot`), and
 after a game patch the part of the game's data the plan needs (under 1 MB). The
 Pi works the plan out 10 minutes after a new snapshot (at once with ▶ Plan now)
 and every 6 hours for new prices, from its own usual prices; the devices read it

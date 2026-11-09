@@ -64,12 +64,15 @@ function statusHtml(st, settings) {
     return lines.length ? `<p class="mwia-dim">${lines.join(" ")}</p>` : "";
 }
 
+// The clothes a job is worked in (its loadout), as a short line.
+const gearText = (gear, before = " · ") => (gear?.length ? `${before}<span class="mwia-dim">👕 ${gear.map((h) => esc(itemName(h))).join(", ")}</span>` : "");
+
 function firstHtml(plan, best) {
     const first = best.first;
     if (!first?.jobs?.length) return `<p>Nothing pays right now – the plan has no job for the next ${plan.options.blockHours} hours.</p>`;
     const jobs = first.jobs.slice().sort((x, y) => y.hours - x.hours);
-    const rows = jobs.map((j) => `<li><b>${esc(j.name)}</b> (${skillLabel(j.skill)}) – ${Math.round(j.hours * 10) / 10} h, about ${j.actions.toLocaleString("en-US")} actions, ${teaText(j.teas)}; ${coins(j.goldPerHour)}/h, ${j.xpPerHour.toLocaleString("en-US")} XP/h</li>`).join("");
-    const buys = best.purchases.filter((x) => x.day === 0).map((x) => `<li>🛠 ${x.owned ? "Put on" : "Buy"} <b>${esc(itemName(x.itemHrid))}</b>${x.owned ? " (you have it)" : ` for ${coins(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} (${coins(x.resale)})` : ""}</li>`).join("");
+    const rows = jobs.map((j) => `<li><b>${esc(j.name)}</b> (${skillLabel(j.skill)}) – ${Math.round(j.hours * 10) / 10} h, about ${j.actions.toLocaleString("en-US")} actions, ${teaText(j.teas)}; ${coins(j.goldPerHour)}/h, ${j.xpPerHour.toLocaleString("en-US")} XP/h${gearText(j.gear, "<br>")}</li>`).join("");
+    const buys = best.purchases.filter((x) => x.day === 0).map((x) => `<li>${x.gear ? "👕" : "🛠"} ${x.owned ? "Put on" : "Buy"} <b>${esc(itemName(x.itemHrid))}</b>${x.owned ? " (you have it)" : ` for ${coins(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} (${coins(x.resale)})` : ""}</li>`).join("");
     const idle = first.idle > 0.1 ? `<li class="mwia-dim">${Math.round(first.idle * 10) / 10} h left: your coins or the market don't carry more.</li>` : "";
     return `<p><b>The next ${plan.options.blockHours} hours:</b></p><ul>${buys}${rows}${idle}</ul>`;
 }
@@ -103,12 +106,12 @@ function stepsHtml(p) {
     const segs = p.segments.map((s) => {
         const xp = Object.entries(s.xp).map(([skill, amount]) => `${skillLabel(skill)} ${shortCoins(amount)} XP`).join(", ");
         const also = s.also.length ? ` <span class="mwia-dim">(also ${s.also.slice(0, 4).map(esc).join(", ")}${s.also.length > 4 ? ", …" : ""} when the first can't fill the hours)</span>` : "";
-        return `<tr><td>Day ${dayText(s.from)}–${dayText(s.to)}</td><td><b>${esc(s.name)}</b>${s.skill ? ` (${skillLabel(s.skill)})` : ""}${also}<br><span class="mwia-dim">${teaText(s.teas)}${s.tool ? ` · ${esc(itemName(s.tool))}` : ""}</span></td><td class="mwia-num">${coins(s.gold)}</td><td>${xp}</td></tr>`;
+        return `<tr><td>Day ${dayText(s.from)}–${dayText(s.to)}</td><td><b>${esc(s.name)}</b>${s.skill ? ` (${skillLabel(s.skill)})` : ""}${also}<br><span class="mwia-dim">${teaText(s.teas)}${s.tool ? ` · ${esc(itemName(s.tool))}` : ""}</span>${gearText(s.gear)}</td><td class="mwia-num">${coins(s.gold)}</td><td>${xp}</td></tr>`;
     }).join("");
-    const buys = p.purchases.map((x) => `<li>Day ${dayText(x.day)}: ${x.owned ? "put on" : "buy"} ${esc(itemName(x.itemHrid))}${x.owned ? "" : ` for ${coins(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} for ${coins(x.resale)}` : ""} (+${coins(x.gainPerDay)}/day)</li>`).join("");
+    const buys = p.purchases.map((x) => `<li>${x.gear ? "👕" : "🛠"} Day ${dayText(x.day)}: ${x.owned ? "put on" : "buy"} ${esc(itemName(x.itemHrid))}${x.owned ? "" : ` for ${coins(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} for ${coins(x.resale)}` : ""} (+${coins(x.gainPerDay)}/day)</li>`).join("");
     const levels = Object.entries(p.levels).map(([skill, [from, to]]) => `${skillLabel(skill)} ${from} → ${to}`).join(", ");
     return `<table class="mwia-horizon-steps"><thead><tr><th>When</th><th>Job</th><th>Gold</th><th>XP</th></tr></thead><tbody>${segs}</tbody></table>
-      ${buys ? `<p><b>Tools</b></p><ul>${buys}</ul>` : ""}
+      ${buys ? `<p><b>Tools and clothes</b></p><ul>${buys}</ul>` : ""}
       ${levels ? `<p><b>Levels</b>: ${levels}</p>` : ""}
       <p class="mwia-dim">Worth day by day: ${sparkline(p.worthByDay)}</p>`;
 }
@@ -131,7 +134,8 @@ function aboutHtml(plan) {
       Prices are the usual ones, not today's: the week's median ask to buy and to list at (never above 1.5× the usual bid), the median bid as the floor.
       The market takes ${Math.round(o.marketShare * 100)}% of what sells of an item a day: the rest waits in stock and sells first in later blocks; the same share caps what you can buy of a material.
       A better tool for the skill you work is bought when its extra gold over the days left pays for it (less what it sells for again); the old one is sold at the bid.
-      Worth = coins + tools at the bid + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o.levelDays} days of what the character earns a day at the end, so levels count.
+      Each skill is worked in a loadout of its own: of each slot, the clothes, jewellery, charm or cape you own (worn or in the inventory) that earn the most on its best job – switch loadouts in the game as the plan switches skill. A piece for the skill you work is bought the same way as a tool; what it replaces is kept for other skills. The pouch and task badges stay as they are.
+      Worth = coins + tools and clothes at the bid + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o.levelDays} days of what the character earns a day at the end, so levels count.
       Plans compared: earning the most every block, keeping to one skill, and up to two training phases before earning. Gathering and production only – no Enhancing, Alchemy or combat yet, and materials are bought, not gathered yourself.${unknown}
     </p></details>`;
 }

@@ -1,5 +1,5 @@
 // The 📈 plan's link to the Pi: sends what the game says about the character
-// (levels, XP, buffs, teas, tools, coins – a snapshot), and after a game patch
+// (levels, XP, buffs, teas, tools, clothes, coins – a snapshot), and after a game patch
 // the part of the game's data the plan needs, at most every 30 minutes; reads
 // the newest plan back after every sync with the Pi. The plan itself is worked
 // out on the Pi (pi/planner.mjs). The last plan is kept in the browser per
@@ -89,11 +89,19 @@ export function horizonSnapshot(options) {
     const data = getClientData();
     if (!state.character || !data) return null;
     const who = skillingCharacter(state.character, state.items, data);
-    // Tools in the inventory can be put on for nothing.
+    // Tools in the inventory can be put on for nothing; so can clothes, jewellery,
+    // charms and capes with skilling stats, at their +level (each skill gets a loadout).
     const owned = {};
+    const gear = new Map();
     for (const item of state.items.values()) {
-        if (item.itemLocationHrid !== INVENTORY || item.enhancementLevel || !/_tool$/.test(data.itemDetailMap[item.itemHrid]?.equipmentDetail?.type || "")) continue;
-        owned[item.itemHrid] = (owned[item.itemHrid] || 0) + (item.count || 1);
+        if (item.itemLocationHrid !== INVENTORY) continue;
+        const detail = data.itemDetailMap[item.itemHrid]?.equipmentDetail;
+        if (/_tool$/.test(detail?.type || "")) {
+            if (!item.enhancementLevel) owned[item.itemHrid] = (owned[item.itemHrid] || 0) + (item.count || 1);
+        } else if (Object.keys(detail?.noncombatStats || {}).length) {
+            const level = item.enhancementLevel || 0;
+            gear.set(`${item.itemHrid}+${level}`, { itemHrid: item.itemHrid, enhancementLevel: level });
+        }
     }
     h.packed = h.packed?.source === data ? h.packed : { source: data, ...planData(data) };
     return {
@@ -103,6 +111,7 @@ export function horizonSnapshot(options) {
         who,
         coins: heldStock(state.character, state.items, COIN).inventory,
         owned,
+        gear: [...gear.values()],
         options,
         dataHash: h.packed.hash,
     };

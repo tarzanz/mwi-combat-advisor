@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fixtureCharacter } from "./fixture-character.js";
-import { skillingCharacter } from "../src/skilling.js";
+import { MARKET_TAX, skillingCharacter } from "../src/skilling.js";
 import { HORIZON_DEFAULTS, planAdviceKey, planHorizon, planMarkets, planName, simulatePlan } from "../src/horizon.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -89,6 +89,33 @@ const noTools = simulatePlan(snapshot, data, dear, [{ skill: "/skills/tailoring"
 check("…and not when it never pays back", !noTools.purchases.some((x) => /needle/.test(x.itemHrid)));
 const owned = simulatePlan({ ...snapshot, owned: { "/items/burble_needle": 1 } }, data, dear, [{ skill: "/skills/tailoring", level: Infinity, style: "gold" }], { days: 3 });
 check("a tool you have is put on for nothing", owned.purchases.some((x) => x.itemHrid === "/items/burble_needle" && x.owned && x.price === 0));
+
+// Clothes: a piece is bought when it pays, not when it never pays back; what you own is worn for the skill
+// it helps (a loadout per skill) and counts in the worth at the bid.
+const tailoring = [{ skill: "/skills/tailoring", level: Infinity, style: "gold" }];
+const milking = [{ skill: "/skills/milking", level: Infinity, style: "gold" }];
+const NECK = "/items/necklace_of_efficiency";
+const EARRINGS = "/items/earrings_of_gathering";
+const dressed = simulatePlan(snapshot, data, prices, tailoring, { days: 3 });
+const clothes = dressed.purchases.filter((x) => x.gear);
+check("a piece of clothing is bought when it pays", clothes.length > 0 && clothes.every((x) => x.gainPerDay > 0 && x.price > 0), clothes.map((x) => x.itemHrid).join(", "));
+const wornAfter = dressed.timeline.at(-1).ran[0]?.r.loadout || {};
+check("…and worn for the skill from then on", Object.values(wornAfter).some((item) => item.itemHrid === clothes.at(-1)?.itemHrid), clothes.at(-1)?.itemHrid);
+const pricey = pricesWith(200000);
+for (const item of Object.values(data.itemDetailMap)) {
+    const detail = item.equipmentDetail;
+    if (detail?.noncombatStats && !/_tool$/.test(detail.type)) pricey[item.hrid] = { a: 1e12, b: 1e12, aLow: 1e12, aHigh: 1e12, bLow: 1e12, sold: 0 };
+}
+const bare = simulatePlan(snapshot, data, pricey, tailoring, { days: 3 });
+check("…and not when it never pays back", !bare.purchases.some((x) => x.gear), bare.purchases.map((x) => x.itemHrid).join(", "));
+const held = { ...snapshot, gear: [{ itemHrid: NECK, enhancementLevel: 0 }, { itemHrid: EARRINGS, enhancementLevel: 0 }] };
+const heldTailoring = simulatePlan(held, data, pricey, tailoring, { days: 1 });
+const heldMilking = simulatePlan(held, data, pricey, milking, { days: 1 });
+const wears = (run, hrid) => Object.values(run.timeline[0].ran[0]?.r.loadout || {}).some((item) => item.itemHrid === hrid);
+check("clothes you own are worn for nothing for the skill they help", wears(heldTailoring, NECK) && wears(heldMilking, EARRINGS) && wears(heldMilking, NECK) && !heldTailoring.purchases.some((x) => x.gear));
+check("…a loadout per skill: what helps only gathering isn't worn to tailor", !wears(heldTailoring, EARRINGS));
+check("…and they earn more than going without", heldTailoring.timeline[0].income - heldTailoring.timeline[0].costs > bare.timeline[0].income - bare.timeline[0].costs);
+check("clothes you own count in the worth at the bid", Math.abs(heldTailoring.startWorth - bare.startWorth - 2 * 1e12 * (1 - MARKET_TAX)) < 1e3, `${heldTailoring.startWorth - bare.startWorth}`);
 
 // The end value of levels: without it the score is the worth.
 const noLevels = simulatePlan(snapshot, data, prices, [], { days, levelDays: 0 });

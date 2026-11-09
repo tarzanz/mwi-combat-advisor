@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.73.1
+// @version      0.74.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5079,7 +5079,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.73.1" : "dev";
+  var VERSION = true ? "0.74.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -12166,9 +12166,16 @@ ${triggerWindowReport()}`, false);
     if (!state.character || !data) return null;
     const who = skillingCharacter(state.character, state.items, data);
     const owned = {};
+    const gear = /* @__PURE__ */ new Map();
     for (const item of state.items.values()) {
-      if (item.itemLocationHrid !== INVENTORY9 || item.enhancementLevel || !/_tool$/.test(data.itemDetailMap[item.itemHrid]?.equipmentDetail?.type || "")) continue;
-      owned[item.itemHrid] = (owned[item.itemHrid] || 0) + (item.count || 1);
+      if (item.itemLocationHrid !== INVENTORY9) continue;
+      const detail = data.itemDetailMap[item.itemHrid]?.equipmentDetail;
+      if (/_tool$/.test(detail?.type || "")) {
+        if (!item.enhancementLevel) owned[item.itemHrid] = (owned[item.itemHrid] || 0) + (item.count || 1);
+      } else if (Object.keys(detail?.noncombatStats || {}).length) {
+        const level = item.enhancementLevel || 0;
+        gear.set(`${item.itemHrid}+${level}`, { itemHrid: item.itemHrid, enhancementLevel: level });
+      }
     }
     h2.packed = h2.packed?.source === data ? h2.packed : { source: data, ...planData(data) };
     return {
@@ -12178,6 +12185,7 @@ ${triggerWindowReport()}`, false);
       who,
       coins: heldStock(state.character, state.items, COIN11).inventory,
       owned,
+      gear: [...gear.values()],
       options,
       dataHash: h2.packed.hash
     };
@@ -12311,12 +12319,13 @@ ${triggerWindowReport()}`, false);
     if (st.error) lines.push(`<span class="mwia-bad">${esc(st.error)}</span>`);
     return lines.length ? `<p class="mwia-dim">${lines.join(" ")}</p>` : "";
   }
+  var gearText = (gear, before = " \xB7 ") => gear?.length ? `${before}<span class="mwia-dim">\u{1F455} ${gear.map((h3) => esc(itemName(h3))).join(", ")}</span>` : "";
   function firstHtml(plan, best) {
     const first = best.first;
     if (!first?.jobs?.length) return `<p>Nothing pays right now \u2013 the plan has no job for the next ${plan.options.blockHours} hours.</p>`;
     const jobs = first.jobs.slice().sort((x, y) => y.hours - x.hours);
-    const rows = jobs.map((j2) => `<li><b>${esc(j2.name)}</b> (${skillLabel4(j2.skill)}) \u2013 ${Math.round(j2.hours * 10) / 10} h, about ${j2.actions.toLocaleString("en-US")} actions, ${teaText(j2.teas)}; ${coins8(j2.goldPerHour)}/h, ${j2.xpPerHour.toLocaleString("en-US")} XP/h</li>`).join("");
-    const buys = best.purchases.filter((x) => x.day === 0).map((x) => `<li>\u{1F6E0} ${x.owned ? "Put on" : "Buy"} <b>${esc(itemName(x.itemHrid))}</b>${x.owned ? " (you have it)" : ` for ${coins8(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} (${coins8(x.resale)})` : ""}</li>`).join("");
+    const rows = jobs.map((j2) => `<li><b>${esc(j2.name)}</b> (${skillLabel4(j2.skill)}) \u2013 ${Math.round(j2.hours * 10) / 10} h, about ${j2.actions.toLocaleString("en-US")} actions, ${teaText(j2.teas)}; ${coins8(j2.goldPerHour)}/h, ${j2.xpPerHour.toLocaleString("en-US")} XP/h${gearText(j2.gear, "<br>")}</li>`).join("");
+    const buys = best.purchases.filter((x) => x.day === 0).map((x) => `<li>${x.gear ? "\u{1F455}" : "\u{1F6E0}"} ${x.owned ? "Put on" : "Buy"} <b>${esc(itemName(x.itemHrid))}</b>${x.owned ? " (you have it)" : ` for ${coins8(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} (${coins8(x.resale)})` : ""}</li>`).join("");
     const idle = first.idle > 0.1 ? `<li class="mwia-dim">${Math.round(first.idle * 10) / 10} h left: your coins or the market don't carry more.</li>` : "";
     return `<p><b>The next ${plan.options.blockHours} hours:</b></p><ul>${buys}${rows}${idle}</ul>`;
   }
@@ -12346,12 +12355,12 @@ ${triggerWindowReport()}`, false);
     const segs = p2.segments.map((s2) => {
       const xp = Object.entries(s2.xp).map(([skill, amount2]) => `${skillLabel4(skill)} ${shortCoins(amount2)} XP`).join(", ");
       const also = s2.also.length ? ` <span class="mwia-dim">(also ${s2.also.slice(0, 4).map(esc).join(", ")}${s2.also.length > 4 ? ", \u2026" : ""} when the first can't fill the hours)</span>` : "";
-      return `<tr><td>Day ${dayText(s2.from)}\u2013${dayText(s2.to)}</td><td><b>${esc(s2.name)}</b>${s2.skill ? ` (${skillLabel4(s2.skill)})` : ""}${also}<br><span class="mwia-dim">${teaText(s2.teas)}${s2.tool ? ` \xB7 ${esc(itemName(s2.tool))}` : ""}</span></td><td class="mwia-num">${coins8(s2.gold)}</td><td>${xp}</td></tr>`;
+      return `<tr><td>Day ${dayText(s2.from)}\u2013${dayText(s2.to)}</td><td><b>${esc(s2.name)}</b>${s2.skill ? ` (${skillLabel4(s2.skill)})` : ""}${also}<br><span class="mwia-dim">${teaText(s2.teas)}${s2.tool ? ` \xB7 ${esc(itemName(s2.tool))}` : ""}</span>${gearText(s2.gear)}</td><td class="mwia-num">${coins8(s2.gold)}</td><td>${xp}</td></tr>`;
     }).join("");
-    const buys = p2.purchases.map((x) => `<li>Day ${dayText(x.day)}: ${x.owned ? "put on" : "buy"} ${esc(itemName(x.itemHrid))}${x.owned ? "" : ` for ${coins8(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} for ${coins8(x.resale)}` : ""} (+${coins8(x.gainPerDay)}/day)</li>`).join("");
+    const buys = p2.purchases.map((x) => `<li>${x.gear ? "\u{1F455}" : "\u{1F6E0}"} Day ${dayText(x.day)}: ${x.owned ? "put on" : "buy"} ${esc(itemName(x.itemHrid))}${x.owned ? "" : ` for ${coins8(x.price)}`}${x.sold ? `, sell ${esc(itemName(x.sold))} for ${coins8(x.resale)}` : ""} (+${coins8(x.gainPerDay)}/day)</li>`).join("");
     const levels = Object.entries(p2.levels).map(([skill, [from, to]]) => `${skillLabel4(skill)} ${from} \u2192 ${to}`).join(", ");
     return `<table class="mwia-horizon-steps"><thead><tr><th>When</th><th>Job</th><th>Gold</th><th>XP</th></tr></thead><tbody>${segs}</tbody></table>
-      ${buys ? `<p><b>Tools</b></p><ul>${buys}</ul>` : ""}
+      ${buys ? `<p><b>Tools and clothes</b></p><ul>${buys}</ul>` : ""}
       ${levels ? `<p><b>Levels</b>: ${levels}</p>` : ""}
       <p class="mwia-dim">Worth day by day: ${sparkline(p2.worthByDay)}</p>`;
   }
@@ -12372,7 +12381,8 @@ ${triggerWindowReport()}`, false);
       Prices are the usual ones, not today's: the week's median ask to buy and to list at (never above 1.5\xD7 the usual bid), the median bid as the floor.
       The market takes ${Math.round(o2.marketShare * 100)}% of what sells of an item a day: the rest waits in stock and sells first in later blocks; the same share caps what you can buy of a material.
       A better tool for the skill you work is bought when its extra gold over the days left pays for it (less what it sells for again); the old one is sold at the bid.
-      Worth = coins + tools at the bid + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o2.levelDays} days of what the character earns a day at the end, so levels count.
+      Each skill is worked in a loadout of its own: of each slot, the clothes, jewellery, charm or cape you own (worn or in the inventory) that earn the most on its best job \u2013 switch loadouts in the game as the plan switches skill. A piece for the skill you work is bought the same way as a tool; what it replaces is kept for other skills. The pouch and task badges stay as they are.
+      Worth = coins + tools and clothes at the bid + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o2.levelDays} days of what the character earns a day at the end, so levels count.
       Plans compared: earning the most every block, keeping to one skill, and up to two training phases before earning. Gathering and production only \u2013 no Enhancing, Alchemy or combat yet, and materials are bought, not gathered yourself.${unknown}
     </p></details>`;
   }
@@ -13497,7 +13507,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.73.1" : "dev";
+  var VERSION3 = true ? "0.74.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

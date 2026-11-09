@@ -305,10 +305,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   works it out anew. Nothing is changed in the game: you set the slots and save the loadout.
 - **📈 Plan (N days ahead, worked out on your Pi)** – which order of 8-hour skilling jobs leaves your character
   worth the most in 30 days (7 to 90): keep to what earns most now (say Tailoring), or first level another skill
-  towards a job or a tool that unlocks soon. The browser sends your character (levels, XP, buffs, teas, tools, coins)
-  to your Pi at most every 30 minutes, and after a game patch the part of the game's data the plan needs (under
-  1 MB); the Pi works the plan out 10 minutes after a new snapshot, and every 6 hours for new prices, in a process
-  of its own at the lowest priority (nice 19, given back when done), and the tab reads it with every sync.
+  towards a job or a tool that unlocks soon. The browser sends your character (levels, XP, buffs, teas, tools,
+  clothes, coins) to your Pi at most every 30 minutes, and after a game patch the part of the game's data the plan
+  needs (under 1 MB); the Pi works the plan out 10 minutes after a new snapshot, and every 6 hours for new prices,
+  in a process of its own at the lowest priority (nice 19, given back when done), and the tab reads it with every
+  sync.
   **▶ Plan now** sends your character and has it worked out at once (a minute or two). The model:
   - Time goes in **8-hour blocks**: one job, and at most one more queued behind it when coins or materials cut the
     first short – no job under an hour. Each block runs the job that earns the most, or, while a plan trains a
@@ -326,16 +327,21 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     better tool for the skill being worked is bought when its extra gold over the days left (within the market's
     limits) pays for it, less what it sells for again (the old one is sold at the bid; one in your inventory is put
     on for nothing); it may take at most half your coins unless a block of the job's materials is still paid for.
-    Only tools so far: clothes, jewellery, charms and capes stay as you wear them.
-  - **Worth** = coins + tools at the bid + stock (at the bid for up to a day of sales, the shop price for the rest).
+  - **Clothes, jewellery, charms and capes**: each skill is worked in a **loadout of its own** – of each slot, what
+    you own (worn or in the inventory, at its +level) that earns the most on the skill's best job; you switch
+    loadouts in the game as the plan switches skill. A piece for the skill being worked is bought the same way as a
+    tool (at +0, when its extra gold within the market's limits over the days left pays for it, less what it sells
+    for again); what it replaces is kept, since another skill may wear it. The pouch (it sets the drink slots) and
+    task badges stay as they are.
+  - **Worth** = coins + tools and clothes at the bid + stock (at the bid for up to a day of sales, the shop price for the rest).
     Levels can't be sold, so the **score** adds *Levels worth* days (7 by default) of the gold a day the character
     earns at the end – otherwise a plan would never train near its end.
   - **Plans compared**: earning the most every block, keeping to one skill (*Only Tailoring*), and up to two
     training phases (a skill to the next levels where a job or tool unlocks, earning in it or at its fastest XP)
     before earning the most – the best single phases get each second phase tried (a few hundred plans).
-  The tab shows the best plan with **the next 8 hours** (jobs, hours, about how many actions, teas, a tool to buy or
-  put on), how it compares with keeping to what earns now and with earning the most every block, and every plan
-  shown step by step: from which day to which each job runs, its gold and XP, tools bought, levels reached and the
+  The tab shows the best plan with **the next 8 hours** (jobs, hours, about how many actions, teas, the clothes to
+  wear, a tool or a piece of clothing to buy or put on), how it compares with keeping to what earns now and with earning the most every block, and every plan
+  shown step by step: from which day to which each job runs, its gold, XP and loadout, tools and clothes bought, levels reached and the
   worth day by day. A plan you haven't seen puts a **blue dot** on the 🧭 button (the red one is the Market tab's);
   opening the tab clears it. Gathering and production only (no Enhancing, Alchemy or combat yet); materials are
   bought, not gathered yourself. Needs a Pi with `MWIA_ORDERS=1` ([pi/README.md](pi/README.md)).
@@ -620,7 +626,7 @@ node test/market-test.mjs                                 # Market tab rules in 
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
 node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts, Pi down, unlink
-node test/horizon-test.mjs                                # the 📈 plan in Node: blocks, the market's share, coins, tools, training, cautious prices
+node test/horizon-test.mjs                                # the 📈 plan in Node: blocks, the market's share, coins, tools, clothes, training, cautious prices
 node test/horizon-browser-test.mjs /tmp                   # the 📈 plan end to end: snapshot to a real Pi, ▶ Plan now, the tab, the blue dot
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
 node test/export-browser-test.mjs /tmp                    # Export for chat: under the inventory, share sheet or download

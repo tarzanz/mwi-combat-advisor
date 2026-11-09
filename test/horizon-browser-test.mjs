@@ -26,6 +26,7 @@ const userscript = readFileSync(path.join(root, "dist/mwi-combat-advisor.user.js
 const character = fixtureCharacter();
 character.characterSkills.push({ skillHrid: "/skills/tailoring", level: 30, experience: 0 }, { skillHrid: "/skills/crafting", level: 20, experience: 0 });
 character.characterItems.push({ hash: "needle", itemHrid: "/items/verdant_needle", itemLocationHrid: "/item_locations/inventory", count: 1, enhancementLevel: 0 });
+character.characterItems.push({ hash: "necklace", itemHrid: "/items/necklace_of_efficiency", itemLocationHrid: "/item_locations/inventory", count: 1, enhancementLevel: 2 });
 
 let failures = 0;
 const check = (name, ok, detail = "") => { console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); if (!ok) failures++; };
@@ -101,7 +102,7 @@ try {
     }
     check("the character and the game's data go to the Pi after the first sync", sent);
     const snapshot = sent ? JSON.parse(readFileSync(path.join(planDir, "1", "snapshot.json"), "utf8")) : null;
-    check("the snapshot: levels, coins, the tool in the inventory, the plan's settings", snapshot?.who?.levels?.["/skills/tailoring"] === 30 && snapshot.coins === 500000 && snapshot.owned["/items/verdant_needle"] === 1 && snapshot.options.days === 7 && snapshot.options.levelDays === 7 && snapshot.character.name === "TestMage", JSON.stringify(snapshot && { coins: snapshot.coins, owned: snapshot.owned, options: snapshot.options }));
+    check("the snapshot: levels, coins, the tool and clothes in the inventory, the plan's settings", snapshot?.who?.levels?.["/skills/tailoring"] === 30 && snapshot.coins === 500000 && snapshot.owned["/items/verdant_needle"] === 1 && snapshot.gear?.length === 1 && snapshot.gear[0].itemHrid === "/items/necklace_of_efficiency" && snapshot.gear[0].enhancementLevel === 2 && snapshot.options.days === 7 && snapshot.options.levelDays === 7 && snapshot.character.name === "TestMage", JSON.stringify(snapshot && { coins: snapshot.coins, owned: snapshot.owned, gear: snapshot.gear, options: snapshot.options }));
     const shipped = sent ? JSON.parse(readFileSync(path.join(planDir, "game-data.json"), "utf8")) : null;
     check("the game's data, trimmed", shipped?.hash === snapshot?.dataHash && Object.keys(shipped.data.actionDetailMap).length > 100 && Array.isArray(shipped.data.levelExperienceTable));
 
@@ -118,7 +119,8 @@ try {
     check("▶ Plan now: the plan shows, with the next 8 hours", /The next 8 hours/.test(body) && /📈/.test(body), body.slice(0, 300));
     check("the plans compared: earning the most and keeping to what earns now", /Earn the most every block/.test(body) && /Only /.test(body));
     check("each plan has its steps, levels and worth by day", (await page.$$(".mwia-horizon-plan")).length >= 3 && (await page.$$(".mwia-horizon-steps tbody tr")).length > 0 && (await page.$$(".mwia-horizon-spark")).length > 0);
-    check("how it is worked out is told", /usual ones, not today's/.test(body) && /50% of what sells/.test(body));
+    check("the clothes a job is worked in are shown: the necklace in the inventory", /👕[^\n]*Necklace Of Efficiency/i.test(body), (body.match(/👕[^\n]*/) || [""])[0]);
+    check("how it is worked out is told", /usual ones, not today's/.test(body) && /50% of what sells/.test(body) && /loadout of its own/.test(body));
     await page.screenshot({ path: path.join(shotDir, "horizon-tab.png"), fullPage: false });
     const dotOpen = await page.$eval(".mwia-launcher", (b) => b.classList.contains("mwia-has-news"));
     check("seen in the tab: no blue dot", !dotOpen);

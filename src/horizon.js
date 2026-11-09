@@ -22,7 +22,12 @@
 //   jobs and tools. A better tool for the skill being worked is bought when its
 //   extra gold over the days left (plus levelDays) pays for it, less what it
 //   sells for again (the old one is sold at the bid).
-// - Worth at the end = coins + tools at their bid + stock (at the bid for up to
+// - Clothes, jewellery, charms and capes: each skill is worked in a loadout of
+//   its own (swapped for nothing) – of each slot, what the character owns that
+//   earns the most on the skill's best job. One piece for the skill being worked
+//   is bought when it pays the same way; what it replaces is kept for other
+//   skills. The pouch and task badges stay as they are.
+// - Worth at the end = coins + tools and clothes at their bid + stock (at the bid for up to
 //   a day of sales, the shop price for the rest). Levels can't be sold, so the
 //   score adds levelDays × the gold a day the character can earn at the end –
 //   otherwise a plan would never train near its end.
@@ -59,6 +64,10 @@ const MIN_JOB_HOURS = 1;
 const TEA_BUCKET = 10;
 // A cheap tool (this share of the coins at most, after its resale) is bought while training for XP.
 const CHEAP_TOOL = 0.05;
+// Clothes, jewellery, charms and capes are worn per skill (a loadout each); the
+// pouch (it sets the drink slots) and task badges stay as they are.
+const FIXED_GEAR = new Set(["/equipment_types/pouch", "/equipment_types/trinket"]);
+const WISDOM = "/buff_types/wisdom";
 
 const ACTION_TYPE = "/action_types/";
 const toolTypeOf = (actionType) => "/equipment_types/" + actionType.slice(ACTION_TYPE.length) + "_tool";
@@ -116,6 +125,34 @@ function context(snapshot, data, prices, options) {
         const type = data.itemDetailMap[worn.itemHrid]?.equipmentDetail?.type;
         if (type && tiers[type]) tools[type] = { itemHrid: worn.itemHrid, level: worn.enhancementLevel || 0 };
     }
+    // Clothes: what is worn now (in the game's buffs) and all the character owns – worn or in the inventory.
+    const gearType = (itemHrid) => {
+        const detail = data.itemDetailMap[itemHrid]?.equipmentDetail;
+        return Object.keys(detail?.noncombatStats || {}).length && !/_tool$/.test(detail.type || "") && !FIXED_GEAR.has(detail.type) ? detail.type : null;
+    };
+    const wornGear = {};
+    const ownedGear = new Map();
+    const addGear = (itemHrid, level) => {
+        if (!gearType(itemHrid)) return;
+        const item = { itemHrid, level: level || 0 };
+        ownedGear.set(toolKey(item), item);
+        return item;
+    };
+    for (const worn of who.equipped || []) {
+        const item = addGear(worn.itemHrid, worn.enhancementLevel);
+        if (item) wornGear[gearType(worn.itemHrid)] = item;
+    }
+    for (const held of snapshot.gear || []) addGear(held.itemHrid, held.enhancementLevel);
+    // What could be bought for each skill: clothes that add more than XP to it.
+    const shop = {};
+    for (const skill of skills) {
+        shop[skill] = [];
+        for (const item of Object.values(data.itemDetailMap)) {
+            const type = gearType(item.hrid);
+            if (!type || item.isTradable === false) continue;
+            if (itemSkillBuffs(item.hrid, 0, skillNameOf(skill), data).buffs.some((b) => b.typeHrid !== WISDOM)) shop[skill].push({ itemHrid: item.hrid, type });
+        }
+    }
     const markets = planMarkets(prices, data);
     return {
         o,
@@ -126,6 +163,13 @@ function context(snapshot, data, prices, options) {
         actions,
         tiers,
         tools,
+        wornGear,
+        wornGearKey: gearKey(wornGear),
+        ownedGear: [...ownedGear.values()],
+        gearType,
+        shop,
+        actionById: new Map(actions.map((a) => [a.hrid, a])),
+        skillTypes: Object.fromEntries(skills.map((s) => [s, ACTION_TYPE + skillNameOf(s)])),
         owned: snapshot.owned || {},
         coins: Math.max(0, Number(snapshot.coins) || 0),
         markets,
@@ -134,38 +178,65 @@ function context(snapshot, data, prices, options) {
         rateCache: new Map(),
         teaCache: new Map(),
         listCache: new Map(),
+        loadoutCache: new Map(),
+        gainCache: new Map(),
         unknownSales: new Set(),
     };
 }
 
-// The character with another tool for one action type: the game's buffs
-// already hold the tool worn now, so it is taken off and the other put on.
-function whoWithTool(ctx, actionType, tool) {
+// The character with another tool and clothes for one action type: the game's
+// buffs already hold what is worn now, so it is taken off and the other put on.
+// gear: type -> { itemHrid, level }, the skill's loadout.
+function whoWith(ctx, actionType, tool, gear) {
     const toolType = toolTypeOf(actionType);
     const worn = ctx.tools[toolType] || null;
-    if ((worn?.itemHrid || "") === (tool?.itemHrid || "") && (worn?.level || 0) === (tool?.level || 0)) return ctx.who;
+    const sameTool = toolKey(worn) === toolKey(tool);
+    const sameGear = gearKey(gear) === ctx.wornGearKey;
+    if (sameTool && sameGear) return ctx.who;
     const skill = actionType.slice(ACTION_TYPE.length);
-    // Only when the game sent the equipment's buffs is the tool worn now in them.
+    // Only when the game sent the equipment's buffs is what is worn now in them.
     const inBuffs = !!ctx.who.sources?.equipmentActionTypeBuffsMap;
-    const off = worn && inBuffs ? itemSkillBuffs(worn.itemHrid, worn.level, skill, ctx.data).buffs : [];
-    const on = tool ? itemSkillBuffs(tool.itemHrid, tool.level, skill, ctx.data).buffs : [];
+    const buffsOf = (item) => itemSkillBuffs(item.itemHrid, item.level, skill, ctx.data).buffs;
+    const off = [];
+    const on = [];
+    if (!sameTool) {
+        if (worn && inBuffs) off.push(...buffsOf(worn));
+        if (tool) on.push(...buffsOf(tool));
+    }
+    if (!sameGear) {
+        if (inBuffs) for (const item of Object.values(ctx.wornGear)) off.push(...buffsOf(item));
+        for (const item of Object.values(gear)) on.push(...buffsOf(item));
+    }
     const buffs = [...(ctx.who.buffs?.[actionType] || []), ...off.map((b) => ({ ...b, flatBoost: -b.flatBoost })), ...on];
     return { ...ctx.who, buffs: { ...(ctx.who.buffs || {}), [actionType]: buffs } };
 }
 
 const toolKey = (tool) => (tool ? `${tool.itemHrid}+${tool.level}` : "-");
+// A loadout as one text, worked out once per loadout (they are kept, not changed).
+const gearKeys = new WeakMap();
+const gearKey = (gear) => {
+    let key = gearKeys.get(gear);
+    if (key === undefined) {
+        key = Object.keys(gear).sort().map((type) => toolKey(gear[type])).join(",");
+        gearKeys.set(gear, key);
+    }
+    return key;
+};
 
-// One job's rates at a level with a tool: per hour, what it makes (each with
-// the listing price and the floor after tax), uses, costs in teas and the XP
-// it gives. mode "gold" picks its teas for gold, "xp" for XP.
-function rates(ctx, market, action, level, tool, mode) {
-    const key = `${market.name}|${action.hrid}|${level}|${toolKey(tool)}|${mode}`;
+// One job's rates at a level with a tool and clothes: per hour, what it makes
+// (each with the listing price and the floor after tax), uses, costs in teas
+// and the XP it gives. mode "gold" picks its teas for gold, "xp" for XP; teas,
+// when given, are used as they are (to compare clothes on the same job).
+function rates(ctx, market, action, level, tool, mode, gear = ctx.wornGear, fixedTeas = null) {
+    const gk = gearKey(gear);
+    const key = `${market.name}|${action.hrid}|${level}|${toolKey(tool)}|${gk}|${mode}${fixedTeas ? "|" + fixedTeas.join("+") : ""}`;
     let r = ctx.rateCache.get(key);
     if (r) return r;
-    const who = whoWithTool(ctx, action.type, tool);
+    const who = whoWith(ctx, action.type, tool, gear);
     const evaluate = (teas) => daily(evaluateAction(action, who, ctx.data, market, teas, level));
+    // The teas are picked once per tool and few levels: clothes hardly change which pay.
     const teaKey = `${market.name}|${action.hrid}|${Math.floor(level / TEA_BUCKET)}|${toolKey(tool)}|${mode}`;
-    let teas = ctx.teaCache.get(teaKey);
+    let teas = fixedTeas || ctx.teaCache.get(teaKey);
     if (!teas) {
         teas = bestTeas(action, who, ctx.data, market, evaluate, mode === "xp" ? (x) => x.xpPerDay : (x) => x.goldPerDay).result.teas;
         ctx.teaCache.set(teaKey, teas);
@@ -201,6 +272,7 @@ function rates(ctx, market, action, level, tool, mode) {
         type: action.type,
         level,
         tool: tool?.itemHrid || null,
+        loadout: gear,
         teas,
         valid: e.valid,
         actionsPerHour: e.actionsPerHour,
@@ -217,16 +289,56 @@ function rates(ctx, market, action, level, tool, mode) {
     return r;
 }
 
+// Whether the character's levels allow an item.
+const meets = (ctx, state, itemHrid) => (ctx.data.itemDetailMap[itemHrid]?.equipmentDetail?.levelRequirements || []).every((req) => (state.level[req.skillHrid] ?? ctx.who.levels[req.skillHrid] ?? 0) >= req.level);
+
+// The clothes a skill is worked in – a loadout of its own, swapped for nothing:
+// of each slot, what the character owns that earns the most on the skill's best
+// job (as it is worn now when nothing owned does better).
+function loadoutOf(ctx, market, state, skill) {
+    const level = state.level[skill];
+    const tools = (type) => state.tools[toolTypeOf(type)] || null;
+    const key = `${market.name}|${skill}|${level}|${toolKey(tools(ctx.skillTypes[skill]))}|${state.gearKey}`;
+    let gear = ctx.loadoutCache.get(key);
+    if (gear) return gear;
+    gear = { ...ctx.wornGear };
+    let top = null;
+    for (const action of ctx.actions) {
+        if (action.levelRequirement.skillHrid !== skill || action.levelRequirement.level > level) continue;
+        const r = rates(ctx, market, action, level, tools(action.type), "gold");
+        if (r.valid && (!top || r.marketPerHour > top.marketPerHour)) top = r;
+    }
+    if (top) {
+        const action = ctx.actionById.get(top.id);
+        const name = skillNameOf(skill);
+        let best = top.marketPerHour;
+        for (const item of state.gear) {
+            const type = ctx.gearType(item.itemHrid);
+            if (toolKey(gear[type]) === toolKey(item) || !meets(ctx, state, item.itemHrid) || !itemSkillBuffs(item.itemHrid, item.level, name, ctx.data).buffs.length) continue;
+            const trial = { ...gear, [type]: item };
+            const r = rates(ctx, market, action, level, tools(action.type), "gold", trial, top.teas);
+            if (r.valid && r.marketPerHour > best) {
+                best = r.marketPerHour;
+                gear = trial;
+            }
+        }
+    }
+    ctx.loadoutCache.set(key, gear);
+    return gear;
+}
+
 // The jobs the state's levels allow, with their rates: all of one skill, or the best earners of all.
 function jobs(ctx, market, state, mode, skill = null) {
-    const key = `${market.name}|${mode}|${skill || "*"}|${ctx.skills.map((s) => state.level[s]).join(",")}|${Object.values(state.tools).map(toolKey).join(",")}`;
+    const key = `${market.name}|${mode}|${skill || "*"}|${ctx.skills.map((s) => state.level[s]).join(",")}|${Object.values(state.tools).map(toolKey).join(",")}|${state.gearKey}`;
     let list = ctx.listCache.get(key);
     if (list) return list;
     list = [];
+    const loadouts = new Map();
     for (const action of ctx.actions) {
         const s = action.levelRequirement.skillHrid;
         if ((skill && s !== skill) || action.levelRequirement.level > state.level[s]) continue;
-        const r = rates(ctx, market, action, state.level[s], state.tools[toolTypeOf(action.type)] || null, mode);
+        if (!loadouts.has(s)) loadouts.set(s, loadoutOf(ctx, market, state, s));
+        const r = rates(ctx, market, action, state.level[s], state.tools[toolTypeOf(action.type)] || null, mode, loadouts.get(s));
         if (r.valid) list.push(r);
     }
     list.sort((x, y) => (mode === "xp" ? y.xpPerHour - x.xpPerHour : y.marketPerHour - x.marketPerHour || 0));
@@ -261,7 +373,7 @@ function stockWorth(ctx, market, stock) {
     return worth;
 }
 
-const worthOf = (ctx, market, state) => state.coins + stockWorth(ctx, market, state.stock) + Object.values(state.tools).reduce((sum, tool) => sum + toolResale(ctx, market, tool), 0);
+const worthOf = (ctx, market, state) => state.coins + stockWorth(ctx, market, state.stock) + [...Object.values(state.tools), ...state.gear].reduce((sum, item) => sum + toolResale(ctx, market, item), 0);
 
 function initialState(ctx) {
     const xp = {};
@@ -270,10 +382,13 @@ function initialState(ctx) {
         level[s] = ctx.who.levels[s];
         xp[s] = experienceOf(ctx.table, ctx.who.experience?.[s], level[s]);
     }
-    return { coins: ctx.coins, xp, level, tools: { ...ctx.tools }, stock: {}, owned: { ...ctx.owned } };
+    return { coins: ctx.coins, xp, level, tools: { ...ctx.tools }, stock: {}, owned: { ...ctx.owned }, gear: ctx.ownedGear, gearKey: ownedGearKey(ctx.ownedGear) };
 }
 
-const cloneState = (state) => ({ coins: state.coins, xp: { ...state.xp }, level: { ...state.level }, tools: { ...state.tools }, stock: { ...state.stock }, owned: { ...state.owned } });
+// The clothes owned, as one text (the loadouts and job lists are kept per set).
+const ownedGearKey = (gear) => gear.map(toolKey).sort().join(",");
+
+const cloneState = (state) => ({ coins: state.coins, xp: { ...state.xp }, level: { ...state.level }, tools: { ...state.tools }, stock: { ...state.stock }, owned: { ...state.owned }, gear: state.gear, gearKey: state.gearKey });
 
 // One block of `hours`: the stock sells first, then jobs fill the hours.
 // phase: { skill, style } while training, else null (earn the most).
@@ -408,6 +523,49 @@ function maybeBuyTool(ctx, market, state, actionType, phase, daysLeft) {
     return { itemHrid: next.itemHrid, price, owned, sold: current?.itemHrid || null, resale, gainPerDay };
 }
 
+// Before a block: one piece of clothing for the skill being worked, when its
+// extra gold (within the market's limits, on the skill's best job) over the days
+// left plus levelDays pays for it, less what it sells for again. What it
+// replaces is kept: another skill may wear it.
+function maybeBuyGear(ctx, market, state, actionType, daysLeft) {
+    if (!actionType) return null;
+    const skill = "/skills/" + actionType.slice(ACTION_TYPE.length);
+    const shop = ctx.shop[skill];
+    if (!shop?.length || state.level[skill] === undefined) return null;
+    const top = jobs(ctx, market, state, "gold", skill)[0];
+    if (!top || !(top.marketPerHour > 0)) return null;
+    const action = ctx.actionById.get(top.id);
+    const tool = state.tools[toolTypeOf(actionType)] || null;
+    const gear = loadoutOf(ctx, market, state, skill);
+    const have = new Set(state.gear.map((item) => item.itemHrid));
+    let best = null;
+    for (const { itemHrid, type } of shop) {
+        if (have.has(itemHrid) || !meets(ctx, state, itemHrid)) continue;
+        const price = market.buy(itemHrid);
+        if (!(price > 0) || price > state.coins) continue;
+        // Coins must still buy a block of the job's materials and teas afterwards, or it may take at most half of them.
+        const after = state.coins - price;
+        if (after < top.costPerHour * ctx.o.blockHours && after < state.coins / 2) continue;
+        const item = { itemHrid, level: 0 };
+        const gainKey = `${market.name}|${top.id}|${state.level[skill]}|${toolKey(tool)}|${gearKey(gear)}|${itemHrid}`;
+        let gainPerDay = ctx.gainCache.get(gainKey);
+        if (gainPerDay === undefined) {
+            const r = rates(ctx, market, action, state.level[skill], tool, "gold", { ...gear, [type]: item }, top.teas);
+            gainPerDay = r.valid ? (r.marketPerHour - top.marketPerHour) * 24 : 0;
+            ctx.gainCache.set(gainKey, gainPerDay);
+        }
+        if (!(gainPerDay > 0)) continue;
+        const resale = toolResale(ctx, market, item);
+        const value = gainPerDay * (daysLeft + ctx.o.levelDays) - (price - resale);
+        if (value > 0 && (!best || value > best.value)) best = { item, price, resale, gainPerDay, value };
+    }
+    if (!best) return null;
+    state.coins -= best.price;
+    state.gear = [...state.gear, best.item];
+    state.gearKey = ownedGearKey(state.gear);
+    return { itemHrid: best.item.itemHrid, price: best.price, owned: false, sold: null, resale: best.resale, gainPerDay: best.gainPerDay, gear: true };
+}
+
 // The gold a day the state can earn: a day of the best jobs with the market's full room.
 function earnRate(ctx, market, state) {
     const copy = cloneState(state);
@@ -436,6 +594,8 @@ function simulate(ctx, market, phases) {
         const focusType = phase ? ctx.actions.find((a) => a.levelRequirement.skillHrid === phase.skill)?.type : jobs(ctx, market, state, "gold")[0]?.type || lastType;
         const bought = maybeBuyTool(ctx, market, state, focusType, phase, daysLeft);
         if (bought) purchases.push({ block: b, ...bought });
+        const clothes = maybeBuyGear(ctx, market, state, focusType, daysLeft);
+        if (clothes) purchases.push({ block: b, ...clothes });
         const block = runBlock(ctx, market, state, phase, blockHours);
         for (const up of levelUp(ctx, state)) levelUps.push({ block: b, ...up });
         const main = block.ran.slice().sort((x, y) => y.hours - x.hours)[0] || null;
@@ -474,6 +634,9 @@ export function planName(phases) {
     return titleCase(phases.at(-1).level === Infinity ? text : `${text}, then earn the most`);
 }
 
+// The clothes a job is worked in that do something for it.
+const wornFor = (ctx, r) => Object.values(r.loadout).filter((item) => itemSkillBuffs(item.itemHrid, item.level, skillNameOf(r.skill), ctx.data).buffs.length).map((item) => item.itemHrid);
+
 // The blocks as stretches of the same main job: what to do from day x to day y.
 function segments(ctx, run) {
     const out = [];
@@ -503,6 +666,7 @@ function segments(ctx, run) {
             skill: main ? main.r.skill : null,
             teas: main ? main.r.teas : [],
             tool: main ? main.r.tool : null,
+            gear: main ? wornFor(ctx, main.r) : [],
             gold: income,
             xp,
             also: new Set(block.ran.filter(({ r }) => r.id !== id).map(({ r }) => r.name)),
@@ -518,11 +682,11 @@ function xpOf(block) {
 }
 
 // What to do in the first block: each job, its hours and teas.
-function firstBlock(run) {
+function firstBlock(ctx, run) {
     const block = run.timeline[0];
     if (!block) return null;
     return {
-        jobs: block.ran.map(({ r, hours }) => ({ hrid: r.id, name: r.name, skill: r.skill, hours: Math.round(hours * 100) / 100, actions: Math.round(r.actionsPerHour * hours), teas: r.teas, goldPerHour: Math.round(r.profitPerHour), xpPerHour: Math.round(r.xpPerHour) })),
+        jobs: block.ran.map(({ r, hours }) => ({ hrid: r.id, name: r.name, skill: r.skill, hours: Math.round(hours * 100) / 100, actions: Math.round(r.actionsPerHour * hours), teas: r.teas, gear: wornFor(ctx, r), goldPerHour: Math.round(r.profitPerHour), xpPerHour: Math.round(r.xpPerHour) })),
         idle: Math.round(block.idle * 100) / 100,
     };
 }
@@ -538,10 +702,10 @@ function summary(ctx, run, cautious = null) {
         endRate: Math.round(run.endRate),
         cautious: cautious ? { score: Math.round(cautious.score), gain: Math.round(cautious.gain), endRate: Math.round(cautious.endRate) } : null,
         segments: segments(ctx, run),
-        purchases: run.purchases.map((x) => ({ day: (x.block * ctx.o.blockHours) / 24, itemHrid: x.itemHrid, price: Math.round(x.price), owned: x.owned, sold: x.sold, resale: Math.round(x.resale), gainPerDay: Math.round(x.gainPerDay) })),
+        purchases: run.purchases.map((x) => ({ day: (x.block * ctx.o.blockHours) / 24, itemHrid: x.itemHrid, price: Math.round(x.price), owned: x.owned, sold: x.sold, resale: Math.round(x.resale), gainPerDay: Math.round(x.gainPerDay), gear: !!x.gear })),
         levels: Object.fromEntries(ctx.skills.filter((s) => run.end.level[s] !== startLevels[s]).map((s) => [s, [startLevels[s], run.end.level[s]]])),
         worthByDay: run.worthByDay,
-        first: firstBlock(run),
+        first: firstBlock(ctx, run),
     };
 }
 
@@ -590,7 +754,7 @@ export function planHorizon(snapshot, data, prices, options = {}, now = Date.now
     return {
         at: now,
         options: ctx.o,
-        start: { coins: Math.round(ctx.coins), worth: Math.round(baseline.startWorth), levels: initialState(ctx).level, tools: ctx.tools },
+        start: { coins: Math.round(ctx.coins), worth: Math.round(baseline.startWorth), levels: initialState(ctx).level, tools: ctx.tools, gear: ctx.ownedGear },
         plans,
         best: 0,
         baseline: plans.indexOf(plans.find((x) => !x.phases.length)),
