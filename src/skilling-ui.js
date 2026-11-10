@@ -880,7 +880,7 @@ function upgradesHtml(settings) {
     if (settings.skillingSkill === "all") {
         return `<section><h3>Upgrades that pay back</h3><p class="mwia-dim">Pick a skill above to see which tools, clothes, jewellery and house rooms pay for themselves.</p></section>`;
     }
-    const { base, upgrades, check, xpPrice } = upgradeRanking(settings);
+    const { base, upgrades, outlived = [], check, xpPrice } = upgradeRanking(settings);
     const isLeveling = LEVELING_SKILLS.includes(settings.skillingSkill);
     let html = `<section><h3>Upgrades that pay back</h3>`;
     if (!base) return html + `<p class="mwia-dim">${isLeveling ? "Nothing in the list above to measure on." : "Nothing in this skill earns gold at your level yet."}</p></section>`;
@@ -892,9 +892,23 @@ function upgradesHtml(settings) {
     if (check && !check.matches) {
         html += `<div class="mwia-notice mwia-notice-warn">Your gear's action speed here is ${pct(check.game)} by the game but ${pct(check.mine)} by the item stats, so these numbers may be a little off.</div>`;
     }
-    if (!upgrades.length) return html + `<p class="mwia-dim">Nothing for sale would earn more here.</p></section>`;
-    html += `<div class="mwia-upgrade-list">${upgrades.slice(0, UPGRADES_SHOWN).map((u) => upgradeRowHtml(u, xpPrice, base)).join("")}</div></section>`;
+    const later = outlivedHtml(outlived);
+    if (!upgrades.length) return html + `<p class="mwia-dim">Nothing for sale would earn more here.</p>${later}</section>`;
+    html += `<div class="mwia-upgrade-list">${upgrades.slice(0, UPGRADES_SHOWN).map((u) => upgradeRowHtml(u, xpPrice, base)).join("")}</div>${later}</section>`;
     return html;
+}
+
+// Tools left out: the next tier unlocks (and is for sale) before they pay back.
+function outlivedHtml(outlived) {
+    const byTier = new Map();
+    for (const u of outlived) {
+        if (!byTier.has(u.nextTier.itemHrid)) byTier.set(u.nextTier.itemHrid, { next: u.nextTier, items: [] });
+        byTier.get(u.nextTier.itemHrid).items.push(u);
+    }
+    return [...byTier.values()].map(({ next, items }) => {
+        const names = items.map((u) => `${esc(itemName(u.itemHrid))}${u.enhancementLevel ? ` +${u.enhancementLevel}` : ""}`).join(", ");
+        return `<p class="mwia-dim">⏳ Left out: ${names} – ${esc(itemName(next.itemHrid))} unlocks at level ${next.level} in about ${hoursText(next.days * 24)}, before ${items.length > 1 ? "they pay" : "it pays"} back. Wait for it.</p>`;
+    }).join("");
 }
 
 // xpPrice: what an XP is worth (Enhancing and Alchemy); base: the day it is measured against.

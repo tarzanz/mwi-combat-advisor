@@ -240,6 +240,24 @@ const b5 = upsBids.upgrades.find((u) => u.itemHrid === "/items/azure_needle" && 
 check("no bid at its +level: the nearest lower level's bid", b5 && Math.abs(b5.resale - 2500 * 0.96) < 1e-9 && b5.resaleLevel === 4 && Math.abs(b5.cost - (9000 - 2500 * 0.96)) < 1e-9, JSON.stringify(b5 && { r: b5.resale, l: b5.resaleLevel }));
 check("a +level's step over the next lower one", n5?.step && n5.step.from === 3 && n5.step.price === 6000 && Math.abs(n5.step.gainPerDay - (n5.gainPerDay - n3.gainPerDay)) < 1e-6 && !n0.step, JSON.stringify(n5?.step));
 
+// A tool the next tier replaces before it pays back is set aside: just short of Tailoring 35 with Burble
+// Needles for sale, the Azure Needles wait; far from 35, or with no Burble for sale at their +level, they don't.
+{
+    const tableData = { ...data, levelExperienceTable: Array.from({ length: 201 }, (_, level) => Math.round(30 * level ** 2.2)) };
+    const at = (level, xp) => { const w = skillingCharacter(character, items, data); return { ...w, levels: { ...w.levels, "/skills/tailoring": level }, experience: { ...w.experience, "/skills/tailoring": xp } }; };
+    const burble = [{ enhancementLevel: 0, price: 5000, bid: 4000 }, { enhancementLevel: 5, price: 20000, bid: 15000 }];
+    const offersOf = (withBurble) => (hrid) => (hrid === "/items/azure_needle" ? needleOffers : withBurble && hrid === "/items/burble_needle" ? withBurble : []);
+    const opts = (withBurble) => ({ equipped: {}, owned: {}, houseLevels: {}, listings: offersOf(withBurble), actionHrid: "/actions/tailoring/rough_leather" });
+    const near35 = rankUpgrades(at(34, tableData.levelExperienceTable[35] - 1), tableData, market, "tailoring", opts(burble));
+    const azure = (list) => list.filter((u) => u.itemHrid === "/items/azure_needle").map((u) => u.enhancementLevel).sort();
+    check("a tool the next tier replaces before it pays back is set aside", azure(near35.upgrades).length === 0 && azure(near35.outlived).join() === "0,3,5" && near35.outlived.every((u) => u.nextTier.itemHrid === "/items/burble_needle" && u.nextTier.level === 35 && u.nextTier.days < u.paybackDays), JSON.stringify(near35.outlived.map((u) => [u.enhancementLevel, u.nextTier.days, u.paybackDays])));
+    const far = rankUpgrades(at(20, tableData.levelExperienceTable[20]), tableData, market, "tailoring", opts(burble));
+    check("…not when the next tier is far off", azure(far.upgrades).join() === "0,3,5" && !far.outlived.length);
+    const onlyPlain = rankUpgrades(at(34, tableData.levelExperienceTable[35] - 1), tableData, market, "tailoring", opts([{ enhancementLevel: 0, price: 5000, bid: 4000 }]));
+    check("…and only down to the +levels the next tier is for sale at", azure(onlyPlain.outlived).join() === "0" && azure(onlyPlain.upgrades).join() === "3,5", JSON.stringify({ out: azure(onlyPlain.outlived), kept: azure(onlyPlain.upgrades) }));
+    check("…without the game's level table nothing is set aside", !rankUpgrades(at(34, 0), data, market, "tailoring", opts(burble)).outlived.length);
+}
+
 // The guide's trick: craft Snake Fang Dirks for the XP and decompose them, using the fangs and cheese again.
 {
     const who = { ...skillingCharacter(character, items, data), levels: { ...skillingCharacter(character, items, data).levels, "/skills/cheesesmithing": 20, "/skills/alchemy": 20 } };

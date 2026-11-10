@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.76.1
+// @version      0.76.2
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -2406,6 +2406,7 @@
           gainPerDay: gain,
           goldPerDay: after.goldPerDay - from.goldPerDay,
           xpPerDay: after.xpPerDay - from.xpPerDay,
+          xpPerDayAfter: after.xpPerDay,
           paybackDays: cost / gain,
           bestAction: after.action,
           target: after.target ?? null,
@@ -2436,13 +2437,36 @@
       u.step = { from: lower.enhancementLevel, price: u.price - lower.price, cost, gainPerDay: gain, paybackDays: gain > 1 ? Math.max(0, cost) / gain : null };
     }
     upgrades.sort((a, b) => (a.paybackDays ?? Infinity) - (b.paybackDays ?? Infinity));
+    const outlived = [];
+    const kept2 = upgrades.filter((u) => {
+      const next = u.kind === "item" && u.paybackDays > 0 ? nextTierFor(u, who, data, listings) : null;
+      if (!next || !(u.paybackDays > next.days)) return true;
+      outlived.push({ ...u, nextTier: next });
+      return false;
+    });
     let check = null;
     if (gameEquipmentBuffs) {
       const game = (gameEquipmentBuffs[type] || []).filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((sum, b) => sum + (b.flatBoost || 0) + (b.ratioBoost || 0), 0);
       const mine2 = Object.values(equipped).reduce((sum, e2) => sum + itemSkillBuffs(e2.itemHrid, e2.enhancementLevel, skill, data).buffs.filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((s2, b) => s2 + b.flatBoost, 0), 0);
       check = { game, mine: mine2, matches: Math.abs(game - mine2) < 5e-3 };
     }
-    return { base, upgrades, check, xpPrice };
+    return { base, upgrades: kept2, outlived, check, xpPrice };
+  }
+  function nextTierFor(u, who, data, listings) {
+    const detail = data.itemDetailMap[u.itemHrid]?.equipmentDetail;
+    const req = detail?.levelRequirements?.[0];
+    const table = data.levelExperienceTable;
+    if (!req || !/_tool$/.test(detail.type || "") || !Array.isArray(table) || !(u.xpPerDayAfter > 0)) return null;
+    let next = null;
+    for (const item of Object.values(data.itemDetailMap)) {
+      const r = item.equipmentDetail?.type === detail.type ? item.equipmentDetail.levelRequirements?.[0] : null;
+      if (r && r.skillHrid === req.skillHrid && r.level > req.level && (!next || r.level < next.level)) next = { itemHrid: item.hrid, level: r.level };
+    }
+    if (!next || (who.levels[req.skillHrid] ?? 0) >= next.level || !(table[next.level] > 0)) return null;
+    if (!(listings(next.itemHrid) || []).some((o2) => o2.enhancementLevel >= u.enhancementLevel && o2.price > 0)) return null;
+    const xp = who.experience?.[req.skillHrid];
+    if (!Number.isFinite(xp)) return null;
+    return { ...next, days: Math.max(0, table[next.level] - xp) / u.xpPerDayAfter };
   }
   function toolTiers(who, data, market, { equipped, owned, actionFor = () => null }) {
     const tiers = /* @__PURE__ */ new Map();
@@ -3664,7 +3688,7 @@
     if (settings2.skillingSkill === "all") {
       return `<section><h3>Upgrades that pay back</h3><p class="mwia-dim">Pick a skill above to see which tools, clothes, jewellery and house rooms pay for themselves.</p></section>`;
     }
-    const { base, upgrades, check, xpPrice } = upgradeRanking(settings2);
+    const { base, upgrades, outlived = [], check, xpPrice } = upgradeRanking(settings2);
     const isLeveling = LEVELING_SKILLS.includes(settings2.skillingSkill);
     let html = `<section><h3>Upgrades that pay back</h3>`;
     if (!base) return html + `<p class="mwia-dim">${isLeveling ? "Nothing in the list above to measure on." : "Nothing in this skill earns gold at your level yet."}</p></section>`;
@@ -3676,9 +3700,21 @@
     if (check && !check.matches) {
       html += `<div class="mwia-notice mwia-notice-warn">Your gear's action speed here is ${pct(check.game)} by the game but ${pct(check.mine)} by the item stats, so these numbers may be a little off.</div>`;
     }
-    if (!upgrades.length) return html + `<p class="mwia-dim">Nothing for sale would earn more here.</p></section>`;
-    html += `<div class="mwia-upgrade-list">${upgrades.slice(0, UPGRADES_SHOWN).map((u) => upgradeRowHtml(u, xpPrice, base)).join("")}</div></section>`;
+    const later = outlivedHtml(outlived);
+    if (!upgrades.length) return html + `<p class="mwia-dim">Nothing for sale would earn more here.</p>${later}</section>`;
+    html += `<div class="mwia-upgrade-list">${upgrades.slice(0, UPGRADES_SHOWN).map((u) => upgradeRowHtml(u, xpPrice, base)).join("")}</div>${later}</section>`;
     return html;
+  }
+  function outlivedHtml(outlived) {
+    const byTier = /* @__PURE__ */ new Map();
+    for (const u of outlived) {
+      if (!byTier.has(u.nextTier.itemHrid)) byTier.set(u.nextTier.itemHrid, { next: u.nextTier, items: [] });
+      byTier.get(u.nextTier.itemHrid).items.push(u);
+    }
+    return [...byTier.values()].map(({ next, items }) => {
+      const names2 = items.map((u) => `${esc(itemName(u.itemHrid))}${u.enhancementLevel ? ` +${u.enhancementLevel}` : ""}`).join(", ");
+      return `<p class="mwia-dim">\u23F3 Left out: ${names2} \u2013 ${esc(itemName(next.itemHrid))} unlocks at level ${next.level} in about ${hoursText(next.days * 24)}, before ${items.length > 1 ? "they pay" : "it pays"} back. Wait for it.</p>`;
+    }).join("");
   }
   function upgradeRowHtml(u, xpPrice = 0, base = null) {
     const payback = u.paybackDays === null ? "price unknown" : u.paybackDays === 0 ? u.owned ? "free \u2013 you own it" : "sells again for what it costs" : `pays back in ${hoursText(u.paybackDays * 24)}`;
@@ -5085,7 +5121,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.76.1" : "dev";
+  var VERSION = true ? "0.76.2" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -13537,7 +13573,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.76.1" : "dev";
+  var VERSION3 = true ? "0.76.2" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

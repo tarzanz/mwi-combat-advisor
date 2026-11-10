@@ -189,6 +189,7 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
                 gainPerDay: gain,
                 goldPerDay: after.goldPerDay - from.goldPerDay,
                 xpPerDay: after.xpPerDay - from.xpPerDay,
+                xpPerDayAfter: after.xpPerDay,
                 paybackDays: cost / gain,
                 bestAction: after.action,
                 target: after.target ?? null,
@@ -223,6 +224,15 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
         u.step = { from: lower.enhancementLevel, price: u.price - lower.price, cost, gainPerDay: gain, paybackDays: gain > 1 ? Math.max(0, cost) / gain : null };
     }
     upgrades.sort((a, b) => (a.paybackDays ?? Infinity) - (b.paybackDays ?? Infinity));
+    // A tool the next tier replaces before it pays back – that tier unlocks at a level the
+    // skill reaches sooner and is for sale at the tool's +level or higher – is set aside.
+    const outlived = [];
+    const kept = upgrades.filter((u) => {
+        const next = u.kind === "item" && u.paybackDays > 0 ? nextTierFor(u, who, data, listings) : null;
+        if (!next || !(u.paybackDays > next.days)) return true;
+        outlived.push({ ...u, nextTier: next });
+        return false;
+    });
 
     // How well the equipment stats match what the game says your gear gives (action speed).
     let check = null;
@@ -231,7 +241,27 @@ export function rankUpgrades(who, data, market, skill, { equipped, owned, listin
         const mine = Object.values(equipped).reduce((sum, e) => sum + itemSkillBuffs(e.itemHrid, e.enhancementLevel, skill, data).buffs.filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((s, b) => s + b.flatBoost, 0), 0);
         check = { game, mine, matches: Math.abs(game - mine) < 0.005 };
     }
-    return { base, upgrades, check, xpPrice };
+    return { base, upgrades: kept, outlived, check, xpPrice };
+}
+
+// For a tool: the next tier above it that the skill hasn't reached yet, when it
+// is for sale at the tool's +level or higher, with the days until the skill gets
+// there at the XP a day it makes with the tool ({ itemHrid, level, days }); else null.
+function nextTierFor(u, who, data, listings) {
+    const detail = data.itemDetailMap[u.itemHrid]?.equipmentDetail;
+    const req = detail?.levelRequirements?.[0];
+    const table = data.levelExperienceTable;
+    if (!req || !/_tool$/.test(detail.type || "") || !Array.isArray(table) || !(u.xpPerDayAfter > 0)) return null;
+    let next = null;
+    for (const item of Object.values(data.itemDetailMap)) {
+        const r = item.equipmentDetail?.type === detail.type ? item.equipmentDetail.levelRequirements?.[0] : null;
+        if (r && r.skillHrid === req.skillHrid && r.level > req.level && (!next || r.level < next.level)) next = { itemHrid: item.hrid, level: r.level };
+    }
+    if (!next || (who.levels[req.skillHrid] ?? 0) >= next.level || !(table[next.level] > 0)) return null;
+    if (!(listings(next.itemHrid) || []).some((o) => o.enhancementLevel >= u.enhancementLevel && o.price > 0)) return null;
+    const xp = who.experience?.[req.skillHrid];
+    if (!Number.isFinite(xp)) return null;
+    return { ...next, days: Math.max(0, table[next.level] - xp) / u.xpPerDayAfter };
 }
 
 // Tools whose next tier your skill level now allows: for every tool slot, the

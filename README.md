@@ -150,6 +150,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   until it is earned back on what you'd make – the top of the Skilling list with your settings, not an action your
   coins or the market can't carry – counting what it sells for again at the bid for its +level (with nobody buying that level, the nearest lower level's bid as a floor; else the vendor price). Each +level
   also shows its step over the next lower level for sale: what the step costs and adds a day, and its own payback.
+  A tool the next tier replaces before it pays back – that tier unlocks at a level your skill reaches sooner (at the
+  XP a day it makes with the tool) and is for sale at the tool's +level or higher – is left out, with a ⏳ line saying
+  which tier unlocks when (no Crimson Shears +3 hours before Rainbow Shears unlock).
   🛒 buttons add them to the MWITools cart. If the item stats
   don't add up to the action speed the game reports for your gear, it says so. **🏪 Market** opens the item on the marketplace (through MWITools when it is installed), which
   also reads its order book (shown under *📦 How many*); closing the market brings the panel back on the same row. Open rows and headings stay
