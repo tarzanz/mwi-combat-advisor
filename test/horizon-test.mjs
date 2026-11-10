@@ -135,6 +135,15 @@ check("…and counts in the worth at its own bid", plus.end.tools["/equipment_ty
 const noPlus = simulatePlan(snapshot, data, prices, tailoring, { days: 3 });
 check("without +levels for sale only +0 is bought", noPlus.purchases.every((x) => x.kind === "house" || !x.level));
 
+// A tool is kept only until the next tier unlocks when that tier is for sale at its +level or higher:
+// just short of Tailoring 35 (Burble Needle), no Azure Needle at any level is bought – Burble is, once there.
+const nearBurble = { ...snapshot, who: { ...who, levels: { ...who.levels, "/skills/tailoring": 34 }, experience: { ...who.experience, "/skills/tailoring": data.levelExperienceTable[35] - 1 } } };
+const waited = simulatePlan(nearBurble, data, plusPrices, tailoring, { days: 3 });
+const needles = waited.purchases.filter((x) => x.kind === "tool");
+check("no tool is bought just before the next tier replaces it", !needles.some((x) => /azure_needle/.test(x.itemHrid)) && needles.some((x) => /burble_needle/.test(x.itemHrid)), needles.map((x) => `${x.block}:${x.itemHrid}+${x.level}`).join(", "));
+const farFromBurble = simulatePlan({ ...snapshot, who: { ...who, levels: { ...who.levels, "/skills/tailoring": 20 }, experience: { ...who.experience, "/skills/tailoring": data.levelExperienceTable[20] } } }, data, plusPrices, tailoring, { days: 3 });
+check("…but is when the next tier is far off", farFromBurble.purchases.some((x) => /azure_needle/.test(x.itemHrid)), farFromBurble.purchases.filter((x) => x.kind === "tool").map((x) => `${x.block}:${x.itemHrid}+${x.level}`).join(", "));
+
 // House rooms: the skill's room goes up when it pays, not when its materials cost a fortune.
 const PARLOR = "/house_rooms/sewing_parlor";
 const built = simulatePlan(snapshot, data, prices, tailoring, { days: 10 });

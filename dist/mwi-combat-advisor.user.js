@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.76.0
+// @version      0.76.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5085,7 +5085,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.76.0" : "dev";
+  var VERSION = true ? "0.76.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -12408,7 +12408,7 @@ ${triggerWindowReport()}`, false);
       Time goes in ${o2.blockHours}-hour blocks. In each the character runs the job that earns the most \u2013 or, while a plan trains a skill to a level where a job or tool unlocks, that skill's job with the most gold or the fastest XP; when your coins or the market cut a job short, the rest of the block goes to the next best one queued behind it (two jobs at most, none under an hour).
       Prices are the usual ones, not today's: the week's median ask to buy and to list at (never above 1.5\xD7 the usual bid), the median bid as the floor.
       The market takes ${Math.round(o2.marketShare * 100)}% of what sells of an item a day: the rest waits in stock and sells first in later blocks; the same share caps what you can buy of a material.
-      A better tool for the skill you work is bought when its extra gold over the days left (on a detour: until it ends) pays for it (less what it sells for again); the old one is sold at the bid. Any tier your level allows, at +0 or at a +level the market has had for sale this week (at its usual ask) \u2013 enhancing it yourself isn't weighed.
+      A better tool for the skill you work is bought when its extra gold over the days left (on a detour: until it ends) pays for it (less what it sells for again); the old one is sold at the bid. Any tier your level allows, at +0 or at a +level the market has had for sale this week (at its usual ask); it has to pay back before the skill reaches the next tier when that tier is for sale at the same +level or higher \u2013 enhancing it yourself isn't weighed.
       Each skill is worked in a loadout of its own: of each slot, the clothes, jewellery, charm or cape you own (worn or in the inventory) that earn the most on its best job \u2013 switch loadouts in the game as the plan switches skill. A piece for the skill you work is bought the same way as a tool, also at a +level (a lower level of the same piece is sold); what it replaces is kept for other skills. The pouch and task badges stay as they are.
       The skill's house room goes up a level when its extra gold over the days left pays for the coins and materials (at the ask, no more of a material than the market sells in a week); it can't be sold again.
       Worth = coins + tools and clothes at the bid for their +level + stock (at the bid for up to a day of sales, the shop price for the rest). The score adds ${o2.levelDays} days of what the character earns a day at the end, so levels and house rooms count.
@@ -13537,7 +13537,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.76.0" : "dev";
+  var VERSION3 = true ? "0.76.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

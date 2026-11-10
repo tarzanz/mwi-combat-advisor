@@ -658,10 +658,12 @@ function topJob(ctx, market, state, skill) {
 }
 
 // The purchases worth weighing: of those that add gold, only the ones no other
-// beats on price, net cost (price less resale) and gold a day alike – whichever
-// is chosen later, by the days left and the coins, is one of these.
+// of the same group beats on price, net cost (price less resale) and gold a day
+// alike – whichever is chosen later, by the days left and the coins, is one of
+// these. Tools are grouped by tier and by whether the next tier replaces them
+// (they last until then), so a short-lived one can't push out one that lasts.
 function paretoFront(offers) {
-    return offers.filter((o) => !offers.some((p) => p !== o && p.price <= o.price && p.netCost <= o.netCost && p.gainPerDay >= o.gainPerDay && (p.price < o.price || p.netCost < o.netCost || p.gainPerDay > o.gainPerDay)));
+    return offers.filter((o) => !offers.some((p) => p !== o && p.group === o.group && p.price <= o.price && p.netCost <= o.netCost && p.gainPerDay >= o.gainPerDay && (p.price < o.price || p.netCost < o.netCost || p.gainPerDay > o.gainPerDay)));
 }
 
 // The offers for one slot of the skill's top job: each candidate { item, price,
@@ -690,7 +692,10 @@ function offersFor(ctx, market, state, skill, job, slotKey, candidates, replace)
 
 // Before a block: a better tool for the skill being worked, when it pays – of
 // every tier the levels allow, at +0 or a +level for sale, the one whose extra
-// gold over payDays (see simulate) beats its cost less its resale by the most. While training for XP, the next tier at +0 is bought anyway when cheap.
+// gold over payDays (see simulate) beats its cost less its resale by the most.
+// A tool is kept only until the skill reaches the next tier when that tier is
+// for sale at the same +level or higher: it is replaced then, so it has to pay
+// back before (no Crimson Shears +5 a few hours before Rainbow Shears unlock). While training for XP, the next tier at +0 is bought anyway when cheap.
 function maybeBuyTool(ctx, market, state, actionType, phase, payDays) {
     if (!actionType) return null;
     const toolType = toolTypeOf(actionType);
@@ -703,6 +708,14 @@ function maybeBuyTool(ctx, market, state, actionType, phase, payDays) {
     const inStock = (hrid) => (state.owned[hrid] || 0) > 0;
     const allowed = tiers.filter((t) => (state.level[t.skillHrid] ?? 0) >= t.level);
     const job = topJob(ctx, market, state, skill);
+    // The next tier above a tool's, when it is for sale at the tool's +level or higher (null: nothing replaces it).
+    const nextForSale = (item) => {
+        const tier = tiers.find((t) => t.itemHrid === item.itemHrid);
+        const next = tiers.find((t) => t.level > tier.level);
+        if (!next) return null;
+        const forSale = (item.level === 0 && buyPrice(market, { itemHrid: next.itemHrid, level: 0 }) !== null) || (ctx.offers.get(next.itemHrid) || []).some((l) => l >= item.level);
+        return forSale ? next : null;
+    };
     let front = [];
     if (job) {
         const slotKey = `tool:${allowed.length}:${allowed.map((t) => (inStock(t.itemHrid) ? 1 : 0)).join("")}`;
@@ -715,17 +728,25 @@ function maybeBuyTool(ctx, market, state, actionType, phase, payDays) {
                     const owned = inStock(tier.itemHrid) && level === 0;
                     const price = owned ? 0 : buyPrice(market, item);
                     if (price === null) continue;
-                    out.push({ item, price, owned, netCost: owned ? 0 : price - toolResale(ctx, market, item) });
+                    out.push({ item, price, owned, netCost: owned ? 0 : price - toolResale(ctx, market, item), group: `${tier.itemHrid}|${nextForSale(item) ? "replaced" : "lasts"}` });
                 }
             }
             return out;
         };
         front = offersFor(ctx, market, state, skill, job, slotKey, candidates, (item) => ({ tool: item, gear: job.gear }));
     }
+    // Days until the skill reaches that next tier (Infinity: nothing replaces the tool; none when it is allowed already).
+    const xpJob = phase?.style === "xp" && phase.skill === skill ? jobs(ctx, market, state, "xp", skill)[0] : job?.top;
+    const xpPerDay = (xpJob?.xpPerHour || 0) * 24;
+    const lifeDays = (item) => {
+        const next = nextForSale(item);
+        if (!next || !(xpPerDay > 0)) return Infinity;
+        return Math.max(0, (ctx.table[next.level] || 0) - state.xp[skill]) / xpPerDay;
+    };
     let chosen = null;
     for (const o of front) {
         if (o.price > state.coins || !leaves(ctx, state, job.top, state.coins - o.price + resale)) continue;
-        const value = o.gainPerDay * payDays - o.netCost;
+        const value = o.gainPerDay * Math.min(payDays, lifeDays(o.item)) - o.netCost;
         if (value > 0 && (!chosen || value > chosen.value)) chosen = { ...o, value };
     }
     if (!chosen && phase?.style === "xp" && phase.skill === skill) {
@@ -737,7 +758,7 @@ function maybeBuyTool(ctx, market, state, actionType, phase, payDays) {
             const price = owned ? 0 : buyPrice(market, item);
             if (price === null || price > state.coins) continue;
             const netCost = owned ? 0 : price - toolResale(ctx, market, item);
-            if (netCost <= CHEAP_TOOL * state.coins) chosen = { item, price, owned, netCost, gainPerDay: 0 };
+            if (netCost <= CHEAP_TOOL * state.coins && lifeDays(item) >= ctx.o.blockHours / 24) chosen = { item, price, owned, netCost, gainPerDay: 0 };
         }
     }
     if (!chosen) return null;

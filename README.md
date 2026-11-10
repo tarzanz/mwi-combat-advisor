@@ -328,8 +328,9 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     ends; within the market's limits) pays for it, less what it sells for again (the old one is sold at the bid; one in your inventory is put
     on for nothing); it may take at most half your coins unless a block of the job's materials is still paid for.
     Of every tier your level allows, at +0 or at any **+level the market has had asks for this week** (bought at
-    its usual ask), the one that pays the most – a Holy Hatchet +10 may beat a Celestial at +0. Enhancing it
-    yourself isn't weighed.
+    its usual ask), the one that pays the most – a Holy Hatchet +10 may beat a Celestial at +0. A tool is counted
+    only until the skill reaches the next tier when that tier is for sale at the same +level or higher (it is
+    replaced then), so nothing is bought hours before a better tier unlocks. Enhancing it yourself isn't weighed.
   - **Clothes, jewellery, charms and capes**: each skill is worked in a **loadout of its own** – of each slot, what
     you own (worn or in the inventory, at its +level) that earns the most on the skill's best job; you switch
     loadouts in the game as the plan switches skill. A piece for the skill being worked is bought the same way as a
