@@ -581,6 +581,21 @@ export function priceSummary(itemHrid, level = 0) {
     return store.summaries.get(key);
 }
 
+// Of points { t, v, w } (see priceSeries): sold a day in `bins` equal stretches
+// from t0 to t1 (null where none is known) – the chart's volume bars.
+export function volumeBins(points, bins, t0, t1) {
+    const span = Math.max(1, t1 - t0);
+    const sum = new Array(bins).fill(0);
+    const hours = new Array(bins).fill(0);
+    for (const p of points) {
+        if (!Number.isFinite(p.v)) continue;
+        const k = Math.min(bins - 1, Math.max(0, Math.floor(((p.t - t0) / span) * bins)));
+        sum[k] += p.v * (p.w || 1);
+        hours[k] += p.w || 1;
+    }
+    return sum.map((s, k) => (hours[k] ? (s / hours[k]) * 24 : null));
+}
+
 // One item's hours of the last few days, oldest first: { hour, a, b, p, v, sold }
 // (NaN where the file had none); hours missing are hours with no data at all.
 export function recentHours(itemHrid, level = 0, days = 7) {
@@ -611,11 +626,17 @@ export async function priceSeries(itemHrid, range, level = 0) {
     const newest = store.hours[store.hours.length - 1].hour;
     const days = range > 31 ? await loadAllDays() : store.days;
     const points = [];
+    // v: sold an hour (a day's mean over the hours it knew sales; an hour of a file that tells
+    // sales but leaves the item out sold none), w: the hours the point stands for.
     for (const d of days) {
         const t = d.day * 24 + 12;
-        if (newest - t <= range * 24) points.push({ t, a: at(d.a, i), b: at(d.b, i) });
+        if (newest - t <= range * 24) points.push({ t, a: at(d.a, i), b: at(d.b, i), v: d.vn && at(d.vn, i) ? at(d.v, i) : NaN, w: 24 });
     }
-    for (const r of store.hours) if (newest - r.hour <= range * 24) points.push({ t: r.hour, a: at(r.a, i), b: at(r.b, i) });
+    for (const r of store.hours) {
+        if (newest - r.hour > range * 24) continue;
+        const v = at(r.v, i);
+        points.push({ t: r.hour, a: at(r.a, i), b: at(r.b, i), v: r.sold ? (Number.isFinite(v) ? v : 0) : NaN, w: 1 });
+    }
     return points.filter((p) => Number.isFinite(p.a) || Number.isFinite(p.b)).sort((x, y) => x.t - y.t);
 }
 

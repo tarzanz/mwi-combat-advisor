@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.76.2
+// @version      0.77.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -2950,6 +2950,18 @@
     }
     return store2.summaries.get(key2);
   }
+  function volumeBins(points, bins, t0, t1) {
+    const span = Math.max(1, t1 - t0);
+    const sum = new Array(bins).fill(0);
+    const hours = new Array(bins).fill(0);
+    for (const p2 of points) {
+      if (!Number.isFinite(p2.v)) continue;
+      const k = Math.min(bins - 1, Math.max(0, Math.floor((p2.t - t0) / span * bins)));
+      sum[k] += p2.v * (p2.w || 1);
+      hours[k] += p2.w || 1;
+    }
+    return sum.map((s2, k) => hours[k] ? s2 / hours[k] * 24 : null);
+  }
   function recentHours(itemHrid, level = 0, days = 7) {
     const i = store2.index.get(historyKey(itemHrid, level));
     if (i === void 0 || !store2.hours.length) return [];
@@ -2973,9 +2985,13 @@
     const points = [];
     for (const d of days) {
       const t4 = d.day * 24 + 12;
-      if (newest - t4 <= range * 24) points.push({ t: t4, a: at(d.a, i), b: at(d.b, i) });
+      if (newest - t4 <= range * 24) points.push({ t: t4, a: at(d.a, i), b: at(d.b, i), v: d.vn && at(d.vn, i) ? at(d.v, i) : NaN, w: 24 });
     }
-    for (const r of store2.hours) if (newest - r.hour <= range * 24) points.push({ t: r.hour, a: at(r.a, i), b: at(r.b, i) });
+    for (const r of store2.hours) {
+      if (newest - r.hour > range * 24) continue;
+      const v = at(r.v, i);
+      points.push({ t: r.hour, a: at(r.a, i), b: at(r.b, i), v: r.sold ? Number.isFinite(v) ? v : 0 : NaN, w: 1 });
+    }
     return points.filter((p2) => Number.isFinite(p2.a) || Number.isFinite(p2.b)).sort((x, y) => x.t - y.t);
   }
   async function longMedians(itemHrid, level = 0) {
@@ -5121,7 +5137,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.76.2" : "dev";
+  var VERSION = true ? "0.77.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -6704,13 +6720,14 @@
 .mwia-history { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-history-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
 .mwia-history-head span, .mwia-history-note, .mwia-history-scale { color: #8189b0; font-size: 11px; }
-.mwia-history-table { border-collapse: collapse; width: 100%; margin: 4px 0; font-variant-numeric: tabular-nums; }
-.mwia-history-table th, .mwia-history-table td { padding: 1px 4px; text-align: right; font-weight: 400; white-space: nowrap; }
-.mwia-history-table th:first-child { text-align: left; color: #9aa3cf; }
-.mwia-history-table tr:first-child th { color: #8189b0; font-size: 11px; }
 .mwia-history-high { color: #ff9b7b; }
 .mwia-history-low { color: #7ee2b0; }
 .mwia-history-chart { display: block; width: 100%; height: 64px; }
+.mwia-history-volume { display: block; width: 100%; height: 18px; margin-top: 2px; }
+.mwia-history-volume rect { fill: #6c78c9; opacity: 0.7; }
+.mwia-history-vol-scale { justify-content: flex-start; }
+i.mwia-history-vol { background: #6c78c9; height: 6px !important; }
+.mwia-history-medians { margin: 2px 0 4px; font-variant-numeric: tabular-nums; color: #b7bee3; font-size: 11px; }
 .mwia-history-chart polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 polyline.mwia-history-ask { stroke: #f2a65b; }
 polyline.mwia-history-bid { stroke: #7ee2b0; }
@@ -7705,11 +7722,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     box.dataset.version = key2;
     box.innerHTML = await historyHtml(current.itemHrid, current.level);
   }
-  function exportHtml() {
+  function exportHtml(piButtons = "") {
     const e2 = h.exported;
     const buttons = e2 ? `<span>${e2.items} items \xB7 ${e2.hours} hours \xB7 ${e2.days} days \xB7 ${(e2.csv.length / 1024).toFixed(0)} kB</span>
-           <button data-history-export="download">\u2B07 Download CSV</button><button data-history-export="copy">\u{1F4CB} Copy</button>` : `<button data-history-export="prepare">\u2B07 Export all prices</button>`;
-    return `<div class="mwia-history-ranges mwia-history-export">${buttons}</div>${h.status ? `<div class="mwia-history-note">${esc(h.status)}</div>` : ""}`;
+           <button data-history-export="download">\u2B07 Download CSV</button><button data-history-export="copy">\u{1F4CB} Copy</button>` : `<button data-history-export="prepare">\u2B07 Export</button>`;
+    return `<div class="mwia-history-ranges mwia-history-export">${piButtons}${buttons}</div>${h.status ? `<div class="mwia-history-note">${esc(h.status)}</div>` : ""}`;
   }
   async function onExport(kind) {
     if (kind === "prepare") {
@@ -7741,19 +7758,36 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     scheduleScan3(true);
   }
-  function sourceHtml() {
-    if (!piConfig()) return `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+  function sourceParts() {
+    if (!piConfig()) return { note: `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`, buttons: "" };
     const st = piStatus();
     const time2 = (t4) => new Date(t4).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const text = st.ok === null ? "Linked to your Pi; reading it\u2026" : st.ok ? `From your Pi: newest prices ${st.newest ? time2(st.newest) : "none yet"}, read ${time2(st.at)}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}` : `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time2(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
+    const synced = [];
+    const problems = [];
+    let text;
+    if (st.ok === null) text = "Linked to your Pi; reading it\u2026";
+    else if (st.ok) synced.push(["read", st.at]);
+    else text = `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time2(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
     const orders = st.orders;
-    const ordersText = !orders ? "" : orders.error ? ` Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.` : orders.at ? ` Your orders: ${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"}, sent ${time2(orders.at)}.` : "";
-    const jobs = st.jobs;
-    const jobsText = !jobs ? "" : jobs.error ? ` Job results couldn't be synced (${jobs.error}).` : jobs.at ? ` Job results synced ${time2(jobs.at)}.` : "";
-    const lab = st.labyrinth;
-    const labText = !lab ? "" : lab.error ? ` Labyrinth attempts couldn't be synced (${lab.error}).` : lab.at ? ` Labyrinth attempts synced ${time2(lab.at)}.` : "";
-    return `<div class="mwia-history-note">${esc(text + ordersText + jobsText + labText)}</div>
-        <div class="mwia-history-ranges"><button data-history-pi="sync">\u21BB Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
+    if (orders?.error) problems.push(`Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.`);
+    else if (orders?.at) synced.push([`orders (${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"})`, orders.at]);
+    if (st.jobs?.error) problems.push(`Job results couldn't be synced (${st.jobs.error}).`);
+    else if (st.jobs?.at) synced.push(["job results", st.jobs.at]);
+    if (st.labyrinth?.error) problems.push(`Labyrinth attempts couldn't be synced (${st.labyrinth.error}).`);
+    else if (st.labyrinth?.at) synced.push(["Labyrinth attempts", st.labyrinth.at]);
+    const byMinute = /* @__PURE__ */ new Map();
+    for (const [label3, at2] of synced) {
+      const key2 = time2(at2);
+      if (!byMinute.has(key2)) byMinute.set(key2, []);
+      byMinute.get(key2).push(label3);
+    }
+    const syncedText = [...byMinute].map(([minute, labels]) => `synced ${minute}: ${labels.join(", ")}`).join(" \xB7 ");
+    if (st.ok) text = `From your Pi: prices ${st.newest ? time2(st.newest) : "none yet"} \xB7 ${syncedText}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}`;
+    else if (syncedText) text += ` Earlier: ${syncedText}.`;
+    return {
+      note: `<div class="mwia-history-note">${esc([text, ...problems].join(" "))}</div>`,
+      buttons: `<button data-history-pi="sync" title="Read the Pi now">\u21BB Read Pi</button><button data-history-pi="unlink" title="Unlink the Pi">Unlink Pi</button>`
+    };
   }
   function onClick(event) {
     const piButton = event.target.closest?.(".mwia-history [data-history-pi]");
@@ -7783,19 +7817,20 @@ i.mwia-history-bid { background: #7ee2b0; }
     const summary2 = priceSummary(itemHrid, level);
     const entry = marketEntry(itemHrid, level);
     const head4 = (text) => `<div class="mwia-history-head"><b>\u{1F4C8} Usual price${level ? ` <span class="mwia-enh">+${level}</span>` : ""}</b> <span>${text}</span></div>`;
-    const saved = sourceHtml();
-    const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${exportHtml()}</details>`;
+    const source = sourceParts();
+    const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${source.note}${exportHtml(source.buttons)}</details>`;
     if (!summary2 || summary2.hours7 < PRELIMINARY_HOURS) {
-      return head4(`collecting: ${summary2 ? progressText(summary2) : "nothing yet"}`) + more("Export", saved);
+      return head4(`collecting: ${summary2 ? progressText(summary2) : "nothing yet"}`) + more("Export", "");
     }
     const versusText = (now2, side) => {
       const versus = versusUsual(now2, side.med7);
       const cls = !versus ? "" : versus.label === "above" ? "mwia-history-high" : versus.label === "below" ? "mwia-history-low" : "";
       return versus ? `<span class="${cls}">${pct3(versus.diff)} ${versus.label === "near" ? "usual" : versus.label}</span>` : "";
     };
-    const row = (label3, now2, side) => `<tr><th>${label3}</th><td>${now2 > 0 ? shortCoins(now2) : "\u2013"}</td>
-            <td>${side.med7 ? shortCoins(side.med7) : "\u2013"} ${versusText(now2, side)}</td>
-            <td>${side.med30 ? shortCoins(side.med30) : "\u2013"}</td><td>${trendArrow(side.trend)}</td></tr>`;
+    const coin = (v) => v ? shortCoins(v) : "\u2013";
+    const sold = summary2.liquidity?.sold;
+    const soldText2 = Number.isFinite(sold?.perDay) ? ` \xB7 sold \u2248${shortCoins(sold.perDay)} a day${sold.enough ? "" : " (few hours yet)"}` : "";
+    const medians = `<div class="mwia-history-medians">Median 7 d: ask <b>${coin(summary2.a.med7)}</b>, bid <b>${coin(summary2.b.med7)}</b> \xB7 30 d: ask ${coin(summary2.a.med30)}, bid ${coin(summary2.b.med30)}${soldText2}</div>`;
     const askNow = entry?.a > 0 ? entry.a : null;
     const bidNow = entry?.b > 0 ? entry.b : null;
     const brief = (label3, now2, side) => `${label3} <b>${now2 > 0 ? shortCoins(now2) : "\u2013"}</b> ${versusText(now2, side)}${trendArrow(side.trend) ? " " + trendArrow(side.trend) : ""}`;
@@ -7805,10 +7840,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const long = h.open && h.range > 31 ? await longMedians(itemHrid, level) : null;
     const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "\u2013"}, bid ${long.b90 ? shortCoins(long.b90) : "\u2013"} \xB7 1 year: ask ${long.a365 ? shortCoins(long.a365) : "\u2013"}, bid ${long.b365 ? shortCoins(long.b365) : "\u2013"} (${long.days} days of data)</div>` : "";
     const preliminary = !summary2.enough;
-    return (preliminary ? head4(`<b class="mwia-history-prelim">preliminary</b> \xB7 ${readyText(summary2)}`) : head4(`7-day median \xB7 ${summary2.spanDays.toFixed(0)} days of data`)) + line + more(
+    return (preliminary ? head4(`<b class="mwia-history-prelim">preliminary</b> \xB7 ${readyText(summary2)}`) : head4(`7-day median (${summary2.hours7} h) \xB7 ${summary2.spanDays.toFixed(0)} days of data`)) + line + more(
       "Chart and details",
-      `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary2.a)}${row("Bid", bidNow, summary2.b)}</table>` + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
-          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` + longLine + (preliminary ? `<div class="mwia-history-note">Preliminary: ${progressText(summary2)}. Only ${summary2.hours7} h over ${summary2.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>` : `<div class="mwia-history-note">${summary2.hours7} h in the last week.</div>`) + saved
+      medians + chartSvg(points) + `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
+          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid <i class="mwia-history-vol"></i>sold a day</span></div>` + longLine + (preliminary ? `<div class="mwia-history-note">Preliminary: ${progressText(summary2)}. Only ${summary2.hours7} h over ${summary2.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>` : "")
     );
   }
   function readyText(summary2) {
@@ -7831,6 +7866,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return parts.join(" \xB7 ");
   }
+  var VOLUME_BARS = 90;
   var dateText = (t4) => new Date(t4 * 3600 * 1e3).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   function chartSvg(points) {
     if (points.length < 2) return "";
@@ -7848,9 +7884,16 @@ i.mwia-history-bid { background: #7ee2b0; }
       return path ? `<polyline class="${cls}" points="${path}"/>` : "";
     };
     const t1 = points[points.length - 1].t;
+    const bins = volumeBins(points, VOLUME_BARS, t0, t1);
+    const most = Math.max(0, ...bins.filter((v) => v !== null));
+    const VH = 18;
+    const step = (W - 4) / VOLUME_BARS;
+    const bars = most > 0 ? bins.map((v, k) => v > 0 ? `<rect x="${(2 + k * step + step * 0.15).toFixed(1)}" y="${(VH - v / most * VH).toFixed(1)}" width="${(step * 0.7).toFixed(1)}" height="${(v / most * VH).toFixed(1)}"/>` : "").join("") : "";
+    const volume = bars ? `<div class="mwia-history-scale mwia-history-y mwia-history-vol-scale"><span title="The most sold a day in one bar">${esc(shortCoins(most))}/d</span></div>
+        <svg class="mwia-history-volume" viewBox="0 0 ${W} ${VH}" preserveAspectRatio="none">${bars}</svg>` : "";
     return `<div class="mwia-history-plot"><div class="mwia-history-scale mwia-history-y"><span>${esc(shortCoins(high))}</span><span>${esc(shortCoins(low))}</span></div>
         <svg class="mwia-history-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${line("b", "mwia-history-bid")}${line("a", "mwia-history-ask")}</svg>
-        <span></span><div class="mwia-history-scale mwia-history-x"><span>${dateText(t0)}</span><span>${dateText((t0 + t1) / 2)}</span><span>${dateText(t1)}</span></div></div>`;
+        ${volume}<span></span><div class="mwia-history-scale mwia-history-x"><span>${dateText(t0)}</span><span>${dateText((t0 + t1) / 2)}</span><span>${dateText(t1)}</span></div></div>`;
   }
 
   // src/consumable-guide.js
@@ -13573,7 +13616,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.76.2" : "dev";
+  var VERSION3 = true ? "0.77.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

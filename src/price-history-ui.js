@@ -2,7 +2,7 @@
 // an item's usual price, trend and a small chart in the game's marketplace.
 
 import { loadPrices, marketEntry, onPricesLoaded } from "./game-data.js";
-import { COLLECT_EVERY_MS, MIN_DAYS, MIN_HOURS, exportHistory, longMedians, loadHistory, priceSeries, priceSummary, recordSnapshot, trendArrow, versusUsual } from "./price-history.js";
+import { COLLECT_EVERY_MS, MIN_DAYS, MIN_HOURS, exportHistory, longMedians, loadHistory, priceSeries, priceSummary, recordSnapshot, trendArrow, versusUsual, volumeBins } from "./price-history.js";
 import { esc, shortCoins } from "./format.js";
 import { onPiSync, piConfig, piStatus, startPiSync, syncNow, unlinkPi } from "./pi-sync.js";
 import { visible } from "./game-nav.js";
@@ -112,14 +112,15 @@ async function scan() {
 }
 
 // Export: one tap prepares the CSV, then Download and Copy act on it at once
-// (Safari only lets a page download or copy straight from a tap).
-function exportHtml() {
+// (Safari only lets a page download or copy straight from a tap). One row with
+// the Pi's buttons (piButtons) in front.
+function exportHtml(piButtons = "") {
     const e = h.exported;
     const buttons = e
         ? `<span>${e.items} items · ${e.hours} hours · ${e.days} days · ${(e.csv.length / 1024).toFixed(0)} kB</span>
            <button data-history-export="download">⬇ Download CSV</button><button data-history-export="copy">📋 Copy</button>`
-        : `<button data-history-export="prepare">⬇ Export all prices</button>`;
-    return `<div class="mwia-history-ranges mwia-history-export">${buttons}</div>${h.status ? `<div class="mwia-history-note">${esc(h.status)}</div>` : ""}`;
+        : `<button data-history-export="prepare">⬇ Export</button>`;
+    return `<div class="mwia-history-ranges mwia-history-export">${piButtons}${buttons}</div>${h.status ? `<div class="mwia-history-note">${esc(h.status)}</div>` : ""}`;
 }
 
 async function onExport(kind) {
@@ -153,25 +154,43 @@ async function onExport(kind) {
     scheduleScan(true);
 }
 
-// Where the prices come from: this device, or the linked Pi (with this device filling in).
-function sourceHtml() {
-    if (!piConfig()) return `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`;
+// Where the prices come from: this device, or the linked Pi (with this device
+// filling in) – { note, buttons } (the buttons go in the export row). What went
+// well is one line, what synced at the same minute named once: "From your Pi:
+// prices 09:06 · synced 09:26: read, orders (all on the Pi), job results,
+// Labyrinth attempts." What went wrong is said in full.
+function sourceParts() {
+    if (!piConfig()) return { note: `<div class="mwia-history-note">Saved every 30 min while the game is open, on this device.</div>`, buttons: "" };
     const st = piStatus();
     const time = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const text =
-        st.ok === null ? "Linked to your Pi; reading it…"
-        : st.ok ? `From your Pi: newest prices ${st.newest ? time(st.newest) : "none yet"}, read ${time(st.at)}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}`
-        : `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
+    const synced = [];
+    const problems = [];
+    let text;
+    if (st.ok === null) text = "Linked to your Pi; reading it…";
+    else if (st.ok) synced.push(["read", st.at]);
+    else text = `Your Pi can't be reached (${st.error})${st.at ? `; last read ${time(st.at)}` : ""}. Prices saved on this device fill in meanwhile.`;
     // Your orders, when the Pi takes them: how the last send went.
     const orders = st.orders;
-    const ordersText = !orders ? "" : orders.error ? ` Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.` : orders.at ? ` Your orders: ${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"}, sent ${time(orders.at)}.` : "";
-    // Job results and purchases, when the Pi takes them.
-    const jobs = st.jobs;
-    const jobsText = !jobs ? "" : jobs.error ? ` Job results couldn't be synced (${jobs.error}).` : jobs.at ? ` Job results synced ${time(jobs.at)}.` : "";
-    const lab = st.labyrinth;
-    const labText = !lab ? "" : lab.error ? ` Labyrinth attempts couldn't be synced (${lab.error}).` : lab.at ? ` Labyrinth attempts synced ${time(lab.at)}.` : "";
-    return `<div class="mwia-history-note">${esc(text + ordersText + jobsText + labText)}</div>
-        <div class="mwia-history-ranges"><button data-history-pi="sync">↻ Read the Pi now</button><button data-history-pi="unlink">Unlink the Pi</button></div>`;
+    if (orders?.error) problems.push(`Your orders couldn't be sent (${orders.error}); ${orders.waiting} waiting.`);
+    else if (orders?.at) synced.push([`orders (${orders.waiting ? `${orders.waiting} waiting` : "all on the Pi"})`, orders.at]);
+    // Job results and purchases, and Labyrinth attempts, when the Pi takes them.
+    if (st.jobs?.error) problems.push(`Job results couldn't be synced (${st.jobs.error}).`);
+    else if (st.jobs?.at) synced.push(["job results", st.jobs.at]);
+    if (st.labyrinth?.error) problems.push(`Labyrinth attempts couldn't be synced (${st.labyrinth.error}).`);
+    else if (st.labyrinth?.at) synced.push(["Labyrinth attempts", st.labyrinth.at]);
+    const byMinute = new Map();
+    for (const [label, at] of synced) {
+        const key = time(at);
+        if (!byMinute.has(key)) byMinute.set(key, []);
+        byMinute.get(key).push(label);
+    }
+    const syncedText = [...byMinute].map(([minute, labels]) => `synced ${minute}: ${labels.join(", ")}`).join(" · ");
+    if (st.ok) text = `From your Pi: prices ${st.newest ? time(st.newest) : "none yet"} · ${syncedText}.${st.piError ? ` It can't reach the market now (${st.piError}).` : ""}`;
+    else if (syncedText) text += ` Earlier: ${syncedText}.`;
+    return {
+        note: `<div class="mwia-history-note">${esc([text, ...problems].join(" "))}</div>`,
+        buttons: `<button data-history-pi="sync" title="Read the Pi now">↻ Read Pi</button><button data-history-pi="unlink" title="Unlink the Pi">Unlink Pi</button>`,
+    };
 }
 
 function onClick(event) {
@@ -205,19 +224,21 @@ async function historyHtml(itemHrid, level = 0) {
     const summary = priceSummary(itemHrid, level);
     const entry = marketEntry(itemHrid, level);
     const head = (text) => `<div class="mwia-history-head"><b>📈 Usual price${level ? ` <span class="mwia-enh">+${level}</span>` : ""}</b> <span>${text}</span></div>`;
-    const saved = sourceHtml();
-    const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${exportHtml()}</details>`;
+    const source = sourceParts();
+    const more = (title, body) => `<details class="mwia-history-more"${h.open ? " open" : ""}><summary>${title}</summary>${body}${source.note}${exportHtml(source.buttons)}</details>`;
     if (!summary || summary.hours7 < PRELIMINARY_HOURS) {
-        return head(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + more("Export", saved);
+        return head(`collecting: ${summary ? progressText(summary) : "nothing yet"}`) + more("Export", "");
     }
     const versusText = (now, side) => {
         const versus = versusUsual(now, side.med7);
         const cls = !versus ? "" : versus.label === "above" ? "mwia-history-high" : versus.label === "below" ? "mwia-history-low" : "";
         return versus ? `<span class="${cls}">${pct(versus.diff)} ${versus.label === "near" ? "usual" : versus.label}</span>` : "";
     };
-    const row = (label, now, side) => `<tr><th>${label}</th><td>${now > 0 ? shortCoins(now) : "–"}</td>
-            <td>${side.med7 ? shortCoins(side.med7) : "–"} ${versusText(now, side)}</td>
-            <td>${side.med30 ? shortCoins(side.med30) : "–"}</td><td>${trendArrow(side.trend)}</td></tr>`;
+    // The medians the summary line compares with, and what sells a day (the week's hours that told sales).
+    const coin = (v) => (v ? shortCoins(v) : "–");
+    const sold = summary.liquidity?.sold;
+    const soldText = Number.isFinite(sold?.perDay) ? ` · sold ≈${shortCoins(sold.perDay)} a day${sold.enough ? "" : " (few hours yet)"}` : "";
+    const medians = `<div class="mwia-history-medians">Median 7 d: ask <b>${coin(summary.a.med7)}</b>, bid <b>${coin(summary.b.med7)}</b> · 30 d: ask ${coin(summary.a.med30)}, bid ${coin(summary.b.med30)}${soldText}</div>`;
     const askNow = entry?.a > 0 ? entry.a : null;
     const bidNow = entry?.b > 0 ? entry.b : null;
     // Ask 366 +0% usual → · Bid 365 +2% usual · swings ±1%
@@ -229,19 +250,18 @@ async function historyHtml(itemHrid, level = 0) {
     const longLine = long?.days ? `<div class="mwia-history-note">90 days: ask ${long.a90 ? shortCoins(long.a90) : "–"}, bid ${long.b90 ? shortCoins(long.b90) : "–"} · 1 year: ask ${long.a365 ? shortCoins(long.a365) : "–"}, bid ${long.b365 ? shortCoins(long.b365) : "–"} (${long.days} days of data)</div>` : "";
     const preliminary = !summary.enough;
     return (
-        (preliminary ? head(`<b class="mwia-history-prelim">preliminary</b> · ${readyText(summary)}`) : head(`7-day median · ${summary.spanDays.toFixed(0)} days of data`)) +
+        (preliminary ? head(`<b class="mwia-history-prelim">preliminary</b> · ${readyText(summary)}`) : head(`7-day median (${summary.hours7} h) · ${summary.spanDays.toFixed(0)} days of data`)) +
         line +
         more(
             "Chart and details",
-            `<table class="mwia-history-table"><tr><th></th><th>Now</th><th>7 days</th><th>30 days</th><th>Trend</th></tr>${row("Ask", askNow, summary.a)}${row("Bid", bidNow, summary.b)}</table>` +
+            medians +
                 chartSvg(points) +
                 `<div class="mwia-history-ranges">${RANGES.map((r) => `<button data-range="${r}" class="${r === h.range ? "mwia-active" : ""}">${r === 365 ? "1 y" : `${r} d`}</button>`).join("")}
-          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid</span></div>` +
+          <span><i class="mwia-history-ask"></i>ask <i class="mwia-history-bid"></i>bid <i class="mwia-history-vol"></i>sold a day</span></div>` +
                 longLine +
                 (preliminary
                     ? `<div class="mwia-history-note">Preliminary: ${progressText(summary)}. Only ${summary.hours7} h over ${summary.spanDays.toFixed(1)} days, so one odd day can still move it. The Skilling tab warns only once it is ready.</div>`
-                    : `<div class="mwia-history-note">${summary.hours7} h in the last week.</div>`) +
-                saved
+                    : "")
         )
     );
 }
@@ -273,7 +293,9 @@ function progressText(summary) {
 }
 
 // Two lines, ask and bid, scaled together: prices up the side (highest at the
-// top, lowest at the bottom), dates along the bottom.
+// top, lowest at the bottom), dates along the bottom. Under them, on the same
+// dates, bars of what sold a day (VOLUME_BARS of them; the most at the side).
+const VOLUME_BARS = 90;
 const dateText = (t) => new Date(t * 3600 * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 function chartSvg(points) {
     if (points.length < 2) return "";
@@ -291,7 +313,16 @@ function chartSvg(points) {
         return path ? `<polyline class="${cls}" points="${path}"/>` : "";
     };
     const t1 = points[points.length - 1].t;
+    const bins = volumeBins(points, VOLUME_BARS, t0, t1);
+    const most = Math.max(0, ...bins.filter((v) => v !== null));
+    const VH = 18;
+    const step = (W - 4) / VOLUME_BARS;
+    const bars = most > 0 ? bins.map((v, k) => (v > 0 ? `<rect x="${(2 + k * step + step * 0.15).toFixed(1)}" y="${(VH - (v / most) * VH).toFixed(1)}" width="${(step * 0.7).toFixed(1)}" height="${((v / most) * VH).toFixed(1)}"/>` : "")).join("") : "";
+    const volume = bars
+        ? `<div class="mwia-history-scale mwia-history-y mwia-history-vol-scale"><span title="The most sold a day in one bar">${esc(shortCoins(most))}/d</span></div>
+        <svg class="mwia-history-volume" viewBox="0 0 ${W} ${VH}" preserveAspectRatio="none">${bars}</svg>`
+        : "";
     return `<div class="mwia-history-plot"><div class="mwia-history-scale mwia-history-y"><span>${esc(shortCoins(high))}</span><span>${esc(shortCoins(low))}</span></div>
         <svg class="mwia-history-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${line("b", "mwia-history-bid")}${line("a", "mwia-history-ask")}</svg>
-        <span></span><div class="mwia-history-scale mwia-history-x"><span>${dateText(t0)}</span><span>${dateText((t0 + t1) / 2)}</span><span>${dateText(t1)}</span></div></div>`;
+        ${volume}<span></span><div class="mwia-history-scale mwia-history-x"><span>${dateText(t0)}</span><span>${dateText((t0 + t1) / 2)}</span><span>${dateText(t1)}</span></div></div>`;
 }

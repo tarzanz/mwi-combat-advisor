@@ -477,9 +477,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   that device only, keeping only what changed since the point before, so prices that stand still take no room), and how
   many of each sold that hour and at what average price, as the market file says. In the game's
   marketplace a box under the open item (at the +level on its icon) shows one summary line – ask and bid now against their usual price, trend and
-  typical swing – and folds open (*Chart and details*) to the price now against its usual price – the median of the last 7 and 30
-  days, so one odd listing hardly moves it – with ±%, a trend arrow (this week's median against last week's) and a
-  chart of ask and bid for 30 days or a year (prices up the side, dates along the bottom) (plus 90-day and 1-year medians). The Skilling tab warns when a product
+  typical swing (the usual price is the median of the last 7 days, so one odd listing hardly moves it; the trend arrow
+  is this week's median against last week's) – and folds open (*Chart and details*) to one line of the 7- and 30-day
+  medians of ask and bid and about how many sell a day, and a chart of ask and bid for 30 days or a year (prices up
+  the side, dates along the bottom) with **bars of what sold a day** under it on the same dates (90 bars, the most at
+  the side; plus 90-day and 1-year medians). Where the prices come from, and the Pi's and export buttons, take a line each. The Skilling tab warns when a product
   sells more than 10% above or below its usual price, or a material costs more than 10% above it. Until an item has
   12 hours over 2 days of data the box says how far it has come and roughly when it is ready; from 2 hours on it
   already shows its numbers, marked *preliminary* (the Skilling tab warns only once both are reached). Prices that
@@ -487,7 +489,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   prices lie within that share of the median) the batch gets smaller – down to 40% – since the price may fall before
   it all sells; when it is also more than 10% above its usual price now the batch is halved again, to sell while it
   lasts; more than 10% below says waiting may pay. A ⚠ warns when the margin is smaller than the price's usual swing.
-  **⬇ Export all prices** in the box prepares every stored price as one CSV (hourly rows only where an item's price
+  **⬇ Export** in the box prepares every stored price as one CSV (hourly rows only where an item's price
   changed, daily rows with low/high, and per day how many sold an hour and at what price – for the last two weeks
   too, in rows of their own), then **Download CSV** or **📋 Copy** – to read in a spreadsheet or hand to an AI.
 - **Your own Pi** (optional) – a small server in `pi/` (Docker, e.g. on a Raspberry Pi behind a Cloudflare Tunnel)
@@ -497,7 +499,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   the device saved, the device's fill in where it has none – so the device simply goes on saving prices while the Pi
   is down. The key stays on the Pi and in the browser's storage for the game's site, never in the repository; the
   Pi only answers the game's sites with the key, and nothing but your order events (when switched on) can be written to it. The price box says where the
-  prices come from, with **Read the Pi now** and **Unlink the Pi**. Switched on there (`MWIA_ORDERS=1`), each device
+  prices come from and what synced when, in one line (each minute named once), with **↻ Read Pi** and **Unlink Pi**. Switched on there (`MWIA_ORDERS=1`), each device
   also sends what it sees of your own market orders – placed, filled, done, and for one placed from a listing
   window what its price buttons said – so the listing prices can be judged later; the box says whether they're all
   on the Pi. Your Labyrinth attempts go there too, and your character for the 📈 plan, which the Pi works out. Setup: [pi/README.md](pi/README.md).

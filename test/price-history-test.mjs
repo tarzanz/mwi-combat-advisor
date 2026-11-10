@@ -1,7 +1,7 @@
 // Checks the price-history maths without a browser: medians, daily roll-up,
 // the usual price and trend of an item, and how a price compares with it.
 // Usage: node test/price-history-test.mjs
-import { DAILY_FIELDS, HOURLY_FIELDS, dayOf, decodeRecords, encodeChanged, encodeRecord, historyCsv, itemMap, remapRecord, snapshotRecord, historyKey, median, rollUpDays, soldPerDay, summarize, versusUsual, trendArrow, MIN_HOURS } from "../src/price-history.js";
+import { DAILY_FIELDS, HOURLY_FIELDS, dayOf, decodeRecords, encodeChanged, encodeRecord, historyCsv, itemMap, remapRecord, snapshotRecord, historyKey, median, rollUpDays, soldPerDay, summarize, versusUsual, trendArrow, volumeBins, MIN_HOURS } from "../src/price-history.js";
 import { swingShare } from "../src/skilling.js";
 import { packRecord, unpackRecord } from "../src/history-wire.js";
 
@@ -178,6 +178,10 @@ check("records over another item order", JSON.stringify(map) === "[1,2]" && ourI
 const wired = encodeRecord(raw[30], raw[29], HOURLY_FIELDS, dayOf);
 const back = unpackRecord(JSON.parse(JSON.stringify(packRecord(wired))));
 check("records as JSON and back", back.idx instanceof wired.idx.constructor && sameArrays(back.idx, wired.idx) && HOURLY_FIELDS.every((f) => sameArrays(back[f], wired[f])) && back.key === wired.key && back.count === wired.count && back.hour === wired.hour);
+
+// Volume bars: sold a day per stretch, hours and days weighed by the hours they stand for; none known → null.
+const vol = volumeBins([{ t: 0, v: 2, w: 1 }, { t: 1, v: 4, w: 1 }, { t: 30, v: 1, w: 24 }, { t: 35, v: NaN, w: 1 }, { t: 99, v: 0, w: 1 }], 4, 0, 100);
+check("volume bars: sold a day per stretch", vol[0] === 72 && vol[1] === 24 && vol[2] === null && vol[3] === 0, JSON.stringify(vol));
 
 console.log(failures ? `${failures} check(s) failed` : "All checks passed");
 process.exit(failures ? 1 : 0);

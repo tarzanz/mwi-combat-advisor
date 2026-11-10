@@ -105,7 +105,7 @@ try {
             const hour = nowHour - age;
             const fabric = hour % 8 < 2 ? 1040 : 1000;
             tx.objectStore("hourly").put({ hour, a: new Float32Array([usualAsk, age < 18 ? 500 : NaN, 9000, fabric]), b: new Float32Array([usualBid, age < 18 ? 400 : NaN, 8000, 960]),
-                p: new Float32Array([NaN, NaN, NaN, 990]), v: new Float32Array([NaN, NaN, NaN, 100]), sold: true });
+                p: new Float32Array([usualAsk, NaN, NaN, 990]), v: new Float32Array([age % 24 < 12 ? 6 : 2, NaN, NaN, 100]), sold: true });
             n++;
         }
         tx.objectStore("meta").put([item, "/items/linen_gloves", item + "+3", "/items/linen_fabric"], "items");
@@ -161,8 +161,8 @@ try {
     });
     await page.waitForSelector(".mwia-history", { timeout: 4000 }).catch(() => null);
     await page.waitForFunction(() => /Ask/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
-    const box = await page.$$eval(".mwia-history tr", (trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.replace(/\s+/g, " ").trim()).join(" | ")).join("\n")).catch(() => "");
-    check("marketplace shows the usual price", box.includes(`Ask | ${shortCoins(askNow)} | ${shortCoins(usualAsk)} +30% above | ${shortCoins(usualAsk)} | →`) && box.includes(`Bid | ${shortCoins(usualBid)} | ${shortCoins(usualBid)} +0% usual`), box);
+    const box = await page.$eval(".mwia-history-medians", (n) => n.textContent.replace(/\s+/g, " ").trim()).catch(() => "");
+    check("marketplace shows the usual price: the 7- and 30-day medians and what sells a day", box.startsWith(`Median 7 d: ask ${shortCoins(usualAsk)}, bid ${shortCoins(usualBid)} · 30 d: ask ${shortCoins(usualAsk)}, bid ${shortCoins(usualBid)} · sold ≈`) && /sold ≈\d+ a day/.test(box), box);
     const placed = await page.evaluate(() => {
         const box = document.querySelector(".mwia-history");
         return { width: box.getBoundingClientRect().width, height: box.getBoundingClientRect().height, inRow: !!box.closest(".row"), beforeRow: !!box.nextElementSibling?.querySelector(".row") };
@@ -175,6 +175,9 @@ try {
     await page.click(".mwia-history-more summary");
     await page.waitForFunction(() => document.querySelectorAll(".mwia-history polyline").length === 2, { timeout: 4000 }).catch(() => null);
     check("marketplace chart drawn when unfolded", await page.$$eval(".mwia-history polyline", (lines) => lines.length === 2) && await page.$eval(".mwia-history details", (d) => d.open));
+    // What sold a day, as bars under the prices on the same dates, the most at the side.
+    const volume = await page.$eval(".mwia-history", (n) => ({ bars: n.querySelectorAll(".mwia-history-volume rect").length, most: n.querySelector(".mwia-history-vol-scale span")?.textContent, heights: [...n.querySelectorAll(".mwia-history-volume rect")].map((r) => Number(r.getAttribute("height"))) }));
+    check("volume bars under the chart", volume.bars > 20 && /^\d+\/d$/.test(volume.most || "") && Math.max(...volume.heights) > 17 && Math.min(...volume.heights) < 10, JSON.stringify({ ...volume, heights: volume.heights.slice(0, 6) }));
     // Axes: the highest price at the top and the lowest at the bottom, dates along the bottom.
     const axes = await page.$eval(".mwia-history", (n) => ({ y: [...n.querySelectorAll(".mwia-history-y span")].map((s) => s.textContent), x: [...n.querySelectorAll(".mwia-history-x span")].map((s) => s.textContent), yTop: n.querySelector(".mwia-history-y span")?.getBoundingClientRect().top, yBottom: n.querySelector(".mwia-history-y span:last-child")?.getBoundingClientRect().top }));
     check("chart: prices up the side, dates along the bottom", axes.y[0] === shortCoins(askNow) && axes.y[1] === shortCoins(usualBid) && axes.yTop < axes.yBottom && axes.x.length === 3 && axes.x.every((d) => /^[A-Z][a-z]{2} \d{1,2}$/.test(d)), JSON.stringify(axes));
@@ -207,7 +210,7 @@ try {
     });
     await page.waitForFunction(() => /preliminary/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     const prelim = await page.$eval(".mwia-history", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
-    check("enough hours but too few days: preliminary numbers", /preliminary · ready in about 1\.3 days/.test(prelim) && /Preliminary: 12 h ✓ · 0\.7 of 2 days · ready in about 1\.3 days\./.test(prelim) && /Ask1,728 500 \+246% above/.test(prelim) && /Only \d+ h over 0\.\d days/.test(prelim), prelim.slice(0, 300));
+    check("enough hours but too few days: preliminary numbers", /preliminary · ready in about 1\.3 days/.test(prelim) && /Preliminary: 12 h ✓ · 0\.7 of 2 days · ready in about 1\.3 days\./.test(prelim) && /Ask 1,728 \+246% above/.test(prelim) && /Median 7 d: ask 500, bid 400/.test(prelim) && /Only \d+ h over 0\.\d days/.test(prelim), prelim.slice(0, 300));
     await page.screenshot({ path: path.join(shotDir, "history-2-preliminary.png") });
 
     // Another item without history says it is still collecting.

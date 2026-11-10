@@ -172,13 +172,14 @@ export const CSS = `
 .mwia-history { box-sizing: border-box; width: 100%; height: auto; flex: 0 0 auto; align-self: stretch; grid-column: 1 / -1; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; margin: 6px 0; padding: 6px 10px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-history-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
 .mwia-history-head span, .mwia-history-note, .mwia-history-scale { color: #8189b0; font-size: 11px; }
-.mwia-history-table { border-collapse: collapse; width: 100%; margin: 4px 0; font-variant-numeric: tabular-nums; }
-.mwia-history-table th, .mwia-history-table td { padding: 1px 4px; text-align: right; font-weight: 400; white-space: nowrap; }
-.mwia-history-table th:first-child { text-align: left; color: #9aa3cf; }
-.mwia-history-table tr:first-child th { color: #8189b0; font-size: 11px; }
 .mwia-history-high { color: #ff9b7b; }
 .mwia-history-low { color: #7ee2b0; }
 .mwia-history-chart { display: block; width: 100%; height: 64px; }
+.mwia-history-volume { display: block; width: 100%; height: 18px; margin-top: 2px; }
+.mwia-history-volume rect { fill: #6c78c9; opacity: 0.7; }
+.mwia-history-vol-scale { justify-content: flex-start; }
+i.mwia-history-vol { background: #6c78c9; height: 6px !important; }
+.mwia-history-medians { margin: 2px 0 4px; font-variant-numeric: tabular-nums; color: #b7bee3; font-size: 11px; }
 .mwia-history-chart polyline { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 polyline.mwia-history-ask { stroke: #f2a65b; }
 polyline.mwia-history-bid { stroke: #7ee2b0; }

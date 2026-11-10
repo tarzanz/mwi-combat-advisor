@@ -52,7 +52,7 @@ N-day plan for your character (see *The 📈 plan*).
    app may open Safari or an in-app browser instead, so copy it and paste it into the
    address bar. The game opens, the script saves address and key and takes them out
    of the address bar. The link carries the key: wherever it is pasted keeps it too. In the marketplace, the price box (*Chart and details*) then says
-   *From your Pi …*, with **Read the Pi now** and **Unlink the Pi**.
+   *From your Pi …*, with **↻ Read Pi** and **Unlink Pi**.
 
 ## Run it
 

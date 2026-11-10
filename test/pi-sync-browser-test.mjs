@@ -179,7 +179,7 @@ try {
     await page.click(".mwia-history-more summary").catch(() => null);
     await page.waitForFunction(() => /From your Pi/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     const told = await page.$eval(".mwia-history", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
-    check("the box says the prices come from the Pi", /From your Pi: newest prices \d\d?:\d\d( [AP]M)?, read \d\d?:\d\d( [AP]M)?\./.test(told) && /Read the Pi now/.test(told), told.slice(-200));
+    check("the box says the prices come from the Pi", /From your Pi: prices \d\d?:\d\d( [AP]M)? · synced \d\d?:\d\d( [AP]M)?: read/.test(told) && /Read Pi/.test(told), told.slice(-200));
     await page.screenshot({ path: path.join(shotDir, "pi-1-linked.png") });
 
     // Your orders on the Pi: the one open from the start, sent after the first read.
@@ -203,9 +203,9 @@ try {
     const all = piOrders();
     const placed = all.find((e) => e.order.id === 2);
     check("a new order and a fill are sent; the new one with what the window said", all.length === 3 && all.some((e) => e.order.id === 1 && e.order.filled === 4) && placed?.prediction?.quantity === 6 && placed.prediction.clicked === "match" && placed.prediction.buttons.some((b) => b.h === 24), JSON.stringify(placed));
-    await page.waitForFunction(() => /Your orders: all on the Pi, sent \d/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
+    await page.waitForFunction(() => /synced \d[^·]*orders \(all on the Pi\)/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     const ordersTold = await page.$eval(".mwia-history", (n) => n.textContent.replace(/\s+/g, " ")).catch(() => "");
-    check("the box says your orders are on the Pi", /Your orders: all on the Pi, sent \d\d?:\d\d/.test(ordersTold) && (await page.evaluate(() => localStorage.getItem("mwia-order-queue"))) === "[]", ordersTold.slice(-200));
+    check("the box says your orders are on the Pi", /synced \d\d?:\d\d( [AP]M)?: [^·]*orders \(all on the Pi\)/.test(ordersTold) && (await page.evaluate(() => localStorage.getItem("mwia-order-queue"))) === "[]", ordersTold.slice(-200));
 
     // Job results and purchases: another device's on the Pi come here; this device's buy order goes there.
     const fromPc = { device: "pc", purchases: [{ uid: "555", purchase: { key: "/items/linen::0", filled: 20, cost: 2000, at: 1000, timed: false } }], reports: [{ key: "1|x", report: { key: "1|x", name: "Linen Boots", actionHrid: "/actions/tailoring/linen_boots", endedAt: Date.now() - 60000, hours: 1, actions: 10, revenue: 1000, profit: 100, used: [], made: [] } }] };
@@ -222,8 +222,8 @@ try {
     const here = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-jobs") || "null"));
     check("jobs: this device's purchase is on the Pi", posted.accepted === 2 && onPi.purchases.some((x) => x.uid === "3" && x.purchase.filled === 5 && x.purchase.cost === 450 && x.purchase.timed), JSON.stringify(onPi.purchases));
     check("jobs: the other device's purchase and result are here, nothing left to send", here?.purchases?.["555"]?.filled === 20 && here.history?.["1|x"]?.actions === 10 && here.piSeq >= 2 && here.unsent.purchases.length === 0, JSON.stringify(here && { p: Object.keys(here.purchases), h: Object.keys(here.history), seq: here.piSeq, unsent: here.unsent }));
-    await page.waitForFunction(() => /Job results synced \d/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
-    check("the box says the job results are synced", /Job results synced \d\d?:\d\d/.test(await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "")));
+    await page.waitForFunction(() => /synced \d[^·]*job results/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
+    check("the box says the job results are synced", /synced \d\d?:\d\d( [AP]M)?: [^·]*job results/.test(await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "")));
 
     // Labyrinth attempts: a room lost here goes to the Pi; one another device sent comes here.
     const room = (extra) => ({ type: "labyrinth_updated", labyrinth: { characterID: 1, isActive: true, currentFloor: 1, startedAt: "t0", roomData: [[{ roomType: "/labyrinth_room_types/combat", monsterHrid: "/monsters/cyclops", recommendedLevel: 30, ...extra }]] } });
@@ -243,8 +243,8 @@ try {
     const labHere = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-attempts") || "null"));
     check("labyrinth: this device's lost room is on the Pi", postedLab.accepted === 1 && labOnPi.attempts.some((x) => x.attempt.uid === "1|t0|1|0|0|loss|1" && x.attempt.what === "cyclops"), JSON.stringify(labOnPi));
     check("labyrinth: the other device's attempt is here, nothing left to send", labHere?.list?.some((a) => a.uid === pcAttempt.uid) && labHere.unsent.length === 0 && labHere.piSeq >= 1, JSON.stringify(labHere && { list: labHere.list.map((a) => a.uid), unsent: labHere.unsent, seq: labHere.piSeq }));
-    await page.waitForFunction(() => /Labyrinth attempts synced \d/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
-    check("the box says the Labyrinth attempts are synced", /Labyrinth attempts synced \d\d?:\d\d/.test(await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "")));
+    await page.waitForFunction(() => /synced \d[^·]*Labyrinth attempts/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
+    check("the box says the Labyrinth attempts are synced", /synced \d\d?:\d\d( [AP]M)?: [^·]*Labyrinth attempts/.test(await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "")));
 
     // The next hour: only it is sent.
     await stopPi();
