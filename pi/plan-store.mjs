@@ -3,8 +3,10 @@
 // the part of the game's data the plan needs; the plan is worked out from
 // them and the Pi's usual prices by pi/planner.mjs, a process of its own at
 // the lowest priority (nice 19), so it only takes the CPU nothing else wants
-// and gives all its memory back when done. One plan at a time; 10 minutes
-// after a new snapshot (at once when asked), and every 6 hours for new prices.
+// and gives all its memory back when done. One plan at a time, at most every
+// 4 hours (new snapshots and prices wait for the next run): 10 minutes after a
+// snapshot when there is no plan yet or the game's data changed, at once when
+// asked.
 //
 // data/plan/game-data.json            { hash, data }
 // data/plan/prices.json               the usual prices, written before each run
@@ -47,8 +49,8 @@ const validSnapshot = (s) =>
     && Number.isFinite(Number(s.coins)) && characterKey(s.character?.id);
 
 // typical({ plus }): the usual prices (history-store's typical; the plan asks for the +levels too). Options for the tests:
-// delayMs (after a snapshot), soonMs (when asked to plan now), everyMs, busy() (true: wait).
-export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 * 60 * 1000, soonMs = 5000, everyMs = 6 * 3600 * 1000, busy = () => os.loadavg()[0] > os.cpus().length, postponeMs = 10 * 60 * 1000 } = {}) {
+// delayMs (after a snapshot), soonMs (when asked to plan now), everyMs (between runs), busy() (true: wait).
+export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 * 60 * 1000, soonMs = 5000, everyMs = 4 * 3600 * 1000, busy = () => os.loadavg()[0] > os.cpus().length, postponeMs = 10 * 60 * 1000 } = {}) {
     const dir = path.join(dataDir, "plan");
     mkdirSync(dir, { recursive: true });
     const dataFile = path.join(dir, "game-data.json");
@@ -62,6 +64,12 @@ export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 *
     const status = (key) => readJson(path.join(charDir(key), "status.json")) || {};
     const setStatus = (key, fields) => writeAtomic(path.join(charDir(key), "status.json"), JSON.stringify({ ...status(key), ...fields }));
     const characters = () => readdirSync(dir).filter((f) => characterKey(f) === f && existsSync(path.join(dir, f, "snapshot.json")));
+
+    // The next run: everyMs after the last one, at least delayMs from now.
+    const due = (key) => {
+        const last = status(key).at;
+        return Number.isFinite(last) ? Math.max(delayMs, last + everyMs - Date.now()) : delayMs;
+    };
 
     function schedule(key, ms) {
         clearTimeout(timers.get(key));
@@ -126,6 +134,7 @@ export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 *
         const snapshot = body?.snapshot;
         if (!validSnapshot(snapshot)) return { ok: false, error: "snapshot: who, coins and character.id" };
         const key = characterKey(snapshot.character.id);
+        const newData = !!body.data && body.data.hash !== dataHash;
         if (body.data) {
             if (typeof body.data.hash !== "string" || !body.data.data?.itemDetailMap || !body.data.data?.actionDetailMap) return { ok: false, error: "data: { hash, data }" };
             writeAtomic(dataFile, JSON.stringify(body.data));
@@ -133,7 +142,10 @@ export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 *
         }
         mkdirSync(charDir(key), { recursive: true });
         writeAtomic(path.join(charDir(key), "snapshot.json"), JSON.stringify({ ...snapshot, received: Date.now() }));
-        schedule(key, body.run ? soonMs : delayMs);
+        if (body.run) schedule(key, soonMs);
+        else if (newData || !existsSync(path.join(charDir(key), "plan.json"))) schedule(key, delayMs);
+        // While its plan is being worked out, the next run is set when it is done.
+        else if (!(running && status(key).running)) schedule(key, due(key));
         return { ok: true, character: key, dataHash, needData: !dataHash || (snapshot.dataHash && snapshot.dataHash !== dataHash) };
     }
 
@@ -145,8 +157,8 @@ export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 *
         return { plan: readJson(path.join(charDir(key), "plan.json")), status: { ...s, running: running && s.running ? s.running : null, queued: queue.some((q) => q.key === key) }, dataHash, snapshotAt: readJson(path.join(charDir(key), "snapshot.json"))?.at ?? null };
     }
 
-    // After a restart: every character's plan again within the delay, then every few hours.
-    for (const key of characters()) schedule(key, delayMs);
+    // After a restart: every character's plan when it is due (at least the delay from now).
+    for (const key of characters()) schedule(key, due(key));
 
     return { put, get, status: () => ({ characters: characters().length, dataHash, running: !!running }), idle: () => (running || Promise.resolve()), runNow: (id) => enqueue(characterKey(id)) };
 }

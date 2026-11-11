@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fixtureCharacter } from "./fixture-character.js";
 import { MARKET_TAX, skillingCharacter } from "../src/skilling.js";
-import { HORIZON_DEFAULTS, planAdviceKey, planHorizon, planMarkets, planName, searchDetours, simulatePlan } from "../src/horizon.js";
+import { HORIZON_DEFAULTS, planAdviceKey, planHorizon, planMarkets, planName, rolloutPlan, searchDetours, simulatePlan } from "../src/horizon.js";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const dataDir = path.join(root, "engine/data");
@@ -56,6 +56,10 @@ check("the advice key names the best plan and its first job", planAdviceKey(plan
 const markets = planMarkets(prices, data);
 const sample = ["/items/milk", "/items/cheese", "/items/linen_fabric", "/items/azure_needle"];
 check("cautious prices buy higher and sell lower", sample.every((h) => markets.cautious.buy(h) >= markets.typical.buy(h) && markets.cautious.sell(h).price <= markets.typical.sell(h).price));
+const weighedPlans = plan.plans.filter((p) => p.greedy !== null);
+check("the plans near the best get their purchases weighed, never scoring less than greedily", plan.rolledOut > 0 && plan.rollouts > 0 && plan.plans[0].greedy !== null && weighedPlans.every((p) => p.score >= p.greedy), `${plan.rolledOut} plans, ${plan.rollouts} runs`);
+const finalOf = plan.plans[0].phases.at(-1);
+check("…and so does keeping to the best plan's final skill", !finalOf || finalOf.level !== null || plan.plans.some((p) => p.phases.length === 1 && p.phases[0].skill === finalOf.skill && p.phases[0].level === null && p.greedy !== null));
 check("the plans shown first are run with cautious prices too", plan.plans.slice(0, 3).every((p) => p.cautious && Number.isFinite(p.cautious.score)));
 
 // A plan run on its own: coins never go below zero, every block filled from a few jobs.
@@ -143,6 +147,33 @@ const needles = waited.purchases.filter((x) => x.kind === "tool");
 check("no tool is bought just before the next tier replaces it", !needles.some((x) => /azure_needle/.test(x.itemHrid)) && needles.some((x) => /burble_needle/.test(x.itemHrid)), needles.map((x) => `${x.block}:${x.itemHrid}+${x.level}`).join(", "));
 const farFromBurble = simulatePlan({ ...snapshot, who: { ...who, levels: { ...who.levels, "/skills/tailoring": 20 }, experience: { ...who.experience, "/skills/tailoring": data.levelExperienceTable[20] } } }, data, plusPrices, tailoring, { days: 3 });
 check("…but is when the next tier is far off", farFromBurble.purchases.some((x) => /azure_needle/.test(x.itemHrid)), farFromBurble.purchases.filter((x) => x.kind === "tool").map((x) => `${x.block}:${x.itemHrid}+${x.level}`).join(", "));
+
+// Purchases weighed one by one (rollout): each alternative runs the rest of the
+// plan from its block, the best kept – never worse than buying greedily.
+const rolled = rolloutPlan(snapshot, data, plusPrices, tailoring, { days: 10 });
+const buys = (run) => run.purchases.map((x) => `${x.block}:${(x.itemHrid || x.roomHrid).split("/").pop()}+${x.level}`).join(" ");
+check("weighing the purchases is never worse than buying greedily", rolled.best.score >= rolled.greedy.score && rolled.best.tries > 0 && rolled.greedy.decisions.length > 0, `${Math.round(rolled.greedy.score)} → ${Math.round(rolled.best.score)} in ${rolled.best.tries} runs; ${buys(rolled.best)}`);
+check("…and its choices give the same run from the start", Math.abs(rolled.replay(rolled.best.choices).score - rolled.best.score) < 1e-6);
+const decision = rolled.greedy.decisions.find((d) => d.alternatives.some((a) => a.wait)) || rolled.greedy.decisions[0];
+const at = `${decision.block}|${decision.kind}`;
+check("a run picked up at a decision's block is the run from the start", decision.alternatives.every((alt) => {
+    const choice = new Map([[at, alt]]);
+    return Math.abs(rolled.replay(choice).score - rolled.replay(choice, { parent: rolled.greedy, b: decision.block }).score) < 1e-6;
+}));
+const skipped = rolled.replay(new Map([[at, { skip: true }]]));
+check("skip: nothing of that kind is bought in that block", !skipped.purchases.some((x) => x.block === decision.block && x.kind === decision.kind), buys(skipped));
+const greedyBuy = rolled.greedy.purchases.find((x) => x.block === decision.block && x.kind === decision.kind);
+const banned = rolled.replay(new Map([[at, { ban: `${greedyBuy.itemHrid || greedyBuy.roomHrid}+${greedyBuy.level}` }]]));
+check("ban: the piece bought greedily is never bought", greedyBuy.kind === "house" || !banned.purchases.some((x) => x.itemHrid === greedyBuy.itemHrid && x.level === greedyBuy.level), buys(banned));
+const waitFor = decision.alternatives.find((a) => a.wait);
+if (waitFor) {
+    const saving = rolled.replay(new Map([[at, waitFor]]));
+    // (Saving up ends early when the piece is no longer offered – something cheaper does as much – or no longer pays.)
+    const kinds = ["tool", "gear", "house"];
+    const later = (x) => x.block === decision.block && kinds.indexOf(x.kind) >= kinds.indexOf(decision.kind);
+    const next = (x) => x.block === decision.block + 1 && `${x.itemHrid}+${x.level}` !== waitFor.wait;
+    check("wait: nothing else is bought while saving up for it", !saving.purchases.some((x) => later(x) || next(x)), `${decision.block}|${decision.kind} ${waitFor.wait}: ${buys(saving)}`);
+}
 
 // House rooms: the skill's room goes up when it pays, not when its materials cost a fortune.
 const PARLOR = "/house_rooms/sewing_parlor";

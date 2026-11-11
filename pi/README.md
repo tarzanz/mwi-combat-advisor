@@ -72,14 +72,15 @@ Switched on with the orders (`MWIA_ORDERS=1`). Each linked device sends what the
 game says about your character – a snapshot: levels, XP, buffs, teas, tools,
 clothes, coins, and the plan's settings – at most every 30 minutes (`POST /snapshot`), and
 after a game patch the part of the game's data the plan needs (under 1 MB). The
-Pi works the plan out 10 minutes after a new snapshot (at once with ▶ Plan now)
-and every 6 hours for new prices, from its own usual prices; the devices read it
+Pi works the plan out at most every 4 hours, from the newest snapshot and its
+own usual prices (10 minutes after the first snapshot or a game patch, at once
+with ▶ Plan now); the devices read it
 with `GET /plan?character=<id>`.
 
 - The planning runs as a process of its own (`pi/planner.mjs`) at the lowest
   priority (nice 19), so anything else on the Pi goes first; one plan at a time,
-  with at most 384 MB of heap, given back when it is done (a few seconds to a
-  minute on a Pi 4 – 90 days take about three times as long as 30). While the
+  with at most 384 MB of heap, given back when it is done (up to about two
+  minutes on a Pi 4 for 90 days – 30 days take about a third of that). While the
   Pi's load is above its number of cores it waits 10 minutes (up to two hours).
 - Files in `data/plan/`: `game-data.json` (the game's data as sent), `prices.json`
   (the usual prices of the last run), and per character `snapshot.json`,

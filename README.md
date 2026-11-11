@@ -310,10 +310,10 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   worth the most in 30 days (7 to 90): keep to what earns most now (say Tailoring), or first level another skill
   towards a job or a tool that unlocks soon. The browser sends your character (levels, XP, buffs, teas, tools,
   clothes, coins) to your Pi at most every 30 minutes, and after a game patch the part of the game's data the plan
-  needs (under 1 MB); the Pi works the plan out 10 minutes after a new snapshot, and every 6 hours for new prices,
-  in a process of its own at the lowest priority (nice 19, given back when done), and the tab reads it with every
+  needs (under 1 MB); the Pi works the plan out every 4 hours from the newest snapshot and prices (10 minutes after
+  the first snapshot or a game patch), in a process of its own at the lowest priority (nice 19, given back when done), and the tab reads it with every
   sync.
-  **▶ Plan now** sends your character and has it worked out at once (a minute or two on a small Pi). The model:
+  **▶ Plan now** sends your character and has it worked out at once (about two minutes for 90 days on a Pi 4). The model:
   - Time goes in **8-hour blocks**: one job, and at most one more queued behind it when coins or materials cut the
     first short – no job under an hour. Each block runs the job that earns the most, or, while a plan trains a
     skill towards a level, that skill's job with the most gold (*earning in it*) or the fastest XP.
@@ -363,6 +363,14 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     every block*) are simulated as they are, with earning the most every block and keeping to each skill
     (*Only Tailoring*). A tool, piece of clothing or room bought on a detour pays back only until the detour ends.
     Of plans within 0.25% of the best score, the one with the fewest phases is shown as the best.
+  - **Purchases weighed, not just greedy**: tools, clothes and rooms are first bought as above – what pays the most
+    at that moment. Then, in the plans within 3% of the best (ten at most, each also with *Only* its final skill),
+    every purchase is weighed against what could take its place: the next two best, buying nothing then, saving up
+    (nothing else bought, for up to three days) for one of the two dearer pieces that pay more, or never buying it –
+    each by running the rest of the plan from that block, the best kept, in two passes. So a plan is never worse
+    than buying greedily, and a detour no longer wins only because its blocks happen to shift what greedy buying
+    picks (Holy Shears +8 kept to the end against +7 and soon +10). The cautious run and the run without community
+    buffs make the same purchases where they can.
   The tab shows the best plan with **the next 8 hours** (jobs, hours, about how many actions, teas, the clothes to
   wear, a tool, a piece of clothing or a house room to buy, build or put on), how it compares with keeping to what earns now and with earning the most every block, and every plan
   shown step by step: from which day to which each job runs, its gold, XP and loadout, tools, clothes (with their +level) and house rooms bought, levels and room levels reached and the

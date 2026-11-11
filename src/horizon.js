@@ -1,6 +1,6 @@
 // 📈 The N-day plan: from where the character is now, which order of 8-hour
 // skilling jobs leaves it worth the most in N days (30 by default). It is
-// worked out on the Pi (pi/planner.mjs) a few times a day, from what the
+// worked out on the Pi (pi/planner.mjs) at most every 4 hours, from what the
 // userscript sends about the character and the Pi's own price history; the
 // userscript only shows the result. Pure: no browser, no files.
 //
@@ -23,7 +23,10 @@
 //   extra gold over the days left (plus levelDays) pays for it, less what it
 //   sells for again (the old one is sold at the bid). Any tier the levels allow,
 //   at +0 or at any +level the market has had asks for this week – the one that
-//   pays the most.
+//   pays the most at that moment; in the plans near the best, every purchase is
+//   then weighed against the next best ones, buying nothing then, saving up for
+//   a dearer one or never buying it, each by running the rest of the plan
+//   (rollout), so a plan isn't judged by what greedy buying happens to do.
 // - Clothes, jewellery, charms and capes: each skill is worked in a loadout of
 //   its own (swapped for nothing) – of each slot, what the character owns that
 //   earns the most on the skill's best job. One piece for the skill being worked
@@ -72,6 +75,20 @@ const DP_EARN_MOST = 6;
 const DP_RESULTS = 2000;
 // Plans within this share of the best score count as as good: the simplest of them is shown as the best.
 const SIMPLER_WITHIN = 0.0025;
+// Purchases are first made greedily – what pays the most at that moment – and
+// then, in the plans near the best (ROLLOUT_WITHIN of its score, ROLLOUT_PLANS
+// of them, each also with "only" its final skill to compare against), every
+// purchase is weighed against a few others in its place (see rollout): the
+// ROLLOUT_RANKS next best, saving up (at most WAIT_BLOCKS) for one of the
+// ROLLOUT_WAITS dearer ones that pay more, buying nothing then, or never
+// buying it – in ROLLOUT_PASSES passes.
+const ROLLOUT_WITHIN = 0.03;
+const ROLLOUT_PLANS = 10;
+const ROLLOUT_RANKS = 2;
+const ROLLOUT_WAITS = 2;
+const WAIT_BLOCKS = 9;
+const ROLLOUT_PASSES = 2;
+const KINDS = ["tool", "gear", "house"];
 // Plans also run with cautious prices, and plans shown.
 const CAUTIOUS_TOP = 6;
 export const PLANS_SHOWN = 8;
@@ -541,13 +558,15 @@ function initialState(ctx) {
         level[s] = ctx.who.levels[s];
         xp[s] = experienceOf(ctx.table, ctx.who.experience?.[s], level[s]);
     }
-    return { coins: ctx.coins, xp, level, tools: { ...ctx.tools }, stock: {}, owned: { ...ctx.owned }, gear: ctx.ownedGear, gearKey: ownedGearKey(ctx.ownedGear), house: houseState(ctx, { ...ctx.house }) };
+    // ban: purchases the plan never makes; wait: what it saves up for ({ kind, key, until } or null) – see choose.
+    return { coins: ctx.coins, xp, level, tools: { ...ctx.tools }, stock: {}, owned: { ...ctx.owned }, gear: ctx.ownedGear, gearKey: ownedGearKey(ctx.ownedGear), house: houseState(ctx, { ...ctx.house }), ban: {}, wait: null };
 }
 
 // The clothes owned, as one text (the loadouts and job lists are kept per set).
 const ownedGearKey = (gear) => gear.map(toolKey).sort().join(",");
 
-const cloneState = (state) => ({ coins: state.coins, xp: { ...state.xp }, level: { ...state.level }, tools: { ...state.tools }, stock: { ...state.stock }, owned: { ...state.owned }, gear: state.gear, gearKey: state.gearKey, house: state.house });
+// gear, house, ban and wait are replaced, never changed in place, so they are shared.
+const cloneState = (state) => ({ coins: state.coins, xp: { ...state.xp }, level: { ...state.level }, tools: { ...state.tools }, stock: { ...state.stock }, owned: { ...state.owned }, gear: state.gear, gearKey: state.gearKey, house: state.house, ban: state.ban, wait: state.wait });
 
 // One block of `hours`: the stock sells first, then jobs fill the hours.
 // phase: { skill, style } while training, else null (earn the most).
@@ -690,17 +709,60 @@ function offersFor(ctx, market, state, skill, job, slotKey, candidates, replace)
     return front;
 }
 
+// What a block buys of one kind (tool, gear or house) from its offers, each
+// { key, value (what it pays over its days, less its net cost), ok (the coins
+// allow it now) }: the plan's choice for the block when it has one – { pick:
+// key }, { skip: true } (nothing now), { wait: key } (save up for it: nothing
+// of any kind is bought until it is, see simulate) or { ban: key } (never buy
+// it, then as usual) – else what it saves up for once the coins allow it
+// (given up after WAIT_BLOCKS, or when it no longer pays or is no longer
+// offered), else the one that pays the most (greedy). Returns the offer bought
+// (or null) and, where it bought greedily or by a choice, the alternatives
+// rollout may try instead.
+function choose(state, kind, b, offers, choice) {
+    if (choice?.ban) state.ban = { ...state.ban, [choice.ban]: true };
+    const live = offers.filter((o) => !state.ban[o.key]);
+    const ok = live.filter((o) => o.ok && o.value > 0).sort((x, y) => y.value - x.value);
+    let decision = null;
+    if (ok.length || choice) {
+        const floor = ok[0]?.value ?? 0;
+        const current = JSON.stringify(choice && !choice.ban ? choice : ok[0] ? { pick: ok[0].key } : null);
+        const alternatives = [
+            ...ok.slice(0, 1 + ROLLOUT_RANKS).map((o) => ({ pick: o.key })),
+            ...live.filter((o) => !o.ok && o.value > floor).sort((x, y) => y.value - x.value).slice(0, ROLLOUT_WAITS).map((o) => ({ wait: o.key })),
+            ...(ok.length ? [{ skip: true }, { ban: ok[0].key }] : []),
+        ].filter((a) => JSON.stringify(a) !== current);
+        if (alternatives.length) decision = { block: b, kind, alternatives };
+    }
+    if (choice?.skip) return { offer: null, decision };
+    if (choice?.pick) return { offer: live.find((o) => o.ok && o.key === choice.pick) || null, decision };
+    if (choice?.wait) state.wait = { kind, key: choice.wait, until: b + WAIT_BLOCKS };
+    if (state.wait && b >= state.wait.until) state.wait = null;
+    const waiting = state.wait;
+    if (waiting) {
+        if (waiting.kind !== kind) return { offer: null, decision: choice ? decision : null };
+        const w = live.find((o) => o.key === waiting.key);
+        if (w && w.value > 0 && !w.ok) return { offer: null, decision: choice ? decision : null };
+        state.wait = null;
+        if (w && w.value > 0 && w.ok) return { offer: w, decision: choice ? decision : null };
+    }
+    return { offer: ok[0] || null, decision };
+}
+
 // Before a block: a better tool for the skill being worked, when it pays – of
 // every tier the levels allow, at +0 or a +level for sale, the one whose extra
-// gold over payDays (see simulate) beats its cost less its resale by the most.
+// gold over payDays (see simulate) beats its cost less its resale by the most
+// (or the plan's choice, see choose).
 // A tool is kept only until the skill reaches the next tier when that tier is
 // for sale at the same +level or higher: it is replaced then, so it has to pay
 // back before (no Crimson Shears +5 a few hours before Rainbow Shears unlock). While training for XP, the next tier at +0 is bought anyway when cheap.
-function maybeBuyTool(ctx, market, state, actionType, phase, payDays) {
-    if (!actionType) return null;
+// Returns { bought (or null), decision (see choose) }.
+function maybeBuyTool(ctx, market, state, actionType, phase, payDays, b, choice) {
+    const none = { bought: null, decision: null };
+    if (!actionType) return none;
     const toolType = toolTypeOf(actionType);
     const tiers = ctx.tiers[toolType];
-    if (!tiers) return null;
+    if (!tiers) return none;
     const skill = tiers[0].skillHrid;
     const current = state.tools[toolType] || null;
     const currentTier = current ? tiers.find((t) => t.itemHrid === current.itemHrid)?.level ?? -1 : -1;
@@ -743,13 +805,15 @@ function maybeBuyTool(ctx, market, state, actionType, phase, payDays) {
         if (!next || !(xpPerDay > 0)) return Infinity;
         return Math.max(0, (ctx.table[next.level] || 0) - state.xp[skill]) / xpPerDay;
     };
-    let chosen = null;
-    for (const o of front) {
-        if (o.price > state.coins || !leaves(ctx, state, job.top, state.coins - o.price + resale)) continue;
-        const value = o.gainPerDay * Math.min(payDays, lifeDays(o.item)) - o.netCost;
-        if (value > 0 && (!chosen || value > chosen.value)) chosen = { ...o, value };
-    }
-    if (!chosen && phase?.style === "xp" && phase.skill === skill) {
+    const offers = front.map((o) => ({
+        ...o,
+        key: toolKey(o.item),
+        ok: o.price <= state.coins && leaves(ctx, state, job.top, state.coins - o.price + resale),
+        value: o.gainPerDay * Math.min(payDays, lifeDays(o.item)) - o.netCost,
+    }));
+    const { offer, decision } = choose(state, "tool", b, offers, choice);
+    let chosen = offer;
+    if (!chosen && !choice && !state.wait && phase?.style === "xp" && phase.skill === skill) {
         // Training for XP: the highest tier at +0 above the one worn, when cheap.
         for (const tier of allowed) {
             if (tier.level <= currentTier) continue;
@@ -761,24 +825,26 @@ function maybeBuyTool(ctx, market, state, actionType, phase, payDays) {
             if (netCost <= CHEAP_TOOL * state.coins && lifeDays(item) >= ctx.o.blockHours / 24) chosen = { item, price, owned, netCost, gainPerDay: 0 };
         }
     }
-    if (!chosen) return null;
+    if (!chosen) return { bought: null, decision };
     state.coins += resale - chosen.price;
     if (chosen.owned) state.owned[chosen.item.itemHrid]--;
     state.tools[toolType] = chosen.item;
-    return { kind: "tool", itemHrid: chosen.item.itemHrid, level: chosen.item.level, price: chosen.price, owned: chosen.owned, sold: current?.itemHrid || null, soldLevel: current?.level || 0, resale, gainPerDay: chosen.gainPerDay };
+    return { bought: { kind: "tool", itemHrid: chosen.item.itemHrid, level: chosen.item.level, price: chosen.price, owned: chosen.owned, sold: current?.itemHrid || null, soldLevel: current?.level || 0, resale, gainPerDay: chosen.gainPerDay }, decision };
 }
 
 // Before a block: one piece of clothing for the skill being worked, at +0 or a
 // +level for sale, when its extra gold (within the market's limits, on the
-// skill's best job) over payDays pays for it, less what it sells for again. What it replaces is kept – another skill may wear it – but
-// a lower level of the same piece is sold.
-function maybeBuyGear(ctx, market, state, actionType, payDays) {
-    if (!actionType) return null;
+// skill's best job) over payDays pays for it, less what it sells for again (or
+// the plan's choice, see choose). What it replaces is kept – another skill may wear it – but
+// a lower level of the same piece is sold. Returns { bought, decision }.
+function maybeBuyGear(ctx, market, state, actionType, payDays, b, choice) {
+    const none = { bought: null, decision: null };
+    if (!actionType) return none;
     const skill = "/skills/" + actionType.slice(ACTION_TYPE.length);
     const shop = ctx.shop[skill];
-    if (!shop?.length || state.level[skill] === undefined) return null;
+    if (!shop?.length || state.level[skill] === undefined) return none;
     const job = topJob(ctx, market, state, skill);
-    if (!job || !(job.top.marketPerHour > 0)) return null;
+    if (!job || !(job.top.marketPerHour > 0)) return none;
     const ownedLevel = new Map();
     for (const item of state.gear) ownedLevel.set(item.itemHrid, Math.max(ownedLevel.get(item.itemHrid) ?? -1, item.level));
     const usable = shop.filter(({ itemHrid }) => meets(ctx, state, itemHrid));
@@ -798,49 +864,51 @@ function maybeBuyGear(ctx, market, state, actionType, payDays) {
     };
     const slotKey = `gear:${usable.length}:${state.gearKey}`;
     const front = offersFor(ctx, market, state, skill, job, slotKey, candidates, (item) => ({ tool: job.tool, gear: { ...job.gear, [item.type]: { itemHrid: item.itemHrid, level: item.level } } }));
-    let best = null;
-    for (const o of front) {
+    const offers = front.map((o) => {
         const old = ownedLevel.has(o.item.itemHrid) ? state.gear.find((g) => g.itemHrid === o.item.itemHrid && g.level === ownedLevel.get(o.item.itemHrid)) : null;
         const oldResale = toolResale(ctx, market, old);
-        if (o.price > state.coins || !leaves(ctx, state, job.top, state.coins - o.price + oldResale)) continue;
-        const value = o.gainPerDay * payDays - o.netCost;
-        if (value > 0 && (!best || value > best.value)) best = { ...o, old, oldResale, value };
-    }
-    if (!best) return null;
+        return { ...o, old, oldResale, key: toolKey(o.item), ok: o.price <= state.coins && leaves(ctx, state, job.top, state.coins - o.price + oldResale), value: o.gainPerDay * payDays - o.netCost };
+    });
+    const { offer: best, decision } = choose(state, "gear", b, offers, choice);
+    if (!best) return { bought: null, decision };
     const item = { itemHrid: best.item.itemHrid, level: best.item.level };
     state.coins += best.oldResale - best.price;
     state.gear = [...state.gear.filter((g) => g !== best.old), item];
     state.gearKey = ownedGearKey(state.gear);
-    return { kind: "gear", itemHrid: item.itemHrid, level: item.level, price: best.price, owned: false, sold: best.old ? best.old.itemHrid : null, soldLevel: best.old?.level || 0, resale: best.old ? best.oldResale : best.price - best.netCost, gainPerDay: best.gainPerDay, gear: true };
+    return { bought: { kind: "gear", itemHrid: item.itemHrid, level: item.level, price: best.price, owned: false, sold: best.old ? best.old.itemHrid : null, soldLevel: best.old?.level || 0, resale: best.old ? best.oldResale : best.price - best.netCost, gainPerDay: best.gainPerDay, gear: true }, decision };
 }
 
 // Before a block: the skill's house room one level up, when its extra gold over
 // payDays pays for the coins and materials (at the ask; no
-// material more than HOUSE_BUY_DAYS of the market's share of its sales).
-function maybeBuyHouse(ctx, market, state, actionType, payDays) {
-    if (!actionType) return null;
+// material more than HOUSE_BUY_DAYS of the market's share of its sales), or
+// the plan's choice (see choose). Returns { bought, decision }.
+function maybeBuyHouse(ctx, market, state, actionType, payDays, b, choice) {
+    const none = { bought: null, decision: null };
+    if (!actionType) return none;
     const skill = "/skills/" + actionType.slice(ACTION_TYPE.length);
     const room = ctx.rooms[skill];
-    if (!room) return null;
+    if (!room) return none;
     const level = state.house.levels[room.hrid] || 0;
-    if (level >= MAX_HOUSE_LEVEL) return null;
+    if (level >= MAX_HOUSE_LEVEL) return none;
     let price = 0;
     for (const c of room.upgradeCostsMap[String(level + 1)] || []) {
         const each = market.buy(c.itemHrid);
-        if (each === null) return null;
+        if (each === null) return none;
         const sold = c.itemHrid === "/items/coin" ? null : ctx.sold(c.itemHrid);
-        if (sold !== null && c.count > sold * ctx.o.marketShare * HOUSE_BUY_DAYS) return null;
+        if (sold !== null && c.count > sold * ctx.o.marketShare * HOUSE_BUY_DAYS) return none;
         price += each * c.count;
     }
     const job = topJob(ctx, market, state, skill);
-    if (!job || price > state.coins || !leaves(ctx, state, job.top, state.coins - price)) return null;
+    if (!job) return none;
     const house = houseState(ctx, { ...state.house.levels, [room.hrid]: level + 1 });
     const r = rates(ctx, market, job.action, state.level[skill], job.tool, "gold", job.gear, job.top.teas, house);
     const gainPerDay = r.valid ? (r.marketPerHour - Math.max(0, job.top.marketPerHour)) * 24 : 0;
-    if (!(gainPerDay * payDays > price)) return null;
+    const offer = { key: `${room.hrid}=${level + 1}`, ok: price <= state.coins && leaves(ctx, state, job.top, state.coins - price), value: gainPerDay * payDays - price };
+    const { offer: bought, decision } = choose(state, "house", b, [offer], choice);
+    if (!bought) return { bought: null, decision };
     state.coins -= price;
     state.house = house;
-    return { kind: "house", roomHrid: room.hrid, level: level + 1, price, owned: false, sold: null, resale: 0, gainPerDay };
+    return { bought: { kind: "house", roomHrid: room.hrid, level: level + 1, price, owned: false, sold: null, resale: 0, gainPerDay }, decision };
 }
 
 // The gold a day the state can earn: a day of the best jobs with the market's full room.
@@ -858,25 +926,52 @@ function earnRate(ctx, market, state) {
 // phase reaches its level (a tool bought for a detour is no use after it).
 // run: { blocks (default the plan's), levels: { skill: level } to start at
 // instead (the planner's "what if" runs), record: true for the worth, XP and
-// level of every skill after each block }.
+// level of every skill after each block, choices: Map "block|kind" → the
+// plan's choice there (see choose; the rest is bought greedily), checkpoints:
+// true to keep the state before every block with a purchase decision or
+// choice, from: { parent, b } to run on from such a block of an earlier run
+// (with the same choices before it) instead of from the start }.
+// Returns also the purchase decisions made greedily (see choose) and the choices.
 function simulate(ctx, market, phases, run = {}) {
-    const state = initialState(ctx);
-    for (const [skill, level] of Object.entries(run.levels || {})) {
-        if (state.level[skill] === undefined || state.level[skill] >= level) continue;
-        state.level[skill] = level;
-        state.xp[skill] = Math.max(state.xp[skill], ctx.table[level] || 0);
-    }
-    const startWorth = worthOf(ctx, market, state);
     const blockHours = ctx.o.blockHours;
     const blocks = run.blocks ?? ctx.blocks;
-    const timeline = [];
-    const purchases = [];
-    const levelUps = [];
-    const worthByDay = [];
-    const record = run.record ? { worth: [startWorth], xp: [{ ...state.xp }], level: [{ ...state.level }], net: [] } : null;
+    const choices = run.choices || new Map();
+    let state;
+    let startWorth;
+    let timeline = [];
+    let purchases = [];
+    let levelUps = [];
+    let worthByDay = [];
+    let decisions = [];
+    let checkpoints = run.checkpoints ? new Map() : null;
     let p = 0;
     let lastType = null;
-    for (let b = 0; b < blocks; b++) {
+    let first = 0;
+    if (run.from) {
+        const { parent, b } = run.from;
+        const cp = parent.checkpoints.get(b);
+        state = cloneState(cp.state);
+        startWorth = parent.startWorth;
+        ({ p, lastType } = cp);
+        first = b;
+        timeline = parent.timeline.slice(0, b);
+        purchases = parent.purchases.filter((x) => x.block < b);
+        levelUps = parent.levelUps.filter((x) => x.block < b);
+        worthByDay = parent.worthByDay.slice(0, Math.floor((b * blockHours) / 24));
+        decisions = parent.decisions.filter((x) => x.block < b);
+        if (checkpoints) for (const [k, v] of parent.checkpoints) if (k < b) checkpoints.set(k, v);
+    } else {
+        state = initialState(ctx);
+        for (const [skill, level] of Object.entries(run.levels || {})) {
+            if (state.level[skill] === undefined || state.level[skill] >= level) continue;
+            state.level[skill] = level;
+            state.xp[skill] = Math.max(state.xp[skill], ctx.table[level] || 0);
+        }
+        startWorth = worthOf(ctx, market, state);
+    }
+    const record = run.record ? { worth: [startWorth], xp: [{ ...state.xp }], level: [{ ...state.level }], net: [] } : null;
+    for (let b = first; b < blocks; b++) {
+        const before = checkpoints ? { state: cloneState(state), p, lastType } : null;
         while (p < phases.length && state.level[phases[p].skill] >= phases[p].level) p++;
         const phase = phases[p] || null;
         const daysLeft = (Math.max(0, ctx.blocks - b) * blockHours) / 24;
@@ -889,12 +984,20 @@ function simulate(ctx, market, phases, run = {}) {
         }
         // The skill this block works: the phase's, else the best earner's (or the last block's).
         const focusType = phase ? ctx.skillTypes[phase.skill] : jobs(ctx, market, state, "gold")[0]?.type || lastType;
-        const bought = maybeBuyTool(ctx, market, state, focusType, phase, payDays);
-        if (bought) purchases.push({ block: b, ...bought });
-        const clothes = maybeBuyGear(ctx, market, state, focusType, payDays);
-        if (clothes) purchases.push({ block: b, ...clothes });
-        const room = maybeBuyHouse(ctx, market, state, focusType, payDays);
-        if (room) purchases.push({ block: b, ...room });
+        const steps = [
+            maybeBuyTool(ctx, market, state, focusType, phase, payDays, b, choices.get(`${b}|tool`)),
+            maybeBuyGear(ctx, market, state, focusType, payDays, b, choices.get(`${b}|gear`)),
+            maybeBuyHouse(ctx, market, state, focusType, payDays, b, choices.get(`${b}|house`)),
+        ];
+        let decided = KINDS.some((kind) => choices.has(`${b}|${kind}`));
+        for (const { bought, decision } of steps) {
+            if (bought) purchases.push({ block: b, ...bought });
+            if (decision) {
+                decisions.push(decision);
+                decided = true;
+            }
+        }
+        if (checkpoints && decided) checkpoints.set(b, before);
         const block = runBlock(ctx, market, state, phase, blockHours);
         for (const up of levelUp(ctx, state)) levelUps.push({ block: b, ...up });
         const main = block.ran.slice().sort((x, y) => y.hours - x.hours)[0] || null;
@@ -910,7 +1013,43 @@ function simulate(ctx, market, phases, run = {}) {
     }
     const worth = worthOf(ctx, market, state);
     const endRate = earnRate(ctx, market, state);
-    return { phases, startWorth, worth, gain: worth - startWorth, endRate, score: worth + ctx.o.levelDays * endRate, timeline, purchases, levelUps, worthByDay, end: state, record };
+    return { phases, startWorth, worth, gain: worth - startWorth, endRate, score: worth + ctx.o.levelDays * endRate, timeline, purchases, levelUps, worthByDay, end: state, record, decisions, choices, checkpoints };
+}
+
+// The plan's purchases weighed one by one, in order, against the others that
+// could take their place (see choose: the next best, nothing now, saving up for
+// a dearer one, never buying it): each alternative runs the rest of the plan
+// from that block – buying greedily after it, or as chosen on a later pass –
+// and the best run so far is kept, so the result is never worse than buying
+// greedily. A second pass weighs every decision again with the later ones
+// made (two changes can pay together where neither does alone).
+// run: simulated with checkpoints.
+function rollout(ctx, market, run) {
+    let best = run;
+    let tries = 0;
+    const order = (d) => d.block * KINDS.length + KINDS.indexOf(d.kind);
+    for (let pass = 0; pass < ROLLOUT_PASSES; pass++) {
+        const start = best;
+        let cursor = -1;
+        for (;;) {
+            const d = best.decisions.find((x) => order(x) > cursor);
+            if (!d) break;
+            cursor = order(d);
+            const base = best;
+            for (const alt of d.alternatives) {
+                const choices = new Map(base.choices);
+                choices.set(`${d.block}|${d.kind}`, alt);
+                const r = simulate(ctx, market, base.phases, { choices, from: { parent: base, b: d.block }, checkpoints: true });
+                tries++;
+                if (r.score > best.score) best = r;
+            }
+        }
+        if (best === start) break;
+    }
+    best.estimate = run.estimate;
+    best.greedy = run.score;
+    best.tries = tries;
+    return best;
 }
 
 // ---- The search: dynamic programming over detours ---------------------------
@@ -1235,6 +1374,8 @@ function summary(ctx, run, cautious = null, bare = null) {
         purchases: run.purchases.map((x) => ({ day: (x.block * ctx.o.blockHours) / 24, kind: x.kind, itemHrid: x.itemHrid || null, roomHrid: x.roomHrid || null, level: x.level || 0, price: Math.round(x.price), owned: x.owned, sold: x.sold, soldLevel: x.soldLevel || 0, resale: Math.round(x.resale), gainPerDay: Math.round(x.gainPerDay), gear: !!x.gear })),
         // What the search's lookups said the plan would score (null: not proposed by it).
         estimate: Number.isFinite(run.estimate) ? Math.round(run.estimate) : null,
+        // What buying greedily scored, when the purchases were weighed (null: they weren't).
+        greedy: Number.isFinite(run.greedy) ? Math.round(run.greedy) : null,
         levels: Object.fromEntries(ctx.skills.filter((s) => run.end.level[s] !== startLevels[s]).map((s) => [s, [startLevels[s], run.end.level[s]]])),
         house: Object.fromEntries(ctx.allRooms.filter((r) => (run.end.house.levels[r.hrid] || 0) !== (ctx.house[r.hrid] || 0)).map((r) => [r.hrid, [ctx.house[r.hrid] || 0, run.end.house.levels[r.hrid]]])),
         worthByDay: run.worthByDay,
@@ -1253,18 +1394,36 @@ export function planHorizon(snapshot, data, prices, options = {}, now = Date.now
     const market = ctx.markets.typical;
     // The search proposes; each proposal, earning the most every block and keeping to each skill are simulated.
     const search = propose(ctx, market);
-    const runs = [simulate(ctx, market, [])];
+    const runs = [simulate(ctx, market, [], { checkpoints: true })];
     const simulated = new Set([""]);
     const tryPlan = (phases, estimate = null) => {
         const key = phases.map((ph) => `${ph.skill}:${ph.level}:${ph.style}`).join("|");
         if (simulated.has(key)) return;
         simulated.add(key);
-        const run = simulate(ctx, market, phases);
+        const run = simulate(ctx, market, phases, { checkpoints: true });
         run.estimate = estimate;
         runs.push(run);
     };
     for (const p of search.proposals) tryPlan(p.phases, p.estimate);
     for (const skill of ctx.skills) tryPlan([{ skill, level: Infinity, style: "gold" }]);
+    runs.sort((x, y) => y.score - x.score || x.phases.length - y.phases.length);
+    // The plans near the best get their purchases weighed (rollout), and so does
+    // "only" their final skill: else a detour may win only by the purchases its
+    // blocks happen to make greedily, not by what it does.
+    const near = runs.filter((r) => r.score >= runs[0].score - ROLLOUT_WITHIN * Math.abs(runs[0].score)).slice(0, ROLLOUT_PLANS);
+    const weigh = new Set(near);
+    for (const run of near) {
+        const last = run.phases.at(-1);
+        const only = last?.level === Infinity && runs.find((r) => r.phases.length === 1 && r.phases[0].skill === last.skill && r.phases[0].level === Infinity);
+        if (only) weigh.add(only);
+    }
+    let rollouts = 0;
+    for (const run of weigh) {
+        const better = rollout(ctx, market, run);
+        rollouts += better.tries;
+        runs[runs.indexOf(run)] = better;
+    }
+    for (const run of runs) run.checkpoints = null;
     runs.sort((x, y) => y.score - x.score || x.phases.length - y.phases.length);
     // Of plans all but as good as the best, the one with the fewest phases goes first.
     const simplest = runs.filter((r) => r.score >= runs[0].score - SIMPLER_WITHIN * Math.abs(runs[0].score)).sort((x, y) => x.phases.length - y.phases.length || y.score - x.score)[0];
@@ -1286,14 +1445,14 @@ export function planHorizon(snapshot, data, prices, options = {}, now = Date.now
     for (const extra of [baseline, only]) if (extra && !shown.includes(extra)) shown.push(extra);
     const cautious = new Map();
     for (const run of shown.slice(0, CAUTIOUS_TOP).concat([baseline, only].filter(Boolean))) {
-        if (!cautious.has(run)) cautious.set(run, simulate(ctx, ctx.markets.cautious, run.phases));
+        if (!cautious.has(run)) cautious.set(run, simulate(ctx, ctx.markets.cautious, run.phases, { choices: run.choices }));
     }
     // The same plans without the community buffs, as if nobody bought them again.
     const bare = new Map();
     const bareSnapshot = withoutCommunity(snapshot);
     if (bareSnapshot) {
         const ctx2 = context(bareSnapshot, data, prices, options);
-        for (const run of cautious.keys()) bare.set(run, simulate(ctx2, ctx2.markets.typical, run.phases));
+        for (const run of cautious.keys()) bare.set(run, simulate(ctx2, ctx2.markets.typical, run.phases, { choices: run.choices }));
     }
     const plans = shown.map((run) => summary(ctx, run, cautious.get(run) || null, bare.get(run) || null));
     const best = plans[0];
@@ -1316,6 +1475,9 @@ export function planHorizon(snapshot, data, prices, options = {}, now = Date.now
         // Plans the search weighed by its lookups, and the runs of single skills they took.
         weighed: search.weighed,
         skillRuns: search.runs,
+        // Plans whose purchases were weighed, and the runs that took.
+        rolledOut: weigh.size,
+        rollouts,
         unknownSales: [...ctx.unknownSales].slice(0, 20),
         ms: Date.now() - started,
     };
@@ -1349,6 +1511,14 @@ export function simulatePlan(snapshot, data, prices, phases, options = {}, scena
     const ctx = context(scenario === "noCommunity" ? withoutCommunity(snapshot) || snapshot : snapshot, data, prices, options);
     if (scenario === "noCommunity") scenario = "typical";
     return simulate(ctx, ctx.markets[scenario], phases);
+}
+
+// For the tests: one plan bought for greedily, and with its purchases weighed (see rollout).
+export function rolloutPlan(snapshot, data, prices, phases, options = {}) {
+    const ctx = context(snapshot, data, prices, options);
+    const market = ctx.markets.typical;
+    const greedy = simulate(ctx, market, phases, { checkpoints: true });
+    return { greedy, best: rollout(ctx, market, greedy), replay: (choices, from) => simulate(ctx, market, phases, { choices, from, checkpoints: true }) };
 }
 
 // The part of the game's data the plan needs, to send to the Pi (well under

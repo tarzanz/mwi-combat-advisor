@@ -212,6 +212,16 @@ check("usual prices: the week's medians, quartiles and sales a day", typical["/i
     }
     check("plan store: the planner works the plan out at the lowest priority", got?.plan?.plans?.length > 0 && got.plan.options.days === 2 && got.plan.snapshotAt === 123 && got.plan.character === "Tester" && !got.status.error && got.status.ms > 0, JSON.stringify(got?.status) + " " + logs.join(" | "));
     check("plan store: the next run is in a few hours", got.status.next > Date.now() + 3600 * 1000, JSON.stringify(got.status));
+    plans.put({ snapshot: { ...snapshot, at: 124 } });
+    const waits = plans.get(5).status;
+    check("plan store: a new snapshot waits for the run 4 hours after the last", Math.abs(waits.next - (got.status.at + 4 * 3600 * 1000)) < 5000, JSON.stringify(waits));
+    plans.put({ snapshot: { ...snapshot, at: 125 }, run: true });
+    check("plan store: …unless asked to plan now", plans.get(5).status.next < Date.now() + 1000, JSON.stringify(plans.get(5).status));
+    await new Promise((r) => setTimeout(r, 50));
+    for (let k = 0; k < 600 && plans.get(5).plan?.snapshotAt !== 125; k++) {
+        await new Promise((r) => setTimeout(r, 100));
+        await plans.idle();
+    }
     const reopenedPlans = openPlanStore(planDir, { typical: () => prices, busy: () => true, delayMs: 60000 });
     check("plan store: read again after a restart", reopenedPlans.get(5).plan?.plans?.length === got.plan.plans.length && reopenedPlans.status().dataHash === shipped.hash && reopenedPlans.status().characters === 1, JSON.stringify(reopenedPlans.status()));
     const noData = openPlanStore(mkdtempSync(path.join(process.env.TMPDIR || tmpdir(), "mwia-plan-")), { typical: () => prices, soonMs: 10, busy: () => false });
