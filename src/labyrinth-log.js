@@ -6,8 +6,10 @@
 // state changes; what happened while the game was closed is found on the next login
 // (marked late: your gear and levels then are the ones last seen). Kept in this browser
 // (the newest MAX_KEPT) and sent to your Pi when it takes them (pi/labyrinth-store.mjs).
+// The game's Labyrinth state itself goes to the Pi too, whole (labyrinth-states.js).
 
 import { onStateChange, state } from "./game-state.js";
+import { recordState } from "./labyrinth-states.js";
 import { COMBAT_SKILLS } from "./profile.js";
 
 const KEY = "mwia-laby-attempts";
@@ -39,11 +41,15 @@ export function roomOutcomes(before, after) {
     const out = [];
     after.roomData.forEach((row, r) => (row || []).forEach((room, c) => {
         const was = before.roomData[r]?.[c];
-        if (!room || !was || !roomKey(room) || roomKey(room) !== roomKey(was) || was.isCleared) return;
+        if (!room || !was || !roomKey(was) || was.isCleared) return;
+        // A cleared room can come without its monster or skill (and level): what it was counts.
+        const emptied = !roomKey(room) && !!room.isCleared;
+        if (!emptied && roomKey(room) !== roomKey(was)) return;
+        const told = emptied ? { ...was, isCleared: true } : room;
         const failsBefore = failsOf(was);
-        const fails = failsOf(room);
-        for (let f = failsBefore + 1; f <= fails; f++) out.push({ row: r, col: c, room, outcome: "loss", fails: f, failsBefore: f - 1 });
-        if (room.isCleared) out.push({ row: r, col: c, room, outcome: "win", fails, failsBefore });
+        const fails = Math.max(failsBefore, failsOf(room));
+        for (let f = failsBefore + 1; f <= fails; f++) out.push({ row: r, col: c, room: told, outcome: "loss", fails: f, failsBefore: f - 1 });
+        if (room.isCleared) out.push({ row: r, col: c, room: told, outcome: "win", fails, failsBefore });
     }));
     // Cleared while shrouds went: as many cleared rooms as shrouds used are shrouded; with more, it can't be told.
     const used = (Number(before.shroudCount) || 0) - (Number(after.shroudCount) || 0);
@@ -285,6 +291,8 @@ export function startLabyrinthLog(deps) {
     g.predict = deps.predict;
     onStateChange((type) => {
         try {
+            // The state itself, whole, for the Pi (labyrinth-states.js).
+            if (type === "init_character_data" || type === "labyrinth_updated") recordState(state.labyrinth, state.character, type === "init_character_data");
             if (type === "init_character_data") onLabyrinth(state.labyrinth, true);
             else if (type === "labyrinth_updated") onLabyrinth(state.labyrinth, false);
             else if (state.labyrinth?.isActive) refreshSoon();
@@ -292,7 +300,10 @@ export function startLabyrinthLog(deps) {
             console.warn("[MWI Advisor] labyrinth log", error);
         }
     });
-    if (state.character) onLabyrinth(state.labyrinth, true);
+    if (state.character) {
+        recordState(state.labyrinth, state.character, true);
+        onLabyrinth(state.labyrinth, true);
+    }
 }
 
 // A new check in the advisor: its chances count from now on.

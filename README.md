@@ -455,7 +455,13 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     changed while the game was closed are found on the next login, marked *late*. The tab sums it up per monster or
     skill – tries, the share won, what the advisor said – with the latest 15; the 📋 export has it too. Kept in this
     browser (the newest 600) and, when your Pi takes them (`MWIA_ORDERS=1`), sent there and shared between your
-    devices.
+    devices. A cleared room the game sends without its monster or skill counts as won, as the room it was.
+  - **The run itself, for your Pi** – every state of the Labyrinth the game sends (each floor's rooms as they come
+    into sight, are failed and cleared, the supplies left) goes to your Pi whole, a few seconds after it changes,
+    with your levels, the shop's upgrades, the Labyrinth settings and the torches, shrouds, beacons and crates you
+    hold. Nothing is shown from it yet: it is what a simulation of whole runs (which skill or shop upgrade takes you
+    further) will learn the floors from – room levels per floor, how often each room type comes, where the exit is.
+    Each state is kept once and waits in this browser (up to about 800 kB) until the Pi has it.
   - **📋 Read the game's Labyrinth** – the first step towards marks on the game's Labyrinth map (and its automation
     settings): the script keeps every message the game sends that mentions the Labyrinth (a few of each type, in
     this browser), and the button reports their types and the shape of their data, the character's Labyrinth
@@ -510,7 +516,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   prices come from and what synced when, in one line (each minute named once), with **↻ Read Pi** and **Unlink Pi**. Switched on there (`MWIA_ORDERS=1`), each device
   also sends what it sees of your own market orders – placed, filled, done, and for one placed from a listing
   window what its price buttons said – so the listing prices can be judged later; the box says whether they're all
-  on the Pi. Your Labyrinth attempts go there too, and your character for the 📈 plan, which the Pi works out. Setup: [pi/README.md](pi/README.md).
+  on the Pi. Your Labyrinth attempts and the game's Labyrinth states go there too, and your character for the 📈 plan, which the Pi works out. Setup: [pi/README.md](pi/README.md).
 - **Listing prices** – the game's *Sell Listing* and *Buy Listing* windows get price buttons under the price box:
   **Match** (the best offer now), **Wall** (one price step in front of the first level in the order book holding a
   fifth of everything others offer within the tradable range – passing the small undercuts, staying in front of the
@@ -617,7 +623,8 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
   rooms. The room rules (no food or drinks, crates, 2 minutes, full HP each room) are the community simulator's, and
   the floors' room levels are a guess. The shop's combat upgrades (+% damage, speed, crit) are not counted. The
   loadout builder adds one change at a time; combinations are only found that way.
-- Labyrinth attempt log: how the game reports a lost room isn't seen yet – the log counts a room's fields named
+- Labyrinth attempt log: a floor's last room (the one whose clearing takes you to the next floor) isn't logged – the
+  game sends the next floor instead. How the game reports a lost room isn't seen yet – the log counts a room's fields named
   fail-something (the map shows "Fail: N"), and finds an attempt only when the game sends the room's new state. If
   losses don't show up, a 📋 *Read the game's Labyrinth* after a run shows what the game sends.
 - *Fight as* picks one starter weapon; other weapons of the style are tested as upgrades within the budget left after
@@ -659,7 +666,7 @@ node test/enhance-loop-test.mjs                           # the enhance ⇄ deco
 node test/market-test.mjs                                 # Market tab rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
-node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts, Pi down, unlink
+node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts and states, Pi down, unlink
 node test/horizon-test.mjs                                # the 📈 plan in Node: blocks, the market's share, coins, tools, clothes, +levels, house, training, cautious prices, no community buffs
 node test/horizon-browser-test.mjs /tmp                   # the 📈 plan end to end: snapshot to a real Pi, ▶ Plan now, the tab, the blue dot
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out

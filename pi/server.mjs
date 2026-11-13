@@ -3,7 +3,7 @@
 // sends the userscript the hours and days it lacks. With MWIA_ORDERS=1 it also
 // keeps what your devices send about your own market orders (order-store.mjs),
 // and your job results and purchases, shared between your devices (job-store.mjs),
-// and your Labyrinth attempts (labyrinth-store.mjs), and works out the 📈 N-day
+// and your Labyrinth attempts and the game's Labyrinth states (labyrinth-store.mjs), and works out the 📈 N-day
 // plan for your character from what a device sends about it (plan-store.mjs).
 // No dependencies.
 //
@@ -24,7 +24,7 @@ import { gzipSync } from "node:zlib";
 import { openStore } from "./history-store.mjs";
 import { MAX_EVENTS, openOrderStore } from "./order-store.mjs";
 import { MAX_JOB_RECORDS, openJobStore } from "./job-store.mjs";
-import { MAX_ATTEMPTS, openLabyrinthStore } from "./labyrinth-store.mjs";
+import { MAX_ATTEMPTS, MAX_STATES, openLabyrinthStore } from "./labyrinth-store.mjs";
 import { MAX_SNAPSHOT_BYTES, openPlanStore } from "./plan-store.mjs";
 
 const DATA = process.env.MWIA_DATA || "/data";
@@ -38,6 +38,8 @@ const LOG_REQUESTS = process.env.MWIA_LOG_REQUESTS !== "0";
 const ORDERS = process.env.MWIA_ORDERS === "1";
 // A request with order events may be at most this big.
 const MAX_BODY = 1024 * 1024;
+// A request with Labyrinth states (at most 20 of 64 KB each).
+const MAX_STATES_BODY = 1536 * 1024;
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 const digest = (text) => createHash("sha256").update(text).digest();
@@ -185,6 +187,16 @@ function serve() {
                 res.mwiaEvents = `${result.accepted}+${result.duplicates}dup${result.rejected ? `+${result.rejected}bad` : ""}`;
                 return send(200, result);
             }
+            // The game's Labyrinth states from a device, whole (switched on with the orders).
+            if (req.method === "POST" && url.pathname === "/labyrinth/states" && labyrinth) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                const body = await readJson(req, MAX_STATES_BODY);
+                if (!body) return send(413, { error: "too big" });
+                if (!Array.isArray(body.states) || body.states.length > MAX_STATES) return send(400, { error: `states: a list of at most ${MAX_STATES}` });
+                const result = labyrinth.addStates(body.device, body.states);
+                res.mwiaEvents = `${result.accepted}+${result.duplicates}dup${result.rejected ? `+${result.rejected}bad` : ""}`;
+                return send(200, result);
+            }
             // What a device sees of your character, for the 📈 plan (switched on with the orders).
             if (req.method === "POST" && url.pathname === "/snapshot" && plans) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
@@ -194,7 +206,7 @@ function serve() {
                 res.mwiaEvents = result.ok ? `snapshot${body.data ? "+data" : ""}${body.run ? "+run" : ""}` : "bad";
                 return send(result.ok ? 200 : 400, result);
             }
-            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders, /jobs, /labyrinth or /snapshot" : "GET only" });
+            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders, /jobs, /labyrinth, /labyrinth/states or /snapshot" : "GET only" });
             if (url.pathname === "/plan" && plans) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
                 return send(200, plans.get(url.searchParams.get("character")));

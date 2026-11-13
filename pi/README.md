@@ -21,7 +21,8 @@ N-day plan for your character (see *The 📈 plan*).
   at most 500 a request, kept apart from the prices) and `POST /jobs` (job results
   and purchases, at most 300 a request); `GET /jobs` then reads them back; and
   `POST /labyrinth` (Labyrinth attempts, at most 300 a request), read back with
-  `GET /labyrinth`.
+  `GET /labyrinth`; and `POST /labyrinth/states` (the game's Labyrinth states, at
+  most 20 a request of 64 kB each).
 - **Secrets** stay on the Pi: the key in `pi/.env` (not in git). Each browser gets
   it once from a link and keeps it in its own storage for the game's site.
 
@@ -158,3 +159,21 @@ is `{ attempt, device, received }`, with `attempt`:
 
 Each `uid` is kept once. `GET /labyrinth?after=<seq>` sends the ones kept since, a
 thousand at a time (`more` when there are others).
+
+### The game's Labyrinth states
+
+Every state of the Labyrinth the game sent a device, whole: one line per state in
+`data/labyrinth/states-<month>.jsonl`, `{ uid, state, device, received }`, with
+`state`:
+
+- `uid` (character, run start and a fingerprint of the state: each is kept once,
+  whichever device sent it), `at`, `late` (it came with the login).
+- `labyrinth`: what the game sent – the floor, its rooms row by row (`null`: not
+  in sight yet) with their type, monster or skill, level, fails and whether they
+  are cleared, and the run's other fields as they are.
+- `levels` (every skill), `shop` (the Labyrinth upgrades and caps), `setting`
+  (the Labyrinth settings: loadouts per room, automation), `supplies` (torches,
+  shrouds, beacons and crates in the inventory).
+
+They are only written, never sent back: what a simulation of whole runs learns
+the floors' layout from.

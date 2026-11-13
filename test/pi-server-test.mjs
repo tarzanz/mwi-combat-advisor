@@ -158,8 +158,22 @@ try {
     check("labyrinth: too many at once refused", (await postLab({ device: "phone", attempts: Array.from({ length: 301 }, (_, i) => attempt(String(i))) })).status === 400);
     const rereadLab = openLabyrinthStore(dataDir).since(0);
     check("labyrinth: read again after a restart, the same", rereadLab.seq === 3 && rereadLab.attempts[2].attempt.levels.magic === 68, JSON.stringify(rereadLab));
+    // The game's Labyrinth states, whole, each kept once.
+    const postStates = (body, key = KEY) => fetch(base + "/labyrinth/states", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Origin: "https://www.milkywayidle.com" }, body: JSON.stringify(body) });
+    const labState = (uid, extra = {}) => ({ uid, at: 2000, late: false, labyrinth: { characterID: 1, isActive: true, currentFloor: 2, roomData: [[null, { roomType: "/labyrinth_room_types/skilling", skillHrid: "/skills/milking", recommendedLevel: 44 }]] }, levels: { milking: 62 }, ...extra });
+    check("labyrinth states: no key, nothing written", (await postStates({ device: "phone", states: [labState("1|t|a")] }, "nope")).status === 401);
+    const sentStates = await postStates({ device: "phone", states: [labState("1|t|a"), labState("1|t|b"), { uid: "1|t|c", at: 1 }, labState('1|t|"d')] }).then((r) => r.json());
+    const againStates = await postStates({ device: "pc", states: [labState("1|t|a"), labState("1|t|e")] }).then((r) => r.json());
+    check("labyrinth states: sane ones kept once, the rest refused", sentStates.accepted === 2 && sentStates.rejected === 2 && againStates.accepted === 1 && againStates.duplicates === 1, JSON.stringify([sentStates, againStates]));
+    check("labyrinth states: too many or too big refused", (await postStates({ device: "phone", states: Array.from({ length: 21 }, (_, i) => labState("x" + i)) })).status === 400
+        && (await postStates({ device: "phone", states: [labState("1|t|big", { junk: "x".repeat(70000) })] }).then((r) => r.json())).rejected === 1);
+    const stateFile = readdirSync(path.join(dataDir, "labyrinth")).find((f) => f.startsWith("states-"));
+    const stateLines = readFileSync(path.join(dataDir, "labyrinth", stateFile), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const reopened = openLabyrinthStore(dataDir);
+    check("labyrinth states: a line each, whole, and known again after a restart", stateLines.length === 3 && stateLines[0].state.labyrinth.roomData[0][1].recommendedLevel === 44 && stateLines[2].device === "pc"
+        && reopened.status().states === 3 && reopened.addStates("pc", [labState("1|t|b")], Date.now()).duplicates === 1, JSON.stringify(reopened.status()));
     const withLab = await fetch(base + "/history?epoch=" + all.epoch, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
-    check("the history says Labyrinth attempts are taken", withLab.status.labyrinth?.attempts === 3, JSON.stringify(withLab.status));
+    check("the history says Labyrinth attempts and states are taken", withLab.status.labyrinth?.attempts === 3 && withLab.status.labyrinth.states === 3, JSON.stringify(withLab.status));
 
     // The 📈 plan: a snapshot in, the plan out (the planning itself is checked below, without the server).
     const postSnap = (body, key = KEY) => fetch(base + "/snapshot", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Origin: "https://www.milkywayidle.com" }, body: JSON.stringify(body) });

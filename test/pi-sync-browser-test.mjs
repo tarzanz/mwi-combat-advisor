@@ -242,6 +242,15 @@ try {
     }
     const labHere = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-attempts") || "null"));
     check("labyrinth: this device's lost room is on the Pi", postedLab.accepted === 1 && labOnPi.attempts.some((x) => x.attempt.uid === "1|t0|1|0|0|loss|1" && x.attempt.what === "cyclops"), JSON.stringify(labOnPi));
+    // The states themselves went too (two: the room as it was, then failed once).
+    const statesFile = () => { try { return readFileSync(path.join(piData, "labyrinth", readdirSync(path.join(piData, "labyrinth")).find((f) => f.startsWith("states-"))), "utf8").trim().split("\n").map((l) => JSON.parse(l)); } catch { return []; } };
+    let statesOnPi = statesFile();
+    for (let k = 0; k < 40 && statesOnPi.length < 2; k++) {
+        await new Promise((r) => setTimeout(r, 250));
+        statesOnPi = statesFile();
+    }
+    const statesHere = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-states") || "null"));
+    check("labyrinth: the game's states are on the Pi, whole, none left to send", statesOnPi.length >= 2 && statesOnPi.some((x) => x.state.labyrinth.roomData[0][0].failCount === 1 && x.state.labyrinth.startedAt === "t0") && statesHere?.queue?.length === 0, JSON.stringify({ pi: statesOnPi.map((x) => x.uid), here: statesHere?.queue?.length }));
     check("labyrinth: the other device's attempt is here, nothing left to send", labHere?.list?.some((a) => a.uid === pcAttempt.uid) && labHere.unsent.length === 0 && labHere.piSeq >= 1, JSON.stringify(labHere && { list: labHere.list.map((a) => a.uid), unsent: labHere.unsent, seq: labHere.piSeq }));
     await page.waitForFunction(() => /synced \d[^·]*Labyrinth attempts/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     check("the box says the Labyrinth attempts are synced", /synced \d\d?:\d\d( [AP]M)?: [^·]*Labyrinth attempts/.test(await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "")));

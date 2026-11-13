@@ -9,13 +9,15 @@
 // too (order-log.js): after each sync, and a minute after a change. So do your
 // job results and purchases (job-log.js), read back by every device: after each
 // sync, a minute after a change, and when the Loot & XP Log opens. And your
-// Labyrinth attempts (labyrinth-log.js): sent and read back the same way.
+// Labyrinth attempts (labyrinth-log.js): sent and read back the same way. The game's
+// Labyrinth states (labyrinth-states.js) are sent only, a few seconds after each.
 
 import { loadHistory, mergeFromPi, piReceived } from "./price-history.js";
 import { unpackRecord } from "./history-wire.js";
 import { deviceName, dropQueued, onOrderEvents, queuedOrders } from "./order-log.js";
 import { jobsForPi, jobsFromPi, jobsPiSeq, jobsSentToPi, onJobsChanged, useJobSync } from "./job-log.js";
 import { attemptsForPi, attemptsFromPi, attemptsPiSeq, attemptsSentToPi, onAttemptsChanged } from "./labyrinth-log.js";
+import { onStatesChanged, statesForPi, statesSentToPi } from "./labyrinth-states.js";
 
 const CONFIG_KEY = "mwia-pi";
 const SYNC_EVERY_MS = 15 * 60 * 1000;
@@ -28,12 +30,16 @@ const ORDER_BATCHES = 10;
 const JOB_BATCH = 25;
 // Labyrinth attempts per request.
 const ATTEMPT_BATCH = 100;
+// The game's Labyrinth states per request, and how soon after one they go (a phone's tab
+// doesn't live long in the background).
+const STATE_BATCH = 10;
+const STATES_AFTER_MS = 5 * 1000;
 
 // status: ok (null before the first try), at: the last good sync, error, newest: the Pi's newest file, piError: its own last fetch error,
 // orders: null (the Pi doesn't take them) or { at: the last send, sent: in it, waiting, error }.
 // jobs, labyrinth: null (the Pi doesn't take them) or { at: the last sync, error }; plan: whether the Pi makes 📈 plans.
 const NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null, labyrinth: null, plan: false };
-const p = { running: null, sending: null, jobSync: null, labSync: null, labTimer: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: new Set() };
+const p = { running: null, sending: null, jobSync: null, labSync: null, labTimer: null, statesTimer: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: new Set() };
 
 // A link from the server: saves its address and key, then takes them out of the address bar.
 export function readPairing(win) {
@@ -83,6 +89,11 @@ export function startPiSync() {
         clearTimeout(p.labTimer);
         if (p.status.labyrinth && attemptsForPi().length) p.labTimer = setTimeout(syncLabyrinth, ORDERS_AFTER_MS);
     });
+    onStatesChanged(() => {
+        if (!p.status.labyrinth?.states) return;
+        clearTimeout(p.statesTimer);
+        p.statesTimer = setTimeout(syncLabyrinth, STATES_AFTER_MS);
+    });
     // The Loot & XP Log reads the Pi first, when it takes jobs.
     useJobSync(() => (piConfig() && p.status.jobs ? syncJobs() : Promise.resolve()));
     setTimeout(syncNow, FIRST_SYNC_MS);
@@ -118,7 +129,7 @@ export function syncNow() {
             const takesLabyrinth = !!wire.status?.labyrinth;
             // The 📈 plan (horizon-sync.js) reads and sends on its own after each sync.
             const makesPlans = !!wire.status?.plan;
-            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? p.status.labyrinth || { at: null, error: "" } : null, plan: makesPlans };
+            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? { ...(p.status.labyrinth || { at: null, error: "" }), states: wire.status.labyrinth.states !== undefined } : null, plan: makesPlans };
             if (takesOrders) await sendOrders();
             if (takesJobs) await syncJobs();
             if (takesLabyrinth) await syncLabyrinth();
@@ -231,12 +242,26 @@ export function syncLabyrinth() {
                 if (!sent.ok) throw new Error(`HTTP ${sent.status}`);
                 attemptsSentToPi(attempts.map((a) => a.uid));
             }
+            // The game's Labyrinth states, whole, when the Pi takes them.
+            for (let k = 0; k < ORDER_BATCHES && p.status.labyrinth.states; k++) {
+                const states = statesForPi().slice(0, STATE_BATCH);
+                if (!states.length) break;
+                const sent = await fetch(`${config.url}/labyrinth/states`, {
+                    method: "POST",
+                    headers: { ...headers, "Content-Type": "application/json" },
+                    body: JSON.stringify({ device: deviceName(), states }),
+                    cache: "no-store",
+                    signal: AbortSignal.timeout?.(60000),
+                });
+                if (!sent.ok) throw new Error(`HTTP ${sent.status}`);
+                statesSentToPi(states.map((x) => x.uid));
+            }
         } catch (e) {
             error = e.message || String(e);
         } finally {
             p.labSync = null;
         }
-        p.status = { ...p.status, labyrinth: { at: Date.now(), error } };
+        p.status = { ...p.status, labyrinth: { ...p.status.labyrinth, at: Date.now(), error } };
         notify(false);
     })();
     return p.labSync;
