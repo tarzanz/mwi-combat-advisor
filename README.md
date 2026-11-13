@@ -406,12 +406,40 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     for the room type in the automation), how that loadout hits it, *Safe up to* (≥ 90% of the rooms won), *50% at*,
     and at a **floor** or **room level** (re-read without simulating again): ✅ fight, ⚠ risky or ✖ shroud or go
     around, with why rooms are lost (*you die* or *too slow*) and the typical time to win. *All your loadouts* shows
-    every loadout against every monster. Floor 1 ≈ room level 30 and about 30 levels a floor (in the game floor 1's rooms
-    were at level 23–40, floor 2's at 57–60).
+    every loadout against every monster. Floor 1 ≈ room level 30 and about 20 levels a floor (the rooms seen so far:
+    floor 1 at 23–40, floor 2 at 41–60, floor 3 at 79, floor 4 at 96).
   - **What should I improve?** – the next coffee and food crates, +5 in each combat skill, +5 levels in each ability,
     taking an ability off and an ability you know in place of one you use – each against every monster with the
     loadout you'd use for it, at the room level where you win about half the rooms; the gain is shown as room levels.
     The setup now gets four runs with other seeds, so its luck in one run doesn't count for or against every change.
+  - **How far do you get?** – whole runs, simulated on your Pi when you tap *▶ Simulate runs* (it needs the Pi and a
+    *Check the rooms*; a minute or two, at the Pi's lowest priority and never beside the 📈 plan). A run goes floor
+    after floor – a grid of rooms (4 × 4 on floor 1, a row and a column more per floor up to 8 × 8), in at the top
+    left, the exit at the bottom right; a room next to a cleared one can be tried, a try costs a torch and is won with
+    that room's chance (a skilling room's worked out exactly, a combat room's read off the win rates of the last
+    check), a shroud clears a room without a try – until the torches are gone. Floors under the game's full
+    automation are played as it plays them (the nearest way to the exit through rooms not given up on after *max
+    attempts*, then every other room in reach unless it rushes for the exit; stuck, a shroud on the room in the way,
+    and with none left you take over); the other floors as the advisor would by hand – always the room on the way
+    to the exit that costs the fewest torches on average, trying again or going around, a shroud where a room costs
+    more torches than a shroud is worth (that worth is tried out too, and the tab says under which chance to
+    shroud). It shows the floors cleared on average, how often you reach the first floor that fewer than half the runs get
+    to (the changes are measured at that floor too), per floor how many runs reach it and the torches it takes, how
+    often you end with torches left because only rooms you never win lead on, and where the torches go per room type. Then the same runs again – the same
+    floors, the same luck – with one thing changed, best first:
+    - **the Labyrinth shop**: a level more of torch capacity, shroud capacity and each skilling upgrade (speed,
+      efficiency, success, double progress), with its price in tokens, the floors it gives per 100 tokens and
+      whether you can afford it;
+    - **skills**: +5 and +10 levels in each skilling skill, with the XP they take;
+    - **supplies**: the next tea crates, Advanced or Expert torches (kept 10% / 20% of the time) and shrouds;
+    - **the game's automation**: rushing for the exit, no full automation, three attempts a room;
+    - **combat rooms**: 5 room levels better against each monster (how to get them: *What should I improve?* and
+      *Build a loadout*).
+    Only changes that are sure to help are listed (more than twice the luck of the runs). What isn't known of the game
+    is assumed – room levels 20 × floor + 1 … + 20, every room type as likely, the exit a room like the others – and
+    replaced by what your recorded runs show (a floor's levels once 20 of its rooms were seen, how often each room
+    type came). *Full automation up to floor*, *Rush for exit* and *Max attempts* are set in the tab as in the game;
+    torches and shrouds are as many as your capacity holds, of the tier you hold the most of (or pick one).
   - **Build a loadout for the Labyrinth** – *Fight as* stab, slash, smash, ranged or magic: the room types weak to it
     are the targets. Starts from *Gear from* with a weapon for the style (yours, else the cheapest) and tests every
     piece of gear and ability (new, or levelled with books) within the budget, taking abilities off (spells in a
@@ -459,8 +487,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   - **The run itself, for your Pi** – every state of the Labyrinth the game sends (each floor's rooms as they come
     into sight, are failed and cleared, the supplies left) goes to your Pi whole, a few seconds after it changes,
     with your levels, the shop's upgrades, the Labyrinth settings and the torches, shrouds, beacons and crates you
-    hold. Nothing is shown from it yet: it is what a simulation of whole runs (which skill or shop upgrade takes you
-    further) will learn the floors from – room levels per floor, how often each room type comes, where the exit is.
+    hold. It is what *How far do you get?* learns the floors from – room levels per floor, how often each room type
+    comes.
     Each state is kept once and waits in this browser (up to about 800 kB) until the Pi has it.
   - **📋 Read the game's Labyrinth** – the first step towards marks on the game's Labyrinth map (and its automation
     settings): the script keeps every message the game sends that mentions the Labyrinth (a few of each type, in
@@ -619,8 +647,11 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 ## Limitations
 
 - Solo combat only (no parties, no dungeons). Guild buffs are not modelled by the engine.
-- Labyrinth: only the combat rooms, one at a time – not the map, torches, beacons, shrouds, treasure or skilling
-  rooms. The room rules (no food or drinks, crates, 2 minutes, full HP each room) are the community simulator's, and
+- Labyrinth: *Check the rooms*, *What should I improve?* and *Build a loadout* look at combat rooms one at a time.
+  *How far do you get?* plays whole runs, but on floors it partly assumes (until your recorded runs show them), with
+  no beacons, treasure or rewards, and by hand as the advisor would play – not as you did; a shroud that fails is
+  taken to be lost with the room as it was; the shop's prices are the wiki's (base + increment × levels bought), and
+  for torch and shroud capacity the first level's, as the game doesn't say how many you bought. The room rules (no food or drinks, crates, 2 minutes, full HP each room) are the community simulator's, and
   the floors' room levels are a guess. The shop's combat upgrades (+% damage, speed, crit) are not counted. The
   loadout builder adds one change at a time; combinations are only found that way.
 - Labyrinth attempt log: a floor's last room (the one whose clearing takes you to the next floor) isn't logged – the
@@ -666,7 +697,7 @@ node test/enhance-loop-test.mjs                           # the enhance ⇄ deco
 node test/market-test.mjs                                 # Market tab rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
-node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts and states, Pi down, unlink
+node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts, states and simulated runs, Pi down, unlink
 node test/horizon-test.mjs                                # the 📈 plan in Node: blocks, the market's share, coins, tools, clothes, +levels, house, training, cautious prices, no community buffs
 node test/horizon-browser-test.mjs /tmp                   # the 📈 plan end to end: snapshot to a real Pi, ▶ Plan now, the tab, the blue dot
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out
@@ -674,6 +705,7 @@ node test/export-browser-test.mjs /tmp                    # Export for chat: und
 node test/labyrinth-browser-test.mjs /tmp                 # Labyrinth tab: loadouts per room type, floors, improvements, builder
 node test/loadout-advice-browser-test.mjs /tmp            # Loadouts panel: the next fight's loadout simulated, marks, 🛒 8 h / 24 h
 node test/labyrinth-skilling-test.mjs                      # Labyrinth skilling rooms: exact clear chance against a simulation
+node test/labyrinth-run-test.mjs                           # whole Labyrinth runs: floors learned from recorded states, a run's rules, what takes you further
 node test/labyrinth-log-test.mjs                           # Labyrinth attempt log: won, lost, shrouded, the loadout chosen, the summary
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox

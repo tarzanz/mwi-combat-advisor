@@ -41,7 +41,7 @@ function crateSelect(settings, kind, slotted) {
 function floorSelect(level) {
     const options = Array.from({ length: FLOORS }, (_, i) => i + 1).map((f) => `<option value="${f}" ${floorLevel(f) === level ? "selected" : ""}>Floor ${f} (≈ level ${floorLevel(f)})</option>`);
     const custom = !options.some((o) => o.includes("selected"));
-    return `<label title="Roughly: floor 1 at room level ${FLOOR_ONE_LEVEL} and about ${FLOOR_STEP} levels more per floor (in the game floor 1 had rooms at 23–40, floor 2 at 57–60). Type the room level the game shows for a room.">Floor
+    return `<label title="Roughly: floor 1 at room level ${FLOOR_ONE_LEVEL} and about ${FLOOR_STEP} levels more per floor (the rooms seen so far: floor 1 at 23–40, floor 2 at 41–60, floor 3 at 79, floor 4 at 96). Type the room level the game shows for a room.">Floor
       <select data-setting="labyFloor">${custom ? `<option selected value="">Room level ${level}</option>` : ""}${options.join("")}</select></label>`;
 }
 
@@ -274,7 +274,7 @@ export function attemptsHtml(summary, recent) {
     return html;
 }
 
-export function renderLabyrinth({ lab, improve, build, profileOf, data, settings, busy, settingsHtml, slotted, setupsNote, cartButton, coins = shortCoins, attempts = "" }) {
+export function renderLabyrinth({ lab, improve, build, profileOf, data, settings, busy, settingsHtml, slotted, setupsNote, cartButton, coins = shortCoins, attempts = "", runs = "" }) {
     const level = roomLevelSetting(settings);
     let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
       1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
@@ -294,6 +294,7 @@ export function renderLabyrinth({ lab, improve, build, profileOf, data, settings
         html += `<button class="mwia-btn" data-action="laby-improve" ${busy ? "disabled" : ""}>What should I improve?</button>`;
         if (improve) html += improveHtml(improve);
     }
+    html += runs;
     html += buildHtml(build, data, settings, busy, settingsHtml, cartButton, coins);
     html += attempts;
     html += `<h3>On the Labyrinth map</h3>

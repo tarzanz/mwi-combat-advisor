@@ -22,7 +22,8 @@ N-day plan for your character (see *The 📈 plan*).
   and purchases, at most 300 a request); `GET /jobs` then reads them back; and
   `POST /labyrinth` (Labyrinth attempts, at most 300 a request), read back with
   `GET /labyrinth`; and `POST /labyrinth/states` (the game's Labyrinth states, at
-  most 20 a request of 64 kB each).
+  most 20 a request of 64 kB each) and `POST /labyrinth/sim` (what whole
+  Labyrinth runs are simulated from; `GET /labyrinth/sim` reads the result).
 - **Secrets** stay on the Pi: the key in `pi/.env` (not in git). Each browser gets
   it once from a link and keeps it in its own storage for the game's site.
 
@@ -175,5 +176,21 @@ Every state of the Labyrinth the game sent a device, whole: one line per state i
   (the Labyrinth settings: loadouts per room, automation), `supplies` (torches,
   shrouds, beacons and crates in the inventory).
 
-They are only written, never sent back: what a simulation of whole runs learns
+They are only written, never sent back: what the simulation of whole runs learns
 the floors' layout from.
+
+### Whole runs, simulated
+
+`POST /labyrinth/sim` with `{ request }` (what the Labyrinth tab's *▶ Simulate
+runs* sends: the character's id and name, every skill's level and buffs, the
+combat rooms' win curves of its last check, supplies, the shop's upgrades, tokens
+and the automation settings – at most 1 MB) starts `pi/labyrinth-sim.mjs` in a
+process of its own (nice 19, 256 MB heap), after the 📈 plan if that is running:
+the Pi's heavy jobs go one at a time. It plays 2000 runs of the character as it
+is and of every change tried (`MWIA_LAB_RUNS` sets another number), on floors
+learned from the states above. `GET /labyrinth/sim?character=<id>` reads the
+newest result and how the job stands (`running`, `queued`, `error`, `ms`).
+
+    data/labyrinth/sim/<character>/request.json   what a device sent last
+    data/labyrinth/sim/<character>/result.json    the newest result
+    data/labyrinth/sim/<character>/status.json    { at, ms, error, running }

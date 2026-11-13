@@ -56,6 +56,9 @@ function lastCheck() {
     return m.stored;
 }
 
+// The last "Check the rooms", as kept: { at, monsters: [{ hrid, setupId, setupName, safe, curve }] } or null.
+export const lastLabyrinthCheck = () => lastCheck();
+
 // deps: level() -> the room level set in the Labyrinth tab; prepare() -> loads the game data.
 export function startLabyrinthMarks(deps) {
     m.deps = deps;

@@ -129,7 +129,7 @@ export function syncNow() {
             const takesLabyrinth = !!wire.status?.labyrinth;
             // The 📈 plan (horizon-sync.js) reads and sends on its own after each sync.
             const makesPlans = !!wire.status?.plan;
-            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? { ...(p.status.labyrinth || { at: null, error: "" }), states: wire.status.labyrinth.states !== undefined } : null, plan: makesPlans };
+            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? { ...(p.status.labyrinth || { at: null, error: "" }), states: wire.status.labyrinth.states !== undefined, sim: !!wire.status.labyrinth.sim } : null, plan: makesPlans };
             if (takesOrders) await sendOrders();
             if (takesJobs) await syncJobs();
             if (takesLabyrinth) await syncLabyrinth();

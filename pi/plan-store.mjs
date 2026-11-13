@@ -50,7 +50,8 @@ const validSnapshot = (s) =>
 
 // typical({ plus }): the usual prices (history-store's typical; the plan asks for the +levels too). Options for the tests:
 // delayMs (after a snapshot), soonMs (when asked to plan now), everyMs (between runs), busy() (true: wait).
-export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 * 60 * 1000, soonMs = 5000, everyMs = 4 * 3600 * 1000, busy = () => os.loadavg()[0] > os.cpus().length, postponeMs = 10 * 60 * 1000 } = {}) {
+// gate(job): runs the planner when the Pi's other heavy jobs are done.
+export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 * 60 * 1000, soonMs = 5000, everyMs = 4 * 3600 * 1000, busy = () => os.loadavg()[0] > os.cpus().length, postponeMs = 10 * 60 * 1000, gate = (job) => job() } = {}) {
     const dir = path.join(dataDir, "plan");
     mkdirSync(dir, { recursive: true });
     const dataFile = path.join(dir, "game-data.json");
@@ -93,7 +94,8 @@ export function openPlanStore(dataDir, { typical, log = () => {}, delayMs = 10 *
             timers.set(job.key, setTimeout(() => enqueue(job.key, job.postponed + 1), postponeMs).unref());
             return next();
         }
-        running = run(job.key).finally(() => {
+        // gate: after the Pi's other heavy jobs (one-at-a-time.mjs).
+        running = gate(() => run(job.key)).finally(() => {
             running = null;
             next();
         });

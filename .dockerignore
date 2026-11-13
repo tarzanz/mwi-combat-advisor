@@ -16,3 +16,8 @@
 !pi/plan-store.mjs
 !pi/planner.mjs
 !pi/server.mjs
+!src/labyrinth-run.js
+!src/labyrinth-skilling.js
+!pi/labyrinth-sim-store.mjs
+!pi/labyrinth-sim.mjs
+!pi/one-at-a-time.mjs

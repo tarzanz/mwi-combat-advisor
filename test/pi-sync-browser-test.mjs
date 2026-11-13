@@ -90,7 +90,7 @@ const PI_PORT = 20000 + Math.floor(Math.random() * 20000);
 const piUrl = `http://127.0.0.1:${PI_PORT}`;
 let pi = null;
 async function startPi() {
-    pi = spawn("node", [path.join(root, "pi/server.mjs")], { env: { ...process.env, MWIA_KEY: KEY, MWIA_DATA: piData, PORT: String(PI_PORT), MWIA_MARKET_URL: `${origin}/game_data/marketplace.json`, MWIA_ORIGINS: origin, MWIA_ORDERS: "1" }, stdio: "ignore" });
+    pi = spawn("node", [path.join(root, "pi/server.mjs")], { env: { ...process.env, MWIA_KEY: KEY, MWIA_DATA: piData, PORT: String(PI_PORT), MWIA_MARKET_URL: `${origin}/game_data/marketplace.json`, MWIA_ORIGINS: origin, MWIA_ORDERS: "1", MWIA_LAB_RUNS: "200" }, stdio: "ignore" });
     const want = new Date((fileHour * 3600 + 360) * 1000).toISOString();
     for (let k = 0; k < 50; k++) {
         const st = await fetch(piUrl + "/status").then((r) => r.json()).catch(() => null);
@@ -132,6 +132,15 @@ try {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
+    // A room check kept from before, as "Check the rooms" keeps it: the run simulation starts from it.
+    const labCheck = { at: Date.now() - 3600000, monsters: Object.values(clientData.combatMonsterDetailMap).filter((x) => x.isLabyrinthMonster).map((x, i) => ({ hrid: x.hrid, setupId: "equipped", setupName: i % 2 ? "Magic" : "Ranged", safe: 40, curve: [5, 40, 80, 120, 200].map((level) => ({ level, attempts: 20, wins: level <= 40 ? 20 : level <= 80 ? 10 : 0 })) })) };
+    await page.evaluateOnNewDocument((check) => {
+        try {
+            localStorage.setItem("mwia-laby-check", JSON.stringify(check));
+        } catch {
+            // a document without storage (about:blank)
+        }
+    }, labCheck);
     await page.goto(origin + "/");
     await page.waitForFunction(() => window.lastType === "init_character_data", { timeout: 10000 });
     // The browser's own history: boots only, as full records of the old kind.
@@ -251,6 +260,24 @@ try {
     }
     const statesHere = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-states") || "null"));
     check("labyrinth: the game's states are on the Pi, whole, none left to send", statesOnPi.length >= 2 && statesOnPi.some((x) => x.state.labyrinth.roomData[0][0].failCount === 1 && x.state.labyrinth.startedAt === "t0") && statesHere?.queue?.length === 0, JSON.stringify({ pi: statesOnPi.map((x) => x.uid), here: statesHere?.queue?.length }));
+    // Whole runs, simulated on the Pi: the Labyrinth tab asks with the kept check, the Pi works it out, the tab shows it.
+    await page.click(".mwia-launcher");
+    await page.waitForSelector(".mwia-panel:not(.mwia-hidden)");
+    await page.click('[data-tab="labyrinth"]');
+    await page.waitForSelector('[data-action="laby-runs"]:not([disabled])', { timeout: 60000 }).catch(() => null);
+    const before = await page.$eval(".mwia-body", (n) => n.innerText).catch(() => "");
+    check("runs: the tab offers them with the game's automation as it is set", /How far do you get\?/.test(before) && /Full automation up to floor/.test(before) && !/floors cleared on average/.test(before), before.slice(0, 300));
+    await page.click('[data-action="laby-runs"]');
+    await page.waitForFunction(() => /Your Pi is working on it/.test(document.querySelector(".mwia-body")?.innerText || ""), { timeout: 10000 }).catch(() => null);
+    const asking = await page.$eval(".mwia-body", (n) => n.innerText).catch(() => "");
+    await page.waitForFunction(() => /floors cleared on average/.test(document.querySelector(".mwia-body")?.innerText || ""), { timeout: 240000, polling: 1000 }).catch(() => null);
+    const shown = await page.$eval(".mwia-body", (n) => n.innerText).catch(() => "");
+    const onPiSim = await fetch(`${piUrl}/labyrinth/sim?character=${character.character.id}`, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json()).catch(() => null);
+    check("runs: asked, the Pi works on it, the result is shown", /Your Pi is working on it/.test(asking) && /floors cleared on average; you reach floor \d+/.test(shown) && /200 runs with \d+ (basic|advanced|expert) torches/.test(shown) && /What takes you further/.test(shown) && /Where the torches go/.test(shown), shown.slice(shown.indexOf("How far"), shown.indexOf("How far") + 900));
+    check("runs: the Pi has the request and the result, with the game's Labyrinth data it was sent", onPiSim?.result?.runs === 200 && onPiSim.result.candidates.length > 30 && onPiSim.status.error === null && onPiSim.result.model.rooms >= 1, JSON.stringify(onPiSim && { status: onPiSim.status, now: onPiSim.result?.now, model: onPiSim.result?.model }));
+    const keptRun = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-run") || "null"));
+    check("runs: the result is kept in this browser for the character", Object.values(keptRun || {})[0]?.runs === 200);
+    await page.$eval('.mwia-panel [data-action="close"]', (b) => b.click()).catch(() => null);
     check("labyrinth: the other device's attempt is here, nothing left to send", labHere?.list?.some((a) => a.uid === pcAttempt.uid) && labHere.unsent.length === 0 && labHere.piSeq >= 1, JSON.stringify(labHere && { list: labHere.list.map((a) => a.uid), unsent: labHere.unsent, seq: labHere.piSeq }));
     await page.waitForFunction(() => /synced \d[^·]*Labyrinth attempts/.test(document.querySelector(".mwia-history")?.textContent || ""), { timeout: 4000 }).catch(() => null);
     check("the box says the Labyrinth attempts are synced", /synced \d\d?:\d\d( [AP]M)?: [^·]*Labyrinth attempts/.test(await page.$eval(".mwia-history", (n) => n.textContent).catch(() => "")));

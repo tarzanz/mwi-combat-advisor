@@ -172,8 +172,30 @@ try {
     const reopened = openLabyrinthStore(dataDir);
     check("labyrinth states: a line each, whole, and known again after a restart", stateLines.length === 3 && stateLines[0].state.labyrinth.roomData[0][1].recommendedLevel === 44 && stateLines[2].device === "pc"
         && reopened.status().states === 3 && reopened.addStates("pc", [labState("1|t|b")], Date.now()).duplicates === 1, JSON.stringify(reopened.status()));
+    // Whole Labyrinth runs, simulated when asked: the request in, the result out (the simulation itself is checked in labyrinth-run-test).
+    const postSim = (body, key = KEY) => fetch(base + "/labyrinth/sim", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Origin: "https://www.milkywayidle.com" }, body: JSON.stringify(body) });
+    const getSim = (id, key = KEY) => fetch(`${base}/labyrinth/sim?character=${id}`, { headers: { Authorization: `Bearer ${key}` } });
+    const simCurve = [5, 60, 120, 200].map((level) => ({ level, attempts: 20, wins: level < 100 ? 20 : 0 }));
+    const simRequest = { character: { id: 1, name: "Tester" }, at: 4242, skills: { milking: { level: 62, buffs: [], shop: {} } }, combat: { checkedAt: 1, monsters: [{ hrid: "/monsters/cyclops", setupName: "Magic", curve: simCurve }] }, shop: { TorchCap: 100, ShroudCap: 4, HighestFloor: 2 }, tokens: 50, options: { runs: 200 } };
+    check("labyrinth runs: no key, nothing written or read", (await postSim({ request: simRequest }, "nope")).status === 401 && (await getSim(1, "nope")).status === 401);
+    check("labyrinth runs: a request without its parts is refused, a character never asked for has nothing", (await postSim({ request: { character: { id: 1 } } })).status === 400 && (await getSim(999).then((r) => r.json())).result === null);
+    const asked = await postSim({ request: simRequest }).then((r) => r.json());
+    let sim = await getSim(1).then((r) => r.json());
+    const simBusy = sim.status.running || sim.status.queued;
+    for (let k = 0; k < 240 && !(sim.result && !sim.status.running); k++) {
+        await new Promise((r) => setTimeout(r, 500));
+        sim = await getSim(1).then((r) => r.json());
+    }
+    check("labyrinth runs: asked, worked out in a process of its own, read back", asked.ok && asked.character === "1" && !!simBusy && sim.result?.requestAt === 4242 && sim.result.character === "Tester" && sim.result.runs === 200 && sim.result.target >= 2 && sim.result.record.floor === 2 && sim.result.model.rooms === 1
+        && sim.result.candidates.some((c) => c.id === "shop:torchCap" && c.tokens === 100 && c.affordable === false) && sim.status.error === null && sim.status.ms > 0 && !sim.status.running, JSON.stringify({ asked, status: sim.status, now: sim.result?.now, model: sim.result?.model }));
+    await postSim({ request: { ...simRequest, at: 4343, combat: { monsters: [{ hrid: "/monsters/cyclops", curve: [] }] } } });
+    for (let k = 0; k < 240 && !sim.status.error; k++) {
+        await new Promise((r) => setTimeout(r, 500));
+        sim = await getSim(1).then((r) => r.json());
+    }
+    check("labyrinth runs: what goes wrong is said, the last result stays", /Check the rooms/.test(sim.status.error || "") && sim.result?.requestAt === 4242, JSON.stringify(sim.status));
     const withLab = await fetch(base + "/history?epoch=" + all.epoch, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
-    check("the history says Labyrinth attempts and states are taken", withLab.status.labyrinth?.attempts === 3 && withLab.status.labyrinth.states === 3, JSON.stringify(withLab.status));
+    check("the history says Labyrinth attempts and states are taken", withLab.status.labyrinth?.attempts === 3 && withLab.status.labyrinth.states === 3 && withLab.status.labyrinth.sim === true, JSON.stringify(withLab.status));
 
     // The 📈 plan: a snapshot in, the plan out (the planning itself is checked below, without the server).
     const postSnap = (body, key = KEY) => fetch(base + "/snapshot", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Origin: "https://www.milkywayidle.com" }, body: JSON.stringify(body) });

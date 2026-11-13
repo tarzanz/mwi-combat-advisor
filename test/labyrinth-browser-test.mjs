@@ -67,7 +67,7 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
   const data = JSON.parse(xhr.responseText);
   window.localStorageUtil = { getInitClientData: () => data };
   const ws = new WebSocket("ws://" + location.host + "/fake/api.milkywayidle.com/ws");
-  ws.onmessage = (e) => { window.lastType = JSON.parse(e.data).type; };
+  ws.onmessage = (e) => { window.lastType = JSON.parse(e.data).type; (window.seenTypes ||= []).push(window.lastType); };
 </script></body></html>`;
 
 const server = http.createServer((req, res) => {
@@ -113,14 +113,15 @@ const idle = (page, text, timeout = 300000) => page.waitForFunction((t) => docum
 
 const executablePath = process.env.BROWSER_PATH || "/usr/bin/firefox";
 const firefox = /firefox/.test(executablePath);
-const browser = await puppeteer.launch({ browser: firefox ? "firefox" : "chrome", executablePath, headless: true, args: firefox ? [] : ["--no-sandbox"] });
+const browser = await puppeteer.launch({ browser: firefox ? "firefox" : "chrome", executablePath, headless: true, args: firefox ? [] : ["--no-sandbox"], protocolTimeout: 900000 });
 try {
     const page = await browser.newPage();
     await page.setViewport(MOBILE ? { width: 390, height: 844 } : { width: 1300, height: 1000 });
     const errors = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     await page.goto(url);
-    await page.waitForFunction(() => window.lastType === "init_character_data");
+    // The Labyrinth message follows 200 ms later: any message after the character counts too.
+    await page.waitForFunction(() => (window.seenTypes || []).includes("init_character_data"));
     await page.click(".mwia-launcher");
     await page.waitForSelector(".mwia-panel:not(.mwia-hidden)");
     await page.click('[data-tab="labyrinth"]');
@@ -141,6 +142,7 @@ try {
     let text = await body(page);
     check("simulated with the slotted crate and both loadouts", /Simulated with Basic Coffee crate, 20 rooms per monster and room level, 2 loadouts/.test(text), text.match(/Simulated with[^\n]*/)?.[0]);
     check("room level 30 is floor 1 (roughly)", /At room level 30 \(floor 1, roughly\)/.test(text));
+    check("whole runs: offered in the tab, and without a Pi it says they need one", /How far do you get\?/.test(text) && /Needs your own Pi/.test(text) && !(await page.$('[data-action="laby-runs"]')));
     {
         // The same check again: every room run comes from the runs kept in the browser.
         const firstTook = Date.now() - t0;
@@ -219,7 +221,7 @@ try {
     // Another floor and room level: read off the curves, no new simulation.
     await page.select('[data-setting="labyFloor"]', "2");
     let shown = await domText(page);
-    check("floor 2 means room level 60", /At room level 60 \(floor 2, roughly\)/.test(shown) && (await page.$eval('[data-setting="labyLevel"]', (n) => n.value)) === "60");
+    check("floor 2 means room level 50", /At room level 50 \(floor 2, roughly\)/.test(shown) && (await page.$eval('[data-setting="labyLevel"]', (n) => n.value)) === "50");
     await page.$eval('[data-setting="labyLevel"]', (n) => { n.value = "5"; n.dispatchEvent(new Event("change", { bubbles: true })); });
     shown = await domText(page);
     check("room level 5 re-reads without simulating", /At room level 5/.test(shown) && !/Simulating/.test(shown) && /At level 5/.test(shown));
@@ -244,7 +246,8 @@ try {
     await page.$eval('[data-setting="budget"]', (n) => { n.value = "5M"; n.dispatchEvent(new Event("change", { bubbles: true })); });
     t0 = Date.now();
     await page.click('[data-action="laby-build"]');
-    await idle(page, "Ranged loadout");
+    // On a slow machine the page hardly answers while the builder's workers run: a long wait.
+    await idle(page, "Ranged loadout", 900000);
     console.log(`building took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     text = await body(page);
     const built = text.slice(text.indexOf("Ranged loadout"));

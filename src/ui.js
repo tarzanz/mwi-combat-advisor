@@ -65,6 +65,8 @@ import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./m
 import { analyzeImprovements, analyzeLabyrinth, buildLoadout, chosenCrates, floorLevel, labyrinthLoadouts, slottedCrate } from "./labyrinth.js";
 import { attemptsHtml, buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSetting } from "./labyrinth-ui.js";
 import { labyrinthReport } from "./labyrinth-read.js";
+import { askRuns, onRunsChange, runSetup as labyrinthRunSetup, runsState, startLabyrinthRuns } from "./labyrinth-run-sync.js";
+import { runsExportLines, runsHtml } from "./labyrinth-run-ui.js";
 import { renderHorizon } from "./horizon-ui.js";
 import { horizonNews, onHorizonChange, sendSnapshot, startHorizonSync } from "./horizon-sync.js";
 
@@ -346,7 +348,14 @@ async function doLabBuild() {
 function renderLabyrinthTab() {
     const data = getClientData();
     if (!state.character) return `<p>The script hasn't seen your character yet. <b>Reload the page (F5)</b> with the script enabled.</p>`;
-    if (!data) return `<p>The game data loads with the first analysis.</p><button class="mwia-btn" data-action="laby-check" ${ui.busy ? "disabled" : ""}>Check the rooms</button>`;
+    if (!data) {
+        // With runs to show or to ask for (a check kept, a Pi linked), the game data is loaded right away.
+        const run = runsState();
+        if (run.linked && (run.result || run.checked) && !ui.labLoading) {
+            ui.labLoading = loadClientData(ui.win).then(() => ui.tab === "labyrinth" && !ui.busy && render(), (error) => console.warn("[MWI Advisor] game data", error));
+        }
+        return `<p>The game data loads with the first analysis.</p><button class="mwia-btn" data-action="laby-check" ${ui.busy ? "disabled" : ""}>Check the rooms</button>`;
+    }
     const setups = ui.labSetups || labyrinthSetups();
     return renderLabyrinth({
         lab: ui.labResult,
@@ -362,6 +371,7 @@ function renderLabyrinthTab() {
         cartButton,
         coins,
         attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse()),
+        runs: runsHtml({ run: runsState(), setup: labyrinthRunSetup(ui.settings), settings: ui.settings }),
     });
 }
 
@@ -768,6 +778,7 @@ function exportContext() {
     attempt("Skilling: best now", () => (getClientData() ? skillingExportLines(ui.settings) : []));
     if (ui.zoneResults) attempt("Where to fight (last run)", () => textOf(renderZones(), ".mwia-reco, tbody tr").slice(0, 16));
     if (ui.labResult || ui.labBuild) attempt("Labyrinth (last run)", () => labyrinthExportLines(ui.labResult, ui.labImprove, ui.labBuild, ui.settings));
+    if (runsState().result) attempt("Labyrinth runs (simulated on the Pi)", () => runsExportLines(runsState().result));
     if (labyrinthAttempts().length) {
         attempt("Labyrinth attempts", () => [
             ...attemptSummary().map((x) => `${x.type === "combat" ? x.what : x.what + " (skilling)"} Lv.${x.minLevel ?? "–"}–${x.maxLevel ?? "–"}: won ${x.wins}/${x.tries}${x.predicted === null ? "" : ` · advisor ${Math.round(100 * x.predicted)}%`}${x.shrouds ? ` · ${x.shrouds} shrouded` : ""}`),
@@ -1458,6 +1469,10 @@ function act(target) {
         case "laby-build":
             runTask(doLabBuild);
             break;
+        case "laby-runs":
+            askRuns(ui.settings);
+            render();
+            break;
         case "laby-read":
             ui.notice = { level: "info", text: "The game's Labyrinth, read (nothing changed). Copy it and paste it into the chat.", diag: labyrinthReport() };
             ui.showNotice = true;
@@ -1666,6 +1681,10 @@ export function mountUI(win, workerSource) {
     startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart });
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
     startLabyrinthLog({ predict: roomPrediction });
+    startLabyrinthRuns({ prepare: () => loadClientData(ui.win) });
+    onRunsChange(() => {
+        if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "labyrinth") render();
+    });
     startEnhancePlan(gameDeps);
     startHorizonSync({ settings: () => ui.settings, prepare: () => loadClientData(ui.win) });
     onHorizonChange(() => {
