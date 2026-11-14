@@ -59,6 +59,10 @@ function characterLines(lines) {
     const fields = Object.keys(character).filter((k) => /labyrinth|maze/i.test(k));
     lines.push(`character fields: ${fields.join(", ") || "none with labyrinth in the name"}`);
     for (const key of fields) lines.push(`  ${key}: ${short(shapeOf(character[key]), 1200)}`);
+    // The Labyrinth's settings (automation, loadouts and skip levels per room type), with their values.
+    const setting = character.characterSetting || {};
+    const own = Object.keys(setting).filter((k) => /labyrinth|maze/i.test(k));
+    lines.push(`settings: ${own.length ? own.map((k) => `${k}=${short(JSON.stringify(setting[k]) ?? "undefined", 80)}`).join(", ") : "none with labyrinth in the name"}`);
 }
 
 function ownText(el) {

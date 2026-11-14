@@ -64,6 +64,22 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
     <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O"><svg width="16" height="16"><use href="/static/media/sprite.svg#mimic"></use></svg><span>Mimic</span></div></td><td><div class="Dropdown_dropdown__1E7is"><div role="combobox" class="MuiSelect-select MuiSelect-standard">No Loadout</div><input aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-1k3x8v3" value="0"></div></td><td><div class="LabyrinthPanel_skipThreshold__1qXz5"><span>≥ 100</span><button>Edit</button></div></td></tr>
   </tbody></table></div></div>
 <script>
+  // The skip level's Edit, as the game has it: − + a field and Save in its place; Save keeps what was typed (an input event, as React reads it).
+  document.addEventListener("click", (e) => {
+    const box = e.target.closest("[class*=skipThreshold]");
+    if (!box || e.target.tagName !== "BUTTON") return;
+    if (e.target.textContent === "Edit") {
+      const value = box.querySelector("span").textContent.replace("≥", "").trim();
+      box.innerHTML = '<button>−</button><button>+</button><input type="number" value="' + value + '"><button>Save</button>';
+      box.querySelector("input").dataset.typed = value;
+      box.querySelector("input").addEventListener("input", (ev) => (ev.target.dataset.typed = ev.target.value));
+    } else if (e.target.textContent === "Save") {
+      const typed = box.querySelector("input").dataset.typed;
+      setTimeout(() => (box.innerHTML = "<span>≥ " + typed + "</span><button>Edit</button>"), 100);
+    }
+  });
+</script>
+<script>
   const xhr = new XMLHttpRequest(); xhr.open("GET", "/client-data.json", false); xhr.send();
   const data = JSON.parse(xhr.responseText);
   window.localStorageUtil = { getInitClientData: () => data };
@@ -179,6 +195,23 @@ try {
     check("automation: Cyclops has Magic chosen – marked right", /^✅ Magic · \d+%$/.test(markOf("Cyclops")), markOf("Cyclops"));
     check("automation: Dryad with no loadout – pick one, or shroud", /^(👉 Pick (Magic|Ranged)|✖ Shroud or go around · best (Magic|Ranged)): \d+%$|^👉 Pick (Magic|Ranged) · \d+%$/.test(markOf("Dryad")), markOf("Dryad"));
     check("automation: Mimic marked", /(Magic|Ranged)/.test(markOf("Mimic")), markOf("Mimic"));
+    // Skip levels: 👉 the value to set per row, and a button that sets them all through Edit and Save.
+    await page.waitForFunction(() => document.querySelectorAll(".mwia-laby-skip").length === 4, { timeout: 5000 }).catch(() => {});
+    const skipMarks = () => page.$$eval("table[class*=automationTable] tbody tr", (trs) => trs.map((tr) => [tr.querySelector("span")?.textContent, tr.querySelector("[class*=skipThreshold] span")?.textContent || "", tr.querySelector(".mwia-laby-skip")?.textContent || ""]));
+    let skips = await skipMarks();
+    check("skip levels: a value to set on every row", skips.every((x) => /^👉 -?\d+$/.test(x[2])), JSON.stringify(skips));
+    const bar = await page.$eval(".mwia-laby-skipbar", (n) => n.textContent).catch(() => "");
+    check("skip levels: the bar names the rule and offers to set them", /95% within 3 tries/.test(bar) && /Set 4 skip levels/.test(bar), bar);
+    // (the advisor's panel lies over the fake game: the button is clicked as a tap on it would)
+    await page.$eval("[data-mwia-skip-fill]", (b) => b.click());
+    await page.waitForFunction(() => /✓ 4 set/.test(document.querySelector(".mwia-laby-skipbar")?.textContent || ""), { timeout: 15000 }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 600));
+    skips = await skipMarks();
+    const barAfter = await page.$eval(".mwia-laby-skipbar", (n) => n.textContent).catch(() => "");
+    check("skip levels: all four set through Edit and Save, then ✓", skips.every((x) => /^≥ -?\d+$/.test(x[1]) && x[1] !== "≥ 100" && x[2] === "✓") && /All skip levels are set/.test(barAfter), JSON.stringify(skips) + " " + barAfter);
+    const skipTab = await domText(page);
+    const skipSection = skipTab.slice(skipTab.indexOf("Skip levels for"), skipTab.indexOf("How far do you get?"));
+    check("skip levels: the tab lists each room type with the level tried up to and the value", /Milking\s*\d+\s*(Lv\.\d+|–)\s*≥ -?\d+/.test(skipSection) && /Cyclops/.test(skipSection) && /your combat level \d+/.test(skipSection), skipSection.slice(-900));
     const noteAfter = await page.$eval(".mwia-laby-note", (n) => n.textContent).catch(() => "");
     check("automation: the note names the room level", /at room level 21 \(the rooms of floor 1 you can see\)/.test(noteAfter), noteAfter);
     check("automation: the check is kept for a reload", await page.evaluate(() => (JSON.parse(localStorage.getItem("mwia-laby-check") || "null")?.monsters || []).length === 10));
@@ -274,7 +307,7 @@ try {
     writeFileSync(path.join(shotDir, "laby-report.txt"), report);
     check("report: the Labyrinth message and its shape", /labyrinth_updated/.test(report) && /shape: \{type: "labyrinth_updated", labyrinth: \{characterID: 1, isActive: true, currentFloor: 1, roomData: \[4× \[4× /.test(report), report.slice(0, 800));
     check("report: the Labyrinth page's elements", /div\.LabyrinthPanel_roomGrid__1I6LU/.test(report) && /LabyrinthPanel_visibleRoom__32sJ4 "Lv\.20"/.test(report), report.slice(report.indexOf("page:"), report.indexOf("page:") + 400));
-    check("report: the automation table's rows and controls", /headers: Room Type \| Loadout/.test(report) && /row 3: Dryad \| No Loadout \| ≥ 100Edit ⟶ div\.MuiSelect-select\.MuiSelect-standard role=combobox "No Loadout"/.test(report) && /last row html: <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O">/.test(report) && !/mwia/.test(report.slice(report.indexOf("tables:"), report.indexOf("page:"))), report.slice(report.indexOf("tables:"), report.indexOf("tables:") + 600));
+    check("report: the automation table's rows and controls", /headers: Room Type \| Loadout/.test(report) && /row 3: Dryad \| No Loadout \| ≥ -?\d+Edit ⟶ div\.MuiSelect-select\.MuiSelect-standard role=combobox "No Loadout"/.test(report) && /last row html: <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O">/.test(report) && !/mwia/.test(report.slice(report.indexOf("tables:"), report.indexOf("page:"))), report.slice(report.indexOf("tables:"), report.indexOf("tables:") + 600));
     check("report: kept in the browser", await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-log") || "[]").some((m) => m.type === "labyrinth_updated")));
 
     // Another crate needs a new check.

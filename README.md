@@ -470,6 +470,17 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     *Check the rooms*.
     While you are in a run, the marks are for the rooms of the floor you can see (their middle level), not the
     Labyrinth tab's level.
+  - **Skip levels for the automation** – the game's *Skip if room level is above my skill level by ≥ N* per room type,
+    set so the automation only tries rooms you clear at least **95% of the time within 3 tries** (both set in the
+    Labyrinth tab): the highest room level where that holds, and N = that level + 1 − your level (at most 100, which
+    never skips). With rooms you don't get past skipped, *Max attempts per room* can go up without wasting time on
+    them; the tab warns when it is below the tries the rule counts on. Skilling rooms are worked out exactly against
+    your level in the skill (with your buffs and the run's tea crate); combat rooms are read off the last *Check the
+    rooms* (with the loadout it found best) against your **combat level** – assumed: which level the game compares
+    a combat room with isn't known yet (📋 *Read the game's Labyrinth* now lists the Labyrinth settings to find out).
+    On the game's Automation tab each row gets 👉 the value to set (✓ when set), and **⚙ Set N skip levels** above the
+    table sets them all – Edit, the value, Save, row by row, in the game itself; it stops and says why if a row
+    doesn't take it. The tab lists them per room type too.
   - **Marks on the Labyrinth map** – in a run, every room with a monster in sight gets a frame in the verdict's
     colour (green: you win at least 90% of such rooms, yellow: at least half, red: less), at that room's own level as
     the game sends it, and the share won in tiny type at its right, halfway down (the rest of the cell is the game's).
@@ -719,6 +730,7 @@ node test/loadout-advice-browser-test.mjs /tmp            # Loadouts panel: the 
 node test/labyrinth-skilling-test.mjs                      # Labyrinth skilling rooms: exact clear chance against a simulation
 node test/labyrinth-run-test.mjs                           # whole Labyrinth runs: floors learned from recorded states, a run's rules, what takes you further
 node test/labyrinth-log-test.mjs                           # Labyrinth attempt log: won, lost, shrouded, the loadout chosen, the summary
+node test/labyrinth-skip-test.mjs                          # skip levels for the Labyrinth automation: the rule, the value, per room type
 MOBILE=1 node test/browser-test.mjs …                     # any browser test at iPhone size with a touch screen
 BROWSER_PATH=/path/to/chromium node test/skilling-browser-test.mjs /tmp  # any browser test in Chromium instead of Firefox
 ```

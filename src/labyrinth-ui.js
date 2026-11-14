@@ -21,6 +21,7 @@ import {
     winAt,
     yourMatch,
 } from "./labyrinth.js";
+import { SKIP_NEVER } from "./labyrinth-skip.js";
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : "");
 const pctText = (x) => `${Math.round(100 * x)}%`;
@@ -274,7 +275,34 @@ export function attemptsHtml(summary, recent) {
     return html;
 }
 
-export function renderLabyrinth({ lab, improve, build, profileOf, data, settings, busy, settingsHtml, slotted, setupsNote, cartButton, coins = shortCoins, attempts = "", runs = "" }) {
+// The skip levels for the game's automation ("Skip if room level is above my skill level by ≥ N"):
+// per room type the highest room level you clear by the rule, and the value to set.
+// advice: labyrinth-marks.js's skipAdviceNow(); maxAttempts: the game's Max attempts per room.
+export function skipHtml(advice, settings, maxAttempts) {
+    const rule = advice?.rule;
+    let html = `<h3>Skip levels for the automation</h3>
+      <p>The game's automation skips a room whose level is above yours by the value set for its room type. Set so it only tries rooms you
+      clear at least <b>this often within this many tries</b> – the rest it goes around or shrouds – then <b>Max attempts per room</b> can go up without wasting
+      time on rooms you don't get past. On the game's Labyrinth → Automation tab each row gets 👉 the value to set (✓ when it is set), and
+      <b>⚙ Set … skip levels</b> above the table sets them all (Edit, the value, Save, row by row).</p>
+      <div class="mwia-settings">
+        <label title="The share of the rooms you should clear within the tries">Clear at least <input data-setting="labySkipTarget" type="number" min="50" max="99.9" step="1" size="3" value="${rule ? Math.round(1000 * rule.target) / 10 : 95}">%</label>
+        <label title="How many tries the share counts on – usually the game's Max attempts per room">within <input data-setting="labySkipTries" type="number" min="1" max="20" step="1" size="2" value="${rule ? rule.tries : 3}"> tries</label></div>`;
+    if (!advice) return html + `<p class="mwia-dim">Needs the game's data and your character – open the game's Labyrinth once.</p>`;
+    if (maxAttempts !== null && maxAttempts !== undefined && maxAttempts < rule.tries) html += `<p class="mwia-warn">⚠ The automation gives a room ${maxAttempts} attempt${maxAttempts === 1 ? "" : "s"} (Max attempts per room in the game); these levels count on ${rule.tries} – raise it to ${rule.tries}.</p>`;
+    const name = (r) => (r.type === "combat" ? monsterName(r.hrid) : cap(r.skill));
+    const rows = advice.rows.map((r) => `<tr><td>${esc(name(r))}${r.loadout ? ` <span class="mwia-dim">${esc(r.loadout)}</span>` : ""}</td><td>${r.myLevel}</td>
+      <td>${r.highest === null ? "–" : `Lv.${r.highest}`}</td><td><b>≥ ${r.value}</b></td></tr>`);
+    html += `<table class="mwia-table"><thead><tr><th>Room</th><th title="Skilling: your level in the skill. Combat: your combat level (assumed to be what the game compares a combat room with)">Your level</th>
+      <th title="The highest room level you clear ${Math.round(1000 * rule.target) / 10}% of the time within ${rule.tries} tries">Tried up to</th><th title="Skip if room level is above my skill level by ≥ this">Skip if above by</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+    if (!advice.checkedAt) html += `<p class="mwia-dim">Combat rooms need a <b>Check the rooms</b> first.</p>`;
+    html += `<p class="mwia-dim">Skilling rooms: worked out exactly with your level and buffs and the run's tea crate. Combat rooms: from the last <b>Check the rooms</b>, with the loadout it found best
+      (put it on for the room type), against your combat level ${advice.combatLevel} – which level the game compares a combat room with isn't known yet; if a room of a level shown here is skipped, say so.
+      A value of ${SKIP_NEVER} never skips.</p>`;
+    return html;
+}
+
+export function renderLabyrinth({ lab, improve, build, profileOf, data, settings, busy, settingsHtml, slotted, setupsNote, cartButton, coins = shortCoins, attempts = "", runs = "", skip = "" }) {
     const level = roomLevelSetting(settings);
     let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
       1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
@@ -294,6 +322,7 @@ export function renderLabyrinth({ lab, improve, build, profileOf, data, settings
         html += `<button class="mwia-btn" data-action="laby-improve" ${busy ? "disabled" : ""}>What should I improve?</button>`;
         if (improve) html += improveHtml(improve);
     }
+    html += skip;
     html += runs;
     html += buildHtml(build, data, settings, busy, settingsHtml, cartButton, coins);
     html += attempts;

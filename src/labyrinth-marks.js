@@ -13,6 +13,9 @@ import { onStateChange, state } from "./game-state.js";
 import { visible } from "./game-nav.js";
 import { RISKY_WIN, SAFE_WIN, floorAt, floorLevel, winAt } from "./labyrinth.js";
 import { skillingRoomChance, skillingWho } from "./labyrinth-skilling.js";
+import { combatLevelOf, parseSkipText, skipAdvice } from "./labyrinth-skip.js";
+import { setReactInput } from "./game-nav.js";
+import { SKILLS } from "./labyrinth-run.js";
 
 const SCAN_MS = 400;
 const STORE = "mwia-laby-check";
@@ -24,9 +27,12 @@ const NOTE = "mwia-laby-note";
 const GRID = '[class*="LabyrinthPanel_roomGrid"]';
 const CELL = '[class*="LabyrinthPanel_roomCell"]';
 const CELL_MARK = "mwia-laby-cellmark";
+const SKIP_MARK = "mwia-laby-skip";
+const SKIP_BAR = "mwia-laby-skipbar";
+const OURS = `.${MARK}, .${NOTE}, .${CELL_MARK}, .${SKIP_MARK}, .${SKIP_BAR}`;
 
 
-const m = { deps: null, scanTimer: null, stored: undefined };
+const m = { deps: null, scanTimer: null, stored: undefined, advice: null, filling: null, fillStatus: "" };
 const pct = (x) => `${Math.round(100 * x)}%`;
 
 // The check, small enough to keep: per monster its best loadout and the win curve.
@@ -60,11 +66,12 @@ function lastCheck() {
 export const lastLabyrinthCheck = () => lastCheck();
 
 // deps: level() -> the room level set in the Labyrinth tab; prepare() -> loads the game data;
-// penalty() -> the success lost per level below a skilling room as your attempts have it (undefined: the formula's).
+// penalty() -> the success lost per level below a skilling room as your attempts have it (undefined: the formula's);
+// skip() -> { rule: { tries, target }, teaCrate: the tea crate's tier or null } for the skip levels.
 export function startLabyrinthMarks(deps) {
     m.deps = deps;
     new MutationObserver((records) => {
-        if (records.every((r) => r.target.closest?.(`.${MARK}, .${NOTE}, .${CELL_MARK}`))) return; // our own marks
+        if (records.every((r) => r.target.closest?.(OURS))) return; // our own marks
         scheduleScan();
     }).observe(document.body, { childList: true, subtree: true });
     onStateChange(() => scheduleScan());
@@ -132,8 +139,11 @@ function scan() {
     const tables = [...document.querySelectorAll(TABLE)].filter(visible);
     const check = lastCheck();
     const { level, run } = automationLevel();
+    if (tables.length) needData();
+    const advice = tables.length ? skipAdviceNow() : null;
     for (const table of tables) {
         note(table, check, level, run);
+        skipMarks(table, advice);
         if (!check) continue;
         const data = getClientData();
         for (const row of table.querySelectorAll("tbody tr")) {
@@ -155,9 +165,212 @@ function scan() {
     }
 }
 
+// The game data (the tea crate's buffs, the monsters' names) is loaded once when a table or room needs it.
+function needData() {
+    if (getClientData() || !m.deps.prepare || m.loading) return;
+    m.loading = m.deps.prepare().then(scheduleScan, (error) => console.warn("[MWI Advisor] labyrinth marks", error)).finally(() => (m.loading = null));
+}
+
+// ---------- skip levels ("Skip if room level is above my skill level by ≥ N") ----------
+
+const SKIP_CACHE_MS = 10000;
+
+// What to set for each room type, by the rule in the Labyrinth tab: { rule, rows, at } (kept for a few seconds).
+export function skipAdviceNow() {
+    const data = getClientData();
+    const character = state.character;
+    if (!character || !m.deps?.skip) return null;
+    const { rule, teaCrate } = m.deps.skip();
+    const check = lastCheck();
+    const penalty = m.deps.penalty?.();
+    const levels = (character.characterSkills || []).map((x) => x.level).join(",");
+    const key = [rule.tries, rule.target, teaCrate, check?.at, penalty, levels, !!data].join("|");
+    if (m.advice?.key === key && Date.now() - m.advice.at < SKIP_CACHE_MS) return m.advice;
+    const teaHrid = teaCrate ? `/items/${teaCrate}_tea_crate` : null;
+    const who = data ? (skill) => ({ ...skillingWho(character, data, skill, teaHrid), penalty }) : null;
+    const combatLevel = combatLevelOf(character);
+    const rows = skipAdvice({ who, check, combatLevel, rule });
+    m.advice = { key, at: Date.now(), rule, rows, combatLevel, checkedAt: check?.at ?? null, skilling: !!who };
+    return m.advice;
+}
+
+// Which room type a row of the Automation table is for: "skill:milking" or "monster:/monsters/…".
+function rowKey(row) {
+    const label = row.querySelector(LABEL) || row.querySelector("td");
+    if (!label) return null;
+    const use = label.querySelector("use");
+    const icon = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1] || "";
+    const name = label.textContent.replace(/\s+/g, " ").trim().toLowerCase();
+    if (SKILLS.includes(icon)) return `skill:${icon}`;
+    if (SKILLS.includes(name)) return `skill:${name}`;
+    const monsters = getClientData()?.combatMonsterDetailMap || {};
+    if (icon && monsters[`/monsters/${icon}`]) return `monster:/monsters/${icon}`;
+    const hrid = Object.keys(monsters).find((h) => (monsters[h]?.name || "").toLowerCase() === name);
+    if (hrid) return `monster:${hrid}`;
+    const check = lastCheck();
+    const kept = check?.monsters.find((x) => x.hrid === `/monsters/${icon}`);
+    return kept ? `monster:${kept.hrid}` : null;
+}
+
+// The cell with the skip level: the one with the game's Edit / Save button.
+function skipCell(row) {
+    return [...row.children].reverse().find((td) => [...td.querySelectorAll("button")].some((b) => /^(edit|save)$/i.test(b.textContent.trim()))) || null;
+}
+
+const gameText = (el) => [...el.childNodes].filter((n) => !(n.classList && n.classList.contains(SKIP_MARK))).map((n) => n.textContent).join(" ");
+
+// The level set now in a row: what the game shows (≥ N), or what is typed while it is edited.
+function currentSkip(cell) {
+    const input = cell.querySelector("input");
+    if (input && !input.closest(`.${SKIP_MARK}`)) return Number.isFinite(Number(input.value)) && input.value !== "" ? Number(input.value) : null;
+    return parseSkipText(gameText(cell));
+}
+
+const button = (root, label) => [...root.querySelectorAll("button")].find((b) => b.textContent.trim().toLowerCase() === label && !b.closest(OURS));
+
+function rowsWithAdvice(table, advice) {
+    const byKey = new Map((advice?.rows || []).map((r) => [r.key, r]));
+    const out = [];
+    for (const row of table.querySelectorAll("tbody tr")) {
+        const key = rowKey(row);
+        const cell = skipCell(row);
+        if (!key || !cell) continue;
+        out.push({ row, cell, key, advice: byKey.get(key) || null, current: currentSkip(cell) });
+    }
+    return out;
+}
+
+const skipTitle = (a, rule) => {
+    const room = a.highest === null ? "no room level" : `rooms up to level ${a.highest}`;
+    const yours = a.type === "combat" ? `your combat level ${a.myLevel} (assumed: the level the game compares a combat room with)` : `your ${a.skill} level ${a.myLevel}`;
+    return `MWI Advisor: you clear ${room} at least ${Math.round(100 * rule.target)}% of the time within ${rule.tries} tr${rule.tries === 1 ? "y" : "ies"}${a.loadout ? ` (with ${a.loadout})` : ""}; against ${yours}, skip from ${a.value} above it`;
+};
+
+// Per row: the level to set (👉) or ✓ when it is set; above the table a button that sets them all.
+function skipMarks(table, advice) {
+    const rows = rowsWithAdvice(table, advice);
+    let differ = 0;
+    for (const { cell, advice: a, current } of rows) {
+        let el = cell.querySelector(`.${SKIP_MARK}`);
+        if (!a) {
+            el?.remove();
+            continue;
+        }
+        const same = current === a.value;
+        if (!same) differ++;
+        const html = same ? "✓" : `👉 ${a.value}`;
+        const cls = `${SKIP_MARK} ${same ? "mwia-laby-ok" : "mwia-laby-pick"}`;
+        if (!el) {
+            el = document.createElement("div");
+            cell.appendChild(el);
+        }
+        if (el.className !== cls) el.className = cls;
+        if (el.dataset.html !== html) el.innerHTML = el.dataset.html = html;
+        const title = skipTitle(a, advice.rule);
+        if (el.title !== title) el.title = title;
+    }
+    skipBar(table, advice, rows.filter((r) => r.advice).length, differ);
+}
+
+function skipBar(table, advice, known, differ) {
+    let bar = above(table, SKIP_BAR);
+    if (!bar) {
+        bar = document.createElement("div");
+        bar.className = SKIP_BAR;
+        table.parentElement.insertBefore(bar, table);
+        bar.addEventListener("click", (event) => {
+            if (event.target.closest("[data-mwia-skip-fill]")) fillSkipLevels();
+        });
+    }
+    let html;
+    if (!advice) html = "";
+    else {
+        const rule = `${Math.round(100 * advice.rule.target * 10) / 10}% within ${advice.rule.tries} tr${advice.rule.tries === 1 ? "y" : "ies"}`;
+        const combat = advice.checkedAt ? "" : " Combat rooms need a <b>Check the rooms</b> first.";
+        const filling = m.filling ? " disabled" : "";
+        const action = differ ? `<button class="mwia-btn" data-mwia-skip-fill${filling}>⚙ Set ${differ} skip level${differ === 1 ? "" : "s"}</button>` : known ? "✓ All skip levels are set." : "";
+        html = `🧭 Skip levels: try a room only when you clear it ${rule} (👉 the level to set; change the rule in 🧭 → Labyrinth).${combat} ${action}${m.fillStatus ? ` <span>${esc(m.fillStatus)}</span>` : ""}`;
+    }
+    if (bar.dataset.html !== html) bar.innerHTML = bar.dataset.html = html;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function waitFor(read, ms = 2500) {
+    for (let waited = 0; waited <= ms; waited += 50) {
+        const value = read();
+        if (value) return value;
+        await sleep(50);
+    }
+    return null;
+}
+
+// Sets every skip level that differs from the advice in the game: Edit, the value, Save – a row at a time.
+export function fillSkipLevels() {
+    if (m.filling) return m.filling;
+    m.filling = (async () => {
+        let done = 0;
+        let problem = "";
+        const status = (text) => {
+            m.fillStatus = text;
+            scheduleScan();
+        };
+        try {
+            const table = () => [...document.querySelectorAll(TABLE)].find(visible);
+            const advice = skipAdviceNow();
+            if (!table() || !advice) throw new Error("open the Labyrinth's Automation tab first");
+            const todo = rowsWithAdvice(table(), advice).filter((r) => r.advice && r.current !== r.advice.value).map((r) => r.advice);
+            for (const a of todo) {
+                status(`Setting ${done + 1} of ${todo.length}…`);
+                const find = () => {
+                    const t = table();
+                    return t && rowsWithAdvice(t, advice).find((r) => r.key === a.key);
+                };
+                let r = find();
+                if (!r) throw new Error(`the row for ${a.skill || a.hrid} is gone`);
+                const edit = button(r.cell, "edit");
+                if (edit) edit.click();
+                const input = await waitFor(() => {
+                    const x = find();
+                    return x?.cell.querySelector("input");
+                });
+                if (!input) throw new Error("Edit opened no field to type in");
+                const min = input.min !== "" && Number.isFinite(Number(input.min)) ? Number(input.min) : -Infinity;
+                const max = input.max !== "" && Number.isFinite(Number(input.max)) ? Number(input.max) : Infinity;
+                const value = Math.max(min, Math.min(max, a.value));
+                setReactInput(input, value);
+                await sleep(80);
+                r = find();
+                const save = r && button(r.cell, "save");
+                if (!save) throw new Error("no Save button next to the field");
+                save.click();
+                const saved = await waitFor(() => {
+                    const x = find();
+                    return x && !x.cell.querySelector("input") && x.current === value ? x : null;
+                }, 4000);
+                if (!saved) throw new Error(`the game didn't show ${value} after Save`);
+                done++;
+            }
+        } catch (error) {
+            problem = error.message || String(error);
+        }
+        m.filling = null;
+        m.advice = null;
+        status(problem ? `Stopped after ${done}: ${problem}.` : done ? `✓ ${done} set.` : "");
+        return { done, problem };
+    })();
+    scheduleScan();
+    return m.filling;
+}
+
+// One of our lines just above the table (the note, then the skip levels' bar).
+function above(table, cls) {
+    for (let el = table.previousElementSibling, i = 0; el && i < 3; el = el.previousElementSibling, i++) if (el.classList.contains(cls)) return el;
+    return null;
+}
+
 // A line above the table: what the marks are, or how to get them.
 function note(table, check, level, run) {
-    let el = table.previousElementSibling?.classList?.contains(NOTE) ? table.previousElementSibling : null;
+    let el = above(table, NOTE);
     if (!el) {
         el = document.createElement("div");
         el.className = NOTE;
@@ -185,9 +398,7 @@ function mapMarks() {
     const data = getClientData();
     const rooms = new Map(runRooms(labyrinth).map((x) => [x.row * cols + x.col, x]));
     // Skilling rooms need the game data (the tea crate's buffs): loaded once, then marked.
-    if (!data && [...rooms.values()].some((x) => x.skill) && m.deps.prepare && !m.loading) {
-        m.loading = m.deps.prepare().then(scheduleScan, (error) => console.warn("[MWI Advisor] labyrinth marks", error)).finally(() => (m.loading = null));
-    }
+    if (!data && [...rooms.values()].some((x) => x.skill)) needData();
     cells.forEach((cell, i) => {
         const room = rooms.get(i);
         let el = cell.querySelector(`.${CELL_MARK}`);

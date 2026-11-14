@@ -52,7 +52,8 @@ import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js
 import { startToolNotice } from "./tool-notice.js";
 import { startTeaSlots } from "./tea-slots.js";
 import { startLoadoutAdvice } from "./loadout-advice.js";
-import { rememberLabyrinth, roomPrediction, scheduleScan as refreshLabyrinthMarks, startLabyrinthMarks } from "./labyrinth-marks.js";
+import { rememberLabyrinth, roomPrediction, scheduleScan as refreshLabyrinthMarks, skipAdviceNow, startLabyrinthMarks } from "./labyrinth-marks.js";
+import { skipRule } from "./labyrinth-skip.js";
 import { attemptSummary, labyrinthAttempts, labyrinthCheckChanged, onAttemptsChanged, startLabyrinthLog } from "./labyrinth-log.js";
 import { startEnhancePlan } from "./enhance-plan-ui.js";
 import { findActionPanel, inventoryItemHash, navDiagnostics, openAction, openAlchemy, openEnhancing, openMarketplace, setReactInput, visible } from "./game-nav.js";
@@ -63,7 +64,7 @@ import { describeTriggers } from "./triggers.js";
 import { startTriggerWindow, triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 import { analyzeImprovements, analyzeLabyrinth, buildLoadout, chosenCrates, floorLevel, labyrinthLoadouts, slottedCrate } from "./labyrinth.js";
-import { attemptsHtml, buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSetting } from "./labyrinth-ui.js";
+import { attemptsHtml, buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSetting, skipHtml } from "./labyrinth-ui.js";
 import { labyrinthReport } from "./labyrinth-read.js";
 import { askRuns, fittedPenalty, onRunsChange, runSetup as labyrinthRunSetup, runsState, startLabyrinthRuns } from "./labyrinth-run-sync.js";
 import { runsExportLines, runsHtml } from "./labyrinth-run-ui.js";
@@ -372,6 +373,7 @@ function renderLabyrinthTab() {
         coins,
         attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse()),
         runs: runsHtml({ run: runsState(), setup: labyrinthRunSetup(ui.settings) }),
+        skip: skipHtml(skipAdviceNow(), ui.settings, labyrinthRunSetup(ui.settings).maxAttempts),
     });
 }
 
@@ -1679,7 +1681,7 @@ export function mountUI(win, workerSource) {
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart });
-    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare, penalty: fittedPenalty });
+    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare, penalty: fittedPenalty, skip: () => ({ rule: skipRule(ui.settings), teaCrate: labyrinthRunSetup(ui.settings).teaCrate }) });
     startLabyrinthLog({ predict: roomPrediction });
     startLabyrinthRuns({ prepare: () => loadClientData(ui.win) });
     onRunsChange(() => {

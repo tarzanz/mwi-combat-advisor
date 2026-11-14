@@ -274,6 +274,12 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-laby-mark.mwia-laby-warn { color: #ffd479; }
 .mwia-laby-mark.mwia-laby-bad { color: #ff8f8f; }
 .mwia-laby-mark.mwia-laby-pick:not(.mwia-laby-bad) { font-weight: 700; color: #ffd479; }
+.mwia-laby-skipbar { margin: 0 0 6px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
+.mwia-laby-skipbar:empty { display: none; }
+.mwia-laby-skipbar .mwia-btn { margin: 4px 4px 0 0; padding: 4px 10px; font-size: 12px; }
+.mwia-laby-skip { margin-top: 2px; font: 700 11px/1.3 sans-serif; text-align: right; white-space: nowrap; }
+.mwia-laby-skip.mwia-laby-ok { color: #7ee2b0; }
+.mwia-laby-skip.mwia-laby-pick { color: #ffd479; }
 .mwia-tea-note { margin: 6px 4px 2px; padding: 5px 8px; border: 1px solid #3c4677; border-radius: 6px; background: #1d2440; color: #dde2ff; font: 400 12px/1.4 sans-serif; text-align: left; }
 .mwia-train-target { outline: 3px solid #ffd257 !important; outline-offset: 2px; border-radius: 4px; }
 .mwia-narrow-only { display: none; }
