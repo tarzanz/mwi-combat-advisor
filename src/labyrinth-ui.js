@@ -33,7 +33,7 @@ export const buildStyleSetting = (settings) => (ATTACK_STYLES.includes(settings.
 function crateSelect(settings, kind, slotted) {
     const key = kind === "coffee" ? "labyCoffee" : "labyFood";
     const value = settings[key] || "slots";
-    const options = [["slots", `Your Labyrinth slots (${slotted ? cap(slotted) : "none"})`], ["none", "None"], ...CRATE_TIERS.map((t) => [t, cap(t)])];
+    const options = [["slots", `As chosen in the game (${slotted ? cap(slotted) : "none"})`], ["none", "None"], ...CRATE_TIERS.map((t) => [t, cap(t)])];
     return `<label title="Opened when you enter the Labyrinth; its buffs last the whole run">${CRATE_KINDS[kind]}
       <select data-setting="${key}">${options.map(([k, v]) => `<option value="${k}" ${value === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>`;
 }
@@ -41,7 +41,7 @@ function crateSelect(settings, kind, slotted) {
 function floorSelect(level) {
     const options = Array.from({ length: FLOORS }, (_, i) => i + 1).map((f) => `<option value="${f}" ${floorLevel(f) === level ? "selected" : ""}>Floor ${f} (≈ level ${floorLevel(f)})</option>`);
     const custom = !options.some((o) => o.includes("selected"));
-    return `<label title="Roughly: floor 1 at room level ${FLOOR_ONE_LEVEL} and about ${FLOOR_STEP} levels more per floor (the rooms seen so far: floor 1 at 23–40, floor 2 at 41–60, floor 3 at 79, floor 4 at 96). Type the room level the game shows for a room.">Floor
+    return `<label title="Roughly: floor 1 at room level ${FLOOR_ONE_LEVEL} and about ${FLOOR_STEP} levels more per floor (a recorded run: floor 1 at 21–40, floor 2 at 40–60, floor 3 at 61–80, floor 4 at 80–100). Type the room level the game shows for a room.">Floor
       <select data-setting="labyFloor">${custom ? `<option selected value="">Room level ${level}</option>` : ""}${options.join("")}</select></label>`;
 }
 

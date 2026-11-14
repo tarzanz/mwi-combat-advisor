@@ -188,7 +188,8 @@ and the automation settings – at most 1 MB) starts `pi/labyrinth-sim.mjs` in a
 process of its own (nice 19, 256 MB heap), after the 📈 plan if that is running:
 the Pi's heavy jobs go one at a time. It plays 2000 runs of the character as it
 is and of every change tried (`MWIA_LAB_RUNS` sets another number), on floors
-learned from the states above. `GET /labyrinth/sim?character=<id>` reads the
+learned from the states above, with the skilling rooms' level penalty fitted to
+the character's logged attempts. `GET /labyrinth/sim?character=<id>` reads the
 newest result and how the job stands (`running`, `queued`, `error`, `ms`).
 
     data/labyrinth/sim/<character>/request.json   what a device sent last

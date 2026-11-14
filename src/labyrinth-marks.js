@@ -59,7 +59,8 @@ function lastCheck() {
 // The last "Check the rooms", as kept: { at, monsters: [{ hrid, setupId, setupName, safe, curve }] } or null.
 export const lastLabyrinthCheck = () => lastCheck();
 
-// deps: level() -> the room level set in the Labyrinth tab; prepare() -> loads the game data.
+// deps: level() -> the room level set in the Labyrinth tab; prepare() -> loads the game data;
+// penalty() -> the success lost per level below a skilling room as your attempts have it (undefined: the formula's).
 export function startLabyrinthMarks(deps) {
     m.deps = deps;
     new MutationObserver((records) => {
@@ -232,8 +233,8 @@ export function roomPrediction(room, labyrinth) {
     if (room.skillHrid) {
         const data = getClientData();
         if (!state.character || !data) return null;
-        const r = skillingRoomChance({ skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel }, skillingWho(state.character, data, room.skillHrid.split("/").pop(), labyrinth.teaCrateItemHrid));
-        return { win: Math.round(1000 * r.chance) / 1000, how: "formula", success: Math.round(1000 * r.success) / 1000, tries: r.tries, needed: Number.isFinite(r.needed) ? r.needed : null };
+        const r = skillingRoomChance({ skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel }, { ...skillingWho(state.character, data, room.skillHrid.split("/").pop(), labyrinth.teaCrateItemHrid), penalty: m.deps?.penalty?.() });
+        return { win: Math.round(1000 * r.chance) / 1000, how: "formula", success: Math.round(1000 * r.success) / 1000, tries: r.tries, needed: Number.isFinite(r.needed) ? r.needed : null, double: Math.round(1000 * r.double) / 1000, level: Math.round(10 * r.level) / 10, seconds: Math.round(100 * r.seconds) / 100 };
     }
     const check = lastCheck();
     const monster = check?.monsters.find((x) => x.hrid === room.monsterHrid);
@@ -244,7 +245,7 @@ export function roomPrediction(room, labyrinth) {
 // A skilling room: the chance to fill its progress bar in 2 minutes, worked out from your level and buffs.
 function skillingMark(room, labyrinth, data) {
     if (!state.character || !data) return null;
-    const result = skillingRoomChance({ skill: room.skill, level: room.level }, skillingWho(state.character, data, room.skill, labyrinth.teaCrateItemHrid));
+    const result = skillingRoomChance({ skill: room.skill, level: room.level }, { ...skillingWho(state.character, data, room.skill, labyrinth.teaCrateItemHrid), penalty: m.deps?.penalty?.() });
     const win = result.chance;
     const kind = verdict(win);
     const skill = room.skill.charAt(0).toUpperCase() + room.skill.slice(1);

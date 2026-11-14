@@ -394,7 +394,7 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     you pin with 📌 are never offered; amounts under 10k wait behind *Show all*.
 - **Labyrinth** – the Labyrinth's combat rooms, simulated as the game fights them: 1 against 1 with one monster scaled
   to the room level (its stats are built for level 100 and grow in proportion), from full HP and mana, no food or
-  drinks – only the coffee and food crate opened on entry (*Your Labyrinth slots*, none, or a tier) – and 2 minutes to
+  drinks – only the coffee and food crate opened on entry (*As chosen in the game*, none, or a tier) – and 2 minutes to
   win. The game's Labyrinth automation can put on a loadout for each room type, so the tab works per room type.
   - **Room guide** – one tile per room type: the loadout to put on (✅ / ⚠) or *Shroud or go around* (✖, with the
     best loadout and its win rate), at the floor or room level you pick, and the deepest floor where it is safe.
@@ -406,40 +406,50 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     for the room type in the automation), how that loadout hits it, *Safe up to* (≥ 90% of the rooms won), *50% at*,
     and at a **floor** or **room level** (re-read without simulating again): ✅ fight, ⚠ risky or ✖ shroud or go
     around, with why rooms are lost (*you die* or *too slow*) and the typical time to win. *All your loadouts* shows
-    every loadout against every monster. Floor 1 ≈ room level 30 and about 20 levels a floor (the rooms seen so far:
-    floor 1 at 23–40, floor 2 at 41–60, floor 3 at 79, floor 4 at 96).
+    every loadout against every monster. Floor 1 ≈ room level 30 and about 20 levels a floor (a recorded run: floor 1 at
+    21–40, floor 2 at 40–60, floor 3 at 61–80, floor 4 at 80–100, floor 5 at 101–120). The crates are the ones chosen
+    on the game's Labyrinth page.
   - **What should I improve?** – the next coffee and food crates, +5 in each combat skill, +5 levels in each ability,
     taking an ability off and an ability you know in place of one you use – each against every monster with the
     loadout you'd use for it, at the room level where you win about half the rooms; the gain is shown as room levels.
     The setup now gets four runs with other seeds, so its luck in one run doesn't count for or against every change.
   - **How far do you get?** – whole runs, simulated on your Pi when you tap *▶ Simulate runs* (it needs the Pi and a
-    *Check the rooms*; a minute or two, at the Pi's lowest priority and never beside the 📈 plan). A run goes floor
-    after floor – a grid of rooms (4 × 4 on floor 1, a row and a column more per floor up to 8 × 8), in at the top
-    left, the exit at the bottom right; a room next to a cleared one can be tried, a try costs a torch and is won with
+    *Check the rooms*; a minute or two, at the Pi's lowest priority and never beside the 📈 plan). A run goes as your
+    recorded runs showed the game: floor after floor – a grid of rooms (4 × 4 on floor 1, a row and a column more per
+    floor up to 8 × 8), in at the top left, the way down at the bottom right; a room next to a cleared one can be
+    entered, **the first time for a torch, again for nothing but the time** (2 minutes a lost try), and is won with
     that room's chance (a skilling room's worked out exactly, a combat room's read off the win rates of the last
-    check), a shroud clears a room without a try – until the torches are gone. Floors under the game's full
-    automation are played as it plays them (the nearest way to the exit through rooms not given up on after *max
-    attempts*, then every other room in reach unless it rushes for the exit; stuck, a shroud on the room in the way,
-    and with none left you take over); the other floors as the advisor would by hand – always the room on the way
-    to the exit that costs the fewest torches on average, trying again or going around, a shroud where a room costs
-    more torches than a shroud is worth (that worth is tried out too, and the tab says under which chance to
-    shroud). It shows the floors cleared on average, how often you reach the first floor that fewer than half the runs get
-    to (the changes are measured at that floor too), per floor how many runs reach it and the torches it takes, how
-    often you end with torches left because only rooms you never win lead on, and where the torches go per room type. Then the same runs again – the same
-    floors, the same luck – with one thing changed, best first:
+    check); treasure rooms (as many as the floor's number) and the way down cost a torch and nothing else; a shroud
+    clears a room without a torch or a try – until the torches are gone or nothing leads on. Floors under the game's
+    full automation are played as it plays them (a treasure room in reach first, then the nearest way down through
+    rooms not given up on after *max attempts*, then every other room in reach unless it rushes for the exit; stuck,
+    a shroud on the room in the way, and with none left you take over); the other floors as the advisor would by
+    hand – always the room the cheapest way down starts with, trying again or going around, a room given up after
+    *Tries a room by hand* lost tries (10 unless you say otherwise), a shroud where a room costs more than a shroud
+    is worth (that worth is tried out too, and the tab says under which chance to shroud). The automation, the
+    torches and shrouds and the tea crate are the ones set in the game. It shows the floors cleared on average and
+    the time a run takes, how often you reach the first floor that fewer than half the runs get to (the changes are
+    measured at that floor too), per floor how many runs reach it with the torches and time it takes, how often you
+    end with torches left because only rooms you don't get past lead on, and room by room up to which room level you
+    get past it. Then the same runs again – the same floors, the same luck – with one thing changed, best first, each
+    with the floors it gives and the time it adds or saves:
     - **the Labyrinth shop**: a level more of torch capacity, shroud capacity and each skilling upgrade (speed,
       efficiency, success, double progress), with its price in tokens, the floors it gives per 100 tokens and
       whether you can afford it;
     - **skills**: +5 and +10 levels in each skilling skill, with the XP they take;
     - **supplies**: the next tea crates, Advanced or Expert torches (kept 10% / 20% of the time) and shrouds;
-    - **the game's automation**: rushing for the exit, no full automation, three attempts a room;
-    - **combat rooms**: 5 room levels better against each monster (how to get them: *What should I improve?* and
-      *Build a loadout*).
-    Only changes that are sure to help are listed (more than twice the luck of the runs). What isn't known of the game
-    is assumed – room levels 20 × floor + 1 … + 20, every room type as likely, the exit a room like the others – and
-    replaced by what your recorded runs show (a floor's levels once 20 of its rooms were seen, how often each room
-    type came). *Full automation up to floor*, *Rush for exit* and *Max attempts* are set in the tab as in the game;
-    torches and shrouds are as many as your capacity holds, of the tier you hold the most of (or pick one).
+    - **how you play, and the game's automation**: twice the tries a room, rushing for the exit, no full automation,
+      three attempts a room;
+    - **combat rooms**: 5 and 15 room levels better against each monster and against all of them (how to get them:
+      *What should I improve?* and *Build a loadout*).
+    Only changes that are sure to help (more than twice the luck of the runs) or that save a few minutes a run are
+    listed. **The skilling formula is checked against your own attempts**: of the logged tries at skilling rooms that
+    could go either way, how many the formula expected you to win and how many you won, and the success lost per
+    level below the room under which what happened was the likeliest; when that fits surely better than the formula's
+    1% (at least 15 such tries), it is used for the simulation and for the map's marks, and fitted again with every
+    run. The shrouds you used above their cap are counted against the wiki's 2%-a-level rule the same way (shown, not
+    fitted). What isn't recorded yet is assumed: room levels 20 × floor … + 20 and every room type as likely, until
+    20 rooms of a floor were seen.
   - **Build a loadout for the Labyrinth** – *Fight as* stab, slash, smash, ranged or magic: the room types weak to it
     are the targets. Starts from *Gear from* with a weapon for the style (yours, else the cheapest) and tests every
     piece of gear and ability (new, or levelled with books) within the budget, taking abilities off (spells in a
@@ -649,9 +659,11 @@ the game after installing or updating it. It works next to MWITools/Toolasha.
 - Solo combat only (no parties, no dungeons). Guild buffs are not modelled by the engine.
 - Labyrinth: *Check the rooms*, *What should I improve?* and *Build a loadout* look at combat rooms one at a time.
   *How far do you get?* plays whole runs, but on floors it partly assumes (until your recorded runs show them), with
-  no beacons, treasure or rewards, and by hand as the advisor would play – not as you did; a shroud that fails is
-  taken to be lost with the room as it was; the shop's prices are the wiki's (base + increment × levels bought), and
-  for torch and shroud capacity the first level's, as the game doesn't say how many you bought. The room rules (no food or drinks, crates, 2 minutes, full HP each room) are the community simulator's, and
+  no beacons or rewards (treasure rooms cost their torch, what they give isn't counted), and by hand as the advisor
+  would play – not as you did; a won room is taken to last a minute; a shroud that fails is taken to be lost with
+  the room as it was; the shop's upgrade prices are the wiki's (base + increment × levels bought). The level penalty
+  fitted to your attempts rests on few tries at first and moves with every run. Enhancing rooms went faster in a
+  recorded run than the formula has them (about 6.7 s an action, +5 reached in three). The room rules (no food or drinks, crates, 2 minutes, full HP each room) are the community simulator's, and
   the floors' room levels are a guess. The shop's combat upgrades (+% damage, speed, crit) are not counted. The
   loadout builder adds one change at a time; combinations are only found that way.
 - Labyrinth attempt log: a floor's last room (the one whose clearing takes you to the next floor) isn't logged – the

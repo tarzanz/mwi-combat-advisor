@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.80.0
+// @version      0.81.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -555,15 +555,15 @@
     if (!(xpPerDay > 0)) return 0;
     return fractionalLevel(table, xpNow + xpPerDay) - fractionalLevel(table, xpNow);
   }
-  function levelsPerHour(table, skills, xpPerHour, hours = LEVEL_HORIZON_HOURS) {
+  function levelsPerHour(table, skills, xpPerHour, hours2 = LEVEL_HORIZON_HOURS) {
     let levels = 0;
     for (const [key2, rate2] of Object.entries(xpPerHour || {})) {
       const skill = skills[key2];
       if (!skill || !(rate2 > 0)) continue;
       const now2 = experienceOf(table, skill.xp, skill.level);
-      levels += fractionalLevel(table, now2 + rate2 * hours) - fractionalLevel(table, now2);
+      levels += fractionalLevel(table, now2 + rate2 * hours2) - fractionalLevel(table, now2);
     }
-    return levels / hours;
+    return levels / hours2;
   }
   function xpToNextLevel(table, xpNow, level) {
     return table[level + 1] === void 0 ? null : Math.max(0, table[level + 1] - xpNow);
@@ -1097,8 +1097,8 @@
             const key2 = start2 * 100 + target;
             const known = best.get(key2);
             if (known && known.cost <= cost) continue;
-            const hours = attempts * cycleSeconds / 3600;
-            best.set(key2, { cost, attempts, protections, protect: guarded ? { ...guard, from } : null, teas, hours, drinks: hours * 12 * (who.concentration || 1), materials: inputs });
+            const hours2 = attempts * cycleSeconds / 3600;
+            best.set(key2, { cost, attempts, protections, protect: guarded ? { ...guard, from } : null, teas, hours: hours2, drinks: hours2 * 12 * (who.concentration || 1), materials: inputs });
           }
         }
       }
@@ -1193,12 +1193,12 @@
   }
   function follow(items, sell, choice) {
     const gold = /* @__PURE__ */ new Map();
-    const hours = /* @__PURE__ */ new Map();
+    const hours2 = /* @__PURE__ */ new Map();
     const xp = /* @__PURE__ */ new Map();
     const val = (map, h3, sold) => h3 === COIN2 ? map === gold ? 1 : 0 : map.has(h3) ? map.get(h3) : sold(h3);
     for (const h3 of items) {
       gold.set(h3, sell(h3));
-      hours.set(h3, 0);
+      hours2.set(h3, 0);
       xp.set(h3, 0);
     }
     const none = () => 0;
@@ -1208,16 +1208,16 @@
         const step = choice.get(h3);
         if (!step) continue;
         const g4 = (step.outputs.reduce((sum, o2) => sum + o2.count * val(gold, o2.itemHrid, sell), 0) - step.paid) / step.net;
-        const t4 = (step.hours + step.outputs.reduce((sum, o2) => sum + o2.count * val(hours, o2.itemHrid, none), 0)) / step.net;
+        const t4 = (step.hours + step.outputs.reduce((sum, o2) => sum + o2.count * val(hours2, o2.itemHrid, none), 0)) / step.net;
         const x = (step.xp + step.outputs.reduce((sum, o2) => sum + o2.count * val(xp, o2.itemHrid, none), 0)) / step.net;
-        moved = Math.max(moved, Math.abs(g4 - gold.get(h3)) / Math.max(1, Math.abs(g4)), Math.abs(t4 - hours.get(h3)) / Math.max(1e-9, t4));
+        moved = Math.max(moved, Math.abs(g4 - gold.get(h3)) / Math.max(1, Math.abs(g4)), Math.abs(t4 - hours2.get(h3)) / Math.max(1e-9, t4));
         gold.set(h3, g4);
-        hours.set(h3, t4);
+        hours2.set(h3, t4);
         xp.set(h3, x);
       }
       if (moved < 1e-9) break;
     }
-    return { gold: (h3) => val(gold, h3, sell), hours: (h3) => val(hours, h3, none), xp: (h3) => val(xp, h3, none) };
+    return { gold: (h3) => val(gold, h3, sell), hours: (h3) => val(hours2, h3, none), xp: (h3) => val(xp, h3, none) };
   }
   function flows(entry, items, choice) {
     const amount2 = /* @__PURE__ */ new Map();
@@ -1271,16 +1271,16 @@
       last = key2;
       const f2 = follow(items, sell, choice2);
       const revenue2 = entry.outputs.reduce((sum, o2) => sum + o2.count * f2.gold(o2.itemHrid), 0);
-      const hours2 = ownHours + entry.outputs.reduce((sum, o2) => sum + o2.count * f2.hours(o2.itemHrid), 0);
+      const hours3 = ownHours + entry.outputs.reduce((sum, o2) => sum + o2.count * f2.hours(o2.itemHrid), 0);
       const xp2 = entry.xpPerAction + entry.outputs.reduce((sum, o2) => sum + o2.count * f2.xp(o2.itemHrid), 0);
-      const profitPerHour2 = (revenue2 - ownCost) / hours2 - entry.teaPerHour;
-      result = { choice: choice2, revenue: revenue2, hours: hours2, xp: xp2, profitPerHour: profitPerHour2, f: f2 };
+      const profitPerHour2 = (revenue2 - ownCost) / hours3 - entry.teaPerHour;
+      result = { choice: choice2, revenue: revenue2, hours: hours3, xp: xp2, profitPerHour: profitPerHour2, f: f2 };
       rate2 = profitPerHour2;
     }
     if (!result || ![...result.choice.values()].some(Boolean) || !(result.profitPerHour > entry.profitPerHour + 1e-9)) return null;
-    const { revenue, hours, xp, profitPerHour, choice, f } = result;
+    const { revenue, hours: hours2, xp, profitPerHour, choice, f } = result;
     const flow = flows(entry, items, choice);
-    const actionsPerHour = 1 / hours;
+    const actionsPerHour = 1 / hours2;
     const further = flow.actions.map(({ step, count: count3 }) => ({ itemHrid: step.itemHrid, kind: step.kind, name: `${ALCHEMY_KINDS[step.kind].name} ${data.itemDetailMap[step.itemHrid]?.name || step.itemHrid}`, count: count3, hours: count3 * step.hours, catalyst: step.catalyst, successRate: step.successRate })).sort((a, b) => b.hours - a.hours);
     const outputs = entry.outputs.map((o2) => choice.get(o2.itemHrid) ? { ...o2, chainValue: f.gold(o2.itemHrid), chainHours: f.hours(o2.itemHrid) } : o2);
     const goldPerDay = profitPerHour * 24;
@@ -1294,13 +1294,13 @@
       revenuePerAction: revenue,
       profitPerHour,
       goldPerDay,
-      margin: revenue > 0 ? (revenue - ownCost - entry.teaPerHour * hours) / revenue : null,
+      margin: revenue > 0 ? (revenue - ownCost - entry.teaPerHour * hours2) / revenue : null,
       xpPerAction: xp,
       xpPerHour,
       xpPerDay: xpPerHour * 24,
       coinsPerXp: xpPerHour > 0 ? -profitPerHour / xpPerHour : null,
       alchemyChain: {
-        share: ownHours / hours,
+        share: ownHours / hours2,
         further,
         sold: flow.sold.filter((s3) => s3.count > 1e-9).sort((a, b) => b.count * sell(b.itemHrid) - a.count * sell(a.itemHrid)),
         singleGoldPerDay: entry.goldPerDay
@@ -1632,27 +1632,27 @@
       return xp > 0 && r2.valid !== false ? -(goldWeight * -r2.goldPerDay / xp / costScale + (1 - goldWeight) * refs.xp / xp) : -Infinity;
     };
   }
-  function teaPurchase(entry, { hours, have: have6 = () => 0 }) {
+  function teaPurchase(entry, { hours: hours2, have: have6 = () => 0 }) {
     const teas = entry.best.result.teas;
-    if (!teas.length || !(hours > 0)) return null;
-    const perTea = Math.ceil(hours * entry.best.result.drinksPerHour);
+    if (!teas.length || !(hours2 > 0)) return null;
+    const perTea = Math.ceil(hours2 * entry.best.result.drinksPerHour);
     const items = teas.map((hrid) => ({ hrid, quantity: perTea - have6(hrid), have: have6(hrid) })).filter((item) => item.quantity > 0);
-    return { hours, perTea, items };
+    return { hours: hours2, perTea, items };
   }
   function heldStock(character, items, itemHrid) {
     let inventory = 0;
     for (const item of items.values()) {
       if (item.itemHrid === itemHrid && item.itemLocationHrid === INVENTORY && !item.enhancementLevel) inventory += item.count || 0;
     }
-    let listed = 0;
+    let listed2 = 0;
     const listings = [];
     for (const listing of character.myMarketListings || []) {
       if (listing.itemHrid !== itemHrid || !listing.isSell || listing.enhancementLevel) continue;
       const quantity = Math.max(0, (listing.orderQuantity || 0) - (listing.filledQuantity || 0));
-      listed += quantity;
+      listed2 += quantity;
       listings.push({ price: Number(listing.price) || 0, quantity });
     }
-    return { inventory, listed, listings };
+    return { inventory, listed: listed2, listings };
   }
   var ASK_WINDOW = 0.05;
   function othersNearLowestAsk(book, stock) {
@@ -1710,13 +1710,13 @@
     const low = price.diff !== null && price.diff < -PRICE_BAND;
     return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
   }
-  function suggestCount(entry, { stock, book = null, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins10 = Infinity, have: have6 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now: now2 = Date.now() }) {
+  function suggestCount(entry, { stock, book = null, hours: hours2 = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins10 = Infinity, have: have6 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now: now2 = Date.now() }) {
     if (entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o2) => o2.price >= breakEven).reduce((sum, o2) => sum + o2.quantity, 0) : null;
     const asks = book && sellAt === "ask" ? othersNearLowestAsk(book, stock) : null;
     const product = liquidity2 || { rating: "thin", known: false };
-    const planned = Math.max(1, Math.floor(hours * entry.actionsPerHour));
+    const planned = Math.max(1, Math.floor(hours2 * entry.actionsPerHour));
     const plannedUnits = Math.min(planned * entry.mainCount, salesDay(product));
     const held2 = stock.inventory + stock.listed;
     const units = unitsToMake(planned * entry.mainCount, salesDay(product), held2);
@@ -1749,20 +1749,20 @@
       const maxPrice = asks2?.length ? Math.max(asks2[0].price, input.price + (profitPerAction - minMargin * entry.revenuePerAction) / input.count) : null;
       const limitPrice = input.price + (profitPerAction - limitMargin * entry.revenuePerAction) / input.count;
       const usable = asks2 ? asks2.filter((o2) => o2.price <= maxPrice + 1e-9) : null;
-      const listed = usable ? usable.reduce((sum, o2) => sum + o2.quantity, 0) : null;
+      const listed2 = usable ? usable.reduce((sum, o2) => sum + o2.quantity, 0) : null;
       return {
         itemHrid: input.itemHrid,
         perAction: input.count,
         price: input.price,
         liquidity: market.liquidity || null,
-        nearAsks: listed,
+        nearAsks: listed2,
         lowestAsk: asks2?.[0]?.price ?? null,
         maxPrice,
         limitPrice,
         asks: usable,
         bookAt: fresh?.at ?? null,
         enhancementLevel: input.enhancementLevel || 0,
-        maxCount: usable ? Math.floor((haveOf(input) + listed) / input.count + 1e-9) : Infinity
+        maxCount: usable ? Math.floor((haveOf(input) + listed2) / input.count + 1e-9) : Infinity
       };
     });
     let limitedByListing = null;
@@ -1845,7 +1845,7 @@
       stock,
       held: held2,
       heldOff: Math.max(0, plannedUnits - units),
-      plannedHours: hours,
+      plannedHours: hours2,
       plannedUnits,
       short: short4,
       cappedBySales: plannedUnits < planned * entry.mainCount,
@@ -1864,7 +1864,7 @@
       budget,
       count: count3,
       hours: jobHours,
-      fill: Math.min(1, jobHours / hours),
+      fill: Math.min(1, jobHours / hours2),
       batch,
       swing,
       limitedByCoins
@@ -1892,19 +1892,19 @@
     }
     return { value, saving };
   }
-  function enhanceBudget(entry, { hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins10 = Infinity, inputMarket = null }) {
+  function enhanceBudget(entry, { hours: hours2 = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins10 = Infinity, inputMarket = null }) {
     if (!entry.valid || entry.action.function !== ENHANCE_FUNCTION) return null;
     const rating = inputMarket?.(entry.action.itemHrid)?.liquidity || { rating: "thin", known: false };
     const share = coinShare[rating.rating] ?? coinShare.thin;
     const budget = coins10 * share;
     const item = entry.base.owned ? 0 : entry.base.price;
     const perHour = (entry.costPerAttempt * entry.actionsPerHour + entry.teaPerHour) * (entry.enhanceShare ?? 1);
-    const fill = item > budget ? 0 : perHour > 0 ? Math.min(1, (budget - item) / (perHour * hours)) : 1;
-    return { rating, share, budget, item, perHour, need: item + perHour * hours, fill, hours: fill * hours, plannedHours: hours };
+    const fill = item > budget ? 0 : perHour > 0 ? Math.min(1, (budget - item) / (perHour * hours2)) : 1;
+    return { rating, share, budget, item, perHour, need: item + perHour * hours2, fill, hours: fill * hours2, plannedHours: hours2 };
   }
-  function suggestChainCount(entry, chain, { stock, hours = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins10 = Infinity, price = null, liquidity: liquidity2 = null, inputMarket = null }) {
+  function suggestChainCount(entry, chain, { stock, hours: hours2 = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins10 = Infinity, price = null, liquidity: liquidity2 = null, inputMarket = null }) {
     if (!chain || !entry.mainCount || chain.profitPerHour <= 0) return null;
-    const planned = Math.max(1, Math.floor(hours / chain.hoursPerAction));
+    const planned = Math.max(1, Math.floor(hours2 / chain.hoursPerAction));
     const held2 = stock.inventory + stock.listed;
     const units = unitsToMake(planned * entry.mainCount, salesDay(liquidity2), held2);
     const heldOff = Math.max(0, Math.min(planned * entry.mainCount, salesDay(liquidity2)) - units);
@@ -1971,13 +1971,13 @@
     };
     const materials2 = (r2, seen) => {
       let cost = 0;
-      let hours = 0;
+      let hours2 = 0;
       const steps = [];
       for (const input of r2.inputs) {
         const made = selfMade(input.itemHrid, seen);
         if (made) {
           cost += made.cost * input.count;
-          hours += made.hours * input.count;
+          hours2 += made.hours * input.count;
           steps.push({ itemHrid: input.itemHrid, count: input.count, made });
         } else if (input.price === null) {
           return null;
@@ -1986,7 +1986,7 @@
           steps.push({ itemHrid: input.itemHrid, count: input.count, price: input.price });
         }
       }
-      return { cost, hours, steps };
+      return { cost, hours: hours2, steps };
     };
     const timeShares = (steps, factor, out) => {
       for (const step of steps) {
@@ -2011,15 +2011,15 @@
       const inner = materials2(entry, /* @__PURE__ */ new Set([entry.action.outputItems?.[0]?.itemHrid]));
       if (!inner || !inner.steps.some((step) => step.made)) return null;
       const craftHours = 1 / entry.actionsPerHour;
-      const hours = craftHours + inner.hours;
+      const hours2 = craftHours + inner.hours;
       const profit = entry.revenuePerAction - inner.cost - entry.teaPerHour / entry.actionsPerHour;
       return {
-        hoursPerAction: hours,
-        craftShare: craftHours / hours,
-        shares: [...timeShares(inner.steps, 1, /* @__PURE__ */ new Map()).values()].map((share) => ({ ...share, share: share.hours / hours })),
+        hoursPerAction: hours2,
+        craftShare: craftHours / hours2,
+        shares: [...timeShares(inner.steps, 1, /* @__PURE__ */ new Map()).values()].map((share) => ({ ...share, share: share.hours / hours2 })),
         bought: [...boughtItems(inner.steps, /* @__PURE__ */ new Set())],
-        profitPerHour: profit / hours,
-        goldPerDay: profit / hours * HOURS_PER_DAY,
+        profitPerHour: profit / hours2,
+        goldPerDay: profit / hours2 * HOURS_PER_DAY,
         cashPerAction: inner.cost
       };
     };
@@ -2213,8 +2213,8 @@
       };
       if (plan) {
         const runs = action.function === "/action_functions/gathering" || action.function === ENHANCE_FUNCTION;
-        const hours = suggestion?.count ? suggestion.count / best.result.actionsPerHour : budget ? budget.hours : runs ? plan.hours : 0;
-        entry.teaPlan = teaPurchase(entry, { hours, have: plan.have });
+        const hours2 = suggestion?.count ? suggestion.count / best.result.actionsPerHour : budget ? budget.hours : runs ? plan.hours : 0;
+        entry.teaPlan = teaPurchase(entry, { hours: hours2, have: plan.have });
       }
       return entry;
     });
@@ -2229,8 +2229,8 @@
       const atUnlock = teaMode === "best" ? bestTeas(action, who, data, market, evaluate).result : evaluate(who.drinks[action.type] || []);
       const have6 = who.experience[skillHrid];
       const needXp = Array.isArray(table) && have6 !== null && table[required] !== void 0 ? Math.max(0, table[required] - have6) : null;
-      const hours = needXp !== null && fastestXp[skillHrid] > 0 ? needXp / fastestXp[skillHrid] : null;
-      return { ...atUnlock, needLevels: required - (who.levels[skillHrid] ?? 1), needXp, hoursToUnlock: hours };
+      const hours2 = needXp !== null && fastestXp[skillHrid] > 0 ? needXp / fastestXp[skillHrid] : null;
+      return { ...atUnlock, needLevels: required - (who.levels[skillHrid] ?? 1), needXp, hoursToUnlock: hours2 };
     });
     upcoming.sort((a, b) => a.needLevels - b.needLevels || b.goldPerDay - a.goldPerDay);
     return { available, upcoming };
@@ -2675,12 +2675,12 @@
     });
   }
   var at = (array, i) => array && i < array.length ? array[i] : NaN;
-  function summarize(i, hours, days, nowHour) {
+  function summarize(i, hours2, days, nowHour) {
     const side = (key2) => {
       const week = [];
       const before = [];
       const month = [];
-      for (const r2 of hours) {
+      for (const r2 of hours2) {
         const v = at(r2[key2], i);
         if (!Number.isFinite(v)) continue;
         const age = nowHour - r2.hour;
@@ -2699,23 +2699,23 @@
     };
     let first = Infinity;
     let hours7 = 0;
-    for (const r2 of hours) {
+    for (const r2 of hours2) {
       if (!Number.isFinite(at(r2.a, i)) && !Number.isFinite(at(r2.b, i))) continue;
       first = Math.min(first, r2.hour);
       if (nowHour - r2.hour < 7 * 24) hours7++;
     }
     for (const d of days) if (at(d.n, i)) first = Math.min(first, d.day * 24);
     const spanDays = Number.isFinite(first) ? (nowHour - first) / 24 : 0;
-    return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS, liquidity: liquidity(i, hours, nowHour) };
+    return { a: side("a"), b: side("b"), hours7, spanDays, enough: hours7 >= MIN_HOURS && spanDays >= MIN_DAYS, liquidity: liquidity(i, hours2, nowHour) };
   }
-  function liquidity(i, hours, nowHour) {
+  function liquidity(i, hours2, nowHour) {
     let observed = 0;
     let both = 0;
     let pairs = 0;
     let moves = 0;
     let lastAsk = NaN;
     const spreads = [];
-    for (const r2 of hours) {
+    for (const r2 of hours2) {
       if (nowHour - r2.hour >= 7 * 24) continue;
       const a = at(r2.a, i);
       const b = at(r2.b, i);
@@ -2733,13 +2733,13 @@
         lastAsk = a;
       }
     }
-    return { hours: observed, both: observed ? both / observed : 0, spread: median(spreads), activity: pairs ? moves / pairs : 0, sold: soldPerDay(i, hours, nowHour) };
+    return { hours: observed, both: observed ? both / observed : 0, spread: median(spreads), activity: pairs ? moves / pairs : 0, sold: soldPerDay(i, hours2, nowHour) };
   }
   var SPIKE = 3;
-  function soldPerDay(i, hours, nowHour) {
+  function soldPerDay(i, hours2, nowHour) {
     const counts = [];
     const prices2 = [];
-    for (const r2 of hours) {
+    for (const r2 of hours2) {
       if (!r2.sold || nowHour - r2.hour >= 7 * 24) continue;
       const v = at(r2.v, i);
       counts.push(Number.isFinite(v) ? v : 0);
@@ -2751,7 +2751,7 @@
     const perDay2 = (list) => counted2 ? sum(list) / counted2 * 24 : null;
     return { hours: counted2, perDay: perDay2(counts.map((v) => Math.min(v, cap4))), rawPerDay: perDay2(counts), selling: counted2 ? counts.filter((v) => v > 0).length / counted2 : null, price: median(prices2), enough: counted2 >= MIN_HOURS };
   }
-  function historyCsv(items, hours, days, exportedAt = /* @__PURE__ */ new Date(), { hourlySold = false } = {}) {
+  function historyCsv(items, hours2, days, exportedAt = /* @__PURE__ */ new Date(), { hourlySold = false } = {}) {
     const num2 = (v) => Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "";
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
     const dayText2 = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
@@ -2761,7 +2761,7 @@
       `# MWI Advisor price history, exported ${exportedAt.toISOString().slice(0, 16)}Z; saved while the game was open on this device, and around the clock by your Pi if it is linked.`,
       "# ask = lowest sell order, bid = best buy order, in coins; empty = none. Times are UTC.",
       `# section hour: an item's row appears when its ask or bid changed since its previous row (in between it stayed the same).`,
-      `# Hours with data: ${hours.map((r2) => hourText(r2.hour)).join(",")}`,
+      `# Hours with data: ${hours2.map((r2) => hourText(r2.hour)).join(",")}`,
       `# section day (older than ${HOURLY_DAYS} days): the day's median ask and bid, their low and high, and how many hours had data.`,
       "# sold_mean = how many were traded per hour (the market file's v, an hour's count), the mean over the sold_hours hours of the day that",
       "#   had the numbers (0 = none traded; \xD7 24 for a day); sold_price = the median of the hours' average trade price (p).",
@@ -2769,7 +2769,7 @@
       "section,time,item,ask,bid,ask_low,ask_high,bid_low,bid_high,hours,sold_mean,sold_hours,sold_price"
     ];
     const previous = /* @__PURE__ */ new Map();
-    for (const r2 of hours) {
+    for (const r2 of hours2) {
       items.forEach((hrid, i) => {
         const pair = num2(at(r2.a, i)) + "," + num2(at(r2.b, i));
         if (previous.get(i) === pair || !previous.has(i) && pair === ",") return;
@@ -2778,13 +2778,13 @@
       });
     }
     if (hourlySold) {
-      for (const r2 of hours.filter((r3) => r3.sold)) {
+      for (const r2 of hours2.filter((r3) => r3.sold)) {
         items.forEach((hrid, i) => {
           if (at(r2.v, i) > 0) lines.push(`sold,${hourText(r2.hour)},${id(hrid)},,,,,,,,${num2(at(r2.v, i))},1,${num2(at(r2.p, i))}`);
         });
       }
     }
-    for (const d of hourlySold ? [] : rollUpDays(hours.filter((r2) => r2.sold), items.length)) {
+    for (const d of hourlySold ? [] : rollUpDays(hours2.filter((r2) => r2.sold), items.length)) {
       items.forEach((hrid, i) => {
         if (at(d.v, i) > 0) lines.push(`sold,${dayText2(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
       });
@@ -2795,7 +2795,7 @@
         lines.push(`day,${dayText2(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)},${sold(d, i)}`);
       });
     }
-    return { csv: lines.join("\n") + "\n", items: items.length, hours: hours.length, days: days.length };
+    return { csv: lines.join("\n") + "\n", items: items.length, hours: hours2.length, days: days.length };
   }
   function versusUsual(price, usual) {
     if (!(price > 0) || !(usual > 0)) return null;
@@ -2849,15 +2849,15 @@
     store2.ready || (store2.ready = (async () => {
       store2.db = await openDb();
       const tx = store2.db.transaction([HOURLY, META], "readonly");
-      const [items, last, pi, hours] = await Promise.all(["items", "last", "pi"].map((key2) => request(tx.objectStore(META).get(key2))).concat(request(tx.objectStore(HOURLY).getAll())));
-      const newest = hours.length ? hours[hours.length - 1].hour : 0;
+      const [items, last, pi, hours2] = await Promise.all(["items", "last", "pi"].map((key2) => request(tx.objectStore(META).get(key2))).concat(request(tx.objectStore(HOURLY).getAll())));
+      const newest = hours2.length ? hours2[hours2.length - 1].hour : 0;
       const fromDay = Math.floor((Math.floor(newest / 24) - 31) / 7) * 7;
       store2.days = decodeRecords(await request(store2.db.transaction(DAILY, "readonly").objectStore(DAILY).getAll(IDBKeyRange.lowerBound(fromDay))), DAILY_FIELDS);
       store2.items = items || [];
       store2.items.forEach((hrid, i) => store2.index.set(hrid, i));
       store2.last = last ?? null;
       store2.pi = pi ?? null;
-      store2.hours = decodeRecords(hours, HOURLY_FIELDS);
+      store2.hours = decodeRecords(hours2, HOURLY_FIELDS);
       store2.version++;
     })());
     return store2.ready;
@@ -2884,13 +2884,13 @@
       pi.items.push(...wire.items);
       const map = itemMap(pi.items, store2.items, store2.index);
       const count3 = store2.items.length;
-      const hours = decodeRecords(wire.hours.map(unpack), HOURLY_FIELDS).map((r2) => remapRecord(r2, map, count3, HOURLY_FIELDS));
+      const hours2 = decodeRecords(wire.hours.map(unpack), HOURLY_FIELDS).map((r2) => remapRecord(r2, map, count3, HOURLY_FIELDS));
       const days = decodeRecords(wire.days.map(unpack), DAILY_FIELDS).map((d) => remapRecord(d, map, count3, DAILY_FIELDS));
-      for (const r2 of hours) pi.hour = Math.max(pi.hour ?? -Infinity, r2.hour);
+      for (const r2 of hours2) pi.hour = Math.max(pi.hour ?? -Infinity, r2.hour);
       for (const d of days) pi.day = Math.max(pi.day ?? -Infinity, d.day);
-      await commit(hours, days, { pi });
+      await commit(hours2, days, { pi });
       store2.pi = pi;
-      return { hours: hours.length, days: days.length };
+      return { hours: hours2.length, days: days.length };
     }).catch((error) => {
       if (/out of step/.test(error.message)) store2.pi = null;
       throw error;
@@ -2953,14 +2953,14 @@
   function volumeBins(points, bins, t0, t1) {
     const span = Math.max(1, t1 - t0);
     const sum = new Array(bins).fill(0);
-    const hours = new Array(bins).fill(0);
+    const hours2 = new Array(bins).fill(0);
     for (const p2 of points) {
       if (!Number.isFinite(p2.v)) continue;
       const k = Math.min(bins - 1, Math.max(0, Math.floor((p2.t - t0) / span * bins)));
       sum[k] += p2.v * (p2.w || 1);
-      hours[k] += p2.w || 1;
+      hours2[k] += p2.w || 1;
     }
-    return sum.map((s3, k) => hours[k] ? s3 / hours[k] * 24 : null);
+    return sum.map((s3, k) => hours2[k] ? s3 / hours2[k] * 24 : null);
   }
   function recentHours(itemHrid, level = 0, days = 7) {
     const i = store2.index.get(historyKey(itemHrid, level));
@@ -3022,10 +3022,10 @@
   var planMode = (s3) => PLAN_MODES[s3.skillingMode] ? s3.skillingMode : "away";
   var goldShare = (s3) => s3.skillingGold === void 0 || s3.skillingGold === "" ? 100 : Number(s3.skillingGold);
   var focusLabel = (gold) => gold === 0 ? "XP only" : gold === 100 ? "Gold only" : `${100 - gold}% XP \xB7 ${gold}% gold`;
-  function hoursText(hours) {
-    if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`;
-    if (hours < 48) return `${dec(hours, hours < 10 && Math.round(hours * 10) % 10 ? 1 : 0)} h`;
-    return `${dec(hours / 24, hours < 240 ? 1 : 0)} days`;
+  function hoursText(hours2) {
+    if (hours2 < 1) return `${Math.max(1, Math.round(hours2 * 60))} min`;
+    if (hours2 < 48) return `${dec(hours2, hours2 < 10 && Math.round(hours2 * 10) % 10 ? 1 : 0)} h`;
+    return `${dec(hours2 / 24, hours2 < 240 ? 1 : 0)} days`;
   }
   function skillingSettingsHtml(s3) {
     const option = (value, label3, current) => `<option value="${value}" ${current === value ? "selected" : ""}>${label3}</option>`;
@@ -3203,9 +3203,9 @@
     if (available[0] && !available[0].buffsKnown) {
       html += `<div class="mwia-notice mwia-notice-warn">The game hasn't sent your buffs (house, equipment, community) yet, so only levels and teas are counted. Reload the page to fix it.</div>`;
     }
-    const listed = available.filter((entry) => !entry.thinMargin);
-    const thin = available.length - listed.length;
-    const shown = view.showAll ? available : listed.slice(0, SHORT_LIST);
+    const listed2 = available.filter((entry) => !entry.thinMargin);
+    const thin = available.length - listed2.length;
+    const shown = view.showAll ? available : listed2.slice(0, SHORT_LIST);
     const mode = PLAN_MODES[planMode(settings2)];
     html += `<section><h3>Best now</h3><p class="mwia-dim">${settings2.skillingSkill === "enhancing" ? "Ranked by your Focus: XP per day against what it costs." : `Ranked by what a ${hoursText(mode.hours)} job gives: the amount is what your coins, your stock and the market allow \u2013 no need to open the market.`}</p>`;
     if (!available.length) html += `<p class="mwia-dim">Nothing to do in this skill at your level.</p>`;
@@ -3317,15 +3317,15 @@
     if (e2.teas.length) {
       gold.push(`<b>Teas:</b> ${e2.teaCosts.map((t4) => `${esc(itemName(t4.itemHrid))} @ ${coins(t4.price)}`).join(" \xB7 ")}, ${dec(e2.drinksPerHour, 1)} of each per hour = ${coins(e2.teaPerHour)}/h`);
     }
-    const hours = " \xD7 24";
-    gold.push(`(${coins(e2.revenuePerAction)} \u2212 ${coins(e2.costPerAction)}) \xD7 ${dec(e2.actionsPerHour, 0)}${e2.teas.length ? ` \u2212 ${coins(e2.teaPerHour)}` : ""} = ${coins(e2.profitPerHour)}/h${hours} = <b>${coins(e2.goldPerDay)}/day</b>`);
+    const hours2 = " \xD7 24";
+    gold.push(`(${coins(e2.revenuePerAction)} \u2212 ${coins(e2.costPerAction)}) \xD7 ${dec(e2.actionsPerHour, 0)}${e2.teas.length ? ` \u2212 ${coins(e2.teaPerHour)}` : ""} = ${coins(e2.profitPerHour)}/h${hours2} = <b>${coins(e2.goldPerDay)}/day</b>`);
     const capped = e2.salesCap && e2.outputs.find((o2) => o2.salesCap === e2.salesCap);
     if (capped) gold.push(salesCapText(e2.salesCap, esc(itemName(capped.itemHrid)), capped.price));
     sections.push(section("\u{1F4B0} Gold", `${coins(e2.profitPerHour)}/h${e2.margin !== null ? ` \xB7 margin ${dec(e2.margin * 100, 1)}%` : ""}`, gold));
     if (e2.chain) sections.push(section("\u26D3 Yourself", `${coins(e2.chain.profitPerHour)}/h making the materials`, [chainHtml(e2)]));
     if (ac) sections.push(section("\u26D3 Further", `+${coins(e2.goldPerDay - ac.singleGoldPerDay)}/day over selling it all`, [alchemyChainHtml(e2)]));
     if (dc) sections.push(section("\u{1F9EA} Decompose", `+${coins(e2.goldPerDay - dc.singleGoldPerDay)}/day over selling ${esc(itemName(e2.action.outputItems[0].itemHrid))}`, [decomposeCraftHtml(e2)]));
-    sections.push(section("\u2728 XP", `${coins(e2.xpPerHour)}/h`, [`${dec(e2.xpPerAction, 1)} per action \xD7 ${dec(e2.actionsPerHour, 0)} = ${coins(e2.xpPerHour)}/h${hours} = <b>${coins(e2.xpPerDay)}/day</b>`]));
+    sections.push(section("\u2728 XP", `${coins(e2.xpPerHour)}/h`, [`${dec(e2.xpPerAction, 1)} per action \xD7 ${dec(e2.actionsPerHour, 0)} = ${coins(e2.xpPerHour)}/h${hours2} = <b>${coins(e2.xpPerDay)}/day</b>`]));
     if (!upcoming && e2.suggestion) sections.push(section("\u{1F4E6} How many", suggestionSummary(e2.suggestion), [suggestionHtml(e2)]));
     if (!upcoming) sections.push(section("\u{1F375} Teas", teaSummary(e2), [teaHtml(e2)]));
     return buttons + warnings + sections.join("");
@@ -3425,13 +3425,13 @@
   }
   function levelingButtons(e2) {
     const item = e2.action.itemHrid;
-    const hours = e2.teaPlan?.hours || PLAN_MODES.away.hours;
+    const hours2 = e2.teaPlan?.hours || PLAN_MODES.away.hours;
     let open2;
     let buy;
     if (isEnhance(e2)) {
       const guard = e2.protect ? ` data-protect="${esc(e2.protect.itemHrid)}" data-protect-from="${e2.protect.from}"` : "";
       open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="enhance" data-item="${esc(item)}" data-value="${e2.target}"${guard} title="Opens Enhancing with ${esc(itemName(item))} (one from your inventory) and the target +${e2.target}${e2.protect ? `, protected from +${e2.protect.from} with ${esc(itemName(e2.protect.itemHrid))}` : ""}">\u25B6 Enhance to +${e2.target}</button>${loopButton(e2)}${decomposeButton(decomposeHeld(e2))}`;
-      const attempts = Math.ceil(e2.actionsPerHour * hours * (e2.enhanceShare ?? 1));
+      const attempts = Math.ceil(e2.actionsPerHour * hours2 * (e2.enhanceShare ?? 1));
       const items = e2.inputs.filter((i) => !i.upgrade && !(i.protection && i.itemHrid === item)).map((i) => ({ hrid: i.itemHrid, quantity: Math.ceil(i.count * attempts) })).filter((i) => i.hrid !== COIN4);
       const guards = e2.protect?.itemHrid === item ? attempts * e2.protect.protections / e2.attempts : 0;
       const copies = Math.max(e2.base.owned ? 0 : 1, Math.ceil(attempts / e2.attempts + guards) - have(item));
@@ -3439,7 +3439,7 @@
       const catalyst = e2.finish?.entry?.inputs.find((i) => i.catalyst);
       const catalysts = catalyst ? Math.ceil(attempts / e2.attempts * catalyst.count - 1e-9) - have(catalyst.itemHrid) : 0;
       if (catalysts > 0) items.push({ hrid: catalyst.itemHrid, quantity: catalysts });
-      buy = items.length ? { items, title: `Adds what ${hoursText(hours)} of enhancing uses: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
+      buy = items.length ? { items, title: `Adds what ${hoursText(hours2)} of enhancing uses: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ")}` } : null;
     } else {
       const k = ALCHEMY_KINDS[e2.action.kind];
       const n5 = e2.suggestion?.count || 0;
@@ -4340,14 +4340,14 @@
     if (!list.length) return null;
     const sum = (f) => list.reduce((s3, h3) => s3 + (f(h3) || 0), 0);
     const revenue = sum((h3) => h3.revenue);
-    const hours = sum((h3) => h3.hours);
+    const hours2 = sum((h3) => h3.hours);
     const profit = sum((h3) => h3.profit);
     const expected = list.filter((h3) => Number.isFinite(h3.expectedMargin));
     return {
       jobs: list.length,
       days: (Math.max(...list.map((h3) => h3.endedAt)) - Math.min(...list.map((h3) => h3.endedAt))) / 864e5,
       profit,
-      perHour: hours > 0 ? profit / hours : null,
+      perHour: hours2 > 0 ? profit / hours2 : null,
       margin: revenue > 0 ? profit / revenue : null,
       expectedMargin: expected.length ? expected.reduce((s3, h3) => s3 + h3.expectedMargin, 0) / expected.length : null
     };
@@ -4355,7 +4355,7 @@
   function jobReport(ledger, job, prices2, now2 = Date.now()) {
     const f = job.forecast;
     const actions = job.actions;
-    const hours = job.hours;
+    const hours2 = job.hours;
     const made = [];
     const used = [];
     const lots = lotsLeft(ledger, job.key);
@@ -4376,7 +4376,7 @@
     }
     made.sort((a, b) => b.total - a.total);
     used.sort((a, b) => b.total - a.total);
-    const teas = f ? f.teaPerHour * hours : 0;
+    const teas = f ? f.teaPerHour * hours2 : 0;
     const revenue = made.reduce((s3, m2) => s3 + m2.total, 0);
     const cost = used.reduce((s3, u) => s3 + u.total, 0) + teas;
     const profit = revenue - cost;
@@ -4389,7 +4389,7 @@
       endedAt: job.endedAt,
       pricedAt: now2,
       actions,
-      hours,
+      hours: hours2,
       made,
       used,
       teas,
@@ -4397,14 +4397,14 @@
       cost,
       profit,
       margin: revenue > 0 ? profit / revenue : null,
-      perHour: hours > 0 ? profit / hours : null,
-      actionsPerHour: hours > 0 ? actions / hours : null,
+      perHour: hours2 > 0 ? profit / hours2 : null,
+      actionsPerHour: hours2 > 0 ? actions / hours2 : null,
       // now: worked out when the result was (the job began unseen); settled: from its first action (else as it was queued).
-      forecast: f ? { ...compare(f, made, used, teas, hours, actions), now: !!job.forecastNow, settled: job.forecastSettled ?? null, catalyst: f.catalyst ?? null, teas: f.teas ?? null } : null
+      forecast: f ? { ...compare(f, made, used, teas, hours2, actions), now: !!job.forecastNow, settled: job.forecastSettled ?? null, catalyst: f.catalyst ?? null, teas: f.teas ?? null } : null
     };
     return report;
   }
-  function compare(f, made, used, teas, hours, actions) {
+  function compare(f, made, used, teas, hours2, actions) {
     const primary = f.inputs.filter((i) => i.itemHrid !== COIN5 && !i.catalyst).sort((a, b) => b.count * b.price - a.count * a.price)[0];
     const usedOf = (hrid) => used.find((u) => u.itemHrid === hrid && u.level === 0);
     const n5 = primary && usedOf(primary.itemHrid) ? usedOf(primary.itemHrid).qty / primary.count : actions;
@@ -4726,8 +4726,8 @@
   var pct2 = (x) => x === null || x === void 0 ? "\u2013" : `${(x * 100).toFixed(1)}%`;
   var qty = (n5) => Math.abs(n5 - Math.round(n5)) < 1e-6 ? Math.round(n5).toLocaleString("en-US") : n5.toLocaleString("en-US", { maximumFractionDigits: 1 });
   var levelText = (level) => level ? ` +${level}` : "";
-  function duration(hours) {
-    const minutes = Math.round(hours * 60);
+  function duration(hours2) {
+    const minutes = Math.round(hours2 * 60);
     return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
   }
   function lineHtml(r2, state2 = null) {
@@ -5137,7 +5137,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.80.0" : "dev";
+  var VERSION = true ? "0.81.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5640,13 +5640,13 @@
     const cost = consumableCost(result);
     return { ...result, loot, cost, profit: loot - cost, levels: combatLevelsPerHour(result, profile), killsTotal: Object.values(result.kills).reduce((a, b) => a + b, 0) };
   }
-  async function simulateRuns(pool, items, zone, hours, onProgress) {
+  async function simulateRuns(pool, items, zone, hours2, onProgress) {
     const data = getClientData();
     const jobs = [];
     for (const item of items) {
       const player = toDTO(item.profile, data);
       for (const seed of item.seeds) {
-        const job = { player, zoneHrid: zone.zoneHrid, tier: zone.tier, hours, seed: seedFor(seed), extraBuffs: item.profile.extraBuffs };
+        const job = { player, zoneHrid: zone.zoneHrid, tier: zone.tier, hours: hours2, seed: seedFor(seed), extraBuffs: item.profile.extraBuffs };
         jobs.push(item.telemetry ? { ...job, telemetry: true } : job);
       }
     }
@@ -5675,8 +5675,8 @@
     }
     const data = getClientData();
     const player = toDTO(profile, data);
-    const hours = Math.max(1, settings2.hours / 2);
-    const jobs = variants.map((v) => ({ player, zoneHrid: v.zone.zoneHrid, tier: v.zone.tier, hours, seed: seedFor(0), extraBuffs: profile.extraBuffs }));
+    const hours2 = Math.max(1, settings2.hours / 2);
+    const jobs = variants.map((v) => ({ player, zoneHrid: v.zone.zoneHrid, tier: v.zone.tier, hours: hours2, seed: seedFor(0), extraBuffs: profile.extraBuffs }));
     const results = await runCached(pool, jobs, onProgress);
     return variants.map((v, i) => ({ ...v, result: enrich(results[i], v.zone.tier, profile) }));
   }
@@ -8156,8 +8156,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!setup) {
       return head("\u2615 Drinks and food", "MWI Advisor") + `<div class="mwia-guide-note">No advice for ${esc(action.name)} yet: in the advisor, pick it as the zone under <b>Upgrades</b> and press <b>Analyze upgrades</b>.</div>`;
     }
-    const hours = Math.max(0, (Date.now() - setup.at) / 36e5);
-    const age = hours < 1 ? "less than an hour ago" : hours < 48 ? `${Math.round(hours)} h ago` : `${Math.round(hours / 24)} days ago`;
+    const hours2 = Math.max(0, (Date.now() - setup.at) / 36e5);
+    const age = hours2 < 1 ? "less than an hour ago" : hours2 < 48 ? `${Math.round(hours2)} h ago` : `${Math.round(hours2 / 24)} days ago`;
     const perDay2 = (hrid) => Math.ceil((setup.perHour?.[hrid] || 0) * HOURS_PER_DAY2);
     const stock = (hrid) => {
       const n5 = have2(hrid);
@@ -8185,12 +8185,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const action = getClientData()?.actionDetailMap[actionHrid];
     const rate2 = combatSetups()[actionHrid]?.encountersPerHour;
     if (!action || !(rate2 > 0)) return;
-    const hours = Number(button2.dataset.guideHours);
-    const fights = Math.max(1, Math.round(rate2 * hours));
+    const hours2 = Number(button2.dataset.guideHours);
+    const fights = Math.max(1, Math.round(rate2 * hours2));
     const input = findActionPanel(action.name)?.input;
-    g2.hours.set(actionHrid, hours);
+    g2.hours.set(actionHrid, hours2);
     if (input) setReactInput(input, fights);
-    g2.statuses.set(actionHrid, input ? `${fights.toLocaleString("en-US")} fights \u2248 ${hours} h.` : `Could not find the Fight box: enter ${fights.toLocaleString("en-US")} yourself.`);
+    g2.statuses.set(actionHrid, input ? `${fights.toLocaleString("en-US")} fights \u2248 ${hours2} h.` : `Could not find the Fight box: enter ${fights.toLocaleString("en-US")} yourself.`);
     scheduleScan4();
   }
   async function onClick2(event) {
@@ -8679,9 +8679,9 @@ i.mwia-history-bid { background: #7ee2b0; }
       after: summary(result.after)
     };
   }
-  function cartItems(entry, hours, haveOf = have4) {
+  function cartItems(entry, hours2, haveOf = have4) {
     const wanted = [...entry.final.drinks, ...entry.final.food].filter(Boolean);
-    return wanted.map((hrid) => ({ hrid, quantity: Math.ceil((entry.after.consumables[hrid] || 0) * hours) - haveOf(hrid) })).filter((i) => i.quantity > 0);
+    return wanted.map((hrid) => ({ hrid, quantity: Math.ceil((entry.after.consumables[hrid] || 0) * hours2) - haveOf(hrid) })).filter((i) => i.quantity > 0);
   }
   function scan6() {
     const found = state.character ? findLoadoutPanel() : null;
@@ -8764,8 +8764,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     });
   }
   var ageText = (at2) => {
-    const hours = Math.max(0, (Date.now() - at2) / 36e5);
-    return hours < 1 ? "simulated less than an hour ago" : hours < 48 ? `simulated ${Math.round(hours)} h ago` : `simulated ${Math.round(hours / 24)} days ago`;
+    const hours2 = Math.max(0, (Date.now() - at2) / 36e5);
+    return hours2 < 1 ? "simulated less than an hour ago" : hours2 < 48 ? `simulated ${Math.round(hours2)} h ago` : `simulated ${Math.round(hours2 / 24)} days ago`;
   };
   function itemLine2(kind, text, extra = "") {
     const mark3 = { keep: "\u2713", add: "\u2795 Put in", remove: "\u2796 Take out" }[kind];
@@ -8804,16 +8804,16 @@ i.mwia-history-bid { background: #7ee2b0; }
     let html = part("Abilities", [final.special, ...final.abilities], [from.special, ...from.abilities], abilityName) + (newOrder ? `<div class="mwia-guide-note">In this order: <b>${order.map((h3) => esc(abilityName(h3))).join(" \u2192 ")}</b></div>` : "") + part("Drinks", final.drinks, from.drinks, itemName, stock) + part("Food", final.food, from.food, itemName, stock);
     html += `<div class="mwia-guide-note">${unchanged ? "\u2713 This loadout is the best the advisor found for this fight." : `Change it as above and save the loadout: ${gainText(entry)}.`}</div>`;
     if (found) markSlots(found, final, marked);
-    const buttons = CART_HOURS.map((hours) => cartButton3(cartItems(entry, hours), hours)).join(" ");
+    const buttons = CART_HOURS.map((hours2) => cartButton3(cartItems(entry, hours2), hours2)).join(" ");
     html += `<div class="mwia-guide-sub">Drinks and food for <span>\xB7 at the simulated pace, less what you have</span></div><div class="mwia-guide-hours">${buttons}</div>`;
     return html + againButton("\u21BB Simulate again");
   }
   var againButton = (label3) => `<button class="mwia-guide-cart" data-loadout-again="1">${label3}</button>`;
   var statusHtml = () => g3.status ? `<div class="mwia-guide-status">${esc(g3.status)}</div>` : "";
-  function cartButton3(items, hours) {
-    if (!items.length) return `<button class="mwia-guide-cart" disabled title="You have enough for ${hours} h">\u2713 ${hours} h</button>`;
+  function cartButton3(items, hours2) {
+    if (!items.length) return `<button class="mwia-guide-cart" disabled title="You have enough for ${hours2} h">\u2713 ${hours2} h</button>`;
     const title = items.map((i) => `${i.quantity} ${itemName(i.hrid)}`).join(", ");
-    return `<button class="mwia-guide-cart" data-loadout-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(title)}">\u{1F6D2} ${hours} h</button>`;
+    return `<button class="mwia-guide-cart" data-loadout-cart="${esc(JSON.stringify(items))}" title="Adds to the MWITools cart: ${esc(title)}">\u{1F6D2} ${hours2} h</button>`;
   }
   function markSlots(found, final, marked) {
     const abilities = new Set([final.special, ...final.abilities].filter(Boolean));
@@ -8901,7 +8901,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     return Object.values(data.combatMonsterDetailMap || {}).filter((m2) => m2.isLabyrinthMonster).sort((a, b) => a.name.localeCompare(b.name)).map((m2) => m2.hrid);
   }
   function slottedCrate(character, kind) {
-    const slots = [...character?.actionTypeDrinkSlotsMap?.[LABYRINTH] || [], ...character?.actionTypeFoodSlotsMap?.[LABYRINTH] || []];
+    const chosen = character?.characterSetting?.[`labyrinth${kind[0].toUpperCase() + kind.slice(1)}CrateHrid`];
+    const slots = [{ itemHrid: chosen }, ...character?.actionTypeDrinkSlotsMap?.[LABYRINTH] || [], ...character?.actionTypeFoodSlotsMap?.[LABYRINTH] || []];
     for (const slot of slots) {
       const tier = CRATE_TIERS.find((t4) => slot?.itemHrid === crateHrid(t4, kind));
       if (tier) return tier;
@@ -9346,6 +9347,8 @@ i.mwia-history-bid { background: #7ee2b0; }
 
   // src/labyrinth-skilling.js
   var ROOM_SECONDS = 120;
+  var LEVEL_PENALTY = 0.01;
+  var TRIES_SLACK = 0.05;
   var ACTION_SECONDS = 10;
   var ENHANCING_SECONDS = 8;
   var ENHANCING_TARGET = 5;
@@ -9404,15 +9407,16 @@ i.mwia-history-bid { background: #7ee2b0; }
     b.double += 0.01 * (shop.double || 0);
     const level = (who.level || 0) + b.level;
     const delta = level - room.level;
-    const success = Math.min(1, Math.max(0, 0.8 * (1 + (delta >= 0 ? 5e-3 : 0.01) * delta + b.success)));
+    const penalty = Number.isFinite(who.penalty) ? who.penalty : LEVEL_PENALTY;
+    const success = Math.min(1, Math.max(0, 0.8 * (1 + (delta >= 0 ? 5e-3 : penalty) * delta + b.success)));
     const double = Math.min(1, Math.max(0, b.double));
     const enhancing = room.skill === "enhancing";
     const seconds = (enhancing ? ENHANCING_SECONDS : ACTION_SECONDS) / Math.max(0.05, 1 + b.speed);
-    const tries = Math.max(1, Math.floor(ROOM_SECONDS / seconds));
-    if (enhancing) return { chance: reachChance(tries, ENHANCING_TARGET, success, double, true), level, success, double, tries, needed: ENHANCING_TARGET };
+    const tries = Math.max(1, Math.floor(ROOM_SECONDS / seconds + TRIES_SLACK));
+    if (enhancing) return { chance: reachChance(tries, ENHANCING_TARGET, success, double, true), level, success, double, tries, needed: ENHANCING_TARGET, seconds };
     const perSuccess = Math.max(0, Math.floor(level * (1 + b.efficiency)));
     const needed = perSuccess > 0 ? Math.ceil(room.level * 10 / perSuccess - 1e-9) : Infinity;
-    return { chance: Number.isFinite(needed) ? reachChance(tries, needed, success, double, false) : 0, level, success, double, tries, needed };
+    return { chance: Number.isFinite(needed) ? reachChance(tries, needed, success, double, false) : 0, level, success, double, tries, needed, seconds };
   }
   function skillingWho(character, data, skill, teaCrateHrid) {
     const actionType = `/action_types/${skill}`;
@@ -9608,8 +9612,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (room.skillHrid) {
       const data = getClientData();
       if (!state.character || !data) return null;
-      const r2 = skillingRoomChance({ skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel }, skillingWho(state.character, data, room.skillHrid.split("/").pop(), labyrinth.teaCrateItemHrid));
-      return { win: Math.round(1e3 * r2.chance) / 1e3, how: "formula", success: Math.round(1e3 * r2.success) / 1e3, tries: r2.tries, needed: Number.isFinite(r2.needed) ? r2.needed : null };
+      const r2 = skillingRoomChance({ skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel }, { ...skillingWho(state.character, data, room.skillHrid.split("/").pop(), labyrinth.teaCrateItemHrid), penalty: m.deps?.penalty?.() });
+      return { win: Math.round(1e3 * r2.chance) / 1e3, how: "formula", success: Math.round(1e3 * r2.success) / 1e3, tries: r2.tries, needed: Number.isFinite(r2.needed) ? r2.needed : null, double: Math.round(1e3 * r2.double) / 1e3, level: Math.round(10 * r2.level) / 10, seconds: Math.round(100 * r2.seconds) / 100 };
     }
     const check = lastCheck();
     const monster = check?.monsters.find((x) => x.hrid === room.monsterHrid);
@@ -9618,7 +9622,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function skillingMark(room, labyrinth, data) {
     if (!state.character || !data) return null;
-    const result = skillingRoomChance({ skill: room.skill, level: room.level }, skillingWho(state.character, data, room.skill, labyrinth.teaCrateItemHrid));
+    const result = skillingRoomChance({ skill: room.skill, level: room.level }, { ...skillingWho(state.character, data, room.skill, labyrinth.teaCrateItemHrid), penalty: m.deps?.penalty?.() });
     const win2 = result.chance;
     const kind = verdict(win2);
     const skill = room.skill.charAt(0).toUpperCase() + room.skill.slice(1);
@@ -9772,12 +9776,12 @@ i.mwia-history-bid { background: #7ee2b0; }
   var coins6 = (n5) => shortCoins(Math.round(n5));
   var count2 = (n5) => Math.round(n5).toLocaleString("en-US");
   var have5 = (hrid) => state.character ? heldStock(state.character, state.items, hrid).inventory : 0;
-  function duration2(hours) {
-    const s3 = hours * 3600;
+  function duration2(hours2) {
+    const s3 = hours2 * 3600;
     if (s3 < 90) return `${Math.max(1, Math.round(s3))} s`;
     if (s3 < 90 * 60) return `${Math.round(s3 / 60)} min`;
-    if (hours < 48) return `${hours < 10 ? Math.round(hours * 10) / 10 : Math.round(hours)} h`;
-    return `${Math.round(hours / 24 * 10) / 10} d`;
+    if (hours2 < 48) return `${hours2 < 10 ? Math.round(hours2 * 10) / 10 : Math.round(hours2)} h`;
+    return `${Math.round(hours2 / 24 * 10) / 10} d`;
   }
   function startEnhancePlan(deps) {
     e.deps = deps;
@@ -11440,8 +11444,8 @@ ${triggerWindowReport()}`, false);
   var COVERAGE = 0.5;
   var MIN_WINDOWS = 12;
   var USUAL_TOP = 0.9;
-  function takenPerHour(hours, side = "sell") {
-    const sold = hours.filter((r2) => r2.sold);
+  function takenPerHour(hours2, side = "sell") {
+    const sold = hours2.filter((r2) => r2.sold);
     if (sold.length < MIN_HOURS) return null;
     const count3 = (r2) => Number.isFinite(r2.v) ? r2.v : 0;
     const cap4 = SPIKE * (median(sold.filter((r2) => count3(r2) > 0).map((r2) => [count3(r2), 1])) ?? 0);
@@ -11452,14 +11456,14 @@ ${triggerWindowReport()}`, false);
     }
     return { hours: sold.length, perHour: taken / sold.length };
   }
-  function horizonPrice({ side, hours, horizon, quantity = 1, best = null, levels = [], range = null, taken = null }) {
+  function horizonPrice({ side, hours: hours2, horizon, quantity = 1, best = null, levels = [], range = null, taken = null }) {
     const sell = side === "sell";
     const key2 = sell ? "a" : "b";
     const need = taken?.perHour > 0 ? FILLED * quantity / taken.perHour : 0;
     if (need > horizon) return { price: null, why: "quantity", need };
-    const byHour = new Map(hours.map((r2) => [r2.hour, r2[key2]]));
-    const newest = hours.length ? hours[hours.length - 1].hour : 0;
-    const starts = hours.filter((r2) => r2.hour + horizon <= newest).map((r2) => r2.hour);
+    const byHour = new Map(hours2.map((r2) => [r2.hour, r2[key2]]));
+    const newest = hours2.length ? hours2[hours2.length - 1].hour : 0;
+    const starts = hours2.filter((r2) => r2.hour + horizon <= newest).map((r2) => r2.hour);
     const windows = [];
     for (const start2 of starts) {
       const seen = [];
@@ -11469,7 +11473,7 @@ ${triggerWindowReport()}`, false);
     if (windows.length < MIN_WINDOWS) return { price: null, why: "history", windows: windows.length };
     const better2 = (x, y) => sell ? x < y : x > y;
     const inRange = (price) => !range || price >= range.min && price <= range.max;
-    const prices2 = new Set([...hours.map((r2) => r2[key2]), ...levels.map((level) => level.price)].filter((p2) => p2 > 0 && inRange(p2)));
+    const prices2 = new Set([...hours2.map((r2) => r2[key2]), ...levels.map((level) => level.price)].filter((p2) => p2 > 0 && inRange(p2)));
     const sorted = [...prices2].sort((x, y) => x - y);
     const gap = Math.min(...sorted.slice(1).map((price, i) => price - sorted[i]));
     const past = best > 0 && Number.isFinite(gap) ? sell ? best - gap : best + gap : best;
@@ -11477,7 +11481,7 @@ ${triggerWindowReport()}`, false);
     if (best > 0 && inRange(past)) candidates.push({ price: best, under: true });
     const rank = (c2) => sell ? c2.price - (c2.under ? 0.5 : 0) : -(c2.price + (c2.under ? 0.5 : 0));
     candidates.sort((x, y) => rank(y) - rank(x));
-    const top = quantile(hours.map((r2) => [r2[key2], 1]), sell ? USUAL_TOP : 1 - USUAL_TOP);
+    const top = quantile(hours2.map((r2) => [r2[key2], 1]), sell ? USUAL_TOP : 1 - USUAL_TOP);
     const usual = (price) => top === null || !better2(top, price);
     for (const c2 of candidates) {
       const firstNow = best > 0 && (c2.under ? usual(past) : better2(c2.price, best) && usual(c2.price));
@@ -11497,7 +11501,7 @@ ${triggerWindowReport()}`, false);
     }
     return { price: null, why: "none", windows: windows.length, need };
   }
-  function listingPrices({ side, book = null, own = [], best = null, range = null, summary: summary2 = null, hours = [], quantity = 1 }) {
+  function listingPrices({ side, book = null, own = [], best = null, range = null, summary: summary2 = null, hours: hours2 = [], quantity = 1 }) {
     const sell = side === "sell";
     const levels = otherLevels(book ? sell ? book.asks : book.bids : [], own, range, side);
     const clamp = (price) => {
@@ -11510,9 +11514,9 @@ ${triggerWindowReport()}`, false);
     const wall = findWall(levels);
     if (wall) out.push({ kind: "wall", price: wall.price, capped: null, step: sell ? -1 : 1, wall });
     const othersBest = book ? levels[0]?.price ?? null : best;
-    const taken = takenPerHour(hours, side);
+    const taken = takenPerHour(hours2, side);
     for (const horizon of HORIZONS) {
-      const h3 = horizonPrice({ side, hours, horizon, quantity, best: othersBest, levels, range, taken });
+      const h3 = horizonPrice({ side, hours: hours2, horizon, quantity, best: othersBest, levels, range, taken });
       out.push({ kind: "horizon", horizon, ...h3, capped: null, step: h3.under ? sell ? -1 : 1 : 0 });
     }
     const history = summary2 && summary2.hours7 >= MIN_HOURS ? summary2[sell ? "a" : "b"] : null;
@@ -11596,7 +11600,7 @@ ${triggerWindowReport()}`, false);
     out.generous = !!vs && (sell ? vs.label === "below" : vs.label === "above");
     return out;
   }
-  function sellSuggestions(items, { data, entryOf, summaryOf = () => null, reserved = /* @__PURE__ */ new Map(), keep: keep3 = /* @__PURE__ */ new Set(), listed = () => 0, rules = MARKET_RULES }) {
+  function sellSuggestions(items, { data, entryOf, summaryOf = () => null, reserved = /* @__PURE__ */ new Map(), keep: keep3 = /* @__PURE__ */ new Set(), listed: listed2 = () => 0, rules = MARKET_RULES }) {
     const rows = [];
     const kept3 = [];
     for (const { hrid, level = 0, count: count3 } of items) {
@@ -11644,7 +11648,7 @@ ${triggerWindowReport()}`, false);
         askVsUsual: versusUsual(ask, usualAsk),
         perDay: perDay2,
         daysToSell: perDay2 ? count3 / perDay2 : null,
-        listed: listed(hrid, level),
+        listed: listed2(hrid, level),
         equipment: !!item.equipmentDetail,
         small: Math.max(net(bid), net(listPrice)) < rules.minValue
       });
@@ -11741,8 +11745,8 @@ ${triggerWindowReport()}`, false);
   }
   function salesTime(days) {
     if (days >= 1) return `${dec2(days, days < 10 ? 1 : 0)} days`;
-    const hours = days * 24;
-    return hours < 0.1 ? "minutes" : `${dec2(hours, hours < 10 ? 1 : 0)} h`;
+    const hours2 = days * 24;
+    return hours2 < 0.1 ? "minutes" : `${dec2(hours2, hours2 < 10 ? 1 : 0)} h`;
   }
   function statusText(s3) {
     const days = s3.daysAhead !== null ? ` \u2013 about ${salesTime(s3.daysAhead)} of sales` : "";
@@ -11861,14 +11865,14 @@ ${triggerWindowReport()}`, false);
   function crateSelect(settings2, kind, slotted) {
     const key2 = kind === "coffee" ? "labyCoffee" : "labyFood";
     const value = settings2[key2] || "slots";
-    const options = [["slots", `Your Labyrinth slots (${slotted ? cap2(slotted) : "none"})`], ["none", "None"], ...CRATE_TIERS.map((t4) => [t4, cap2(t4)])];
+    const options = [["slots", `As chosen in the game (${slotted ? cap2(slotted) : "none"})`], ["none", "None"], ...CRATE_TIERS.map((t4) => [t4, cap2(t4)])];
     return `<label title="Opened when you enter the Labyrinth; its buffs last the whole run">${CRATE_KINDS[kind]}
       <select data-setting="${key2}">${options.map(([k, v]) => `<option value="${k}" ${value === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>`;
   }
   function floorSelect(level) {
     const options = Array.from({ length: FLOORS }, (_, i) => i + 1).map((f) => `<option value="${f}" ${floorLevel(f) === level ? "selected" : ""}>Floor ${f} (\u2248 level ${floorLevel(f)})</option>`);
     const custom = !options.some((o2) => o2.includes("selected"));
-    return `<label title="Roughly: floor 1 at room level ${FLOOR_ONE_LEVEL} and about ${FLOOR_STEP} levels more per floor (the rooms seen so far: floor 1 at 23\u201340, floor 2 at 41\u201360, floor 3 at 79, floor 4 at 96). Type the room level the game shows for a room.">Floor
+    return `<label title="Roughly: floor 1 at room level ${FLOOR_ONE_LEVEL} and about ${FLOOR_STEP} levels more per floor (a recorded run: floor 1 at 21\u201340, floor 2 at 40\u201360, floor 3 at 61\u201380, floor 4 at 80\u2013100). Type the room level the game shows for a room.">Floor
       <select data-setting="labyFloor">${custom ? `<option selected value="">Room level ${level}</option>` : ""}${options.join("")}</select></label>`;
   }
   var floorText = (level) => level === null ? "" : floorAt(level) ? ` <span class="mwia-dim">(fl. ${floorAt(level)})</span>` : ` <span class="mwia-dim">(below fl. 1)</span>`;
@@ -12257,9 +12261,9 @@ ${triggerWindowReport()}`, false);
   // src/labyrinth-run.js
   var SKILLS2 = ["milking", "foraging", "woodcutting", "cheesesmithing", "crafting", "tailoring", "cooking", "brewing", "alchemy", "enhancing"];
   var MAX_GRID = 8;
-  var HOPELESS = 1e-3;
-  var COST_CAP = 1 / HOPELESS;
+  var PATIENCE = 10;
   var TIERS = ["basic", "advanced", "expert"];
+  var PENALTIES = Array.from({ length: 25 }, (_, i) => 8e-3 + 5e-4 * i);
   var CELLS = MAX_GRID * MAX_GRID;
 
   // src/labyrinth-run-sync.js
@@ -12310,16 +12314,19 @@ ${triggerWindowReport()}`, false);
   }
   function runSetup(settings2, character = state.character) {
     const info = character?.characterInfo || {};
-    const whole2 = (value, fallback, min, max) => value === void 0 || value === "" || !Number.isFinite(Number(value)) ? fallback : Math.max(min, Math.min(max, Math.round(Number(value))));
-    const tier = (value, kind) => TIERS.includes(value) ? value : heldTier(kind) || "basic";
-    const autoFloors = whole2(settings2.labyAuto, Number(info.labyrinthFullAutoLevel) || 0, 0, 15);
+    const game = character?.characterSetting || {};
+    const whole2 = (value, fallback, min, max) => value === void 0 || value === null || value === "" || !Number.isFinite(Number(value)) ? fallback : Math.max(min, Math.min(max, Math.round(Number(value))));
+    const tier = (hrid, kind) => TIERS.find((t4) => hrid === `/items/${t4}_${kind}`) || heldTier(kind) || "basic";
+    const autoFloors = whole2(game.labyrinthFullAutoFloor, Number(info.labyrinthFullAutoLevel) || 0, 0, 99);
     return {
       autoFloors,
-      rushFloors: Math.min(autoFloors, whole2(settings2.labyRush, 0, 0, 15)),
-      maxAttempts: whole2(settings2.labyAttempts, 1, 1, 99),
-      torchTier: tier(settings2.labyTorch, "torch"),
-      shroudTier: tier(settings2.labyShroud, "shroud"),
-      // The run's tea crate while you are in one, else the one in your Labyrinth slots.
+      rushFloors: Math.min(autoFloors, whole2(game.labyrinthRushForExitFloor, 0, 0, 99)),
+      maxAttempts: whole2(game.labyrinthMaxAttemptsPerRoom, 1, 1, 99),
+      shroudWhenStuck: game.labyrinthShroudAutoUse === void 0 ? true : game.labyrinthShroudAutoUse === "when_stuck",
+      patience: whole2(settings2.labyPatience, PATIENCE, 1, 99),
+      torchTier: tier(game.labyrinthTorchHrid, "torch"),
+      shroudTier: tier(game.labyrinthShroudHrid, "shroud"),
+      // The run's tea crate while you are in one, else the one chosen for the next.
       teaCrate: state.labyrinth?.isActive && state.labyrinth.teaCrateItemHrid ? TIERS.find((t4) => state.labyrinth.teaCrateItemHrid === `/items/${t4}_tea_crate`) || null : slottedCrate(character, "tea")
     };
   }
@@ -12362,7 +12369,7 @@ ${triggerWindowReport()}`, false);
         supplies: { torchTier: setup.torchTier, shroudTier: setup.shroudTier },
         shop,
         tokens: held(TOKEN),
-        options: { autoFloors: setup.autoFloors, rushFloors: setup.rushFloors, maxAttempts: setup.maxAttempts, shroudWhenStuck: true },
+        options: { autoFloors: setup.autoFloors, rushFloors: setup.rushFloors, maxAttempts: setup.maxAttempts, shroudWhenStuck: setup.shroudWhenStuck, patience: setup.patience },
         game
       }
     };
@@ -12443,6 +12450,10 @@ ${triggerWindowReport()}`, false);
     })());
     return r.reading;
   }
+  function fittedPenalty() {
+    const calibration = runsState().result?.calibration;
+    return calibration?.applied ? calibration.penalty : void 0;
+  }
 
   // src/labyrinth-run-ui.js
   var cap3 = (s3) => s3 ? s3[0].toUpperCase() + s3.slice(1) : "";
@@ -12455,89 +12466,97 @@ ${triggerWindowReport()}`, false);
     ["shop", "Labyrinth shop"],
     ["skill", "Skills"],
     ["supply", "Supplies"],
-    ["setting", "The game's automation"],
+    ["setting", "How you play, and the game's automation"],
     ["combat", "Combat rooms"]
   ];
   var WORTH = 0.01;
   function numberInput(key2, value, min, max, label3, title) {
     return `<label title="${esc(title)}">${label3} <input data-setting="${key2}" type="number" min="${min}" max="${max}" step="1" size="3" value="${value}"></label>`;
   }
-  function tierSelect(key2, chosen, used, label3, title) {
-    const options = [["", `What you hold (${cap3(used)})`], ...TIERS.map((t4) => [t4, cap3(t4)])];
-    return `<label title="${esc(title)}">${label3} <select data-setting="${key2}">${options.map(([k, v]) => `<option value="${k}" ${(chosen || "") === k ? "selected" : ""}>${esc(v)}</option>`).join("")}</select></label>`;
-  }
+  var hours = (minutes) => minutes >= 90 ? `${(minutes / 60).toFixed(1)} h` : `${Math.round(minutes)} min`;
+  var signedMinutes = (minutes) => Math.abs(minutes) < 1 ? "" : `${minutes > 0 ? "+" : "\u2212"}${hours(Math.abs(minutes))}`;
   function costText2(c2, result) {
     if (c2.kind === "shop") {
       const can = c2.affordable === null ? "" : c2.affordable ? ` <span class="mwia-ok" title="You have ${result.setup.tokens} tokens">\u2713</span>` : ` <span class="mwia-dim" title="You have ${result.setup.tokens} tokens">(you have ${result.setup.tokens})</span>`;
-      return `${c2.tokens} tokens${c2.assumed ? `<span class="mwia-dim" title="Its price goes up with every level bought; this is the first level's, as the game doesn't say how many you have"> *</span>` : ""}${can}`;
+      return `${c2.tokens} tokens${can}`;
     }
     if (c2.kind === "skill") return c2.xp === null || c2.xp === void 0 ? "\u2013" : `${short3(c2.xp)} XP`;
     if (c2.kind === "combat") return `<span class="mwia-dim" title="How to get them: What should I improve? and Build a loadout, above and below">${c2.loadout ? esc(c2.loadout) : ""}</span>`;
     return c2.note ? `<span class="mwia-dim">${esc(c2.note)}</span>` : "";
   }
+  var listed = (c2) => c2.sure && c2.floors >= WORTH || c2.minutes <= -3 && c2.floors > -WORTH;
   function candidateRows(result) {
     let html = "";
     let hidden = 0;
     for (const [kind, title] of GROUPS) {
       const all = result.candidates.filter((c2) => c2.kind === kind);
-      const list = all.filter((c2) => c2.floors >= WORTH && c2.sure);
+      const list = all.filter(listed);
       hidden += all.length - list.length;
       if (!list.length) continue;
       const extra = kind === "shop" && result.setup.tokens !== null ? ` <span class="mwia-dim">(you have ${result.setup.tokens} tokens)</span>` : "";
-      html += `<tr><th colspan="4">${title}${extra}</th></tr>`;
+      html += `<tr><th colspan="5">${title}${extra}</th></tr>`;
       for (const c2 of list) {
-        const per = c2.kind === "shop" && c2.tokens ? ` <span class="mwia-dim" title="Floors more per 100 tokens">(${(100 * c2.floors / c2.tokens).toFixed(2)} / 100 tokens)</span>` : "";
-        html += `<tr><td>${esc(c2.label)}</td><td title="\xB1 ${c2.error.toFixed(2)}">${signed2(c2.floors)}${per}</td><td>${pct5(c2.reach)}</td><td>${costText2(c2, result)}</td></tr>`;
+        const further = c2.sure && c2.floors >= WORTH;
+        const per = further && c2.kind === "shop" && c2.tokens ? ` <span class="mwia-dim" title="Floors more per 100 tokens">(${(100 * c2.floors / c2.tokens).toFixed(2)} / 100 tokens)</span>` : "";
+        html += `<tr><td>${esc(c2.label)}</td><td title="\xB1 ${c2.error.toFixed(2)}">${further ? signed2(c2.floors) + per : "\u2013"}</td><td>${further ? pct5(c2.reach) : ""}</td><td>${signedMinutes(c2.minutes)}</td><td>${costText2(c2, result)}</td></tr>`;
       }
     }
     return { html, hidden };
   }
-  function runsHtml({ run, setup, settings: settings2 }) {
+  function calibrationHtml(c2) {
+    if (!c2?.tries) return "";
+    const formula = `In the ${c2.open} tries at skilling rooms that could go either way the formula expected ${c2.expected} wins; you won ${c2.won}.`;
+    if (c2.applied) return `<p><b>Fitted to your ${c2.tries} logged skilling tries:</b> ${formula} They fit best with <b>${(100 * c2.penalty).toFixed(2)}% success lost per level below the room</b> instead of the formula's 1% \u2013 used here and for the map's marks from now on, and fitted again with every run.</p>`;
+    return `<p class="mwia-dim">${formula} ${c2.open < 15 ? "Too few yet to tell whether the formula is off." : `They would fit ${(100 * c2.best).toFixed(2)}% success lost per level below the room slightly better than the formula's 1%, not surely enough to use it.`}</p>`;
+  }
+  function runsHtml({ run, setup }) {
     let html = `<h3>How far do you get?</h3>
-      <p>Whole runs, simulated on your Pi: floor after floor until the torches are gone \u2013 skilling rooms with their exact chance, combat rooms with the
-      win rates of your last <b>Check the rooms</b> \u2013 then the same runs again with one thing changed at a time: a level of each shop upgrade, +5 and +10 in each
-      skill, better crates, torches and shrouds, other automation settings, and 5 room levels more against each monster.</p>`;
+      <p>Whole runs, simulated on your Pi: floor after floor \u2013 a torch for each room entered, a lost try costs 2 minutes but no torch \u2013 with the skilling rooms'
+      chance worked out and the combat rooms' taken from your last <b>Check the rooms</b>; then the same runs again with one thing changed at a time: a level of each
+      shop upgrade, +5 and +10 in each skill, better crates, torches and shrouds, other settings, and room levels gained against the monsters.</p>`;
     if (!run.linked) return html + `<p class="mwia-dim">Needs your own Pi with <code>MWIA_ORDERS=1</code> (see pi/README.md): the runs are worked out there, not in the browser.</p>`;
+    const auto = setup.autoFloors ? `full automation up to floor ${setup.autoFloors}${setup.rushFloors ? `, rushing for the exit up to floor ${setup.rushFloors}` : ""}, ${setup.maxAttempts} attempt${setup.maxAttempts === 1 ? "" : "s"} a room, shrouds ${setup.shroudWhenStuck ? "when stuck" : "not used by it"}` : "no full automation";
     html += `<div class="mwia-settings">
-      ${numberInput("labyAuto", setup.autoFloors, 0, 15, "Full automation up to floor", "As on the game's Labyrinth \u2192 Automation tab (0: none). Those floors are played as the game's automation plays them, the others by hand as the advisor would.")}
-      ${numberInput("labyRush", setup.rushFloors, 0, 15, "Rush for exit up to floor", "As in the game (0: disabled): on those floors the automation goes for the exit and leaves the other rooms.")}
-      ${numberInput("labyAttempts", setup.maxAttempts, 1, 99, "Max attempts per room", "As in the game: the automation gives a room up after this many fails.")}
-      ${tierSelect("labyTorch", settings2.labyTorch, setup.torchTier, "Torches", "Advanced torches are kept 10% of the time, Expert 20%. As many as your torch capacity holds are taken.")}
-      ${tierSelect("labyShroud", settings2.labyShroud, setup.shroudTier, "Shrouds", "Basic shrouds fail 2% per room level above 50, Advanced above 100, Expert never. As many as your shroud capacity holds are taken.")}
+      ${numberInput("labyPatience", setup.patience, 1, 99, "Tries a room by hand", "How many lost tries (2 minutes each) you give a room before you go another way. On the floors you play by hand a room can be tried again without a new torch.")}
       </div>
+      <p class="mwia-dim">As set in the game: ${auto}; ${cap3(setup.torchTier)} torches, ${cap3(setup.shroudTier)} shrouds, ${setup.teaCrate ? `${cap3(setup.teaCrate)} tea crate` : "no tea crate"}.</p>
       <button class="mwia-btn" data-action="laby-runs" ${run.waiting || !run.checked ? "disabled" : ""}>\u25B6 Simulate runs</button>`;
     if (!run.checked) html += ` <span class="mwia-dim">Tap <b>Check the rooms</b> first: the combat rooms' chances come from it.</span>`;
     else if (run.waiting) html += ` <span class="mwia-dim">Your Pi is working on it (a minute or two; longer when it is busy with the \u{1F4C8} plan)\u2026</span>`;
     if (run.error) html += `<p class="mwia-bad">${esc(run.error)}</p>`;
     const result = run.result;
-    if (!result) return html;
+    if (!result || result.now?.minutes === void 0) return html;
     const s3 = result.setup;
-    const auto = s3.autoFloors ? `floor${s3.autoFloors > 1 ? `s 1\u2013${s3.autoFloors}` : " 1"} under full automation${s3.rushFloors ? ` (rushing for the exit up to floor ${s3.rushFloors})` : ""}, ${s3.maxAttempts} attempt${s3.maxAttempts === 1 ? "" : "s"} a room` : "every floor by hand";
-    html += `<p><b>Now:</b> ${result.now.floors.toFixed(1)} floors cleared on average; you reach <b>floor ${result.target}</b> in <b>${pct5(result.now.reach)}</b> of the runs${result.record.floor ? ` (your record: floor ${result.record.floor}${result.record.rooms ? `, ${result.record.rooms} rooms` : ""})` : ""}.
-      <span class="mwia-dim">${result.runs} runs with ${s3.torches} ${s3.torchTier} torches, ${s3.shrouds} ${s3.shroudTier} shrouds, ${s3.teaCrate ? `${cap3(s3.teaCrate)} tea crate` : "no tea crate"}; ${auto}. ${when(result.at)}${result.checkedAt ? `, rooms checked ${when(result.checkedAt)}` : ""}.</span></p>`;
-    if (result.shroud) html += `<p>By hand, <b>shroud a room you win less than ${pct5(result.shroud.below)} of the time</b> when it is on your way (a shroud is worth about ${result.shroud.worth} torches); otherwise try again or go around.</p>`;
-    if (result.now.stuck >= 0.05) html += `<p>In <b>${pct5(result.now.stuck)}</b> of the runs you end with torches left (${result.now.left.toFixed(0)} on average): there is no way to the exit but through rooms you never win, and no shroud left that works on them. More torches don't help then \u2013 shrouds and levels do.</p>`;
-    html += `<table class="mwia-table"><thead><tr><th>Floor</th><th title="Rooms on the floor, and their room levels${result.model.learnedFloors.length ? " (\u2713: as your recorded runs showed them)" : ""}">Rooms</th><th title="Share of the runs that get to this floor">Reached</th><th title="Torches spent on the floor, on average">Torches</th></tr></thead><tbody>
-      ${result.reach.filter((f) => f.share >= 5e-3).map((f) => `<tr><td>${f.floor}${f.floor === result.record.floor ? ` <span class="mwia-dim">(your record)</span>` : ""}</td><td>${f.rooms} <span class="mwia-dim">Lv.${f.levels[0]}\u2013${f.levels[1]}${f.learned ? " \u2713" : ""}</span></td><td>${pct5(f.share)}</td><td>${f.torches.toFixed(0)}</td></tr>`).join("")}</tbody></table>`;
+    html += `<p><b>Now:</b> ${result.now.floors.toFixed(1)} floors cleared on average in about ${hours(result.now.minutes)}; you reach <b>floor ${result.target}</b> in <b>${pct5(result.now.reach)}</b> of the runs${result.record.floor ? ` (your record: floor ${result.record.floor}${result.record.rooms ? `, ${result.record.rooms} rooms` : ""})` : ""}.
+      <span class="mwia-dim">${result.runs} runs with ${s3.torches} ${s3.torchTier} torches, ${s3.shrouds} ${s3.shroudTier} shrouds, ${s3.teaCrate ? `${cap3(s3.teaCrate)} tea crate` : "no tea crate"}, up to ${s3.patience} tries a room by hand. ${when(result.at)}${result.checkedAt ? `, rooms checked ${when(result.checkedAt)}` : ""}.</span></p>`;
+    if (result.now.walled >= 0.05) html += `<p>In <b>${pct5(result.now.walled)}</b> of the runs you end with torches left (${result.now.left.toFixed(0)} on average): no way down is left but through rooms you don't get past in ${s3.patience} tries, and no shroud that works on them. More torches don't help then \u2013 shrouds, levels and combat do.</p>`;
+    if (result.shroud) html += `<p>By hand, <b>shroud a room in your way that you'd get past less than ${pct5(result.shroud.below)} of the time</b> within your tries; otherwise try again or go around.</p>`;
+    html += calibrationHtml(result.calibration);
+    html += `<table class="mwia-table"><thead><tr><th>Floor</th><th title="Rooms on the floor, and their room levels${result.model.learnedFloors.length ? " (\u2713: as your recorded runs showed them)" : ""}">Rooms</th><th title="Share of the runs that get to this floor">Reached</th><th title="Torches spent on the floor, on average: one for each room entered">Torches</th><th title="Time spent on the floor, on average: 2 minutes a lost try, about a minute a won room">Time</th></tr></thead><tbody>
+      ${result.reach.filter((f) => f.share >= 5e-3).map((f) => `<tr><td>${f.floor}${f.floor === result.record.floor ? ` <span class="mwia-dim">(your record)</span>` : ""}</td><td>${f.rooms} <span class="mwia-dim">Lv.${f.levels[0]}\u2013${f.levels[1]}${f.learned ? " \u2713" : ""}</span></td><td>${pct5(f.share)}</td><td>${f.torches.toFixed(0)}</td><td>${hours(f.minutes)}</td></tr>`).join("")}</tbody></table>`;
     const rows = candidateRows(result);
     html += `<h3>What takes you further</h3>`;
-    html += rows.html ? `<table class="mwia-table"><thead><tr><th>Change</th><th title="Floors cleared more on average, on the same floors with the same luck">Floors more</th><th title="Share of the runs that then reach floor ${result.target}">Reach floor ${result.target}</th><th>Costs</th></tr></thead><tbody>${rows.html}</tbody></table>` : `<p class="mwia-dim">Nothing tried takes you measurably further.</p>`;
-    if (rows.hidden) html += `<p class="mwia-dim">${rows.hidden} other changes made no difference that is sure (under ${WORTH} floors, or within the luck of ${result.runs} runs).</p>`;
-    const rooms = result.rooms.filter((x) => x.tries >= 0.05 || x.shrouds >= 0.05);
-    html += `<details class="mwia-skill-sec"><summary>Where the torches go</summary><table class="mwia-table"><thead><tr><th>Room</th><th title="Tries a run">Tries</th><th title="Tries lost a run: torches gone for nothing">Lost</th><th title="Shrouds used on it a run">\u{1F32B}</th><th title="Share of the runs that end at such a room">Run ends</th></tr></thead><tbody>
-      ${rooms.map((x) => `<tr><td>${esc(roomName(x))}${x.loadout ? ` <span class="mwia-dim">${esc(x.loadout)}</span>` : ""}</td><td>${x.tries.toFixed(1)}</td><td>${x.lost.toFixed(1)}</td><td>${x.shrouds ? x.shrouds.toFixed(1) : ""}</td><td>${x.stopped ? pct5(x.stopped) : ""}</td></tr>`).join("")}</tbody></table>
-      <p class="mwia-dim">A room type you never win shows few tries: by hand it is gone around or shrouded, which costs torches elsewhere.</p></details>`;
+    html += rows.html ? `<table class="mwia-table"><thead><tr><th>Change</th><th title="Floors cleared more on average, on the same floors with the same luck">Floors more</th><th title="Share of the runs that then reach floor ${result.target}">Reach floor ${result.target}</th><th title="Time a run takes more or less">Time</th><th>Costs</th></tr></thead><tbody>${rows.html}</tbody></table>` : `<p class="mwia-dim">Nothing tried takes you measurably further.</p>`;
+    if (rows.hidden) html += `<p class="mwia-dim">${rows.hidden} other changes made no difference that is sure (under ${WORTH} floors, or within the luck of ${result.runs} runs) and saved no time.</p>`;
+    const seen = result.shroudsSeen;
+    if (seen?.used) html += `<p class="mwia-dim">Better shrouds are counted by the wiki's rule (a shroud fails 2% per room level above its cap). In your recorded runs ${seen.used} shroud${seen.used === 1 ? " was" : "s were"} used above the cap and ${seen.worked} worked, where the rule expected about ${seen.expected}${seen.worked > seen.expected + 1 ? " \u2013 they may fail less than the rule says, and better shrouds then give less than shown" : ""}.</p>`;
+    html += `<details class="mwia-skill-sec"><summary>Room by room</summary><table class="mwia-table"><thead><tr><th>Room</th><th title="The highest room level where you get past it at least half the time within your tries">Passed up to</th><th title="Tries a run">Tries</th><th title="Tries lost a run: 2 minutes each">Lost</th><th title="Shrouds used on it a run">\u{1F32B}</th><th title="Rooms a run given up after your tries">Given up</th></tr></thead><tbody>
+      ${result.rooms.map((x) => `<tr><td>${esc(roomName(x))}${x.loadout ? ` <span class="mwia-dim">${esc(x.loadout)}</span>` : ""}</td><td>Lv.${x.passes}</td><td>${x.tries.toFixed(1)}</td><td>${x.lost.toFixed(1)}</td><td>${x.shrouds ? x.shrouds.toFixed(1) : ""}</td><td>${x.gaveUp ? x.gaveUp.toFixed(2) : ""}</td></tr>`).join("")}</tbody></table>
+      <p class="mwia-dim">The weakest first. A room type far below a floor's levels shows few tries: it is gone around or shrouded.</p></details>`;
     const learned = result.model.rooms ? `${result.model.rooms} rooms of ${result.model.runs} recorded run${result.model.runs === 1 ? "" : "s"}${result.model.learnedFloors.length ? ` (floor${result.model.learnedFloors.length > 1 ? "s" : ""} ${result.model.learnedFloors.join(", ")} as recorded)` : " (too few yet to replace the assumed levels)"}` : "none recorded yet";
-    html += `<p class="mwia-dim">Assumed until your recorded runs say otherwise (${learned}): room levels 20 \xD7 floor + 1 \u2026 + 20, every room type as likely, the exit in the bottom right corner and a room like the others.
-      Floors by hand are played as the advisor would \u2013 the way to the exit that costs the fewest torches on average, trying again or going around, a shroud where it saves the most \u2013 so they show what careful play gets, not what you did.
+    html += `<p class="mwia-dim">As your recorded runs showed the game (${learned}): a torch for each room entered \u2013 treasure rooms and the way down too \u2013 and none for trying a room again; a shroud clears a room without a torch;
+      the way down is in the bottom right corner; a floor has as many treasure rooms as its number. Assumed where not recorded: room levels 20 \xD7 floor \u2026 + 20, every room type as likely.
+      Floors by hand are played as the advisor would \u2013 the cheapest way down, trying again or going around, a shroud where it saves the most \u2013 so they show what careful play gets, not what you did.
       Beacons, the shop's combat upgrades and rewards aren't counted; a change to gear, abilities or coffee and food crates needs a new <b>Check the rooms</b>.</p>`;
     return html;
   }
   function runsExportLines(result) {
     if (!result) return [];
-    const lines = [`Runs: ${result.now.floors.toFixed(2)} floors on average, floor ${result.target} reached in ${pct5(result.now.reach)} (${result.runs} runs, ${result.setup.torches} ${result.setup.torchTier} torches, ${result.setup.shrouds} ${result.setup.shroudTier} shrouds, automation to floor ${result.setup.autoFloors}, ${result.model.rooms} rooms recorded)`];
+    if (result.now?.minutes === void 0) return [];
+    const lines = [`Runs: ${result.now.floors.toFixed(2)} floors on average in ${hours(result.now.minutes)}, floor ${result.target} reached in ${pct5(result.now.reach)}, ${pct5(result.now.walled)} end with torches left (${result.runs} runs, ${result.setup.torches} ${result.setup.torchTier} torches, ${result.setup.shrouds} ${result.setup.shroudTier} shrouds, automation to floor ${result.setup.autoFloors}, ${result.setup.patience} tries a room, ${result.model.rooms} rooms recorded)`];
+    if (result.calibration?.tries) lines.push(`Skilling formula against ${result.calibration.tries} tries: expected ${result.calibration.expected} wins of ${result.calibration.open} open ones, won ${result.calibration.won}; fitted penalty ${(100 * result.calibration.best).toFixed(2)}% a level${result.calibration.applied ? " (used)" : ""}`);
     lines.push(`Floors reached: ${result.reach.filter((f) => f.share >= 5e-3).map((f) => `${f.floor}: ${pct5(f.share)}`).join(", ")}`);
-    for (const c2 of result.candidates.filter((c3) => c3.floors >= WORTH && c3.sure).slice(0, 15)) lines.push(`Further: ${c2.label} ${signed2(c2.floors)} floors${c2.tokens ? ` for ${c2.tokens} tokens` : ""}${c2.xp ? ` for ${short3(c2.xp)} XP` : ""}`);
+    for (const c2 of result.candidates.filter(listed).slice(0, 15)) lines.push(`Further: ${c2.label} ${signed2(c2.floors)} floors${signedMinutes(c2.minutes) ? `, ${signedMinutes(c2.minutes)}` : ""}${c2.tokens ? ` for ${c2.tokens} tokens` : ""}${c2.xp ? ` for ${short3(c2.xp)} XP` : ""}`);
     return lines;
   }
 
@@ -12768,8 +12787,8 @@ ${triggerWindowReport()}`, false);
     const minutes = Math.round((Date.now() - ms) / 6e4);
     if (minutes < 1) return "just now";
     if (minutes < 90) return `${minutes} min ago`;
-    const hours = Math.round(minutes / 60);
-    return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`;
+    const hours2 = Math.round(minutes / 60);
+    return hours2 < 48 ? `${hours2} h ago` : `${Math.round(hours2 / 24)} days ago`;
   }
   function inTime(ms) {
     const minutes = Math.round((ms - Date.now()) / 6e4);
@@ -13175,7 +13194,7 @@ ${triggerWindowReport()}`, false);
       cartButton: cartButton4,
       coins: coins9,
       attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse()),
-      runs: runsHtml({ run: runsState(), setup: runSetup(ui.settings), settings: ui.settings })
+      runs: runsHtml({ run: runsState(), setup: runSetup(ui.settings) })
     });
   }
   function rerateUpgrades() {
@@ -14019,7 +14038,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.80.0" : "dev";
+  var VERSION3 = true ? "0.81.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -14303,7 +14322,7 @@ ${triggerWindowReport()}`, false);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart });
-    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
+    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare, penalty: fittedPenalty });
     startLabyrinthLog({ predict: roomPrediction });
     startLabyrinthRuns({ prepare: () => loadClientData(ui.win) });
     onRunsChange(() => {
@@ -14478,8 +14497,8 @@ ${triggerWindowReport()}`, false);
     let capped = null;
     if (range && price > range.max) [price, capped] = [range.max, "max"];
     const under = !!range && price < range.min;
-    const listed = book ? book.asks.filter((o2) => o2.price <= price).reduce((sum, o2) => sum + o2.quantity, 0) : null;
-    return { ...limit, price: under ? null : price, exact: limit.price, capped, under, listed };
+    const listed2 = book ? book.asks.filter((o2) => o2.price <= price).reduce((sum, o2) => sum + o2.quantity, 0) : null;
+    return { ...limit, price: under ? null : price, exact: limit.price, capped, under, listed: listed2 };
   }
   function scan9() {
     const modals = listingModals();

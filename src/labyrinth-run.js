@@ -1,42 +1,53 @@
-// Whole Labyrinth runs, simulated: how far your torches take you, what stops you, and
+// Whole Labyrinth runs, simulated: how far you get, what stops you, how long it takes, and
 // which skill, shop upgrade, supply or setting would take you further. Worked out on your
 // Pi (pi/labyrinth-sim.mjs) from what the browser sends (labyrinth-run-sync.js); pure – no
 // browser, no game data.
 //
-// A run: floor after floor, each a grid of rooms (4 × 4 on floor 1, a row and a column more
-// per floor up to 8 × 8), entered in the top left corner with the exit in the bottom right.
-// A room next to a cleared one can be tried; a try costs a torch (an Advanced or Expert
-// torch is kept 10% / 20% of the time) and is won with the chance of that room – a skilling
-// room's worked out exactly (labyrinth-skilling.js), a combat room's read off the win curves
-// of your last "Check the rooms". A shroud clears a room without a try. Clearing the exit
-// leads to the next floor; the run ends when the torches are gone.
+// A run, as the recorded runs show it: floor after floor, each a grid of rooms (4 × 4 on
+// floor 1, a row and a column more per floor up to 8 × 8), entered in the top left corner
+// with the way down in the bottom right. A room next to a cleared one can be entered; the
+// first time costs a torch (an Advanced or Expert torch is kept 10% / 20% of the time), and
+// a room can be tried again for nothing but the time: 2 minutes a lost try. A try is won with
+// the chance of that room – a skilling room's worked out exactly (labyrinth-skilling.js), a
+// combat room's read off the win curves of your last "Check the rooms". Treasure rooms (as
+// many as the floor's number) and the way down are entered for a torch, with nothing to
+// win. A shroud clears a room in sight without a torch or a try. The run ends when the
+// torches are gone, or when nothing leads on.
 //
 // What isn't known of the game is assumed, and replaced by what your recorded runs show
-// (learnModel): the room levels of a floor (20 × floor + 1 … + 20), how often each room
-// type comes (all alike), the exit being a room like the others.
+// (learnModel): the room levels of a floor (20 × floor … + 20), how often each room type
+// comes (all alike).
 //
 // How the rooms are picked:
-// - floors under full automation, as the game says it goes: the nearest way to the exit
-//   through rooms not given up on (failed "max attempts" times), then – unless it rushes for
-//   the exit – every other room it can reach, once each; stuck, it uses a shroud on the room
-//   in the way ("When stuck"), and with none left you take over by hand;
-// - floors played by hand, as the advisor would: always the room on the way to the exit that
-//   costs the fewest torches on average (1 / the chance to win it; a room you never win is a
-//   wall; rooms not in sight count as the floor's average, dearer the fewer can be passed),
-//   trying again after a loss, going around when that is cheaper, and shrouding a room that
-//   would cost more torches than a shroud is worth. With no way left, the run ends.
+// - floors under full automation, as the game goes: a treasure room in reach first, then the
+//   nearest way down through rooms not given up on (failed "max attempts" times), then –
+//   unless it rushes for the exit – every other room it can reach; stuck, it uses a shroud on
+//   the room in the way ("When stuck"), and with none left you take over by hand;
+// - floors played by hand, as the advisor would: always the room the cheapest way down starts
+//   with – a room costs its torch, more the likelier you are to give it up (after "tries a
+//   room" lost tries it is a wall), and a little for the time its tries take; rooms not in
+//   sight count as the floor's average – trying again after a loss, going around when that
+//   is cheaper, and shrouding a room that costs more than a shroud is worth.
 // Beacons aren't used. Every setup is run on the same floors with the same luck, so a
 // difference between two of them is the change itself, not other dice.
 
-import { skillingRoomChance } from "./labyrinth-skilling.js";
+import { LEVEL_PENALTY, skillingRoomChance } from "./labyrinth-skilling.js";
 
 export const SKILLS = ["milking", "foraging", "woodcutting", "cheesesmithing", "crafting", "tailoring", "cooking", "brewing", "alchemy", "enhancing"];
 export const MAX_ROOM_LEVEL = 400;
 export const MAX_FLOOR = 18;
 const MAX_GRID = 8;
-// A room you (all but) never win: not tried.
-const HOPELESS = 0.001;
-const COST_CAP = 1 / HOPELESS;
+// A room you would give up more than 19 times in 20: a wall.
+const MIN_PASS = 0.05;
+const COST_CAP = 1000;
+// What a lost try's 2 minutes weigh against a torch when the way is picked.
+const TRY_WEIGHT = 0.1;
+export const LOST_MINUTES = 2;
+// A won room takes about a minute; a treasure room or the way down a few seconds.
+const WON_MINUTES = 1;
+const WALK_MINUTES = 0.1;
+// Lost tries after which you give a room up by hand, when the tab doesn't say.
+export const PATIENCE = 10;
 // Rooms seen on a floor before its recorded levels replace the assumed ones.
 const LEARN_ROOMS = 20;
 // How many times its share each room type is assumed seen, before your runs say otherwise.
@@ -44,8 +55,8 @@ const TYPE_PRIOR = 3;
 export const TORCH_KEPT = { basic: 0, advanced: 0.1, expert: 0.2 };
 export const SHROUD_CAP = { basic: 50, advanced: 100, expert: Infinity };
 export const TIERS = ["basic", "advanced", "expert"];
-// What a shroud is worth in torches: tried in turn, the best kept.
-const SHROUD_WORTHS = [3, 5, 8, 12, 20, 40];
+// What a shroud is worth, in the cost of a room: tried in turn, the best kept.
+const SHROUD_WORTHS = [1.5, 2.5, 4, 8, 15];
 // The Labyrinth shop (the wiki): tokens for the next level = base + increment × levels bought.
 export const SHOP = {
     torchCap: { base: 100, step: 100, max: 15, label: "+20 torch capacity" },
@@ -88,26 +99,105 @@ function combatTable(curve, shift = 0) {
     return table;
 }
 
+// ---------- your attempts against the formula ----------
+
+const PENALTIES = Array.from({ length: 25 }, (_, i) => 0.008 + 0.0005 * i); // 0.8% … 2.0% a level
+// A fitted penalty is used when it explains your attempts this much better (twice this is the
+// usual 95% test) and enough of them were in rooms that could go either way.
+const FIT_GAIN = 1.92;
+const FIT_OPEN = 15;
+
+// The success lost per level below the room, fitted to your logged skilling attempts
+// (labyrinth-log.js): the one under which what happened – each try won or lost – was the
+// likeliest. who(skill, level, teaCrate) -> the character then, for skillingRoomChance.
+export function fitPenalty(attempts, who) {
+    const tries = [];
+    for (const a of attempts || []) {
+        if (a?.type !== "skilling" || !SKILLS.includes(a.what) || !(a.outcome === "win" || a.outcome === "loss") || !(a.level > 0)) continue;
+        const tea = TIERS.find((t) => a.crates?.tea === `/items/${t}_tea_crate`) || null;
+        tries.push({ room: { skill: a.what, level: a.level }, who: who(a.what, a.levels?.[a.what], tea), won: a.outcome === "win" });
+    }
+    const likelihood = (penalty) => {
+        let sum = 0;
+        for (const t of tries) {
+            const p = Math.min(0.9999, Math.max(0.0001, skillingRoomChance(t.room, { ...t.who, penalty }).chance));
+            sum += Math.log(t.won ? p : 1 - p);
+        }
+        return sum;
+    };
+    const open = tries.filter((t) => {
+        const p = skillingRoomChance(t.room, t.who).chance;
+        return p > 0.02 && p < 0.98;
+    });
+    const out = { tries: tries.length, open: open.length, penalty: LEVEL_PENALTY, best: LEVEL_PENALTY, gain: 0, applied: false, expected: null, won: null };
+    if (!tries.length) return out;
+    const base = likelihood(LEVEL_PENALTY);
+    let best = { penalty: LEVEL_PENALTY, value: base };
+    for (const penalty of PENALTIES) {
+        const value = likelihood(penalty);
+        if (value > best.value + 1e-9) best = { penalty, value };
+    }
+    out.best = Math.round(best.penalty * 1e4) / 1e4;
+    out.gain = Math.round((best.value - base) * 100) / 100;
+    out.applied = out.gain >= FIT_GAIN && open.length >= FIT_OPEN;
+    if (out.applied) out.penalty = out.best;
+    // In the rooms that could go either way: the wins the formula expected, and those you got.
+    out.expected = Math.round(open.reduce((sum, t) => sum + skillingRoomChance(t.room, t.who).chance, 0) * 10) / 10;
+    out.won = open.filter((t) => t.won).length;
+    return out;
+}
+
 // ---------- the floors ----------
 
 export const typeKeys = (monsters) => [...SKILLS.map((s) => `skill:${s}`), ...monsters.map((m) => `monster:${m}`)];
 const defaultSize = (floor) => Math.min(MAX_GRID, 3 + floor);
-const defaultLow = (floor) => 20 * floor + 1;
-const DEFAULT_WIDTH = 19;
+const defaultLow = (floor) => 20 * floor;
+const DEFAULT_WIDTH = 20;
+// Treasure rooms on a floor: as many as its number (the wiki: up to 6).
+const defaultTreasure = (floor) => Math.min(6, floor);
 
 // What the recorded runs (the game's Labyrinth states, labyrinth-states.js) say about the
-// floors: per floor the grid's size and the room levels seen, and how often each room type came.
+// floors: per floor the grid's size, its treasure rooms and the room levels seen, and how often
+// each room type came.
 export function learnModel(states) {
     const rooms = new Map(); // run|floor|row|col -> { floor, type, level }
     const sizes = new Map(); // floor -> Map(size -> states)
     const runs = new Set();
+    const treasure = new Map(); // floor -> treasure rooms
+    // Shrouds used on rooms above their cap: how many, how many worked, how many the 2%-a-level rule expected to.
+    const shrouds = { used: 0, worked: 0, expected: 0 };
+    const last = new Map(); // run -> the state before
     for (const entry of states || []) {
         const lab = entry?.labyrinth;
         const floor = Number(lab?.currentFloor);
         if (!lab || !Array.isArray(lab.roomData) || !Number.isInteger(floor) || floor < 1) continue;
         const run = `${lab.characterID ?? ""}|${lab.startedAt ?? ""}`;
         runs.add(run);
+        // A shroud gone between two states of a floor, and the rooms cleared without being entered.
+        const before = last.get(run);
+        if (before && before.currentFloor === floor && String(before.updatedAt || "") < String(lab.updatedAt || "") && before.shroudCount > lab.shroudCount) {
+            const cap = SHROUD_CAP[TIERS.find((t) => before.shroudItemHrid === `/items/${t}_shroud`)];
+            const cleared = [];
+            lab.roomData.forEach((row, r) => (Array.isArray(row) ? row : []).forEach((room, c) => {
+                const was = before.roomData?.[r]?.[c];
+                if (room?.isCleared && was && !was.isCleared && (was.monsterHrid || was.skillHrid)) cleared.push(Number(was.recommendedLevel) || 0);
+            }));
+            const used = before.shroudCount - lab.shroudCount;
+            // One shroud, at most one room: the room's level is known when it worked; when it failed, not which room it was for.
+            if (cap !== undefined && used === 1 && cleared.length <= 1) {
+                if (cleared.length && cleared[0] > cap) {
+                    shrouds.used++;
+                    shrouds.worked++;
+                    shrouds.expected += 1 - Math.min(1, 0.02 * (cleared[0] - cap));
+                } else if (!cleared.length) {
+                    shrouds.used++;
+                    shrouds.failed = (shrouds.failed || 0) + 1;
+                }
+            }
+        }
+        last.set(run, lab);
         const size = lab.roomData.length;
+        if (Number.isFinite(lab.totalTreasureRooms) && lab.isActive) treasure.set(floor, Math.max(treasure.get(floor) || 0, lab.totalTreasureRooms));
         const seen = sizes.get(floor) || new Map();
         seen.set(size, (seen.get(size) || 0) + 1);
         sizes.set(floor, seen);
@@ -124,30 +214,28 @@ export function learnModel(states) {
         types[room.type] = (types[room.type] || 0) + 1;
     }
     for (const [floor, seen] of sizes) (floors[floor] ||= { levels: [] }).size = [...seen.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    return { floors, types, rooms: rooms.size, runs: runs.size };
+    for (const [floor, count] of treasure) (floors[floor] ||= { levels: [] }).treasure = count;
+    shrouds.expected = Math.round(shrouds.expected * 10) / 10;
+    return { floors, types, rooms: rooms.size, runs: runs.size, shrouds };
 }
 
 // The floors as the simulation lays them out: floor -> { size, levels (drawn from, each as likely) }, the room types' weights.
 export function floorModel(learned, keys) {
     const known = Object.entries(learned?.floors || {}).filter(([, f]) => f.levels.length >= LEARN_ROOMS).map(([floor, f]) => ({ floor: Number(floor), low: Math.min(...f.levels), high: Math.max(...f.levels), levels: f.levels }));
-    // Floors not seen (enough): the seen floors' lowest levels as a line, their usual spread.
+    // Floors not seen (enough): the assumed levels, moved and widened as the seen floors differ from theirs.
     let low = defaultLow;
     let width = DEFAULT_WIDTH;
     if (known.length) {
         width = Math.round(known.reduce((sum, f) => sum + (f.high - f.low), 0) / known.length);
-        const mean = (list) => list.reduce((a, b) => a + b, 0) / list.length;
-        const fx = mean(known.map((f) => f.floor));
-        const fy = mean(known.map((f) => f.low));
-        const spread = known.reduce((sum, f) => sum + (f.floor - fx) ** 2, 0);
-        const slope = spread > 0 ? known.reduce((sum, f) => sum + (f.floor - fx) * (f.low - fy), 0) / spread : 20;
-        low = (floor) => Math.max(1, Math.round(fy + slope * (floor - fx)));
+        const shift = Math.round(known.reduce((sum, f) => sum + (f.low - defaultLow(f.floor)), 0) / known.length);
+        low = (floor) => Math.max(1, defaultLow(floor) + shift);
     }
     const floors = [null];
     for (let floor = 1; floor <= MAX_FLOOR; floor++) {
         const seen = known.find((f) => f.floor === floor);
         const from = low(floor);
         const levels = seen ? seen.levels : Array.from({ length: width + 1 }, (_, i) => from + i);
-        floors.push({ size: Math.min(MAX_GRID, Math.max(2, learned?.floors?.[floor]?.size || defaultSize(floor))), levels: levels.map((l) => Math.min(MAX_ROOM_LEVEL, l)), learned: !!seen });
+        floors.push({ size: Math.min(MAX_GRID, Math.max(2, learned?.floors?.[floor]?.size || defaultSize(floor))), levels: levels.map((l) => Math.min(MAX_ROOM_LEVEL, l)), learned: !!seen, treasure: learned?.floors?.[floor]?.treasure ?? defaultTreasure(floor) });
     }
     const weights = keys.map((k) => TYPE_PRIOR + (learned?.types?.[k] || 0));
     const total = weights.reduce((a, b) => a + b, 0);
@@ -170,19 +258,41 @@ const GOLD = 0x9e3779b9;
 // ---------- one run ----------
 
 const CELLS = MAX_GRID * MAX_GRID;
+const ROOM = 0;
+const TREASURE = 1;
+const DOWN = 2;
 
 function newScratch() {
     return {
-        type: new Uint8Array(CELLS), level: new Uint16Array(CELLS), seed: new Int32Array(CELLS), cleared: new Uint8Array(CELLS), fails: new Uint16Array(CELLS),
-        open: new Uint8Array(CELLS), cost: new Float64Array(CELLS), dist: new Float64Array(CELLS), heapKey: new Float64Array(4 * CELLS), heapCell: new Int32Array(4 * CELLS),
+        type: new Uint8Array(CELLS), level: new Uint16Array(CELLS), seed: new Int32Array(CELLS), kind: new Uint8Array(CELLS), cleared: new Uint8Array(CELLS), entered: new Uint8Array(CELLS),
+        fails: new Uint16Array(CELLS), open: new Uint8Array(CELLS), cost: new Float64Array(CELLS), dist: new Float64Array(CELLS), heapKey: new Float64Array(4 * CELLS), heapCell: new Int32Array(4 * CELLS), minutes: 0,
     };
 }
 
-// What a room in sight costs in torches on average: 1 / the chance to win it, or what a shroud
-// costs when one is left and that is less; a room you never win and can't shroud is a wall.
-function roomCost(setup, chance, level, shroud) {
-    const cost = chance < HOPELESS ? Infinity : 1 / chance;
-    return shroud ? Math.min(cost, shroudCost(setup, level)) : cost;
+// What a room costs by hand, per room level, for a table of chances: its torch over the
+// chance to get past it within `patience` tries (given up, the torch is gone and the way is
+// another), and a little for the tries lost on the way. A room all but never passed is a wall.
+const costCache = new WeakMap();
+function handCosts(table, patience) {
+    let byPatience = costCache.get(table);
+    if (!byPatience) costCache.set(table, (byPatience = new Map()));
+    let costs = byPatience.get(patience);
+    if (costs) return costs;
+    costs = new Float64Array(table.length);
+    for (let level = 0; level < table.length; level++) {
+        const p = table[level];
+        const pass = 1 - (1 - p) ** patience;
+        costs[level] = pass < MIN_PASS ? Infinity : Math.min(COST_CAP, 1 / pass + TRY_WEIGHT * (pass / p - pass));
+    }
+    byPatience.set(patience, costs);
+    return costs;
+}
+
+const shroudFail = (setup, level) => Math.min(1, Math.max(0, 0.02 * (level - setup.shroudCap)));
+// What a shroud costs at a room level, in the cost of a room (it fails 2% a level above its cap).
+function shroudCost(setup, level) {
+    const works = 1 - shroudFail(setup, level);
+    return works > 0 ? setup.shroudWorth / works : Infinity;
 }
 
 // What a room not in sight is counted as on a floor: the average cost of the rooms that can
@@ -198,7 +308,7 @@ function hiddenCost(setup, model, floor) {
         let passable = 0;
         for (let t = 0; t < setup.tables.length; t++) {
             for (const level of spec.levels) {
-                const cost = roomCost(setup, setup.tables[t][level], level, shroud === 1);
+                const cost = shroud ? Math.min(setup.costs[t][level], shroudCost(setup, level)) : setup.costs[t][level];
                 if (cost < Infinity) {
                     sum += model.weights[t] * cost;
                     passable += model.weights[t];
@@ -211,17 +321,10 @@ function hiddenCost(setup, model, floor) {
     return (setup.hidden[floor] = out);
 }
 
-const shroudFail = (setup, level) => Math.min(1, Math.max(0, 0.02 * (level - setup.shroudCap)));
-// What a shroud costs in torches at a room level (it fails 2% a level above its cap).
-function shroudCost(setup, level) {
-    const works = 1 - shroudFail(setup, level);
-    return works > 0 ? setup.shroudWorth / works : Infinity;
-}
-
-// The room to try next: of the rooms that can be tried, the one the cheapest way to the
-// exit starts with (each room's cost in s.cost; Infinity: not that way). Worked out from the
-// exit, cheapest first, until a room that can be tried comes up – cleared rooms needn't be
-// crossed: a way back through them comes out at another room that can be tried, no dearer.
+// The room to try next: of the rooms that can be entered, the one the cheapest way down
+// starts with (each room's cost in s.cost; Infinity: not that way). Worked out from the way
+// down, cheapest first, until a room that can be entered comes up – cleared rooms needn't be
+// crossed: a way back through them comes out at another room that can be entered, no dearer.
 function nextRoom(s, n) {
     const N = n * n;
     const { dist, cost, cleared, open, heapKey, heapCell } = s;
@@ -276,7 +379,7 @@ function nextRoom(s, n) {
     return -1;
 }
 
-// A room that can be tried: not cleared, next to a cleared one.
+// A room that can be entered: not cleared, next to a cleared one.
 function markOpen(s, n) {
     const N = n * n;
     for (let i = 0; i < N; i++) {
@@ -290,13 +393,14 @@ function markOpen(s, n) {
     }
 }
 
-// One run of a setup: the floors' exits cleared. stats (optional) is added to.
-// setup: { tables, torches, torchKept, shrouds, shroudCap, shroudWorth, autoFloors, rushFloors, maxAttempts, shroudWhenStuck, hidden: [] }
+// One run of a setup: the floors' ways down taken (the minutes it took in s.minutes). stats (optional) is added to.
+// setup: { tables, costs, torches, torchKept, shrouds, shroudCap, shroudWorth, autoFloors, rushFloors, maxAttempts, shroudWhenStuck, patience, hidden: [] }
 export function simulateRun(setup, model, runSeed, s, stats) {
     let torches = setup.torches;
     let shrouds = setup.shrouds;
     let exits = 0;
-    let tries = 0; // for the torch-kept dice
+    let entries = 0; // for the torch-kept dice
+    let minutes = 0;
     const types = setup.tables.length;
     for (let floor = 1; floor <= MAX_FLOOR; floor++) {
         const spec = model.floors[floor];
@@ -310,57 +414,70 @@ export function simulateRun(setup, model, runSeed, s, stats) {
             s.type[i] = t;
             s.level[i] = spec.levels[(unit(floorSeed + 3 * i + 1) * spec.levels.length) | 0];
             s.seed[i] = (unit(floorSeed + 3 * i + 2) * 4294967296) | 0;
+            s.kind[i] = ROOM;
             s.cleared[i] = 0;
+            s.entered[i] = 0;
             s.fails[i] = 0;
         }
+        s.kind[N - 1] = DOWN;
+        // Treasure rooms anywhere but the start and the way down (two on one cell: one fewer).
+        for (let j = 0; j < spec.treasure && N > 2; j++) s.kind[1 + ((unit(floorSeed + 7919 + j) * (N - 2)) | 0)] = TREASURE;
         s.cleared[0] = 1;
         let auto = floor <= setup.autoFloors;
         const rush = floor <= setup.rushFloors;
         const torchesAtStart = torches;
+        const minutesAtStart = minutes;
         if (stats) stats.reached[floor]++;
-        let plan = true; // the distances are out of date
+        let plan = true; // the pick is out of date
         let pick = -1;
         let ended = false;
         while (true) {
             if (plan) {
                 markOpen(s, n);
-                const exitDone = !!s.cleared[N - 1];
-                if (exitDone && (!auto || rush)) break;
+                const downDone = !!s.cleared[N - 1];
+                if (downDone && (!auto || rush)) break;
                 if (auto) {
-                    // Rooms count one each; rooms given up on are walls.
-                    for (let i = 0; i < N; i++) s.cost[i] = s.cleared[i] ? 0 : s.fails[i] >= setup.maxAttempts ? Infinity : 1;
-                    if (exitDone) {
-                        // The rest of the floor: any room in reach not given up on.
-                        pick = -1;
-                        for (let i = 0; i < N && pick < 0; i++) if (s.open[i] && s.fails[i] < setup.maxAttempts) pick = i;
-                        if (pick < 0) break;
-                    } else {
-                        pick = nextRoom(s, n);
-                        if (pick < 0) {
-                            // Stuck: a shroud on the room in the way, else you take over by hand.
-                            if (setup.shroudWhenStuck && shrouds > 0) {
-                                for (let i = 0; i < N; i++) s.cost[i] = s.cleared[i] ? 0 : 1;
-                                pick = nextRoom(s, n);
-                                if (pick < 0) break;
-                                shrouds--;
-                                if (stats) stats.shrouds[s.type[pick]]++;
-                                if (unit(s.seed[pick] ^ 0x5bd1e995) >= shroudFail(setup, s.level[pick])) s.cleared[pick] = 1;
-                                else s.fails[pick] = Math.max(s.fails[pick], setup.maxAttempts);
+                    // A treasure room in reach first.
+                    pick = -1;
+                    for (let i = 0; i < N && pick < 0; i++) if (s.open[i] && s.kind[i] === TREASURE) pick = i;
+                    if (pick < 0) {
+                        // Rooms count one each; rooms given up on are walls.
+                        for (let i = 0; i < N; i++) s.cost[i] = s.cleared[i] ? 0 : s.kind[i] === ROOM && s.fails[i] >= setup.maxAttempts ? Infinity : 1;
+                        if (downDone) {
+                            // The rest of the floor: any room in reach not given up on.
+                            for (let i = 0; i < N && pick < 0; i++) if (s.open[i] && s.cost[i] < Infinity) pick = i;
+                            if (pick < 0) break;
+                        } else {
+                            pick = nextRoom(s, n);
+                            if (pick < 0) {
+                                // Stuck: a shroud on the room in the way, else you take over by hand.
+                                if (setup.shroudWhenStuck && shrouds > 0) {
+                                    for (let i = 0; i < N; i++) s.cost[i] = s.cleared[i] ? 0 : 1;
+                                    pick = nextRoom(s, n);
+                                    if (pick < 0) break;
+                                    shrouds--;
+                                    if (stats) stats.shrouds[s.type[pick]]++;
+                                    if (unit(s.seed[pick] ^ Math.imul(shrouds + 1, 0x5bd1e995)) >= shroudFail(setup, s.level[pick])) s.cleared[pick] = 1;
+                                    continue;
+                                }
+                                auto = false;
                                 continue;
                             }
-                            auto = false;
-                            continue;
                         }
                     }
                 } else {
                     const hidden = hiddenCost(setup, model, floor)[shrouds > 0 ? 1 : 0];
                     for (let i = 0; i < N; i++) {
                         if (s.cleared[i]) s.cost[i] = 0;
+                        else if (s.kind[i] !== ROOM && (s.open[i] || i === N - 1)) s.cost[i] = 1;
                         else if (!s.open[i]) s.cost[i] = hidden;
-                        else s.cost[i] = roomCost(setup, setup.tables[s.type[i]][s.level[i]], s.level[i], shrouds > 0);
+                        else {
+                            const own = s.fails[i] >= setup.patience ? Infinity : setup.costs[s.type[i]][s.level[i]];
+                            s.cost[i] = shrouds > 0 ? Math.min(own, shroudCost(setup, s.level[i])) : own;
+                        }
                     }
                     pick = nextRoom(s, n);
-                    // No way to the exit but through rooms you never win: the run ends here.
+                    // No way down but through rooms you (all but) never win: the run ends here.
                     if (pick < 0) {
                         ended = true;
                         break;
@@ -368,73 +485,96 @@ export function simulateRun(setup, model, runSeed, s, stats) {
                 }
                 plan = false;
             }
+            const room = s.kind[pick] === ROOM;
             const type = s.type[pick];
-            const chance = setup.tables[type][s.level[pick]];
-            if (!auto) {
-                // By hand: a shroud where the room costs more torches than the shroud is worth.
-                if (shrouds > 0 && 1 / Math.max(HOPELESS, chance) > shroudCost(setup, s.level[pick])) {
+            const level = s.level[pick];
+            if (room && !auto) {
+                // By hand: a shroud where the room costs more than the shroud is worth (no torch, no try).
+                const own = s.fails[pick] >= setup.patience ? Infinity : setup.costs[type][level];
+                if (shrouds > 0 && own > shroudCost(setup, level)) {
                     shrouds--;
                     if (stats) stats.shrouds[type]++;
                     // A shroud that fails is gone; the room is as it was.
-                    if (unit(s.seed[pick] ^ Math.imul(shrouds + 1, 0x5bd1e995)) >= shroudFail(setup, s.level[pick])) s.cleared[pick] = 1;
+                    if (unit(s.seed[pick] ^ Math.imul(shrouds + 1, 0x5bd1e995)) >= shroudFail(setup, level)) s.cleared[pick] = 1;
                     plan = true;
                     continue;
                 }
-                // Nothing left worth a torch: the run ends here.
-                if (chance < HOPELESS) {
+            }
+            // The first time into a room costs a torch; trying it again doesn't.
+            if (!s.entered[pick]) {
+                if (torches <= 0) {
+                    // Out of torches with the way down taken (the automation was doing the floor's other rooms): on to the next floor.
+                    if (s.cleared[N - 1]) break;
                     ended = true;
                     break;
                 }
+                if (unit(runSeed + Math.imul(++entries, GOLD)) >= setup.torchKept) torches--;
+                s.entered[pick] = 1;
             }
-            if (torches <= 0) {
-                // Out of torches with the exit cleared (the automation was doing the floor's other rooms): on to the next floor.
-                if (s.cleared[N - 1]) break;
-                ended = true;
-                break;
+            if (!room) {
+                // A treasure room, or the way down: nothing to win.
+                s.cleared[pick] = 1;
+                minutes += WALK_MINUTES;
+                plan = true;
+                continue;
             }
-            if (unit(runSeed + Math.imul(++tries, GOLD)) >= setup.torchKept) torches--;
-            const won = unit(s.seed[pick] + Math.imul(s.fails[pick] + 1, GOLD)) < chance;
+            const won = unit(s.seed[pick] + Math.imul(s.fails[pick] + 1, GOLD)) < setup.tables[type][level];
             if (stats) {
                 stats.tries[type]++;
                 if (!won) stats.lost[type]++;
             }
             if (won) {
                 s.cleared[pick] = 1;
+                minutes += WON_MINUTES;
                 plan = true;
             } else {
-                s.fails[pick]++;
-                // Under automation a room failed too often is given up on: another way is looked for.
-                if (auto) plan = true;
+                minutes += LOST_MINUTES;
+                // Given up after enough lost tries (the automation's max attempts, your patience by hand): another way is looked for.
+                if (++s.fails[pick] >= (auto ? setup.maxAttempts : setup.patience)) {
+                    plan = true;
+                    if (stats && !auto) stats.gaveUp[type]++;
+                }
             }
         }
-        if (stats) stats.torches[floor] += torchesAtStart - torches;
+        if (stats) {
+            stats.torches[floor] += torchesAtStart - torches;
+            stats.minutes[floor] += minutes - minutesAtStart;
+        }
         if (ended) {
             if (stats) {
-                if (torches > 0) stats.stuck++;
+                if (torches > 0) stats.walled++;
                 stats.left += torches;
-                if (pick >= 0 && !s.cleared[pick]) stats.stopped[s.type[pick]]++;
-                else if (pick < 0) stats.walled++;
             }
+            s.minutes = minutes;
             return exits;
         }
         exits++;
     }
+    s.minutes = minutes;
     return exits;
 }
 
 // ---------- many runs ----------
 
 function newStats(types) {
-    return { tries: new Float64Array(types), lost: new Float64Array(types), shrouds: new Float64Array(types), stopped: new Float64Array(types), reached: new Float64Array(MAX_FLOOR + 2), torches: new Float64Array(MAX_FLOOR + 2), stuck: 0, left: 0, walled: 0 };
+    return {
+        tries: new Float64Array(types), lost: new Float64Array(types), shrouds: new Float64Array(types), gaveUp: new Float64Array(types),
+        reached: new Float64Array(MAX_FLOOR + 2), torches: new Float64Array(MAX_FLOOR + 2), minutes: new Float64Array(MAX_FLOOR + 2), left: 0, walled: 0,
+    };
 }
 
-// The exits cleared in each of `runs` runs of a setup (run k has the same floors and luck in every setup).
+// `runs` runs of a setup (run k has the same floors and luck in every setup): the ways down taken in each, and the minutes each took.
 export function runSetup(setup, model, runs, seed = 1, stats = null) {
     const exits = new Uint8Array(runs);
+    const minutes = new Float32Array(runs);
     const scratch = newScratch();
     setup.hidden = [];
-    for (let k = 0; k < runs; k++) exits[k] = simulateRun(setup, model, Math.imul(k + seed, 0x2c1b3c6d) | 0, scratch, stats);
-    return exits;
+    setup.costs = setup.tables.map((table) => handCosts(table, setup.patience));
+    for (let k = 0; k < runs; k++) {
+        exits[k] = simulateRun(setup, model, Math.imul(k + seed, 0x2c1b3c6d) | 0, scratch, stats);
+        minutes[k] = scratch.minutes;
+    }
+    return { exits, minutes };
 }
 
 const mean = (list) => {
@@ -443,21 +583,21 @@ const mean = (list) => {
     return list.length ? sum / list.length : 0;
 };
 
-// A setup against the one now: the mean floors more, how sure (the difference over its standard error), the chance to reach a floor.
+// A setup against the one now: the mean floors more, how sure (the difference over its standard error), the chance to reach a floor, the minutes more.
 function compare(base, other, floor) {
-    const n = base.length;
+    const n = base.exits.length;
     let sum = 0;
     let squares = 0;
     let reach = 0;
     for (let i = 0; i < n; i++) {
-        const d = other[i] - base[i];
+        const d = other.exits[i] - base.exits[i];
         sum += d;
         squares += d * d;
-        if (other[i] >= floor - 1) reach++;
+        if (other.exits[i] >= floor - 1) reach++;
     }
     const gain = sum / n;
     const error = Math.sqrt(Math.max(0, squares / n - gain * gain) / n);
-    return { gain, error, reach: reach / n };
+    return { gain, error, reach: reach / n, minutes: mean(other.minutes) - mean(base.minutes) };
 }
 
 const round = (x, digits = 3) => Math.round(x * 10 ** digits) / 10 ** digits;
@@ -476,9 +616,9 @@ export function shopCost(key, bought) {
 //   teaCrates: { tier: [buffs] }, teaCrate: tier or null
 //   combat: { monsters: [{ hrid, setupName, curve: [{ level, wins, attempts }] }] }
 //   supplies: { torches, torchTier, shrouds, shroudTier }, shop: the character's Labyrinth fields (TorchCap, ShroudCap, SkillingSuccessLevel …), tokens
-//   options: { autoFloors, rushFloors, maxAttempts, shroudWhenStuck, runs }
-// states: the game's Labyrinth states your Pi kept (for the floors).
-export function simulateLabyrinth(request, { states = [], runs, onProgress = () => {} } = {}) {
+//   options: { autoFloors, rushFloors, maxAttempts, shroudWhenStuck, patience, runs }
+// states: the game's Labyrinth states your Pi kept (for the floors); attempts: your logged attempts (for the level penalty).
+export function simulateLabyrinth(request, { states = [], attempts = [], runs, onProgress = () => {} } = {}) {
     const started = Date.now();
     const options = request.options || {};
     runs = Math.max(200, Math.min(20000, Math.round(runs || options.runs || 2000)));
@@ -490,10 +630,13 @@ export function simulateLabyrinth(request, { states = [], runs, onProgress = () 
     const model = floorModel(learned, keys);
 
     const crate = (tier) => (tier ? request.teaCrates?.[tier] || [] : []);
-    const who = (skill, change = {}) => {
+    const character = (skill, change = {}) => {
         const mine = request.skills?.[skill] || { level: 1 };
-        return { level: (mine.level || 1) + (change.levels || 0), buffs: mine.buffs || [], crateBuffs: crate(change.teaCrate !== undefined ? change.teaCrate : request.teaCrate), shop: { ...(mine.shop || {}), ...(change.shop || {}) } };
+        return { level: (change.level ?? mine.level ?? 1) + (change.levels || 0), buffs: mine.buffs || [], crateBuffs: crate(change.teaCrate !== undefined ? change.teaCrate : request.teaCrate), shop: { ...(mine.shop || {}), ...(change.shop || {}) } };
     };
+    // The success lost per level below a room, as your own attempts have it.
+    const calibration = fitPenalty(attempts, (skill, level, teaCrate) => character(skill, { level: Number.isFinite(level) ? level : undefined, teaCrate }));
+    const who = (skill, change) => ({ ...character(skill, change), penalty: calibration.penalty });
     const baseTables = [...SKILLS.map((skill) => skillTable(skill, who(skill))), ...monsters.map((m) => combatTable(m.curve))];
     const withSkills = (change, only = null) => baseTables.map((table, t) => (t < SKILLS.length && (only === null || only === t) ? skillTable(SKILLS[t], who(SKILLS[t], change)) : table));
 
@@ -513,6 +656,7 @@ export function simulateLabyrinth(request, { states = [], runs, onProgress = () 
         rushFloors: Math.max(0, Math.round(options.rushFloors ?? 0)),
         maxAttempts: Math.max(1, Math.round(options.maxAttempts ?? 1)),
         shroudWhenStuck: options.shroudWhenStuck !== false,
+        patience: Math.max(1, Math.min(99, Math.round(options.patience ?? PATIENCE))),
     };
 
     // What a shroud is worth by hand: the worth that takes you furthest (on a part of the runs).
@@ -520,7 +664,7 @@ export function simulateLabyrinth(request, { states = [], runs, onProgress = () 
     let bestWorth = { worth: base.shroudWorth, floors: -1 };
     if (base.shrouds > 0) {
         for (const worth of SHROUD_WORTHS) {
-            const floors = mean(runSetup({ ...base, shroudWorth: worth }, model, tuneRuns));
+            const floors = mean(runSetup({ ...base, shroudWorth: worth }, model, tuneRuns).exits);
             if (floors > bestWorth.floors + 1e-9) bestWorth = { worth, floors };
         }
         base.shroudWorth = bestWorth.worth;
@@ -531,25 +675,34 @@ export function simulateLabyrinth(request, { states = [], runs, onProgress = () 
     const now = runSetup(base, model, runs, 1, stats);
     const record = Math.max(1, Math.round(Number(shop.HighestFloor) || 1));
     const distribution = Array.from({ length: MAX_FLOOR + 1 }, () => 0);
-    for (let i = 0; i < runs; i++) distribution[now[i]]++;
+    for (let i = 0; i < runs; i++) distribution[now.exits[i]]++;
     const reach = [];
     let above = runs;
     for (let floor = 1; floor <= MAX_FLOOR && above > 0; floor++) {
-        reach.push({ floor, share: round(above / runs), torches: stats.reached[floor] ? round(stats.torches[floor] / stats.reached[floor], 1) : 0, rooms: model.floors[floor].size ** 2, levels: [Math.min(...model.floors[floor].levels), Math.max(...model.floors[floor].levels)], learned: model.floors[floor].learned });
+        const spec = model.floors[floor];
+        const there = stats.reached[floor] || 1;
+        reach.push({ floor, share: round(above / runs), torches: round(stats.torches[floor] / there, 1), minutes: round(stats.minutes[floor] / there, 0), rooms: spec.size ** 2, levels: [Math.min(...spec.levels), Math.max(...spec.levels)], learned: spec.learned });
         above -= distribution[floor - 1];
     }
     // The floor the changes are measured at: the first one fewer than half the runs reach.
     const target = reach.find((f) => f.floor > 1 && f.share < 0.5)?.floor ?? reach[reach.length - 1].floor + 1;
+    // The room level where you get past half the rooms of a type within your tries.
+    const passes = (table) => {
+        let level = 0;
+        for (let l = 1; l <= MAX_ROOM_LEVEL && 1 - (1 - table[l]) ** base.patience >= 0.5; l++) level = l;
+        return level;
+    };
     const rooms = keys.map((key, t) => ({
         key,
         type: key.startsWith("skill:") ? "skilling" : "combat",
         what: key.split(":")[1],
         loadout: t >= SKILLS.length ? monsters[t - SKILLS.length].setupName || null : null,
+        passes: passes(baseTables[t]),
         tries: round(stats.tries[t] / runs, 2),
         lost: round(stats.lost[t] / runs, 2),
         shrouds: round(stats.shrouds[t] / runs, 2),
-        stopped: round(stats.stopped[t] / runs),
-    })).sort((a, b) => b.lost + 3 * b.shrouds - (a.lost + 3 * a.shrouds));
+        gaveUp: round(stats.gaveUp[t] / runs, 2),
+    })).sort((a, b) => a.passes - b.passes);
 
     // ---------- what would take you further ----------
     const candidates = [];
@@ -565,20 +718,23 @@ export function simulateLabyrinth(request, { states = [], runs, onProgress = () 
         for (const levels of [5, 10]) add({ id: `skill:${skill}:${levels}`, kind: "skill", what: skill, levels, label: `+${levels} ${cap(skill)}`, xp: xpFor(skill, levels) }, { ...base, tables: withSkills({ levels }, t) });
     });
     monsters.forEach((m, k) => {
-        const tables = baseTables.map((table, t) => (t === SKILLS.length + k ? combatTable(m.curve, 5) : table));
-        add({ id: `combat:${names[k]}`, kind: "combat", what: names[k], levels: 5, loadout: m.setupName || null, label: `5 room levels better against ${cap(names[k].replace(/_/g, " "))}` }, { ...base, tables });
+        for (const levels of [5, 15]) {
+            const tables = baseTables.map((table, t) => (t === SKILLS.length + k ? combatTable(m.curve, levels) : table));
+            add({ id: `combat:${names[k]}:${levels}`, kind: "combat", what: names[k], levels, loadout: m.setupName || null, label: `${levels} room levels better against ${cap(names[k].replace(/_/g, " "))}` }, { ...base, tables });
+        }
     });
+    for (const levels of [5, 15]) add({ id: `combat:all:${levels}`, kind: "combat", what: "all", levels, label: `${levels} room levels better against every monster` }, { ...base, tables: baseTables.map((table, t) => (t >= SKILLS.length ? combatTable(monsters[t - SKILLS.length].curve, levels) : table)) });
     // The shop: one level more of each upgrade that counts here.
-    const torchLevels = Math.max(0, Math.round((base.torches - BASE_TORCH_CAP) / 20));
-    const shroudLevels = Math.max(0, base.shrouds - BASE_SHROUD_CAP);
+    const torchLevels = Math.max(0, Math.round(((shop.TorchCap ?? base.torches) - BASE_TORCH_CAP) / 20));
+    const shroudLevels = Math.max(0, (shop.ShroudCap ?? base.shrouds) - BASE_SHROUD_CAP);
     const tokens = Number.isFinite(request.tokens) ? request.tokens : null;
-    const shopItem = (key, bought, setup, assumed = false) => {
+    const shopItem = (key, bought, setup) => {
         const cost = shopCost(key, bought);
-        if (cost !== null) add({ id: `shop:${key}`, kind: "shop", what: key, label: SHOP[key].label, tokens: cost, assumed, affordable: tokens === null ? null : tokens >= cost }, setup);
+        if (cost !== null) add({ id: `shop:${key}`, kind: "shop", what: key, label: SHOP[key].label, tokens: cost, affordable: tokens === null ? null : tokens >= cost }, setup);
     };
     // Counted only when you bring as many as the cap holds (else more of what you have is what helps).
-    if (supplies.torches === undefined || base.torches >= (shop.TorchCap ?? 0)) shopItem("torchCap", torchLevels, { ...base, torches: base.torches + 20 }, true);
-    if (supplies.shrouds === undefined || base.shrouds >= (shop.ShroudCap ?? 0)) shopItem("shroudCap", shroudLevels, { ...base, shrouds: base.shrouds + 1 }, true);
+    if (supplies.torches === undefined || base.torches >= (shop.TorchCap ?? 0)) shopItem("torchCap", torchLevels, { ...base, torches: base.torches + 20 });
+    if (supplies.shrouds === undefined || base.shrouds >= (shop.ShroudCap ?? 0)) shopItem("shroudCap", shroudLevels, { ...base, shrouds: base.shrouds + 1 });
     for (const key of ["speed", "efficiency", "success", "double"]) {
         const bought = Math.max(0, Math.round(Number(shop[SHOP[key].info]) || 0));
         shopItem(key, bought, { ...base, tables: withSkills({ shop: { [key]: bought + 1 } }) });
@@ -587,7 +743,8 @@ export function simulateLabyrinth(request, { states = [], runs, onProgress = () 
     for (const next of TIERS.slice(TIERS.indexOf(request.teaCrate) + 1)) add({ id: `tea:${next}`, kind: "supply", what: `${next}_tea_crate`, label: `${cap(next)} tea crate` }, { ...base, tables: withSkills({ teaCrate: next }) });
     for (const next of TIERS.slice(TIERS.indexOf(torchTier) + 1)) add({ id: `torch:${next}`, kind: "supply", what: `${next}_torch`, label: `${cap(next)} torches (kept ${Math.round(100 * TORCH_KEPT[next])}% of the time)` }, { ...base, torchKept: TORCH_KEPT[next] });
     if (base.shrouds > 0) for (const next of TIERS.slice(TIERS.indexOf(shroudTier) + 1)) add({ id: `shroud:${next}`, kind: "supply", what: `${next}_shroud`, label: `${cap(next)} shrouds (${next === "expert" ? "never fail" : "sure up to room level 100"})` }, { ...base, shroudCap: SHROUD_CAP[next] });
-    // The game's automation settings.
+    // How you play, and the game's automation settings.
+    add({ id: "play:patience", kind: "setting", label: `Up to ${base.patience * 2} tries a room by hand (now ${base.patience})` }, { ...base, patience: base.patience * 2 });
     if (base.autoFloors > 0) {
         if (base.rushFloors < base.autoFloors) add({ id: "setting:rush", kind: "setting", label: `Rush for exit up to floor ${base.autoFloors}`, note: "the automation leaves the floor's other rooms (and their rewards) alone" }, { ...base, rushFloors: base.autoFloors });
         add({ id: "setting:manual", kind: "setting", label: "No full automation (every floor by hand, as the advisor would)" }, { ...base, autoFloors: 0 });
@@ -598,10 +755,10 @@ export function simulateLabyrinth(request, { states = [], runs, onProgress = () 
     candidates.forEach((c, i) => {
         const { setup, ...rest } = c;
         const result = compare(now, runSetup(setup, model, runs), target);
-        out.push({ ...rest, floors: round(result.gain), error: round(result.error), reach: round(result.reach), sure: Math.abs(result.gain) > 2 * result.error });
+        out.push({ ...rest, floors: round(result.gain), error: round(result.error), reach: round(result.reach), minutes: round(result.minutes, 0), sure: Math.abs(result.gain) > 2 * result.error });
         onProgress(0.1 + (0.9 * (i + 1)) / candidates.length);
     });
-    out.sort((a, b) => b.floors - a.floors);
+    out.sort((a, b) => b.floors - a.floors || a.minutes - b.minutes);
 
     return {
         at: Date.now(),
@@ -609,12 +766,15 @@ export function simulateLabyrinth(request, { states = [], runs, onProgress = () 
         runs,
         record: { floor: record, rooms: Number(shop.HighestFloorRooms) || null },
         target,
-        now: { floors: round(mean(now)), reach: round(now.reduce((sum, x) => sum + (x >= target - 1 ? 1 : 0), 0) / runs), left: round(stats.left / runs, 1), stuck: round(stats.stuck / runs), walled: round(stats.walled / runs) },
-        setup: { torches: base.torches, torchTier, shrouds: base.shrouds, shroudTier, teaCrate: request.teaCrate || null, autoFloors: base.autoFloors, rushFloors: base.rushFloors, maxAttempts: base.maxAttempts, shroudWhenStuck: base.shroudWhenStuck, tokens },
-        shroud: base.shrouds > 0 ? { worth: base.shroudWorth, below: round(1 / base.shroudWorth) } : null,
+        now: { floors: round(mean(now.exits)), reach: round(now.exits.reduce((sum, x) => sum + (x >= target - 1 ? 1 : 0), 0) / runs), minutes: round(mean(now.minutes), 0), left: round(stats.left / runs, 1), walled: round(stats.walled / runs) },
+        setup: { torches: base.torches, torchTier, shrouds: base.shrouds, shroudTier, teaCrate: request.teaCrate || null, autoFloors: base.autoFloors, rushFloors: base.rushFloors, maxAttempts: base.maxAttempts, shroudWhenStuck: base.shroudWhenStuck, patience: base.patience, tokens },
+        // By hand a shroud goes on a room that costs more than this: about a chance under `below` to get past it within your tries.
+        shroud: base.shrouds > 0 ? { worth: base.shroudWorth, below: round(1 / base.shroudWorth, 2) } : null,
         reach,
         rooms,
         candidates: out,
+        calibration,
+        shroudsSeen: learned.shrouds,
         model: { rooms: learned.rooms, runs: learned.runs, floors: Object.keys(learned.floors).map(Number).sort((a, b) => a - b), learnedFloors: model.floors.map((f, i) => (f?.learned ? i : 0)).filter(Boolean) },
         checkedAt: request.combat?.checkedAt ?? null,
     };

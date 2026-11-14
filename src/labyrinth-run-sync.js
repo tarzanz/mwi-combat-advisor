@@ -1,14 +1,14 @@
 // Whole Labyrinth runs, simulated on your Pi when you ask (pi/labyrinth-sim.mjs runs
 // labyrinth-run.js): this sends what the simulation starts from – every skill's level and
 // buffs, the combat rooms' win curves of your last "Check the rooms", the supplies, the
-// shop's upgrades, your tokens and the automation settings – and reads the result back.
+// shop's upgrades, your tokens and the game's automation settings – and reads the result back.
 // The last result is kept in the browser per character, so the tab shows it after a reload.
 
 import { getClientData } from "./game-data.js";
 import { state } from "./game-state.js";
 import { slottedCrate } from "./labyrinth.js";
 import { lastLabyrinthCheck } from "./labyrinth-marks.js";
-import { SKILLS, TIERS } from "./labyrinth-run.js";
+import { PATIENCE, SKILLS, TIERS } from "./labyrinth-run.js";
 import { skillingWho } from "./labyrinth-skilling.js";
 import { onPiSync, piConfig, piStatus } from "./pi-sync.js";
 import { scriptVersion } from "./version-tag.js";
@@ -69,19 +69,24 @@ export function heldTier(kind) {
     return best?.tier || null;
 }
 
-// What the simulation runs with, from the tab's settings (else the game's): the automation, the supplies' tiers.
+// What the simulation runs with: the game's own Labyrinth settings (the automation, the
+// torches and shrouds chosen, the tea crate), and from the tab how many lost tries you give a
+// room by hand.
 export function runSetup(settings, character = state.character) {
     const info = character?.characterInfo || {};
-    const whole = (value, fallback, min, max) => (value === undefined || value === "" || !Number.isFinite(Number(value)) ? fallback : Math.max(min, Math.min(max, Math.round(Number(value)))));
-    const tier = (value, kind) => (TIERS.includes(value) ? value : heldTier(kind) || "basic");
-    const autoFloors = whole(settings.labyAuto, Number(info.labyrinthFullAutoLevel) || 0, 0, 15);
+    const game = character?.characterSetting || {};
+    const whole = (value, fallback, min, max) => (value === undefined || value === null || value === "" || !Number.isFinite(Number(value)) ? fallback : Math.max(min, Math.min(max, Math.round(Number(value)))));
+    const tier = (hrid, kind) => TIERS.find((t) => hrid === `/items/${t}_${kind}`) || heldTier(kind) || "basic";
+    const autoFloors = whole(game.labyrinthFullAutoFloor, Number(info.labyrinthFullAutoLevel) || 0, 0, 99);
     return {
         autoFloors,
-        rushFloors: Math.min(autoFloors, whole(settings.labyRush, 0, 0, 15)),
-        maxAttempts: whole(settings.labyAttempts, 1, 1, 99),
-        torchTier: tier(settings.labyTorch, "torch"),
-        shroudTier: tier(settings.labyShroud, "shroud"),
-        // The run's tea crate while you are in one, else the one in your Labyrinth slots.
+        rushFloors: Math.min(autoFloors, whole(game.labyrinthRushForExitFloor, 0, 0, 99)),
+        maxAttempts: whole(game.labyrinthMaxAttemptsPerRoom, 1, 1, 99),
+        shroudWhenStuck: game.labyrinthShroudAutoUse === undefined ? true : game.labyrinthShroudAutoUse === "when_stuck",
+        patience: whole(settings.labyPatience, PATIENCE, 1, 99),
+        torchTier: tier(game.labyrinthTorchHrid, "torch"),
+        shroudTier: tier(game.labyrinthShroudHrid, "shroud"),
+        // The run's tea crate while you are in one, else the one chosen for the next.
         teaCrate: state.labyrinth?.isActive && state.labyrinth.teaCrateItemHrid ? TIERS.find((t) => state.labyrinth.teaCrateItemHrid === `/items/${t}_tea_crate`) || null : slottedCrate(character, "tea"),
     };
 }
@@ -127,7 +132,7 @@ export function runRequest(settings) {
             supplies: { torchTier: setup.torchTier, shroudTier: setup.shroudTier },
             shop,
             tokens: held(TOKEN),
-            options: { autoFloors: setup.autoFloors, rushFloors: setup.rushFloors, maxAttempts: setup.maxAttempts, shroudWhenStuck: true },
+            options: { autoFloors: setup.autoFloors, rushFloors: setup.rushFloors, maxAttempts: setup.maxAttempts, shroudWhenStuck: setup.shroudWhenStuck, patience: setup.patience },
             game,
         },
     };
@@ -214,4 +219,10 @@ export function readRuns() {
         }
     })();
     return r.reading;
+}
+
+// The success lost per level below a skilling room as your attempts have it (undefined: as the formula has it).
+export function fittedPenalty() {
+    const calibration = runsState().result?.calibration;
+    return calibration?.applied ? calibration.penalty : undefined;
 }

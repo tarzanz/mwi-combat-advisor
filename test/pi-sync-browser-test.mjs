@@ -23,6 +23,8 @@ const clientData = {};
 for (const f of readdirSync(dataDir)) clientData[f.replace(".json", "")] = JSON.parse(readFileSync(path.join(dataDir, f), "utf8"));
 const userscript = readFileSync(path.join(root, "dist/mwi-combat-advisor.user.js"), "utf8");
 const character = fixtureCharacter();
+// The game's own Labyrinth settings: what the run simulation takes the automation, the supplies and the tea crate from.
+character.characterSetting = { ...(character.characterSetting || {}), labyrinthFullAutoFloor: 2, labyrinthRushForExitFloor: 1, labyrinthMaxAttemptsPerRoom: 3, labyrinthShroudAutoUse: "when_stuck", labyrinthTorchHrid: "/items/advanced_torch", labyrinthShroudHrid: "/items/basic_shroud", labyrinthTeaCrateHrid: "/items/basic_tea_crate" };
 // One sell order open from the start.
 const order = (id, filled, extra = {}) => ({ id, itemHrid: "/items/linen_boots", enhancementLevel: 0, isSell: true, price: 700, orderQuantity: 10, filledQuantity: filled, status: "/market_order_status/active", ...extra });
 character.myMarketListings = [order(1, 0)];
@@ -266,15 +268,15 @@ try {
     await page.click('[data-tab="labyrinth"]');
     await page.waitForSelector('[data-action="laby-runs"]:not([disabled])', { timeout: 60000 }).catch(() => null);
     const before = await page.$eval(".mwia-body", (n) => n.innerText).catch(() => "");
-    check("runs: the tab offers them with the game's automation as it is set", /How far do you get\?/.test(before) && /Full automation up to floor/.test(before) && !/floors cleared on average/.test(before), before.slice(0, 300));
+    check("runs: the tab offers them, with the game's automation as it is set and your tries a room", /How far do you get\?/.test(before) && /Tries a room by hand/.test(before) && /As set in the game: full automation up to floor 2, rushing for the exit up to floor 1, 3 attempts a room, shrouds when stuck; Advanced torches, Basic shrouds, Basic tea crate\./.test(before) && !/floors cleared on average/.test(before), before.slice(0, 300));
     await page.click('[data-action="laby-runs"]');
     await page.waitForFunction(() => /Your Pi is working on it/.test(document.querySelector(".mwia-body")?.innerText || ""), { timeout: 10000 }).catch(() => null);
     const asking = await page.$eval(".mwia-body", (n) => n.innerText).catch(() => "");
     await page.waitForFunction(() => /floors cleared on average/.test(document.querySelector(".mwia-body")?.innerText || ""), { timeout: 240000, polling: 1000 }).catch(() => null);
     const shown = await page.$eval(".mwia-body", (n) => n.innerText).catch(() => "");
     const onPiSim = await fetch(`${piUrl}/labyrinth/sim?character=${character.character.id}`, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json()).catch(() => null);
-    check("runs: asked, the Pi works on it, the result is shown", /Your Pi is working on it/.test(asking) && /floors cleared on average; you reach floor \d+/.test(shown) && /200 runs with \d+ (basic|advanced|expert) torches/.test(shown) && /What takes you further/.test(shown) && /Where the torches go/.test(shown), shown.slice(shown.indexOf("How far"), shown.indexOf("How far") + 900));
-    check("runs: the Pi has the request and the result, with the game's Labyrinth data it was sent", onPiSim?.result?.runs === 200 && onPiSim.result.candidates.length > 30 && onPiSim.status.error === null && onPiSim.result.model.rooms >= 1, JSON.stringify(onPiSim && { status: onPiSim.status, now: onPiSim.result?.now, model: onPiSim.result?.model }));
+    check("runs: asked, the Pi works on it, the result is shown", /Your Pi is working on it/.test(asking) && /floors cleared on average in about [\d.]+ (min|h); you reach floor \d+/.test(shown) && /200 runs with \d+ advanced torches, \d+ basic shrouds, Basic tea crate/.test(shown) && /up to 10 tries a room by hand/.test(shown) && /What takes you further/.test(shown) && /Room by room/.test(shown), shown.slice(shown.indexOf("How far"), shown.indexOf("How far") + 900));
+    check("runs: the Pi has the request and the result, with the game's Labyrinth data it was sent", onPiSim?.result?.runs === 200 && onPiSim.result.candidates.length > 30 && onPiSim.status.error === null && onPiSim.result.model.rooms >= 1 && onPiSim.result.setup.patience === 10 && onPiSim.result.setup.autoFloors === 2 && onPiSim.result.setup.rushFloors === 1 && onPiSim.result.setup.maxAttempts === 3 && onPiSim.result.setup.teaCrate === "basic" && onPiSim.result.calibration.tries >= 0, JSON.stringify(onPiSim && { status: onPiSim.status, now: onPiSim.result?.now, model: onPiSim.result?.model }));
     const keptRun = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-run") || "null"));
     check("runs: the result is kept in this browser for the character", Object.values(keptRun || {})[0]?.runs === 200);
     await page.$eval('.mwia-panel [data-action="close"]', (b) => b.click()).catch(() => null);

@@ -12,6 +12,12 @@
 // coffees (none in the Labyrinth) – plus the tea crate and the shop's skilling upgrades.
 
 export const ROOM_SECONDS = 120;
+// The success lost per level your effective level is below the room's, as the calculator has it.
+// Your own attempts can say otherwise (labyrinth-run.js fits it to them): who.penalty.
+export const LEVEL_PENALTY = 0.01;
+// An action that would end a blink after the 2 minutes still counts (a room was seen cleared
+// by a 20th action of 6.005 s).
+const TRIES_SLACK = 0.05;
 const ACTION_SECONDS = 10;
 const ENHANCING_SECONDS = 8;
 const ENHANCING_TARGET = 5;
@@ -64,7 +70,7 @@ function reachChance(tries, units, success, double, fallBack) {
     return Math.min(1, Math.max(0, dist[units]));
 }
 
-// room: { skill: "milking", level } · who: { level, buffs: [buff lists], crateBuffs, shop: { speed, efficiency, success, double } (levels) }
+// room: { skill: "milking", level } · who: { level, buffs: [buff lists], crateBuffs, shop: { speed, efficiency, success, double } (levels), penalty (optional) }
 export function skillingRoomChance(room, who) {
     const b = { level: 0, efficiency: 0, speed: 0, success: 0, double: 0 };
     for (const list of [...(who.buffs || []), who.crateBuffs || []]) {
@@ -79,15 +85,16 @@ export function skillingRoomChance(room, who) {
 
     const level = (who.level || 0) + b.level;
     const delta = level - room.level;
-    const success = Math.min(1, Math.max(0, 0.8 * (1 + (delta >= 0 ? 0.005 : 0.01) * delta + b.success)));
+    const penalty = Number.isFinite(who.penalty) ? who.penalty : LEVEL_PENALTY;
+    const success = Math.min(1, Math.max(0, 0.8 * (1 + (delta >= 0 ? 0.005 : penalty) * delta + b.success)));
     const double = Math.min(1, Math.max(0, b.double));
     const enhancing = room.skill === "enhancing";
     const seconds = (enhancing ? ENHANCING_SECONDS : ACTION_SECONDS) / Math.max(0.05, 1 + b.speed);
-    const tries = Math.max(1, Math.floor(ROOM_SECONDS / seconds));
-    if (enhancing) return { chance: reachChance(tries, ENHANCING_TARGET, success, double, true), level, success, double, tries, needed: ENHANCING_TARGET };
+    const tries = Math.max(1, Math.floor(ROOM_SECONDS / seconds + TRIES_SLACK));
+    if (enhancing) return { chance: reachChance(tries, ENHANCING_TARGET, success, double, true), level, success, double, tries, needed: ENHANCING_TARGET, seconds };
     const perSuccess = Math.max(0, Math.floor(level * (1 + b.efficiency)));
     const needed = perSuccess > 0 ? Math.ceil((room.level * 10) / perSuccess - 1e-9) : Infinity;
-    return { chance: Number.isFinite(needed) ? reachChance(tries, needed, success, double, false) : 0, level, success, double, tries, needed };
+    return { chance: Number.isFinite(needed) ? reachChance(tries, needed, success, double, false) : 0, level, success, double, tries, needed, seconds };
 }
 
 // Your side of it, from the character the script keeps: the skill's level, its buffs and the

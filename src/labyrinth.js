@@ -18,8 +18,8 @@ const COARSE_LEVELS = [5, ...Array.from({ length: 20 }, (_, i) => 10 * (i + 1))]
 const FINE_STEP = 2;
 const MAX_FINE = 12;
 
-// Floors: every room seen so far fits room levels 20 × floor + 1 … + 20 (floor 1: 23–40,
-// floor 2: 41–60, floor 3: 79, floor 4: 96), so a floor's middle is 20 a floor up from 30.
+// Floors: a recorded run had room levels 20 × floor … + 20 (floor 1: 21–40, floor 2: 40–60,
+// floor 3: 61–80, floor 4: 80–100, floor 5: 101–120), so a floor's middle is 20 a floor up from 30.
 export const FLOOR_STEP = 20;
 export const FLOOR_ONE_LEVEL = 30;
 export const floorLevel = (floor) => FLOOR_ONE_LEVEL + (floor - 1) * FLOOR_STEP;
@@ -47,9 +47,12 @@ export function labyrinthMonsters(data) {
         .map((m) => m.hrid);
 }
 
-// The crate tier of a kind in the character's Labyrinth slots (null when none).
+// The crate tier of a kind you take into the Labyrinth: the one chosen on the game's Labyrinth
+// page (the settings labyrinthTeaCrateHrid, labyrinthCoffeeCrateHrid, labyrinthFoodCrateHrid),
+// else one in the character's Labyrinth slots (null when none).
 export function slottedCrate(character, kind) {
-    const slots = [...(character?.actionTypeDrinkSlotsMap?.[LABYRINTH] || []), ...(character?.actionTypeFoodSlotsMap?.[LABYRINTH] || [])];
+    const chosen = character?.characterSetting?.[`labyrinth${kind[0].toUpperCase() + kind.slice(1)}CrateHrid`];
+    const slots = [{ itemHrid: chosen }, ...(character?.actionTypeDrinkSlotsMap?.[LABYRINTH] || []), ...(character?.actionTypeFoodSlotsMap?.[LABYRINTH] || [])];
     for (const slot of slots) {
         const tier = CRATE_TIERS.find((t) => slot?.itemHrid === crateHrid(t, kind));
         if (tier) return tier;

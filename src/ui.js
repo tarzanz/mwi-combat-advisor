@@ -65,7 +65,7 @@ import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./m
 import { analyzeImprovements, analyzeLabyrinth, buildLoadout, chosenCrates, floorLevel, labyrinthLoadouts, slottedCrate } from "./labyrinth.js";
 import { attemptsHtml, buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSetting } from "./labyrinth-ui.js";
 import { labyrinthReport } from "./labyrinth-read.js";
-import { askRuns, onRunsChange, runSetup as labyrinthRunSetup, runsState, startLabyrinthRuns } from "./labyrinth-run-sync.js";
+import { askRuns, fittedPenalty, onRunsChange, runSetup as labyrinthRunSetup, runsState, startLabyrinthRuns } from "./labyrinth-run-sync.js";
 import { runsExportLines, runsHtml } from "./labyrinth-run-ui.js";
 import { renderHorizon } from "./horizon-ui.js";
 import { horizonNews, onHorizonChange, sendSnapshot, startHorizonSync } from "./horizon-sync.js";
@@ -371,7 +371,7 @@ function renderLabyrinthTab() {
         cartButton,
         coins,
         attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse()),
-        runs: runsHtml({ run: runsState(), setup: labyrinthRunSetup(ui.settings), settings: ui.settings }),
+        runs: runsHtml({ run: runsState(), setup: labyrinthRunSetup(ui.settings) }),
     });
 }
 
@@ -1679,7 +1679,7 @@ export function mountUI(win, workerSource) {
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
     startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart });
-    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare });
+    startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare, penalty: fittedPenalty });
     startLabyrinthLog({ predict: roomPrediction });
     startLabyrinthRuns({ prepare: () => loadClientData(ui.win) });
     onRunsChange(() => {

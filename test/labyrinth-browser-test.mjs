@@ -45,7 +45,8 @@ character.characterLoadoutMap = {
         wearableMap: Object.fromEntries([...Object.entries(gear).filter(([slot]) => slot !== "two_hand"), ["two_hand", "cedar_crossbow"]].map(([slot, hrid]) => wear(slot, `1::/item_locations/${slot}::/items/${hrid}::0`))),
         abilityMap: { 1: "/abilities/quick_shot" } },
 };
-character.actionTypeDrinkSlotsMap["/action_types/labyrinth"] = [{ itemHrid: "/items/basic_coffee_crate" }, null, null, null];
+// The crates are chosen on the game's Labyrinth page (kept in the character's settings).
+character.characterSetting = { ...(character.characterSetting || {}), labyrinthCoffeeCrateHrid: "/items/basic_coffee_crate", labyrinthTeaCrateHrid: "", labyrinthFoodCrateHrid: "" };
 
 const marketData = {};
 for (const item of Object.values(clientData.itemDetailMap)) {
@@ -127,7 +128,7 @@ try {
     await page.click('[data-tab="labyrinth"]');
     const intro = await body(page);
     check("the tab explains the room rules", /no food or drinks/.test(intro) && /2 minutes/.test(intro), intro.slice(0, 200));
-    check("the crate in the Labyrinth slots is offered", /Your Labyrinth slots \(Basic\)/.test(intro));
+    check("the crate chosen in the game is offered", /As chosen in the game \(Basic\)/.test(intro));
 
     check("both saved loadouts are listed", /Loadouts: Magic, Ranged/.test(intro), intro.match(/Loadouts:[^\n]*/)?.[0]);
 

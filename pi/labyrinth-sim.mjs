@@ -33,8 +33,30 @@ function* recordedStates() {
     }
 }
 
+// The character's logged Labyrinth attempts (labyrinth-store.mjs): what the level penalty of
+// skilling rooms is fitted to.
+function* loggedAttempts() {
+    const dir = path.join(dataDir, "labyrinth");
+    if (!existsSync(dir)) return;
+    const mine = `${request.character?.id ?? ""}|`;
+    const seen = new Set();
+    for (const file of readdirSync(dir).filter((f) => /^\d{4}-\d\d\.jsonl$/.test(f)).sort()) {
+        for (const line of readFileSync(path.join(dir, file), "utf8").split("\n")) {
+            if (!line) continue;
+            try {
+                const attempt = JSON.parse(line).attempt;
+                if (!attempt?.uid || seen.has(attempt.uid) || !String(attempt.uid).startsWith(mine)) continue;
+                seen.add(attempt.uid);
+                yield attempt;
+            } catch {
+                // a line cut short: skipped
+            }
+        }
+    }
+}
+
 // MWIA_LAB_RUNS: the runs per setup (2000 when not set; fewer is quicker and less sure).
-const result = simulateLabyrinth(request, { states: recordedStates(), runs: Number(process.env.MWIA_LAB_RUNS) || undefined });
+const result = simulateLabyrinth(request, { states: recordedStates(), attempts: [...loggedAttempts()], runs: Number(process.env.MWIA_LAB_RUNS) || undefined });
 result.requestAt = request.at ?? null;
 result.character = request.character?.name || null;
 const file = path.join(charDir, "result.json");
