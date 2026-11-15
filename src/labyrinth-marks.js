@@ -32,7 +32,7 @@ const SKIP_BAR = "mwia-laby-skipbar";
 const OURS = `.${MARK}, .${NOTE}, .${CELL_MARK}, .${SKIP_MARK}, .${SKIP_BAR}`;
 
 
-const m = { deps: null, scanTimer: null, stored: undefined, advice: null, filling: null, fillStatus: "" };
+const m = { deps: null, scanTimer: null, stored: undefined, advice: null, filling: null, stopFill: false, fillStatus: "" };
 const pct = (x) => `${Math.round(100 * x)}%`;
 
 // The check, small enough to keep: per monster its best loadout and the win curve.
@@ -256,9 +256,10 @@ function skipMarks(table, advice) {
             el?.remove();
             continue;
         }
-        const same = current === a.value;
+        const editing = !!cell.querySelector(`input:not(.${SKIP_MARK} input)`);
+        const same = current === a.value && !editing;
         if (!same) differ++;
-        const html = same ? "✓" : `👉 ${a.value}`;
+        const html = same ? "✓" : editing && current === a.value ? "👉 Save" : `👉 ${a.value}`;
         const cls = `${SKIP_MARK} ${same ? "mwia-laby-ok" : "mwia-laby-pick"}`;
         if (!el) {
             el = document.createElement("div");
@@ -287,8 +288,13 @@ function skipBar(table, advice, known, differ) {
     else {
         const rule = `${Math.round(100 * advice.rule.target * 10) / 10}% within ${advice.rule.tries} tr${advice.rule.tries === 1 ? "y" : "ies"}`;
         const combat = advice.checkedAt ? "" : " Combat rooms need a <b>Check the rooms</b> first.";
-        const filling = m.filling ? " disabled" : "";
-        const action = differ ? `<button class="mwia-btn" data-mwia-skip-fill${filling}>⚙ Set ${differ} skip level${differ === 1 ? "" : "s"}</button>` : known ? "✓ All skip levels are set." : "";
+        const action = m.filling
+            ? `<button class="mwia-btn" data-mwia-skip-fill>■ Stop</button>`
+            : differ
+              ? `<button class="mwia-btn" data-mwia-skip-fill>✎ Fill in ${differ} skip level${differ === 1 ? "" : "s"}</button>`
+              : known
+                ? "✓ All skip levels are set."
+                : "";
         html = `🧭 Skip levels: try a room only when you clear it ${rule} (👉 the level to set; change the rule in 🧭 → Labyrinth).${combat} ${action}${m.fillStatus ? ` <span>${esc(m.fillStatus)}</span>` : ""}`;
     }
     if (bar.dataset.html !== html) bar.innerHTML = bar.dataset.html = html;
@@ -336,12 +342,22 @@ async function typeSkip(find, value) {
     return fieldValue(find);
 }
 
-// Sets every skip level that differs from the advice in the game: Edit, the value, Save – a row at a time.
+// Fills in every skip level that differs from the advice, a row at a time: Edit and the value, in the
+// game itself – the player taps the game's Save. The game takes a setting only from a real tap: what
+// is sent right after a script's click goes out marked as automated, and the server ignores it. When
+// the game shows the value, the next row is filled in; tapping the button again stops.
+const WAIT_SAVE_MS = 180000;
+const roomName = (a) => (a.skill ? a.skill[0].toUpperCase() + a.skill.slice(1) : getClientData()?.combatMonsterDetailMap?.[a.hrid]?.name || a.hrid || "the");
 export function fillSkipLevels() {
-    if (m.filling) return m.filling;
+    if (m.filling) {
+        m.stopFill = true;
+        return m.filling;
+    }
+    m.stopFill = false;
     m.filling = (async () => {
         let done = 0;
         let problem = "";
+        let total = 0;
         const status = (text) => {
             m.fillStatus = text;
             scheduleScan();
@@ -351,48 +367,53 @@ export function fillSkipLevels() {
             const advice = skipAdviceNow();
             if (!table() || !advice) throw new Error("open the Labyrinth's Automation tab first");
             const todo = rowsWithAdvice(table(), advice).filter((r) => r.advice && r.current !== r.advice.value).map((r) => r.advice);
+            total = todo.length;
             for (const a of todo) {
-                status(`Setting ${done + 1} of ${todo.length}…`);
                 const find = () => {
                     const t = table();
                     return t && rowsWithAdvice(t, advice).find((r) => r.key === a.key);
                 };
                 let r = find();
-                if (!r) throw new Error(`the row for ${a.skill || a.hrid} is gone`);
+                if (!r) throw new Error(`the row for ${roomName(a)} is gone`);
+                if (r.current === a.value && !r.cell.querySelector("input")) {
+                    done++;
+                    continue;
+                }
                 const edit = button(r.cell, "edit");
                 if (edit) edit.click();
-                const input = await waitFor(() => {
-                    const x = find();
-                    return x?.cell.querySelector("input");
-                });
+                const input = await waitFor(() => find()?.cell.querySelector("input"));
                 if (!input) throw new Error("Edit opened no field to type in");
                 const min = input.min !== "" && Number.isFinite(Number(input.min)) ? Number(input.min) : -Infinity;
                 const max = input.max !== "" && Number.isFinite(Number(input.max)) ? Number(input.max) : Infinity;
                 const value = Math.max(min, Math.min(max, a.value));
                 const typed = await typeSkip(find, value);
                 if (typed !== value) throw new Error(`couldn't put ${value} in the field (it shows ${typed ?? "nothing"})`);
-                r = find();
-                const save = r && button(r.cell, "save");
-                if (!save) throw new Error("no Save button next to the field");
-                save.click();
-                // Save closes the field at once; the new level shows when the game's server confirms it.
-                const saved = await waitFor(() => {
+                find()?.row.scrollIntoView({ block: "center", behavior: "smooth" });
+                status(`${done + 1} of ${total}: tap the game's Save in the ${roomName(a)} row (${value}) – the game takes a setting only from your own tap.`);
+                // The player's Save closes the field; the level shows when the game's server confirms it.
+                let closedAt = 0;
+                const outcome = await waitFor(() => {
+                    if (m.stopFill) return "stopped";
                     const x = find();
-                    return x && !x.cell.querySelector("input") && x.current === value ? x : null;
-                }, 8000);
-                if (!saved) {
-                    const x = find();
-                    const field = x?.cell.querySelector("input");
-                    throw new Error(field ? `the game didn't take Save (the field is still open with ${field.value})` : `the game didn't show ${value} after Save (it shows ${x?.current ?? "nothing"})`);
-                }
+                    if (!x) return "gone";
+                    if (x.cell.querySelector("input")) return (closedAt = 0), null;
+                    if (x.current === value) return "saved";
+                    closedAt ||= Date.now();
+                    return Date.now() - closedAt > 8000 ? "kept" : null;
+                }, WAIT_SAVE_MS);
+                if (outcome === "stopped") throw new Error("stopped by you");
+                if (outcome === "gone") throw new Error(`the row for ${roomName(a)} is gone`);
+                if (outcome === "kept") throw new Error(`the game kept ${find()?.current ?? "its value"} for ${roomName(a)} (Edit was left without Save, or the game didn't take it)`);
+                if (!outcome) throw new Error(`no Save for ${roomName(a)} within ${WAIT_SAVE_MS / 60000} minutes`);
                 done++;
             }
         } catch (error) {
             problem = error.message || String(error);
         }
         m.filling = null;
+        m.stopFill = false;
         m.advice = null;
-        status(problem ? `Stopped after ${done}: ${problem}.` : done ? `✓ ${done} set.` : "");
+        status(problem ? `Stopped after ${done} of ${total}: ${problem}.` : done ? `✓ ${done} set.` : "");
         return { done, problem };
     })();
     scheduleScan();

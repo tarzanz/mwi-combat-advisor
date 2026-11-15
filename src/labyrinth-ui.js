@@ -284,7 +284,7 @@ export function skipHtml(advice, settings, maxAttempts) {
       <p>The game's automation skips a room whose level is above yours by the value set for its room type. Set so it only tries rooms you
       clear at least <b>this often within this many tries</b> – the rest it goes around or shrouds – then <b>Max attempts per room</b> can go up without wasting
       time on rooms you don't get past. On the game's Labyrinth → Automation tab each row gets 👉 the value to set (✓ when it is set), and
-      <b>⚙ Set … skip levels</b> above the table sets them all (Edit, the value, Save, row by row).</p>
+      <b>✎ Fill in … skip levels</b> above the table fills them in row by row (Edit and the value) – you tap the game's Save, as the game takes a setting only from a real tap.</p>
       <div class="mwia-settings">
         <label title="The share of the rooms you should clear within the tries">Clear at least <input data-setting="labySkipTarget" type="number" min="50" max="99.9" step="1" size="3" value="${rule ? Math.round(1000 * rule.target) / 10 : 95}">%</label>
         <label title="How many tries the share counts on – usually the game's Max attempts per room">within <input data-setting="labySkipTries" type="number" min="1" max="20" step="1" size="2" value="${rule ? rule.tries : 3}"> tries</label></div>`;

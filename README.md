@@ -478,10 +478,11 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     your level in the skill (with your buffs and the run's tea crate); combat rooms are read off the last *Check the
     rooms* (with the loadout it found best) against your **combat level** – assumed: which level the game compares
     a combat room with isn't known yet (📋 *Read the game's Labyrinth* now lists the Labyrinth settings to find out).
-    On the game's Automation tab each row gets 👉 the value to set (✓ when set), and **⚙ Set N skip levels** above the
-    table sets them all – Edit, the value, Save, row by row, in the game itself (typed, and if the game doesn't take
-    what is typed – as on an iPhone – stepped there with the game's − and +); it stops and says why if a row
-    doesn't take it. The tab lists them per room type too.
+    On the game's Automation tab each row gets 👉 the value to set (✓ when set), and **✎ Fill in N skip levels** above
+    the table fills them in row by row in the game itself – Edit and the value (typed, and if the game doesn't take
+    what is typed – as on an iPhone – stepped there with the game's − and +) – and **you tap the game's Save**; when
+    the game shows it, the next row is filled in (■ Stop ends it). The game takes a setting only from a real tap:
+    one sent right after a script's click goes out marked as automated, and the server ignores it. The tab lists them per room type too.
   - **Marks on the Labyrinth map** – in a run, every room with a monster in sight gets a frame in the verdict's
     colour (green: you win at least 90% of such rooms, yellow: at least half, red: less), at that room's own level as
     the game sends it, and the share won in tiny type at its right, halfway down (the rest of the cell is the game's).

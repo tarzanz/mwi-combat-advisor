@@ -67,6 +67,9 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
   // The skip level's Edit, as the game has it: − + a field and Save in its place. The field shows what the game
   // holds (typed: an input event, as React reads it; − and + a step each); Save closes it at once and the new
   // level shows when the server confirms it. The Dryad's field ignores typing (as on an iPhone) – − and + still work.
+  // A Save clicked by a script (not a player's tap) goes out marked as automated, and the server ignores it: the
+  // field closes and the old level stays. (window.playerTap stands for a player's tap: the advisor's panel lies
+  // over the fake game, so a real one can't be aimed at it.)
   const held = new WeakMap();
   const draw = (box) => (box.querySelector("input").value = held.get(box));
   document.addEventListener("click", (e) => {
@@ -85,7 +88,7 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
       draw(box);
     } else if (label === "Save") {
       const old = box.dataset.shown || "100";
-      const typed = held.get(box);
+      const typed = e.isTrusted || window.playerTap ? held.get(box) : old;
       box.innerHTML = "<span>≥ " + old + "</span><button>Edit</button>";
       setTimeout(() => {
         box.dataset.shown = typed;
@@ -216,14 +219,42 @@ try {
     let skips = await skipMarks();
     check("skip levels: a value to set on every row", skips.every((x) => /^👉 -?\d+$/.test(x[2])), JSON.stringify(skips));
     const bar = await page.$eval(".mwia-laby-skipbar", (n) => n.textContent).catch(() => "");
-    check("skip levels: the bar names the rule and offers to set them", /95% within 3 tries/.test(bar) && /Set 4 skip levels/.test(bar), bar);
+    check("skip levels: the bar names the rule and offers to fill them in", /95% within 3 tries/.test(bar) && /Fill in 4 skip levels/.test(bar), bar);
     // (the advisor's panel lies over the fake game: the button is clicked as a tap on it would)
     await page.$eval("[data-mwia-skip-fill]", (b) => b.click());
+    const fieldOpen = (n) =>
+        page
+            .waitForFunction((n) => new RegExp(`${n} of 4: tap the game's Save`).test(document.querySelector(".mwia-laby-skipbar")?.textContent || "") && document.querySelector("[class*=skipThreshold] input"), { timeout: 15000 }, n)
+            .then(() => true, () => false);
+    const opened = [];
+    for (let i = 0; i < 4; i++) {
+        if (!(await fieldOpen(i + 1))) break;
+        const seen = await page.evaluate(() => {
+            const box = document.querySelector("[class*=skipThreshold] input").closest("[class*=skipThreshold]");
+            const tr = box.closest("tr");
+            return { room: tr.querySelector("span").textContent, typed: box.querySelector("input").value, mark: tr.querySelector(".mwia-laby-skip")?.textContent || "", bar: document.querySelector(".mwia-laby-skipbar").textContent };
+        });
+        opened.push(seen);
+        if (i === 0) {
+            // Nothing is saved by the advisor: the field waits for the player's tap.
+            await new Promise((r) => setTimeout(r, 1500));
+            const still = await page.evaluate(() => !!document.querySelector("[class*=skipThreshold] input"));
+            check("skip levels: the advisor fills in the field and waits for the player's Save", still && /1 of 4: tap the game's Save in the Milking row \(-?\d+\)/.test(seen.bar) && seen.mark === "👉 Save", JSON.stringify(seen));
+        }
+        await page.evaluate(() => {
+            const box = document.querySelector("[class*=skipThreshold] input").closest("[class*=skipThreshold]");
+            window.playerTap = true;
+            [...box.querySelectorAll("button")].find((b) => b.textContent === "Save").click();
+            window.playerTap = false;
+        });
+        await page.waitForFunction((n) => !document.querySelector("[class*=skipThreshold] input") || n === 3, { timeout: 5000 }, i).catch(() => {});
+    }
+    check("skip levels: each row filled in with its value in turn (the Dryad's stepped with − and +)", opened.length === 4 && opened.map((x) => x.room).join() === "Milking,Cyclops,Dryad,Mimic" && opened.every((x) => /^-?\d+$/.test(x.typed) && x.typed !== "100"), JSON.stringify(opened));
     await page.waitForFunction(() => /✓ 4 set/.test(document.querySelector(".mwia-laby-skipbar")?.textContent || ""), { timeout: 15000 }).catch(() => {});
     await new Promise((r) => setTimeout(r, 600));
     skips = await skipMarks();
     const barAfter = await page.$eval(".mwia-laby-skipbar", (n) => n.textContent).catch(() => "");
-    check("skip levels: all four set through Edit and Save, then ✓", skips.every((x) => /^≥ -?\d+$/.test(x[1]) && x[1] !== "≥ 100" && x[2] === "✓") && /All skip levels are set/.test(barAfter), JSON.stringify(skips) + " " + barAfter);
+    check("skip levels: all four set by the player's Save, then ✓", skips.every((x) => /^≥ -?\d+$/.test(x[1]) && x[1] !== "≥ 100" && x[2] === "✓") && /All skip levels are set/.test(barAfter), JSON.stringify(skips) + " " + barAfter);
     const skipTab = await domText(page);
     const skipSection = skipTab.slice(skipTab.indexOf("Skip levels for"), skipTab.indexOf("How far do you get?"));
     check("skip levels: the tab lists each room type with the level tried up to and the value", /Milking\s*\d+\s*(Lv\.\d+|–)\s*≥ -?\d+/.test(skipSection) && /Cyclops/.test(skipSection) && /your combat level \d+/.test(skipSection), skipSection.slice(-900));

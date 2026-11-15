@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.82.1
+// @version      0.83.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5137,7 +5137,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.82.1" : "dev";
+  var VERSION = true ? "0.83.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -9518,7 +9518,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var SKIP_MARK = "mwia-laby-skip";
   var SKIP_BAR = "mwia-laby-skipbar";
   var OURS = `.${MARK}, .${NOTE}, .${CELL_MARK}, .${SKIP_MARK}, .${SKIP_BAR}`;
-  var m = { deps: null, scanTimer: null, stored: void 0, advice: null, filling: null, fillStatus: "" };
+  var m = { deps: null, scanTimer: null, stored: void 0, advice: null, filling: null, stopFill: false, fillStatus: "" };
   var pct4 = (x) => `${Math.round(100 * x)}%`;
   function rememberLabyrinth(lab) {
     if (!lab) return;
@@ -9704,9 +9704,10 @@ i.mwia-history-bid { background: #7ee2b0; }
         el?.remove();
         continue;
       }
-      const same2 = current === a.value;
+      const editing = !!cell.querySelector(`input:not(.${SKIP_MARK} input)`);
+      const same2 = current === a.value && !editing;
       if (!same2) differ++;
-      const html = same2 ? "\u2713" : `\u{1F449} ${a.value}`;
+      const html = same2 ? "\u2713" : editing && current === a.value ? "\u{1F449} Save" : `\u{1F449} ${a.value}`;
       const cls = `${SKIP_MARK} ${same2 ? "mwia-laby-ok" : "mwia-laby-pick"}`;
       if (!el) {
         el = document.createElement("div");
@@ -9734,8 +9735,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     else {
       const rule = `${Math.round(100 * advice.rule.target * 10) / 10}% within ${advice.rule.tries} tr${advice.rule.tries === 1 ? "y" : "ies"}`;
       const combat = advice.checkedAt ? "" : " Combat rooms need a <b>Check the rooms</b> first.";
-      const filling = m.filling ? " disabled" : "";
-      const action = differ ? `<button class="mwia-btn" data-mwia-skip-fill${filling}>\u2699 Set ${differ} skip level${differ === 1 ? "" : "s"}</button>` : known ? "\u2713 All skip levels are set." : "";
+      const action = m.filling ? `<button class="mwia-btn" data-mwia-skip-fill>\u25A0 Stop</button>` : differ ? `<button class="mwia-btn" data-mwia-skip-fill>\u270E Fill in ${differ} skip level${differ === 1 ? "" : "s"}</button>` : known ? "\u2713 All skip levels are set." : "";
       html = `\u{1F9ED} Skip levels: try a room only when you clear it ${rule} (\u{1F449} the level to set; change the rule in \u{1F9ED} \u2192 Labyrinth).${combat} ${action}${m.fillStatus ? ` <span>${esc(m.fillStatus)}</span>` : ""}`;
     }
     if (bar.dataset.html !== html) bar.innerHTML = bar.dataset.html = html;
@@ -9775,11 +9775,18 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return fieldValue(find);
   }
+  var WAIT_SAVE_MS = 18e4;
+  var roomName = (a) => a.skill ? a.skill[0].toUpperCase() + a.skill.slice(1) : getClientData()?.combatMonsterDetailMap?.[a.hrid]?.name || a.hrid || "the";
   function fillSkipLevels() {
-    if (m.filling) return m.filling;
+    if (m.filling) {
+      m.stopFill = true;
+      return m.filling;
+    }
+    m.stopFill = false;
     m.filling = (async () => {
       let done2 = 0;
       let problem = "";
+      let total = 0;
       const status2 = (text) => {
         m.fillStatus = text;
         scheduleScan8();
@@ -9789,47 +9796,52 @@ i.mwia-history-bid { background: #7ee2b0; }
         const advice = skipAdviceNow();
         if (!table() || !advice) throw new Error("open the Labyrinth's Automation tab first");
         const todo = rowsWithAdvice(table(), advice).filter((r2) => r2.advice && r2.current !== r2.advice.value).map((r2) => r2.advice);
+        total = todo.length;
         for (const a of todo) {
-          status2(`Setting ${done2 + 1} of ${todo.length}\u2026`);
           const find = () => {
             const t4 = table();
             return t4 && rowsWithAdvice(t4, advice).find((r3) => r3.key === a.key);
           };
           let r2 = find();
-          if (!r2) throw new Error(`the row for ${a.skill || a.hrid} is gone`);
+          if (!r2) throw new Error(`the row for ${roomName(a)} is gone`);
+          if (r2.current === a.value && !r2.cell.querySelector("input")) {
+            done2++;
+            continue;
+          }
           const edit = button(r2.cell, "edit");
           if (edit) edit.click();
-          const input = await waitFor2(() => {
-            const x = find();
-            return x?.cell.querySelector("input");
-          });
+          const input = await waitFor2(() => find()?.cell.querySelector("input"));
           if (!input) throw new Error("Edit opened no field to type in");
           const min = input.min !== "" && Number.isFinite(Number(input.min)) ? Number(input.min) : -Infinity;
           const max = input.max !== "" && Number.isFinite(Number(input.max)) ? Number(input.max) : Infinity;
           const value = Math.max(min, Math.min(max, a.value));
           const typed = await typeSkip(find, value);
           if (typed !== value) throw new Error(`couldn't put ${value} in the field (it shows ${typed ?? "nothing"})`);
-          r2 = find();
-          const save6 = r2 && button(r2.cell, "save");
-          if (!save6) throw new Error("no Save button next to the field");
-          save6.click();
-          const saved = await waitFor2(() => {
+          find()?.row.scrollIntoView({ block: "center", behavior: "smooth" });
+          status2(`${done2 + 1} of ${total}: tap the game's Save in the ${roomName(a)} row (${value}) \u2013 the game takes a setting only from your own tap.`);
+          let closedAt = 0;
+          const outcome = await waitFor2(() => {
+            if (m.stopFill) return "stopped";
             const x = find();
-            return x && !x.cell.querySelector("input") && x.current === value ? x : null;
-          }, 8e3);
-          if (!saved) {
-            const x = find();
-            const field = x?.cell.querySelector("input");
-            throw new Error(field ? `the game didn't take Save (the field is still open with ${field.value})` : `the game didn't show ${value} after Save (it shows ${x?.current ?? "nothing"})`);
-          }
+            if (!x) return "gone";
+            if (x.cell.querySelector("input")) return closedAt = 0, null;
+            if (x.current === value) return "saved";
+            closedAt || (closedAt = Date.now());
+            return Date.now() - closedAt > 8e3 ? "kept" : null;
+          }, WAIT_SAVE_MS);
+          if (outcome === "stopped") throw new Error("stopped by you");
+          if (outcome === "gone") throw new Error(`the row for ${roomName(a)} is gone`);
+          if (outcome === "kept") throw new Error(`the game kept ${find()?.current ?? "its value"} for ${roomName(a)} (Edit was left without Save, or the game didn't take it)`);
+          if (!outcome) throw new Error(`no Save for ${roomName(a)} within ${WAIT_SAVE_MS / 6e4} minutes`);
           done2++;
         }
       } catch (error) {
         problem = error.message || String(error);
       }
       m.filling = null;
+      m.stopFill = false;
       m.advice = null;
-      status2(problem ? `Stopped after ${done2}: ${problem}.` : done2 ? `\u2713 ${done2} set.` : "");
+      status2(problem ? `Stopped after ${done2} of ${total}: ${problem}.` : done2 ? `\u2713 ${done2} set.` : "");
       return { done: done2, problem };
     })();
     scheduleScan8();
@@ -12368,7 +12380,7 @@ ${triggerWindowReport()}`, false);
       <p>The game's automation skips a room whose level is above yours by the value set for its room type. Set so it only tries rooms you
       clear at least <b>this often within this many tries</b> \u2013 the rest it goes around or shrouds \u2013 then <b>Max attempts per room</b> can go up without wasting
       time on rooms you don't get past. On the game's Labyrinth \u2192 Automation tab each row gets \u{1F449} the value to set (\u2713 when it is set), and
-      <b>\u2699 Set \u2026 skip levels</b> above the table sets them all (Edit, the value, Save, row by row).</p>
+      <b>\u270E Fill in \u2026 skip levels</b> above the table fills them in row by row (Edit and the value) \u2013 you tap the game's Save, as the game takes a setting only from a real tap.</p>
       <div class="mwia-settings">
         <label title="The share of the rooms you should clear within the tries">Clear at least <input data-setting="labySkipTarget" type="number" min="50" max="99.9" step="1" size="3" value="${rule ? Math.round(1e3 * rule.target) / 10 : 95}">%</label>
         <label title="How many tries the share counts on \u2013 usually the game's Max attempts per room">within <input data-setting="labySkipTries" type="number" min="1" max="20" step="1" size="2" value="${rule ? rule.tries : 3}"> tries</label></div>`;
@@ -12768,7 +12780,7 @@ ${triggerWindowReport()}`, false);
   var signed2 = (x) => `${x > 0 ? "+" : x < 0 ? "\u2212" : ""}${Math.abs(x).toFixed(2)}`;
   var short3 = (n5) => n5 >= 1e9 ? `${(n5 / 1e9).toFixed(1)}B` : n5 >= 1e6 ? `${(n5 / 1e6).toFixed(1)}M` : n5 >= 1e3 ? `${Math.round(n5 / 1e3)}k` : String(Math.round(n5));
   var when = (at2) => new Date(at2).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  var roomName = (r2) => r2.type === "combat" ? monsterName(`/monsters/${r2.what}`) : cap3(r2.what);
+  var roomName2 = (r2) => r2.type === "combat" ? monsterName(`/monsters/${r2.what}`) : cap3(r2.what);
   var GROUPS = [
     ["shop", "Labyrinth shop"],
     ["skill", "Skills"],
@@ -12848,7 +12860,7 @@ ${triggerWindowReport()}`, false);
     const seen = result.shroudsSeen;
     if (seen?.used) html += `<p class="mwia-dim">Better shrouds are counted by the wiki's rule (a shroud fails 2% per room level above its cap). In your recorded runs ${seen.used} shroud${seen.used === 1 ? " was" : "s were"} used above the cap and ${seen.worked} worked, where the rule expected about ${seen.expected}${seen.worked > seen.expected + 1 ? " \u2013 they may fail less than the rule says, and better shrouds then give less than shown" : ""}.</p>`;
     html += `<details class="mwia-skill-sec"><summary>Room by room</summary><table class="mwia-table"><thead><tr><th>Room</th><th title="The highest room level where you get past it at least half the time within your tries">Passed up to</th><th title="Tries a run">Tries</th><th title="Tries lost a run: 2 minutes each">Lost</th><th title="Shrouds used on it a run">\u{1F32B}</th><th title="Rooms a run given up after your tries">Given up</th></tr></thead><tbody>
-      ${result.rooms.map((x) => `<tr><td>${esc(roomName(x))}${x.loadout ? ` <span class="mwia-dim">${esc(x.loadout)}</span>` : ""}</td><td>Lv.${x.passes}</td><td>${x.tries.toFixed(1)}</td><td>${x.lost.toFixed(1)}</td><td>${x.shrouds ? x.shrouds.toFixed(1) : ""}</td><td>${x.gaveUp ? x.gaveUp.toFixed(2) : ""}</td></tr>`).join("")}</tbody></table>
+      ${result.rooms.map((x) => `<tr><td>${esc(roomName2(x))}${x.loadout ? ` <span class="mwia-dim">${esc(x.loadout)}</span>` : ""}</td><td>Lv.${x.passes}</td><td>${x.tries.toFixed(1)}</td><td>${x.lost.toFixed(1)}</td><td>${x.shrouds ? x.shrouds.toFixed(1) : ""}</td><td>${x.gaveUp ? x.gaveUp.toFixed(2) : ""}</td></tr>`).join("")}</tbody></table>
       <p class="mwia-dim">The weakest first. A room type far below a floor's levels shows few tries: it is gone around or shrouded.</p></details>`;
     const learned = result.model.rooms ? `${result.model.rooms} rooms of ${result.model.runs} recorded run${result.model.runs === 1 ? "" : "s"}${result.model.learnedFloors.length ? ` (floor${result.model.learnedFloors.length > 1 ? "s" : ""} ${result.model.learnedFloors.join(", ")} as recorded)` : " (too few yet to replace the assumed levels)"}` : "none recorded yet";
     html += `<p class="mwia-dim">As your recorded runs showed the game (${learned}): a torch for each room entered \u2013 treasure rooms and the way down too \u2013 and none for trying a room again; a shroud clears a room without a torch;
@@ -13104,12 +13116,12 @@ ${triggerWindowReport()}`, false);
     return `in ${Math.round(minutes / 60)} h`;
   }
   var plusName = (hrid, level) => `${esc(itemName(hrid))}${level ? ` +${level}` : ""}`;
-  var roomName2 = (hrid) => String(hrid || "").split("/").pop().split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  var roomName3 = (hrid) => String(hrid || "").split("/").pop().split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   function purchaseText2(x, day) {
     const when2 = day === null ? "" : `Day ${dayText(day)}: `;
     const verb = (word) => day === null ? word.charAt(0).toUpperCase() + word.slice(1) : word;
     const gain = ` (+${coins8(x.gainPerDay)}/day)`;
-    if (x.kind === "house") return `\u{1F3E0} ${when2}${verb("build")} the ${esc(roomName2(x.roomHrid))} to level ${x.level} for ${coins8(x.price)}${gain}`;
+    if (x.kind === "house") return `\u{1F3E0} ${when2}${verb("build")} the ${esc(roomName3(x.roomHrid))} to level ${x.level} for ${coins8(x.price)}${gain}`;
     const icon = x.gear ? "\u{1F455}" : "\u{1F6E0}";
     const what = day === null ? `<b>${plusName(x.itemHrid, x.level)}</b>` : plusName(x.itemHrid, x.level);
     const sold = x.sold ? `, sell ${plusName(x.sold, x.soldLevel)} for ${coins8(x.resale)}` : "";
@@ -13185,7 +13197,7 @@ ${triggerWindowReport()}`, false);
     }).join("");
     const buys = p2.purchases.map((x) => `<li>${purchaseText2(x, x.day)}</li>`).join("");
     const levels = Object.entries(p2.levels).map(([skill, [from, to]]) => `${skillLabel4(skill)} ${from} \u2192 ${to}`).join(", ");
-    const house = Object.entries(p2.house || {}).map(([room, [from, to]]) => `${esc(roomName2(room))} ${from} \u2192 ${to}`).join(", ");
+    const house = Object.entries(p2.house || {}).map(([room, [from, to]]) => `${esc(roomName3(room))} ${from} \u2192 ${to}`).join(", ");
     return `<table class="mwia-horizon-steps"><thead><tr><th>When</th><th>Job</th><th>Gold</th><th>XP</th></tr></thead><tbody>${segs}</tbody></table>
       ${buys ? `<p><b>Tools, clothes and house</b></p><ul>${buys}</ul>` : ""}
       ${levels ? `<p><b>Levels</b>: ${levels}</p>` : ""}
@@ -14346,7 +14358,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.82.1" : "dev";
+  var VERSION3 = true ? "0.83.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
