@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.82.0
+// @version      0.82.1
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -5137,7 +5137,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.82.0" : "dev";
+  var VERSION = true ? "0.82.1" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -9749,6 +9749,32 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     return null;
   }
+  var fieldOf = (find) => find()?.cell.querySelector("input") || null;
+  var fieldValue = (find) => {
+    const input = fieldOf(find);
+    return input && input.value !== "" && Number.isFinite(Number(input.value)) ? Number(input.value) : null;
+  };
+  function nudge(find, label3) {
+    const r2 = find();
+    const b = r2 && button(r2.cell, label3);
+    if (!b) return false;
+    b.click();
+    return true;
+  }
+  async function typeSkip(find, value) {
+    const input = fieldOf(find);
+    if (!input) return null;
+    setReactInput(input, value);
+    await sleep2(80);
+    if (nudge(find, "+") && nudge(find, "\u2212")) await sleep2(50);
+    for (let i = 0; i < 2e3; i++) {
+      const now2 = fieldValue(find);
+      if (now2 === null || now2 === value) return now2;
+      if (!nudge(find, now2 > value ? "\u2212" : "+")) return now2;
+      if (i % 25 === 24) await sleep2(20);
+    }
+    return fieldValue(find);
+  }
   function fillSkipLevels() {
     if (m.filling) return m.filling;
     m.filling = (async () => {
@@ -9781,8 +9807,8 @@ i.mwia-history-bid { background: #7ee2b0; }
           const min = input.min !== "" && Number.isFinite(Number(input.min)) ? Number(input.min) : -Infinity;
           const max = input.max !== "" && Number.isFinite(Number(input.max)) ? Number(input.max) : Infinity;
           const value = Math.max(min, Math.min(max, a.value));
-          setReactInput(input, value);
-          await sleep2(80);
+          const typed = await typeSkip(find, value);
+          if (typed !== value) throw new Error(`couldn't put ${value} in the field (it shows ${typed ?? "nothing"})`);
           r2 = find();
           const save6 = r2 && button(r2.cell, "save");
           if (!save6) throw new Error("no Save button next to the field");
@@ -9790,8 +9816,12 @@ i.mwia-history-bid { background: #7ee2b0; }
           const saved = await waitFor2(() => {
             const x = find();
             return x && !x.cell.querySelector("input") && x.current === value ? x : null;
-          }, 4e3);
-          if (!saved) throw new Error(`the game didn't show ${value} after Save`);
+          }, 8e3);
+          if (!saved) {
+            const x = find();
+            const field = x?.cell.querySelector("input");
+            throw new Error(field ? `the game didn't take Save (the field is still open with ${field.value})` : `the game didn't show ${value} after Save (it shows ${x?.current ?? "nothing"})`);
+          }
           done2++;
         }
       } catch (error) {
@@ -14316,7 +14346,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.82.0" : "dev";
+  var VERSION3 = true ? "0.82.1" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();

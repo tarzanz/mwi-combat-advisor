@@ -304,6 +304,38 @@ async function waitFor(read, ms = 2500) {
     return null;
 }
 
+// The field's value as the game holds it: a tap on + and then − makes the game draw the
+// field again from what it holds (what was typed may only be in the page, not in the game).
+const fieldOf = (find) => find()?.cell.querySelector("input") || null;
+const fieldValue = (find) => {
+    const input = fieldOf(find);
+    return input && input.value !== "" && Number.isFinite(Number(input.value)) ? Number(input.value) : null;
+};
+function nudge(find, label) {
+    const r = find();
+    const b = r && button(r.cell, label);
+    if (!b) return false;
+    b.click();
+    return true;
+}
+
+// Puts the value in the open field: typed as a keystroke would, and if the game didn't
+// take that, stepped there with the game's − and + (a click a step). Returns what the game holds.
+async function typeSkip(find, value) {
+    const input = fieldOf(find);
+    if (!input) return null;
+    setReactInput(input, value);
+    await sleep(80);
+    if (nudge(find, "+") && nudge(find, "−")) await sleep(50);
+    for (let i = 0; i < 2000; i++) {
+        const now = fieldValue(find);
+        if (now === null || now === value) return now;
+        if (!nudge(find, now > value ? "−" : "+")) return now;
+        if (i % 25 === 24) await sleep(20);
+    }
+    return fieldValue(find);
+}
+
 // Sets every skip level that differs from the advice in the game: Edit, the value, Save – a row at a time.
 export function fillSkipLevels() {
     if (m.filling) return m.filling;
@@ -337,17 +369,22 @@ export function fillSkipLevels() {
                 const min = input.min !== "" && Number.isFinite(Number(input.min)) ? Number(input.min) : -Infinity;
                 const max = input.max !== "" && Number.isFinite(Number(input.max)) ? Number(input.max) : Infinity;
                 const value = Math.max(min, Math.min(max, a.value));
-                setReactInput(input, value);
-                await sleep(80);
+                const typed = await typeSkip(find, value);
+                if (typed !== value) throw new Error(`couldn't put ${value} in the field (it shows ${typed ?? "nothing"})`);
                 r = find();
                 const save = r && button(r.cell, "save");
                 if (!save) throw new Error("no Save button next to the field");
                 save.click();
+                // Save closes the field at once; the new level shows when the game's server confirms it.
                 const saved = await waitFor(() => {
                     const x = find();
                     return x && !x.cell.querySelector("input") && x.current === value ? x : null;
-                }, 4000);
-                if (!saved) throw new Error(`the game didn't show ${value} after Save`);
+                }, 8000);
+                if (!saved) {
+                    const x = find();
+                    const field = x?.cell.querySelector("input");
+                    throw new Error(field ? `the game didn't take Save (the field is still open with ${field.value})` : `the game didn't show ${value} after Save (it shows ${x?.current ?? "nothing"})`);
+                }
                 done++;
             }
         } catch (error) {

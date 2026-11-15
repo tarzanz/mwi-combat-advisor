@@ -64,18 +64,33 @@ const page_html = `<!doctype html><html><head><meta charset="utf-8"><meta name="
     <tr><td><div class="LabyrinthPanel_roomLabel__Sju5O"><svg width="16" height="16"><use href="/static/media/sprite.svg#mimic"></use></svg><span>Mimic</span></div></td><td><div class="Dropdown_dropdown__1E7is"><div role="combobox" class="MuiSelect-select MuiSelect-standard">No Loadout</div><input aria-hidden="true" tabindex="-1" class="MuiSelect-nativeInput css-1k3x8v3" value="0"></div></td><td><div class="LabyrinthPanel_skipThreshold__1qXz5"><span>≥ 100</span><button>Edit</button></div></td></tr>
   </tbody></table></div></div>
 <script>
-  // The skip level's Edit, as the game has it: − + a field and Save in its place; Save keeps what was typed (an input event, as React reads it).
+  // The skip level's Edit, as the game has it: − + a field and Save in its place. The field shows what the game
+  // holds (typed: an input event, as React reads it; − and + a step each); Save closes it at once and the new
+  // level shows when the server confirms it. The Dryad's field ignores typing (as on an iPhone) – − and + still work.
+  const held = new WeakMap();
+  const draw = (box) => (box.querySelector("input").value = held.get(box));
   document.addEventListener("click", (e) => {
     const box = e.target.closest("[class*=skipThreshold]");
     if (!box || e.target.tagName !== "BUTTON") return;
-    if (e.target.textContent === "Edit") {
+    const label = e.target.textContent;
+    if (label === "Edit") {
       const value = box.querySelector("span").textContent.replace("≥", "").trim();
-      box.innerHTML = '<button>−</button><button>+</button><input type="number" value="' + value + '"><button>Save</button>';
-      box.querySelector("input").dataset.typed = value;
-      box.querySelector("input").addEventListener("input", (ev) => (ev.target.dataset.typed = ev.target.value));
-    } else if (e.target.textContent === "Save") {
-      const typed = box.querySelector("input").dataset.typed;
-      setTimeout(() => (box.innerHTML = "<span>≥ " + typed + "</span><button>Edit</button>"), 100);
+      held.set(box, value);
+      box.innerHTML = '<button>−</button><button>+</button><input type="number"><button>Save</button>';
+      draw(box);
+      const deaf = box.closest("tr").textContent.includes("Dryad");
+      box.querySelector("input").addEventListener("input", (ev) => deaf || held.set(box, ev.target.value));
+    } else if (label === "−" || label === "+") {
+      held.set(box, String(Number(held.get(box)) + (label === "+" ? 1 : -1)));
+      draw(box);
+    } else if (label === "Save") {
+      const old = box.dataset.shown || "100";
+      const typed = held.get(box);
+      box.innerHTML = "<span>≥ " + old + "</span><button>Edit</button>";
+      setTimeout(() => {
+        box.dataset.shown = typed;
+        box.innerHTML = "<span>≥ " + typed + "</span><button>Edit</button>";
+      }, 600);
     }
   });
 </script>

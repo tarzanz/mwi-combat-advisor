@@ -479,7 +479,8 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
     rooms* (with the loadout it found best) against your **combat level** – assumed: which level the game compares
     a combat room with isn't known yet (📋 *Read the game's Labyrinth* now lists the Labyrinth settings to find out).
     On the game's Automation tab each row gets 👉 the value to set (✓ when set), and **⚙ Set N skip levels** above the
-    table sets them all – Edit, the value, Save, row by row, in the game itself; it stops and says why if a row
+    table sets them all – Edit, the value, Save, row by row, in the game itself (typed, and if the game doesn't take
+    what is typed – as on an iPhone – stepped there with the game's − and +); it stops and says why if a row
     doesn't take it. The tab lists them per room type too.
   - **Marks on the Labyrinth map** – in a run, every room with a monster in sight gets a frame in the verdict's
     colour (green: you win at least 90% of such rooms, yellow: at least half, red: less), at that room's own level as
