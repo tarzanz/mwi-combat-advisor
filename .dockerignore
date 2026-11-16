@@ -21,3 +21,5 @@
 !pi/labyrinth-sim-store.mjs
 !pi/labyrinth-sim.mjs
 !pi/one-at-a-time.mjs
+!pi/labyrinth-combat-store.mjs
+!dist/pi-labyrinth-combat.mjs

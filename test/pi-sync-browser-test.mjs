@@ -92,7 +92,7 @@ const PI_PORT = 20000 + Math.floor(Math.random() * 20000);
 const piUrl = `http://127.0.0.1:${PI_PORT}`;
 let pi = null;
 async function startPi() {
-    pi = spawn("node", [path.join(root, "pi/server.mjs")], { env: { ...process.env, MWIA_KEY: KEY, MWIA_DATA: piData, PORT: String(PI_PORT), MWIA_MARKET_URL: `${origin}/game_data/marketplace.json`, MWIA_ORIGINS: origin, MWIA_ORDERS: "1", MWIA_LAB_RUNS: "200" }, stdio: "ignore" });
+    pi = spawn("node", [path.join(root, "pi/server.mjs")], { env: { ...process.env, MWIA_KEY: KEY, MWIA_DATA: piData, PORT: String(PI_PORT), MWIA_MARKET_URL: `${origin}/game_data/marketplace.json`, MWIA_ORIGINS: origin, MWIA_ORDERS: "1", MWIA_LAB_RUNS: "200", MWIA_LAB_COMBAT_WORKERS: "1" }, stdio: "ignore" });
     const want = new Date((fileHour * 3600 + 360) * 1000).toISOString();
     for (let k = 0; k < 50; k++) {
         const st = await fetch(piUrl + "/status").then((r) => r.json()).catch(() => null);
@@ -262,6 +262,41 @@ try {
     }
     const statesHere = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-states") || "null"));
     check("labyrinth: the game's states are on the Pi, whole, none left to send", statesOnPi.length >= 2 && statesOnPi.some((x) => x.state.labyrinth.roomData[0][0].failCount === 1 && x.state.labyrinth.startedAt === "t0") && statesHere?.queue?.length === 0, JSON.stringify({ pi: statesOnPi.map((x) => x.uid), here: statesHere?.queue?.length }));
+    // The Labyrinth's combat rooms, worked out on the Pi: the page sends the game's data (gzipped) and the loadouts by itself,
+    // the Pi works them out at once the first time (then every night), the Labyrinth tab shows the result and the map's marks use it.
+    await page.click(".mwia-launcher");
+    await page.waitForSelector(".mwia-panel:not(.mwia-hidden)");
+    await page.click('[data-tab="labyrinth"]');
+    // (the Pi's run done – not only its first parts shown – before the test goes on: it would slow down what follows)
+    // (waited for a minute at a time: one wait for longer runs into the browser protocol's own time limit)
+    for (let k = 0; k < 15; k++) {
+        const ready = await page
+            .waitForFunction(() => /Upgrades for each loadout/.test(document.querySelector(".mwia-body")?.innerText || "") && !/Working on it now|Waiting for the Pi/.test(document.querySelector(".mwia-body")?.innerText || ""), { timeout: 60000, polling: 2000 })
+            .then(() => true, () => false);
+        if (ready) break;
+    }
+    const combatShown = await page.$eval(".mwia-body", (n) => n.innerText).catch(() => "");
+    // (the process ends a moment after its result is written)
+    let onPiCombat = null;
+    for (let k = 0; k < 60; k++) {
+        onPiCombat = await fetch(`${piUrl}/labyrinth/combat?character=${character.character.id}`, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json()).catch(() => null);
+        if (onPiCombat?.result?.done && !onPiCombat.status.running) break;
+        await new Promise((r) => setTimeout(r, 1000));
+    }
+    let piRequest = { setups: [], settings: {} };
+    try {
+        piRequest = JSON.parse(readFileSync(path.join(piData, "labyrinth", "combat", String(character.character.id), "request.json"), "utf8"));
+    } catch {
+        console.log("no request on the Pi; the tab says: " + combatShown.slice(0, 1500));
+    }
+    const piLog = await fetch(`${piUrl}/labyrinth/combat?character=${character.character.id}`, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json()).catch(() => null);
+    check("combat on the Pi: the game's data and the loadouts sent by themselves, worked out at once (once)", !!onPiCombat?.dataHash && !piLog?.status?.queued && !piLog?.status?.running && onPiCombat.result?.done && onPiCombat.result.lab.monsters.length === 10 && onPiCombat.result.builds.length >= 1 && onPiCombat.status.error === null
+        && piRequest.setups.length >= 1 && piRequest.settings.accuracy === "normal" && piRequest.setups.every((s) => s.profile.inventory.every((i) => clientData.itemDetailMap[i.hrid]?.equipmentDetail)), JSON.stringify(onPiCombat && { status: onPiCombat.status, hash: onPiCombat.dataHash, stage: onPiCombat.result?.stage }));
+    check("combat on the Pi: the tab shows it – when, the rooms, the upgrades for each loadout, a run now", /Your Pi works out Check the rooms, What should I improve\? and a loadout build for each loadout in use every night at/.test(combatShown) && /Shown: worked out /.test(combatShown)
+        && /worked out on your Pi/.test(combatShown) && /What takes you further/.test(combatShown) && /Upgrades for each loadout \(from your Pi/.test(combatShown) && /Work it out on the Pi now/.test(combatShown), combatShown.slice(0, 1200));
+    const keptCheck = await page.evaluate(() => JSON.parse(localStorage.getItem("mwia-laby-check") || "null"));
+    check("combat on the Pi: the map's marks and skip levels use the Pi's check", keptCheck?.fromPi === true && keptCheck.at === onPiCombat?.result?.at && keptCheck.monsters.length === 10, JSON.stringify(keptCheck && { at: keptCheck.at, fromPi: keptCheck.fromPi }));
+    await page.$eval('.mwia-panel [data-action="close"]', (b) => b.click()).catch(() => null);
     // Whole runs, simulated on the Pi: the Labyrinth tab asks with the kept check, the Pi works it out, the tab shows it.
     await page.click(".mwia-launcher");
     await page.waitForSelector(".mwia-panel:not(.mwia-hidden)");

@@ -52,7 +52,7 @@ import { rememberCombatSetup, startConsumableGuide } from "./consumable-guide.js
 import { startToolNotice } from "./tool-notice.js";
 import { startTeaSlots } from "./tea-slots.js";
 import { startLoadoutAdvice } from "./loadout-advice.js";
-import { rememberLabyrinth, roomPrediction, scheduleScan as refreshLabyrinthMarks, skipAdviceNow, startLabyrinthMarks } from "./labyrinth-marks.js";
+import { lastLabyrinthCheck, rememberLabyrinth, roomPrediction, scheduleScan as refreshLabyrinthMarks, skipAdviceNow, startLabyrinthMarks } from "./labyrinth-marks.js";
 import { skipRule } from "./labyrinth-skip.js";
 import { attemptSummary, labyrinthAttempts, labyrinthCheckChanged, onAttemptsChanged, startLabyrinthLog } from "./labyrinth-log.js";
 import { startEnhancePlan } from "./enhance-plan-ui.js";
@@ -64,10 +64,11 @@ import { describeTriggers } from "./triggers.js";
 import { startTriggerWindow, triggerWindowReport, watchTriggerClicks } from "./trigger-window.js";
 import { marketAlerts, renderMarket, toggleKeep, toggleShowAllMarket } from "./market-ui.js";
 import { analyzeImprovements, analyzeLabyrinth, buildLoadout, chosenCrates, floorLevel, labyrinthLoadouts, slottedCrate } from "./labyrinth.js";
-import { attemptsHtml, buildStyleSetting, labyrinthExportLines, renderLabyrinth, roomLevelSetting, skipHtml } from "./labyrinth-ui.js";
+import { attemptsHtml, buildStyleSetting, labyrinthExportLines, piBuildsHtml, piCombatHtml, renderLabyrinth, roomLevelSetting, skipHtml } from "./labyrinth-ui.js";
 import { labyrinthReport } from "./labyrinth-read.js";
 import { askRuns, fittedPenalty, onRunsChange, runSetup as labyrinthRunSetup, runsState, startLabyrinthRuns } from "./labyrinth-run-sync.js";
 import { runsExportLines, runsHtml } from "./labyrinth-run-ui.js";
+import { askCombatNow, combatState, onCombatChange, startLabyrinthCombat } from "./labyrinth-combat-sync.js";
 import { renderHorizon } from "./horizon-ui.js";
 import { horizonNews, onHorizonChange, sendSnapshot, startHorizonSync } from "./horizon-sync.js";
 
@@ -346,6 +347,22 @@ async function doLabBuild() {
     }, progress(`Building a ${style} loadout`));
 }
 
+// The Pi's nightly result: shown (and used for the map's marks and the skip levels) unless a
+// check made here since is newer.
+function adoptPiCombat(result) {
+    if (!result?.lab) return;
+    const local = lastLabyrinthCheck();
+    if (local && !local.fromPi && local.at > result.at) return;
+    if (ui.busy) return;
+    ui.labSetups = labyrinthSetups();
+    ui.labResult = { ...result.lab, fromPi: result.at };
+    ui.labImprove = result.improve || null;
+    if (local?.at !== result.at || !local.fromPi) {
+        rememberLabyrinth(result.lab, result.at, true);
+        labyrinthCheckChanged();
+    }
+}
+
 function renderLabyrinthTab() {
     const data = getClientData();
     if (!state.character) return `<p>The script hasn't seen your character yet. <b>Reload the page (F5)</b> with the script enabled.</p>`;
@@ -373,6 +390,8 @@ function renderLabyrinthTab() {
         coins,
         attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse()),
         runs: runsHtml({ run: runsState(), setup: labyrinthRunSetup(ui.settings) }),
+        pi: piCombatHtml(combatState(), ui.busy),
+        piBuilds: piBuildsHtml(combatState().result, data, cartButton, coins),
         skip: skipHtml(skipAdviceNow(), ui.settings, labyrinthRunSetup(ui.settings).maxAttempts),
     });
 }
@@ -1475,6 +1494,10 @@ function act(target) {
             askRuns(ui.settings);
             render();
             break;
+        case "laby-combat-now":
+            askCombatNow().finally(() => ui.tab === "labyrinth" && !ui.busy && render());
+            render();
+            break;
         case "laby-read":
             ui.notice = { level: "info", text: "The game's Labyrinth, read (nothing changed). Copy it and paste it into the chat.", diag: labyrinthReport() };
             ui.showNotice = true;
@@ -1684,6 +1707,10 @@ export function mountUI(win, workerSource) {
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare, penalty: fittedPenalty, skip: () => ({ rule: skipRule(ui.settings), teaCrate: labyrinthRunSetup(ui.settings).teaCrate }) });
     startLabyrinthLog({ predict: roomPrediction });
     startLabyrinthRuns({ prepare: () => loadClientData(ui.win) });
+    startLabyrinthCombat({ setups: labyrinthSetups, settings: () => ui.settings, prepare: () => loadClientData(ui.win), onResult: adoptPiCombat });
+    onCombatChange(() => {
+        if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "labyrinth") render();
+    });
     onRunsChange(() => {
         if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "labyrinth") render();
     });

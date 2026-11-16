@@ -36,10 +36,12 @@ const m = { deps: null, scanTimer: null, stored: undefined, advice: null, fillin
 const pct = (x) => `${Math.round(100 * x)}%`;
 
 // The check, small enough to keep: per monster its best loadout and the win curve.
-export function rememberLabyrinth(lab) {
+// at: when the check was worked out (the Pi's night run: when it started); fromPi: worked out on the Pi.
+export function rememberLabyrinth(lab, at = Date.now(), fromPi = false) {
     if (!lab) return;
     const kept = {
-        at: Date.now(),
+        at,
+        ...(fromPi ? { fromPi: true } : {}),
         monsters: lab.monsters.map((x) => ({ hrid: x.hrid, setupId: x.setupId, setupName: x.setupName, safe: x.safe, curve: x.curve.map((p) => ({ level: p.level, wins: p.wins, attempts: p.attempts })) })),
     };
     m.stored = kept;

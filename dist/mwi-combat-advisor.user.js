@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.83.0
+// @version      0.84.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -2106,15 +2106,15 @@
   var SHORTLIST = 40;
   function shortlist(candidates, keep3 = () => false) {
     if (candidates.length <= 3 * SHORTLIST) return candidates;
-    const tried = candidates.map((c2) => {
-      const gold = c2.evaluate([], (r2) => r2.goldPerDay);
-      const xp = c2.evaluate([], (r2) => r2.xpPerDay);
-      const cheap = c2.evaluate([], (r2) => -coinsPerXp(r2));
-      return { c: c2, gold: gold.valid ? gold.goldPerDay : -Infinity, xp: xp.valid ? xp.xpPerDay : -Infinity, perCoin: -coinsPerXp(cheap) };
+    const tried = candidates.map((c3) => {
+      const gold = c3.evaluate([], (r2) => r2.goldPerDay);
+      const xp = c3.evaluate([], (r2) => r2.xpPerDay);
+      const cheap = c3.evaluate([], (r2) => -coinsPerXp(r2));
+      return { c: c3, gold: gold.valid ? gold.goldPerDay : -Infinity, xp: xp.valid ? xp.xpPerDay : -Infinity, perCoin: -coinsPerXp(cheap) };
     });
     const kept3 = new Set(candidates.filter(keep3));
     for (const key2 of ["gold", "xp", "perCoin"]) [...tried].sort((a, b) => b[key2] - a[key2]).slice(0, SHORTLIST).forEach((t4) => kept3.add(t4.c));
-    return candidates.filter((c2) => kept3.has(c2));
+    return candidates.filter((c3) => kept3.has(c3));
   }
   function rankSkilling(who, data, market, { skill = "all", teaMode = "current", plan = null, goldWeight = 1, countLevels = false, leveling: levelingOptions2 = {} } = {}) {
     var _a;
@@ -2141,7 +2141,7 @@
       }
     }
     const levelingList = skill === ENHANCING || skill === ALCHEMY;
-    const owned = (c2) => (levelingOptions2.owned?.(c2.action.itemHrid, c2.action.enhancementLevel || 0) || 0) > 0 || c2.action.hrid === levelingOptions2.fixed?.hrid;
+    const owned = (c3) => (levelingOptions2.owned?.(c3.action.itemHrid, c3.action.enhancementLevel || 0) || 0) > 0 || c3.action.hrid === levelingOptions2.fixed?.hrid;
     if (skill === ENHANCING) doable.push(...shortlist(enhancingActions(data, market, (hrid) => levelingOptions2.owned?.(hrid, 0) || 0).map((action) => ({ action, evaluate: evaluator(action) })), owned));
     if (skill === ALCHEMY) doable.push(...shortlist(alchemyActions(data, market, levelingOptions2.plusLevels).map((action) => ({ action, evaluate: evaluator(action) })), owned));
     const XP_FLOOR = countLevels ? 1e-6 : 1;
@@ -2260,7 +2260,7 @@
     if (abs >= 1e4) return fixed(n5 / 1e3, abs >= 1e5 ? 0 : 1) + "k";
     return Math.round(n5).toLocaleString("en-US");
   }
-  var esc = (s3) => String(s3 ?? "").replace(/[&<>"']/g, (c2) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c2]);
+  var esc = (s3) => String(s3 ?? "").replace(/[&<>"']/g, (c3) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c3]);
 
   // src/skilling-upgrades.js
   var MAX_HOUSE_LEVEL = 8;
@@ -2421,8 +2421,8 @@
       const step = [...room.actionBuffs || [], ...room.globalBuffs || []].map((b) => ({ typeHrid: b.typeHrid, flatBoost: (level === 0 ? b.flatBoost : b.flatBoostLevelBonus) || 0, ratioBoost: (level === 0 ? b.ratioBoost : b.ratioBoostLevelBonus) || 0 }));
       const after = m2.day(withBuffs(step));
       const costs = room.upgradeCostsMap?.[String(level + 1)] || [];
-      const priced = costs.map((c2) => ({ itemHrid: c2.itemHrid, count: c2.count, price: market.buy(c2.itemHrid) }));
-      const price = priced.some((c2) => c2.price === null) ? null : priced.reduce((sum, c2) => sum + c2.count * c2.price, 0);
+      const priced = costs.map((c3) => ({ itemHrid: c3.itemHrid, count: c3.count, price: market.buy(c3.itemHrid) }));
+      const price = priced.some((c3) => c3.price === null) ? null : priced.reduce((sum, c3) => sum + c3.count * c3.price, 0);
       const gain = after ? worth(after) - worth(base) : 0;
       if (gain > 1) {
         upgrades.push({ kind: "house", roomHrid: room.hrid, name: room.name, level: level + 1, price, materials: priced, gainPerDay: gain, goldPerDay: after.goldPerDay - base.goldPerDay, xpPerDay: after.xpPerDay - base.xpPerDay, paybackDays: price === null ? null : price / gain, bestAction: after.action, target: after.target ?? null });
@@ -3065,8 +3065,8 @@
     return result.available.find((entry) => entry.hrid === actionHrid) || null;
   }
   var adviceName = (entry) => entry.action.name + (entry.target ? ` \u2192 +${entry.target}` : "");
-  var itemOfHash = (hash2) => String(hash2 || "").split("::")[2] || null;
-  var levelOfHash = (hash2) => Number(String(hash2 || "").split("::")[3]) || 0;
+  var itemOfHash = (hash3) => String(hash3 || "").split("::")[2] || null;
+  var levelOfHash = (hash3) => Number(String(hash3 || "").split("::")[3]) || 0;
   function computeRanking(settings2, fixed = null) {
     const data = getClientData();
     {
@@ -3407,12 +3407,12 @@
     return `${dec(r2.successRate * 100, 1)}% success, ${outs}${costs ? ` \u2212 ${costs}` : ""}${teas}`;
   }
   function chainHtml(e2) {
-    const c2 = e2.chain;
-    const shares = [`${dec(c2.craftShare * 100, 0)}% ${esc(e2.action.name)}`, ...[...c2.shares].sort((a, b) => b.share - a.share).map((s3) => `${dec(s3.share * 100, 0)}% ${esc(itemName(s3.itemHrid))} <span class="mwia-dim">(${skillLabel(s3.action.type.split("/").pop())}, ${count(s3.count)} each)</span>`)];
-    const better2 = c2.profitPerHour > e2.profitPerHour;
-    return `Make every material your levels allow, buy the rest: <b>${coins(c2.profitPerHour)}/h = ${coins(c2.goldPerDay)}/day</b>
-        <span class="${better2 ? "mwia-ok" : "mwia-dim"}">(${better2 ? "+" : "\u2212"}${coins(Math.abs(c2.goldPerDay - e2.goldPerDay))}/day vs buying)</span>.
-        <br>Of each hour: ${shares.join(" \xB7 ")}.${c2.bought.length ? `<br>Still bought: ${esc(names(c2.bought))}.` : ""}
+    const c3 = e2.chain;
+    const shares = [`${dec(c3.craftShare * 100, 0)}% ${esc(e2.action.name)}`, ...[...c3.shares].sort((a, b) => b.share - a.share).map((s3) => `${dec(s3.share * 100, 0)}% ${esc(itemName(s3.itemHrid))} <span class="mwia-dim">(${skillLabel(s3.action.type.split("/").pop())}, ${count(s3.count)} each)</span>`)];
+    const better2 = c3.profitPerHour > e2.profitPerHour;
+    return `Make every material your levels allow, buy the rest: <b>${coins(c3.profitPerHour)}/h = ${coins(c3.goldPerDay)}/day</b>
+        <span class="${better2 ? "mwia-ok" : "mwia-dim"}">(${better2 ? "+" : "\u2212"}${coins(Math.abs(c3.goldPerDay - e2.goldPerDay))}/day vs buying)</span>.
+        <br>Of each hour: ${shares.join(" \xB7 ")}.${c3.bought.length ? `<br>Still bought: ${esc(names(c3.bought))}.` : ""}
         <br><span class="mwia-dim">Each step uses that skill's teas; the gold is per hour of the whole chain.</span>${chainTrainText(e2)}`;
   }
   function chainTrainText(e2) {
@@ -4039,7 +4039,7 @@
   }
   var ENHANCING_PANEL = '[class*="SkillActionDetail_enhancingComponent"]';
   var ALCHEMY_PANEL = '[class*="SkillActionDetail_alchemyComponent"]';
-  var inventoryItemHash = (characterId5, itemHrid, level = 0) => `${characterId5}::/item_locations/inventory::${itemHrid}::${level}`;
+  var inventoryItemHash = (characterId6, itemHrid, level = 0) => `${characterId6}::/item_locations/inventory::${itemHrid}::${level}`;
   function componentWith(element, method) {
     const nodes = element ? [element, ...element.querySelectorAll("input, button, select")].map(pageView) : [];
     const upFrom = (start2) => {
@@ -4091,13 +4091,13 @@
   var findMethod = (component, ...patterns) => componentMethods(component).find((name) => patterns.every((p2) => p2.test(name))) || null;
   var holds = (component, value) => attempt(() => Object.values(component.state || {}).some((v) => v === value || String(v) === String(value)), false);
   var methodList = (component) => `methods: ${componentMethods(component).slice(0, 40).join(", ") || "none"}`;
-  async function fillSlot(component, word, label3, hash2) {
-    if (!hash2) return { ok: false, step: `${label3} not in the inventory at +0 \u2013 buy it (\u{1F6D2})` };
+  async function fillSlot(component, word, label3, hash3) {
+    if (!hash3) return { ok: false, step: `${label3} not in the inventory at +0 \u2013 buy it (\u{1F6D2})` };
     const method = findMethod(component, word, /^(select|set|change|handle|on)/i, /item|hash|select/i) || findMethod(component, word, /^(select|set|change)/i);
     if (!method) return { ok: false, step: `no ${label3} method (${methodList(component)})` };
-    attempt(() => component[method](hash2));
+    attempt(() => component[method](hash3));
     await sleep(200);
-    const ok = holds(component, hash2);
+    const ok = holds(component, hash3);
     return { ok, step: `${label3}: ${method} called${ok ? "" : ` but not in the slot (${methodList(component)})`}` };
   }
   async function openEnhancing(itemHash, target, protect = null, timeoutMs = 4e3) {
@@ -4517,8 +4517,8 @@
     return false;
   }
   var settings = () => ({ ...j.deps?.settings() || {}, skillingTeas: "current" });
-  var itemOfHash2 = (hash2) => String(hash2 || "").split("::")[2] || null;
-  var levelOfHash2 = (hash2) => Number(String(hash2 || "").split("::")[3]) || 0;
+  var itemOfHash2 = (hash3) => String(hash3 || "").split("::")[2] || null;
+  var levelOfHash2 = (hash3) => Number(String(hash3 || "").split("::")[3]) || 0;
   var skillOf2 = (actionHrid) => String(actionHrid || "").split("/")[2] || "";
   var counted = (actionHrid) => !!actionHrid && !["combat", "enhancing"].includes(skillOf2(actionHrid));
   function keepForecast(completed = false) {
@@ -4707,7 +4707,7 @@
       const kept3 = j.ledger.history[key2];
       const soFar = j.soFar.get(key2);
       const html = running(e2) ? soFar && soFar.actions === (Number(e2.actionCount) || 0) ? lineHtml(soFar, "running") : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>` : report && kept3 && !stale(kept3, e2) ? lineHtml(report) : soFar ? lineHtml(soFar, "ended") : `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>`;
-      let line = [...card.children].find((c2) => c2.classList.contains("mwia-jobline"));
+      let line = [...card.children].find((c3) => c3.classList.contains("mwia-jobline"));
       if (!line) {
         line = document.createElement("div");
         line.className = "mwia-jobline";
@@ -4756,16 +4756,16 @@
 
   // src/stats.js
   function logGamma(x) {
-    const c2 = [76.18009172947146, -86.50532032941678, 24.01409824083091, -1.231739572450155, 0.001208650973866179, -5395239384953e-18];
+    const c3 = [76.18009172947146, -86.50532032941678, 24.01409824083091, -1.231739572450155, 0.001208650973866179, -5395239384953e-18];
     let y = x;
     const tmp = x + 5.5 - (x + 0.5) * Math.log(x + 5.5);
     let series = 1.000000000190015;
-    for (const coefficient of c2) series += coefficient / ++y;
+    for (const coefficient of c3) series += coefficient / ++y;
     return -tmp + Math.log(2.5066282746310007 * series / x);
   }
   function betaContinuedFraction(a, b, x) {
     const tiny = 1e-30;
-    let c2 = 1;
+    let c3 = 1;
     let d = 1 - (a + b) * x / (a + 1);
     if (Math.abs(d) < tiny) d = tiny;
     d = 1 / d;
@@ -4775,17 +4775,17 @@
       let aa = m2 * (b - m2) * x / ((a + m22 - 1) * (a + m22));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
-      c2 = 1 + aa / c2;
-      if (Math.abs(c2) < tiny) c2 = tiny;
+      c3 = 1 + aa / c3;
+      if (Math.abs(c3) < tiny) c3 = tiny;
       d = 1 / d;
-      h3 *= d * c2;
+      h3 *= d * c3;
       aa = -(a + m2) * (a + b + m2) * x / ((a + m22) * (a + m22 + 1));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
-      c2 = 1 + aa / c2;
-      if (Math.abs(c2) < tiny) c2 = tiny;
+      c3 = 1 + aa / c3;
+      if (Math.abs(c3) < tiny) c3 = tiny;
       d = 1 / d;
-      const delta = d * c2;
+      const delta = d * c3;
       h3 *= delta;
       if (Math.abs(delta - 1) < 3e-12) break;
     }
@@ -4972,18 +4972,18 @@
     const picked = choice && choice !== "auto" ? loadouts.find((l2) => l2.id === String(choice)) : null;
     return picked || loadouts.find((l2) => l2.isDefault && l2.actionTypeHrid === COMBAT) || loadouts.find((l2) => l2.isDefault) || loadouts[0] || null;
   }
-  var levelOfHash3 = (hash2) => {
-    const last = String(hash2 || "").split("::").pop();
+  var levelOfHash3 = (hash3) => {
+    const last = String(hash3 || "").split("::").pop();
     return /^\d+$/.test(last) ? Number(last) : null;
   };
-  function loadoutItem(location2, hash2, items, exact, taken) {
-    const itemHrid = String(hash2 || "").split("::").find((part2) => part2.startsWith("/items/"));
+  function loadoutItem(location2, hash3, items, exact, taken) {
+    const itemHrid = String(hash3 || "").split("::").find((part2) => part2.startsWith("/items/"));
     if (!itemHrid) return null;
-    const saved = levelOfHash3(hash2);
+    const saved = levelOfHash3(hash3);
     const usable = [...items].filter(
-      (item) => item.itemHrid === itemHrid && item.count !== 0 && (taken.get(item) ?? 0) < (item.count ?? 1) && (item.hash === hash2 || item.itemLocationHrid === location2 || item.itemLocationHrid === INVENTORY3) && (!exact || (item.enhancementLevel || 0) === saved)
+      (item) => item.itemHrid === itemHrid && item.count !== 0 && (taken.get(item) ?? 0) < (item.count ?? 1) && (item.hash === hash3 || item.itemLocationHrid === location2 || item.itemLocationHrid === INVENTORY3) && (!exact || (item.enhancementLevel || 0) === saved)
     );
-    usable.sort((a, b) => (b.enhancementLevel || 0) - (a.enhancementLevel || 0) || (b.hash === hash2) - (a.hash === hash2));
+    usable.sort((a, b) => (b.enhancementLevel || 0) - (a.enhancementLevel || 0) || (b.hash === hash3) - (a.hash === hash3));
     return usable[0] ? { item: usable[0], itemHrid } : { item: null, itemHrid };
   }
   function applyLoadout(profile, loadout, items, data) {
@@ -4992,13 +4992,13 @@
     const taken = /* @__PURE__ */ new Map();
     const missing = [];
     const equipment = {};
-    for (const [location2, hash2] of Object.entries(loadout.wearableMap || {})) {
+    for (const [location2, hash3] of Object.entries(loadout.wearableMap || {})) {
       const type = location2.split("/").pop();
-      if (!GEAR_TYPES.includes(type) || !hash2) continue;
-      const found = loadoutItem(location2, hash2, owned, loadout.useExactEnhancement === true, taken);
+      if (!GEAR_TYPES.includes(type) || !hash3) continue;
+      const found = loadoutItem(location2, hash3, owned, loadout.useExactEnhancement === true, taken);
       if (!found) continue;
       if (!found.item) {
-        missing.push({ hrid: found.itemHrid, enhancementLevel: levelOfHash3(hash2) || 0 });
+        missing.push({ hrid: found.itemHrid, enhancementLevel: levelOfHash3(hash3) || 0 });
         continue;
       }
       taken.set(found.item, (taken.get(found.item) ?? 0) + 1);
@@ -5137,7 +5137,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.83.0" : "dev";
+  var VERSION = true ? "0.84.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5318,10 +5318,10 @@
       let excess = count3 - MAX_ENTRIES + Math.round(MAX_ENTRIES / 10);
       const cursor = runs.index("used").openKeyCursor();
       cursor.onsuccess = () => {
-        const c2 = cursor.result;
-        if (!c2 || excess-- <= 0) return;
-        runs.delete(c2.primaryKey);
-        c2.continue();
+        const c3 = cursor.result;
+        if (!c3 || excess-- <= 0) return;
+        runs.delete(c3.primaryKey);
+        c3.continue();
       };
     }
     await finished(tx);
@@ -5961,7 +5961,7 @@
       const level = profile.houseRooms?.[room.hrid] || 0;
       const costs = room.upgradeCostsMap?.[String(level + 1)];
       if (!costs?.length) continue;
-      const materials2 = costs.map((c2) => ({ hrid: c2.itemHrid, count: c2.count, price: askPrice(c2.itemHrid, 0) }));
+      const materials2 = costs.map((c3) => ({ hrid: c3.itemHrid, count: c3.count, price: askPrice(c3.itemHrid, 0) }));
       if (materials2.some((m2) => m2.price === null)) continue;
       const cost = materials2.reduce((sum, m2) => sum + m2.count * m2.price, 0);
       if (cost > budget) continue;
@@ -6017,16 +6017,16 @@
   }
   function bestPerItem(evaluated) {
     const groups = /* @__PURE__ */ new Map();
-    for (const c2 of evaluated) {
-      const key2 = [c2.kind, c2.hrid, c2.enhancementLevel ?? "", ["abilityLevel", "house", "skillLevel"].includes(c2.kind) ? c2.level : "", c2.remove ? "remove" : ""].join("|");
+    for (const c3 of evaluated) {
+      const key2 = [c3.kind, c3.hrid, c3.enhancementLevel ?? "", ["abilityLevel", "house", "skillLevel"].includes(c3.kind) ? c3.level : "", c3.remove ? "remove" : ""].join("|");
       if (!groups.has(key2)) groups.set(key2, []);
-      groups.get(key2).push(c2);
+      groups.get(key2).push(c3);
     }
     return [...groups.values()].map((options) => {
-      const pool = options.some((c2) => c2.safe) ? options.filter((c2) => c2.safe) : options;
+      const pool = options.some((c3) => c3.safe) ? options.filter((c3) => c3.safe) : options;
       const top = pool.reduce((a, b) => b.delta > a.delta ? b : a);
       if (!top.extraFood || top.delta <= 0) return top;
-      return pool.filter((c2) => c2.delta >= 0.85 * top.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta)[0];
+      return pool.filter((c3) => c3.delta >= 0.85 * top.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta)[0];
     });
   }
   function triggerCandidates(profile, telemetry, only = null) {
@@ -6100,12 +6100,12 @@
     for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) {
       candidates.push(triggerCandidate(change, variant));
     }
-    candidates.forEach((c2, id) => c2.id = id);
-    const items = candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds), telemetry: c2.kind === "ability" }));
+    candidates.forEach((c3, id) => c3.id = id);
+    const items = candidates.map((c3) => ({ profile: c3.profile, seeds: seeds(settings2.seeds), telemetry: c3.kind === "ability" }));
     const done0 = baseItem2.seeds.length;
     const base = summarize3(baseRuns, zone.tier, profile);
     const runs = await simulateScreened(pool, candidates, items, baseRuns, base, zone, settings2, (done2, total) => onProgress?.(done0 + done2, done0 + total));
-    const simulated = candidates.map((c2, i) => ({ ...c2, result: summarize3(runs[i], zone.tier, c2.profile), runs: runs[i], telemetry: items[i].telemetry ? mergeTelemetry(items[i].telemetryOut) : void 0 }));
+    const simulated = candidates.map((c3, i) => ({ ...c3, result: summarize3(runs[i], zone.tier, c3.profile), runs: runs[i], telemetry: items[i].telemetry ? mergeTelemetry(items[i].telemetryOut) : void 0 }));
     const slots = slotCounts(profile, getClientData());
     const emptyAbilitySlots = [];
     for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
@@ -6123,7 +6123,7 @@
       candidates: simulated
     };
     await tuneNewAbilities(pool, raw, settings2, onRefineProgress);
-    for (const c2 of raw.candidates) delete c2.telemetry;
+    for (const c3 of raw.candidates) delete c3.telemetry;
     for (let round = 0; round < 2; round++) {
       if (!await refineUncertain(pool, raw, settings2, onRefineProgress)) break;
     }
@@ -6142,22 +6142,22 @@
   }
   async function tuneNewAbilities(pool, raw, settings2, onProgress) {
     const rated = rateUpgrades(raw, settings2);
-    const top = rated.abilities.filter((c2) => c2.kind === "ability" && c2.delta > 0).slice(0, TUNED_ABILITIES);
+    const top = rated.abilities.filter((c3) => c3.kind === "ability" && c3.delta > 0).slice(0, TUNED_ABILITIES);
     const tries = [];
     for (const rated2 of top) {
-      const c2 = raw.candidates.find((x) => x.id === rated2.id);
-      if (!c2?.telemetry) continue;
-      for (const { change, profile } of triggerCandidates(c2.profile, c2.telemetry, [c2.hrid])) {
-        const { result, runs: runs2, telemetry, id: id2, screened, ...rest } = c2;
+      const c3 = raw.candidates.find((x) => x.id === rated2.id);
+      if (!c3?.telemetry) continue;
+      for (const { change, profile } of triggerCandidates(c3.profile, c3.telemetry, [c3.hrid])) {
+        const { result, runs: runs2, telemetry, id: id2, screened, ...rest } = c3;
         tries.push({ ...rest, profile, triggers: change.triggers, was: change.was, rule: change.rule });
       }
     }
     if (!tries.length) return 0;
     const seeds = Array.from({ length: raw.seedsPerRound }, (_, i) => i);
     const runs = await simulateRuns(pool, tries.map((t4) => ({ profile: t4.profile, seeds })), raw.zone, raw.hours, onProgress);
-    const scores = (c2) => c2.runs.map((r2) => score(r2, rated.goal));
+    const scores = (c3) => c3.runs.map((r2) => score(r2, rated.goal));
     const mean = (list) => list.reduce((a, b) => a + b, 0) / list.length;
-    let id = Math.max(...raw.candidates.map((c2) => c2.id)) + 1;
+    let id = Math.max(...raw.candidates.map((c3) => c3.id)) + 1;
     for (const plain of top.map((r2) => raw.candidates.find((x) => x.id === r2.id))) {
       const mine2 = tries.map((t4, i) => ({ ...t4, result: summarize3(runs[i], raw.zone.tier, t4.profile), runs: runs[i] })).filter((t4) => t4.hrid === plain.hrid && t4.slot === plain.slot);
       const better2 = mine2.filter((t4) => mean(scores(t4)) > mean(scores(plain)) && (confidenceGreater(scores(t4), scores(plain)) ?? 0) >= TUNED_CONFIDENCE).sort((a, b) => mean(scores(b)) - mean(scores(a)))[0];
@@ -6169,24 +6169,24 @@
   function uncertainCandidates(raw, settings2) {
     const rated = rateUpgrades(raw, settings2);
     const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
-    return [...rated.gear, ...rated.abilities, ...rated.house, ...rated.orders, ...rated.triggers, ...rated.drinks, ...rated.food].filter((c2) => c2.delta > 0 && c2.safe && c2.confidence < REFINE_BELOW && c2.runs.length < maxRuns).sort((a, b) => b.delta - a.delta).slice(0, MAX_REFINED);
+    return [...rated.gear, ...rated.abilities, ...rated.house, ...rated.orders, ...rated.triggers, ...rated.drinks, ...rated.food].filter((c3) => c3.delta > 0 && c3.safe && c3.confidence < REFINE_BELOW && c3.runs.length < maxRuns).sort((a, b) => b.delta - a.delta).slice(0, MAX_REFINED);
   }
   async function refineUncertain(pool, raw, settings2, onProgress) {
     const rated = rateUpgrades(raw, settings2);
     const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
     const rows = uncertainCandidates(raw, settings2);
     const siblings = rated.triggerVariants.filter((v) => rows.some((r2) => r2.kind === "trigger" && r2.hrid === v.hrid && r2.id !== v.id) && v.delta > 0 && v.safe && v.confidence < REFINE_BELOW && v.runs.length < maxRuns);
-    const targets = [...rows, ...siblings].map((c2) => raw.candidates.find((x) => x.id === c2.id));
+    const targets = [...rows, ...siblings].map((c3) => raw.candidates.find((x) => x.id === c3.id));
     if (!targets.length) return 0;
-    const items = targets.map((c2) => {
-      const first = Math.max(...c2.runs.map((r2) => r2.seed)) + 1;
-      return { profile: c2.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
+    const items = targets.map((c3) => {
+      const first = Math.max(...c3.runs.map((r2) => r2.seed)) + 1;
+      return { profile: c3.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
     });
     const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
-    targets.forEach((c2, i) => {
-      delete c2.screened;
-      c2.runs = [...c2.runs, ...runs[i]];
-      c2.result = summarize3(c2.runs, raw.zone.tier, c2.profile);
+    targets.forEach((c3, i) => {
+      delete c3.screened;
+      c3.runs = [...c3.runs, ...runs[i]];
+      c3.result = summarize3(c3.runs, raw.zone.tier, c3.profile);
     });
     return targets.length;
   }
@@ -6195,59 +6195,59 @@
     const goal = makeGoal(settings2, { xp: xpValue(base, settings2), gold: base.loot });
     const baseScore = score(base, goal);
     const baseScores = raw.baseRuns.map((r2) => score(r2, goal));
-    const used = (c2) => c2.remove || !["food", "drinks"].includes(c2.kind) || (c2.result.consumables[c2.hrid] || 0) > 0.01;
-    const evaluated = raw.candidates.filter(used).map((c2) => {
-      const delta = score(c2.result, goal) - baseScore;
-      const confidence = (c2.runs.length < 2 ? confidenceOneRun(score(c2.runs[0], goal), baseScores) : confidenceGreater(c2.runs.map((r2) => score(r2, goal)), baseScores)) ?? 0.5;
+    const used = (c3) => c3.remove || !["food", "drinks"].includes(c3.kind) || (c3.result.consumables[c3.hrid] || 0) > 0.01;
+    const evaluated = raw.candidates.filter(used).map((c3) => {
+      const delta = score(c3.result, goal) - baseScore;
+      const confidence = (c3.runs.length < 2 ? confidenceOneRun(score(c3.runs[0], goal), baseScores) : confidenceGreater(c3.runs.map((r2) => score(r2, goal)), baseScores)) ?? 0.5;
       return {
-        ...c2,
+        ...c3,
         delta,
         deltaPct: delta,
         // scores are already fractions of the reference
         confidence,
         significant: confidence >= CONFIDENCE_LEVEL,
-        xpDelta: xpValue(c2.result, settings2) - xpValue(base, settings2),
-        profitDelta: c2.result.profit - base.profit,
+        xpDelta: xpValue(c3.result, settings2) - xpValue(base, settings2),
+        profitDelta: c3.result.profit - base.profit,
         // A change that makes you die noticeably more often is never recommended, whatever the
         // gain – unless you accept rare deaths and it stays within that limit.
-        safe: c2.result.deaths <= Math.max(base.deaths * 1.1 + 0.3, deathLimit(settings2)),
-        costPerHourDelta: c2.result.cost - base.cost,
-        deathsDelta: c2.result.deaths - base.deaths
+        safe: c3.result.deaths <= Math.max(base.deaths * 1.1 + 0.3, deathLimit(settings2)),
+        costPerHourDelta: c3.result.cost - base.cost,
+        deathsDelta: c3.result.deaths - base.deaths
       };
     });
     const best = bestPerItem(evaluated);
     const byDelta = (a, b) => b.delta - a.delta;
     const table = getClientData()?.levelExperienceTable;
-    for (const c2 of best) {
-      if (c2.kind !== "skillLevel") continue;
-      const rate3 = base.xp?.[c2.hrid] || 0;
-      const xpNow = Array.isArray(table) ? experienceOf(table, raw.baseProfile.allExperience?.["/skills/" + c2.hrid], c2.fromLevel) : null;
-      const need = Array.isArray(table) && table[c2.level] !== void 0 ? Math.max(0, table[c2.level] - xpNow) : null;
-      c2.xpNeeded = need;
-      c2.hoursToReach = need === null || !(rate3 > 0) ? null : need / rate3;
+    for (const c3 of best) {
+      if (c3.kind !== "skillLevel") continue;
+      const rate3 = base.xp?.[c3.hrid] || 0;
+      const xpNow = Array.isArray(table) ? experienceOf(table, raw.baseProfile.allExperience?.["/skills/" + c3.hrid], c3.fromLevel) : null;
+      const need = Array.isArray(table) && table[c3.level] !== void 0 ? Math.max(0, table[c3.level] - xpNow) : null;
+      c3.xpNeeded = need;
+      c3.hoursToReach = need === null || !(rate3 > 0) ? null : need / rate3;
     }
     return {
       ...raw,
       goal,
       baseScore,
-      gear: best.filter((c2) => c2.kind === "gear").sort(byDelta),
-      abilities: best.filter((c2) => c2.kind === "ability" || c2.kind === "abilityLevel").sort(byDelta),
-      orders: best.filter((c2) => c2.kind === "abilityOrder").sort(byDelta),
-      triggers: best.filter((c2) => c2.kind === "trigger").sort(byDelta),
-      triggerVariants: evaluated.filter((c2) => c2.kind === "trigger"),
-      house: best.filter((c2) => c2.kind === "house").sort(byDelta),
-      levels: best.filter((c2) => c2.kind === "skillLevel").sort((a, b) => a.hrid.localeCompare(b.hrid) || a.level - b.level),
-      drinks: best.filter((c2) => c2.kind === "drinks").sort(byDelta),
-      food: best.filter((c2) => c2.kind === "food").sort(byDelta)
+      gear: best.filter((c3) => c3.kind === "gear").sort(byDelta),
+      abilities: best.filter((c3) => c3.kind === "ability" || c3.kind === "abilityLevel").sort(byDelta),
+      orders: best.filter((c3) => c3.kind === "abilityOrder").sort(byDelta),
+      triggers: best.filter((c3) => c3.kind === "trigger").sort(byDelta),
+      triggerVariants: evaluated.filter((c3) => c3.kind === "trigger"),
+      house: best.filter((c3) => c3.kind === "house").sort(byDelta),
+      levels: best.filter((c3) => c3.kind === "skillLevel").sort((a, b) => a.hrid.localeCompare(b.hrid) || a.level - b.level),
+      drinks: best.filter((c3) => c3.kind === "drinks").sort(byDelta),
+      food: best.filter((c3) => c3.kind === "food").sort(byDelta)
     };
   }
   function stepConfidence(analysis, from, to) {
     if (!from) return to.confidence;
-    const scores = (c2) => c2.runs.map((r2) => score(r2, analysis.goal));
+    const scores = (c3) => c3.runs.map((r2) => score(r2, analysis.goal));
     return confidenceGreater(scores(to), scores(from)) ?? 0.5;
   }
   function hullSteps(group, options, minGain, minEfficiency, confident) {
-    const points = [{ cost: 0, delta: 0, candidate: null }, ...options.map((c2) => ({ cost: c2.cost, delta: c2.delta, candidate: c2 }))].sort(
+    const points = [{ cost: 0, delta: 0, candidate: null }, ...options.map((c3) => ({ cost: c3.cost, delta: c3.delta, candidate: c3 }))].sort(
       (a, b) => a.cost - b.cost || b.delta - a.delta
     );
     const rising = [];
@@ -6280,12 +6280,12 @@
     return steps;
   }
   function pickConsumable(list, gold) {
-    const ok = list.filter((c2) => c2.significant && c2.safe && c2.delta > 0);
+    const ok = list.filter((c3) => c3.significant && c3.safe && c3.delta > 0);
     if (!ok.length) return { value: null, max: null };
     const max = ok.reduce((a, b) => b.delta > a.delta + 1e-9 || Math.abs(b.delta - a.delta) <= 1e-9 && b.remove ? b : a);
     const preferStopping = (a, b) => (b.remove ? 1 : 0) - (a.remove ? 1 : 0);
-    const value = gold > 0 ? max : ok.filter((c2) => c2.delta >= 0.5 * max.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta || preferStopping(a, b))[0];
-    const stop = ok.find((c2) => c2.remove && c2.slot === value.slot && c2 !== value && c2.delta >= value.delta - STOP_TOLERANCE);
+    const value = gold > 0 ? max : ok.filter((c3) => c3.delta >= 0.5 * max.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta || preferStopping(a, b))[0];
+    const stop = ok.find((c3) => c3.remove && c3.slot === value.slot && c3 !== value && c3.delta >= value.delta - STOP_TOLERANCE);
     const chosen = stop || value;
     return { value: chosen, max: max === chosen ? null : max };
   }
@@ -6294,19 +6294,19 @@
     budget -= analysis.starter?.cost || 0;
     const minGain = 0.01;
     const minEfficiency = (SPENDING[spending] || SPENDING.balanced).minPctPerMillion / 100 / 1e6;
-    const usable = (c2) => c2.significant && c2.safe && c2.delta > 0;
+    const usable = (c3) => c3.significant && c3.safe && c3.delta > 0;
     const groups = /* @__PURE__ */ new Map();
-    for (const c2 of analysis.gear.filter(usable)) {
-      const key2 = c2.slot === "main_hand" || c2.slot === "two_hand" ? "weapon" : c2.slot;
+    for (const c3 of analysis.gear.filter(usable)) {
+      const key2 = c3.slot === "main_hand" || c3.slot === "two_hand" ? "weapon" : c3.slot;
       if (!groups.has(key2)) groups.set(key2, []);
-      groups.get(key2).push(c2);
+      groups.get(key2).push(c3);
     }
-    for (const c2 of analysis.abilities.filter(usable)) {
-      const key2 = c2.kind === "abilityLevel" || c2.replaces ? c2.slot : "new-ability:" + c2.hrid;
+    for (const c3 of analysis.abilities.filter(usable)) {
+      const key2 = c3.kind === "abilityLevel" || c3.replaces ? c3.slot : "new-ability:" + c3.hrid;
       if (!groups.has(key2)) groups.set(key2, []);
-      groups.get(key2).push(c2);
+      groups.get(key2).push(c3);
     }
-    for (const c2 of (analysis.house || []).filter(usable)) groups.set(c2.slot, [...groups.get(c2.slot) || [], c2]);
+    for (const c3 of (analysis.house || []).filter(usable)) groups.set(c3.slot, [...groups.get(c3.slot) || [], c3]);
     const confident = (from, to) => stepConfidence(analysis, from, to) >= CONFIDENCE_LEVEL;
     const steps = [...groups.entries()].flatMap(([key2, options]) => hullSteps(key2, options, minGain, minEfficiency, confident));
     steps.sort((a, b) => b.efficiency - a.efficiency || b.gain - a.gain);
@@ -6340,12 +6340,12 @@
     const food = pickConsumable(analysis.food, analysis.goal.gold);
     const data = getClientData();
     if (food.value && !food.value.remove && picks.some((p2) => p2.extraFood && sameKind(p2.extraFood, food.value.hrid, data))) food.value = null;
-    const order = (analysis.orders || []).filter((c2) => usable(c2) && c2.delta >= STOP_TOLERANCE).sort((a, b) => b.delta - a.delta)[0] || null;
+    const order = (analysis.orders || []).filter((c3) => usable(c3) && c3.delta >= STOP_TOLERANCE).sort((a, b) => b.delta - a.delta)[0] || null;
     const gone = /* @__PURE__ */ new Set([...picks.filter((p2) => p2.kind === "ability" && p2.replaces).map((p2) => p2.replaces), ...[food.value, drink.value].filter((p2) => p2?.remove || p2?.replaces).map((p2) => p2.replaces || p2.hrid)]);
     const triggers = [];
-    for (const c2 of analysis.triggers || []) {
-      if (!usable(c2) || c2.delta < STOP_TOLERANCE || gone.has(c2.hrid) || triggers.some((t4) => t4.hrid === c2.hrid)) continue;
-      triggers.push(c2);
+    for (const c3 of analysis.triggers || []) {
+      if (!usable(c3) || c3.delta < STOP_TOLERANCE || gone.has(c3.hrid) || triggers.some((t4) => t4.hrid === c3.hrid)) continue;
+      triggers.push(c3);
     }
     return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max, order, triggers };
   }
@@ -6423,37 +6423,37 @@
       variant.abilities[i] = null;
       without.push({ kind: "ability", index: i, profile: variant });
     }
-    const removals = [...consumableCandidates(profile, "drinks", { onlyUseful: true }), ...consumableCandidates(profile, "food", { onlyUseful: true })].filter((c2) => c2.remove);
+    const removals = [...consumableCandidates(profile, "drinks", { onlyUseful: true }), ...consumableCandidates(profile, "food", { onlyUseful: true })].filter((c3) => c3.remove);
     const baseItem2 = { profile, seeds: seeds(settings2.seeds * BASE_SEED_FACTOR) };
-    const first = [baseItem2, ...[...without, ...removals].map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds) }))];
+    const first = [baseItem2, ...[...without, ...removals].map((c3) => ({ profile: c3.profile, seeds: seeds(settings2.seeds) }))];
     const firstRuns = first.reduce((sum, item) => sum + item.seeds.length, 0);
     let planned = firstRuns * 5;
     const [baseRuns, ...stepOne] = await simulateRuns(pool, first, zone, settings2.hours, (done2) => onProgress?.(done2, planned));
     const base = summarize3(baseRuns, zone.tier, profile);
     const goal = makeGoal(settings2, { xp: xpValue(base, settings2), gold: base.loot });
-    const scored = [...without, ...removals].map((c2, i) => ({ ...c2, score: score(summarize3(stepOne[i], zone.tier, c2.profile), goal), runs: stepOne[i] }));
+    const scored = [...without, ...removals].map((c3, i) => ({ ...c3, score: score(summarize3(stepOne[i], zone.tier, c3.profile), goal), runs: stepOne[i] }));
     const weakest = (pick2) => scored.filter(pick2).sort((a, b) => b.score - a.score)[0] || null;
-    const ability = weakest((c2) => c2.kind === "ability");
-    const drink = weakest((c2) => c2.kind === "drinks");
-    const meal = weakest((c2) => c2.kind === "food");
-    const index = (c2) => c2 ? Number(c2.slot.replace(/\D+/g, "")) : null;
+    const ability = weakest((c3) => c3.kind === "ability");
+    const drink = weakest((c3) => c3.kind === "drinks");
+    const meal = weakest((c3) => c3.kind === "food");
+    const index = (c3) => c3 ? Number(c3.slot.replace(/\D+/g, "")) : null;
     const candidates = [
       ...abilityCandidates(profile, 0, ability?.index ?? null),
       ...abilityOrderCandidates(profile),
-      ...consumableCandidates(profile, "drinks", { onlyUseful: true, replace: drinks.every(Boolean) ? index(drink) : null }).filter((c2) => !c2.remove),
-      ...consumableCandidates(profile, "food", { onlyUseful: true, replace: food.every(Boolean) ? index(meal) : null }).filter((c2) => !c2.remove)
+      ...consumableCandidates(profile, "drinks", { onlyUseful: true, replace: drinks.every(Boolean) ? index(drink) : null }).filter((c3) => !c3.remove),
+      ...consumableCandidates(profile, "food", { onlyUseful: true, replace: food.every(Boolean) ? index(meal) : null }).filter((c3) => !c3.remove)
     ];
     planned = firstRuns + candidates.length * settings2.seeds;
-    const items = candidates.map((c2) => ({ profile: c2.profile, seeds: seeds(settings2.seeds) }));
+    const items = candidates.map((c3) => ({ profile: c3.profile, seeds: seeds(settings2.seeds) }));
     const runs = await simulateScreened(pool, candidates, items, baseRuns, base, zone, settings2, (done2, total) => {
       planned = firstRuns + total;
       onProgress?.(firstRuns + done2, planned);
     });
     const simulated = [
-      ...candidates.map((c2, i) => ({ ...c2, result: summarize3(runs[i], zone.tier, c2.profile), runs: runs[i] })),
-      ...scored.filter((c2) => c2.remove).map(({ score: _, ...c2 }) => ({ ...c2, result: summarize3(c2.runs, zone.tier, c2.profile) }))
+      ...candidates.map((c3, i) => ({ ...c3, result: summarize3(runs[i], zone.tier, c3.profile), runs: runs[i] })),
+      ...scored.filter((c3) => c3.remove).map(({ score: _, ...c3 }) => ({ ...c3, result: summarize3(c3.runs, zone.tier, c3.profile) }))
     ];
-    simulated.forEach((c2, id) => c2.id = id);
+    simulated.forEach((c3, id) => c3.id = id);
     const emptyAbilitySlots = [];
     for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
     const raw = { zone, hours: settings2.hours, seedsPerRound: settings2.seeds, scope: "loadout", emptyAbilitySlots, starter: null, baseProfile: profile, base, baseRuns, telemetry: null, candidates: simulated };
@@ -6937,7 +6937,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var ex = { win: null, scanTimer: null, context: () => ({}), loading: null };
   var n = (x) => Math.round(x).toLocaleString("en-US");
   var coins3 = (x) => (x < 0 ? "\u2212" : "") + shortCoins(Math.abs(x));
-  var words = (hrid) => String(hrid || "").split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (c2) => c2.toUpperCase());
+  var words = (hrid) => String(hrid || "").split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (c3) => c3.toUpperCase());
   function setExportContext(fn) {
     ex.context = fn;
   }
@@ -7007,8 +7007,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   function exportText() {
-    const c2 = state.character;
-    if (!c2) return "MWI Advisor export: the game hasn't sent the character yet \u2013 reload the page.";
+    const c3 = state.character;
+    if (!c3) return "MWI Advisor export: the game hasn't sent the character yet \u2013 reload the page.";
     const data = getClientData();
     const items = [...state.items.values()];
     const age = pricesAge();
@@ -7017,21 +7017,21 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (!lines.length) return;
       out.push("", `## ${title}`, ...lines);
     };
-    out.push(`# MWI Advisor export`, `Version ${scriptVersion()} \xB7 ${(/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace("T", " ")} UTC \xB7 character ${c2.character?.name || "?"} \xB7 prices ${age === null ? "not loaded" : `${Math.round(age / 6e4)} min old`}`);
+    out.push(`# MWI Advisor export`, `Version ${scriptVersion()} \xB7 ${(/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace("T", " ")} UTC \xB7 character ${c3.character?.name || "?"} \xB7 prices ${age === null ? "not loaded" : `${Math.round(age / 6e4)} min old`}`);
     const context2 = ex.context() || {};
     if (context2.settings) section("Settings", [JSON.stringify(context2.settings)]);
     const total = (s3) => s3.skillHrid.endsWith("/total_level");
-    const skills = (c2.characterSkills || []).filter((s3) => s3.skillHrid).sort((a, b) => total(b) - total(a) || b.level - a.level || (b.experience || 0) - (a.experience || 0)).map((s3) => `${words(s3.skillHrid)} ${s3.level}${s3.experience !== void 0 && s3.experience !== null ? ` (${n(s3.experience)} XP)` : ""}`);
+    const skills = (c3.characterSkills || []).filter((s3) => s3.skillHrid).sort((a, b) => total(b) - total(a) || b.level - a.level || (b.experience || 0) - (a.experience || 0)).map((s3) => `${words(s3.skillHrid)} ${s3.level}${s3.experience !== void 0 && s3.experience !== null ? ` (${n(s3.experience)} XP)` : ""}`);
     section("Levels", [skills.join(" \xB7 ")]);
     const worn2 = items.filter((i) => i.itemHrid && i.itemLocationHrid && i.itemLocationHrid !== INVENTORY_LOCATION);
     section("Equipment", worn2.map((i) => `${words(i.itemLocationHrid)}: ${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`));
-    const drinks = Object.entries(c2.actionTypeDrinkSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
+    const drinks = Object.entries(c3.actionTypeDrinkSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
     section("Drinks in slots", drinks);
-    const food = Object.entries(c2.actionTypeFoodSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
+    const food = Object.entries(c3.actionTypeFoodSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
     section("Food in slots", food);
-    const house = Object.entries(c2.characterHouseRoomMap || {}).filter(([, room]) => room?.level).map(([hrid, room]) => `${data?.houseRoomDetailMap?.[hrid]?.name || words(hrid)} ${room.level}`);
+    const house = Object.entries(c3.characterHouseRoomMap || {}).filter(([, room]) => room?.level).map(([hrid, room]) => `${data?.houseRoomDetailMap?.[hrid]?.name || words(hrid)} ${room.level}`);
     section("House", [house.join(" \xB7 ")].filter(Boolean));
-    const abilities = (c2.characterAbilities || []).filter((a) => a.abilityHrid).map((a) => `${words(a.abilityHrid)} ${a.level}${a.slotNumber ? ` (slot ${a.slotNumber})` : ""}`);
+    const abilities = (c3.characterAbilities || []).filter((a) => a.abilityHrid).map((a) => `${words(a.abilityHrid)} ${a.level}${a.slotNumber ? ` (slot ${a.slotNumber})` : ""}`);
     section("Abilities", [abilities.join(" \xB7 ")].filter(Boolean));
     const stacks = items.filter((i) => i.itemHrid && i.itemLocationHrid === INVENTORY_LOCATION);
     const coinCount = stacks.filter((i) => i.itemHrid === COIN7).reduce((sum, i) => sum + (i.count || 0), 0);
@@ -7050,9 +7050,9 @@ i.mwia-history-bid { background: #7ee2b0; }
       `Inventory (${priced.length} stacks, most valuable first)`,
       priced.map(({ i, ask, bid, how, worth }) => `${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""} \xD7${n(i.count || 0)} \xB7 ask ${ask === null ? "\u2013" : coins3(ask)} \xB7 bid ${bid === null ? "\u2013" : coins3(bid)} \xB7 worth ${coins3(worth)}${how ? ` (${how})` : ""}`)
     );
-    const listings = (c2.myMarketListings || []).map((l2) => `${l2.isSell ? "Sell" : "Buy"} ${itemName(l2.itemHrid)}${l2.enhancementLevel ? ` +${l2.enhancementLevel}` : ""} \xD7${n(l2.orderQuantity || 0)} @ ${coins3(Number(l2.price) || 0)}${l2.filledQuantity ? ` (${n(l2.filledQuantity)} filled)` : ""}`);
+    const listings = (c3.myMarketListings || []).map((l2) => `${l2.isSell ? "Sell" : "Buy"} ${itemName(l2.itemHrid)}${l2.enhancementLevel ? ` +${l2.enhancementLevel}` : ""} \xD7${n(l2.orderQuantity || 0)} @ ${coins3(Number(l2.price) || 0)}${l2.filledQuantity ? ` (${n(l2.filledQuantity)} filled)` : ""}`);
     section("Market orders", listings);
-    const queue = (c2.characterActions || []).map((a) => `${actionName(a.actionHrid) || words(a.actionHrid)}${a.hasMaxCount ? ` ${n(a.currentCount || 0)}/${n(a.maxCount || 0)}` : " (no limit)"}${a.primaryItemHash ? ` \xB7 ${itemName(String(a.primaryItemHash).split("::")[2])}` : ""}`);
+    const queue = (c3.characterActions || []).map((a) => `${actionName(a.actionHrid) || words(a.actionHrid)}${a.hasMaxCount ? ` ${n(a.currentCount || 0)}/${n(a.maxCount || 0)}` : " (no limit)"}${a.primaryItemHash ? ` \xB7 ${itemName(String(a.primaryItemHash).split("::")[2])}` : ""}`);
     section("Action queue", queue);
     for (const { title, lines } of context2.sections || []) section(title, lines);
     return out.join("\n") + "\n";
@@ -7282,16 +7282,16 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!before?.roomData || !after?.roomData) return [];
     if (before.currentFloor !== after.currentFloor || before.startedAt && after.startedAt && before.startedAt !== after.startedAt) return [];
     const out = [];
-    after.roomData.forEach((row, r2) => (row || []).forEach((room, c2) => {
-      const was = before.roomData[r2]?.[c2];
+    after.roomData.forEach((row, r2) => (row || []).forEach((room, c3) => {
+      const was = before.roomData[r2]?.[c3];
       if (!room || !was || !roomKey(was) || was.isCleared) return;
       const emptied = !roomKey(room) && !!room.isCleared;
       if (!emptied && roomKey(room) !== roomKey(was)) return;
       const told = emptied ? { ...was, isCleared: true } : room;
       const failsBefore = failsOf(was);
       const fails = Math.max(failsBefore, failsOf(room));
-      for (let f = failsBefore + 1; f <= fails; f++) out.push({ row: r2, col: c2, room: told, outcome: "loss", fails: f, failsBefore: f - 1 });
-      if (room.isCleared) out.push({ row: r2, col: c2, room: told, outcome: "win", fails, failsBefore });
+      for (let f = failsBefore + 1; f <= fails; f++) out.push({ row: r2, col: c3, room: told, outcome: "loss", fails: f, failsBefore: f - 1 });
+      if (room.isCleared) out.push({ row: r2, col: c3, room: told, outcome: "win", fails, failsBefore });
     }));
     const used = (Number(before.shroudCount) || 0) - (Number(after.shroudCount) || 0);
     const cleared = out.filter((x) => x.outcome === "win");
@@ -7305,8 +7305,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const [k, v] of Object.entries(setting)) if (k.startsWith("labyrinthLoadout") && normal(k.slice(16)) === name) return v;
     return null;
   }
-  function hashItem(hash2) {
-    const parts = String(hash2 || "").split("::");
+  function hashItem(hash3) {
+    const parts = String(hash3 || "").split("::");
     const hrid = parts.find((p2) => p2.startsWith("/items/"));
     if (!hrid) return null;
     const last = parts[parts.length - 1];
@@ -7316,8 +7316,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     const l2 = id ? character?.characterLoadoutMap?.[id] : null;
     if (!l2) return null;
     const gear = {};
-    for (const [location2, hash2] of Object.entries(l2.wearableMap || {})) {
-      const item = hashItem(hash2);
+    for (const [location2, hash3] of Object.entries(l2.wearableMap || {})) {
+      const item = hashItem(hash3);
       if (item) gear[location2.split("/").pop()] = item;
     }
     return { id: String(id), name: l2.name || "Loadout", gear, abilities: Object.values(l2.abilityMap || {}).filter(Boolean), food: (l2.foodItemHrids || []).filter(Boolean), drinks: (l2.drinkItemHrids || []).filter(Boolean) };
@@ -7339,11 +7339,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const [k, v] of Object.entries(info)) if (/^labyrinth/.test(k) && Number.isFinite(v)) shop[k.slice(9)] = v;
     const predictions = {};
     if (g.predict) {
-      labyrinth.roomData.forEach((row, r2) => (row || []).forEach((room, c2) => {
+      labyrinth.roomData.forEach((row, r2) => (row || []).forEach((room, c3) => {
         if (!room || room.isCleared || !roomKey(room)) return;
         try {
           const p2 = g.predict(room, labyrinth);
-          if (p2) predictions[`${r2},${c2}`] = p2;
+          if (p2) predictions[`${r2},${c3}`] = p2;
         } catch {
         }
       }));
@@ -7619,7 +7619,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         const takesJobs = !!wire.status?.jobs;
         const takesLabyrinth = !!wire.status?.labyrinth;
         const makesPlans = !!wire.status?.plan;
-        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? { ...p.status.labyrinth || { at: null, error: "" }, states: wire.status.labyrinth.states !== void 0, sim: !!wire.status.labyrinth.sim } : null, plan: makesPlans };
+        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? { ...p.status.labyrinth || { at: null, error: "" }, states: wire.status.labyrinth.states !== void 0, sim: !!wire.status.labyrinth.sim, combat: wire.status.labyrinth.combat || null } : null, plan: makesPlans };
         if (takesOrders) await sendOrders();
         if (takesJobs) await syncJobs();
         if (takesLabyrinth) await syncLabyrinth();
@@ -9197,7 +9197,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const runs = [];
     for (const group of groups.values()) {
       runs.push({ profile: group.setup.profile, crates: lab.crates, edges: group.edges, repeat: BASE_REPEAT });
-      for (const c2 of group.candidates) runs.push({ profile: c2.profile, crates: c2.crates, edges: group.edges });
+      for (const c3 of group.candidates) runs.push({ profile: c3.profile, crates: c3.crates, edges: group.edges });
     }
     const results = await atEdges(pool, data, runs, accuracy.improveRooms, 0, onProgress);
     const combined = /* @__PURE__ */ new Map();
@@ -9206,10 +9206,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const group of groups.values()) {
       const own = results[r2++];
       group.edges.forEach((edge, i) => base.push({ hrid: edge.hrid, level: edge.level, setupName: group.setup.name, win: rate(own[i]), deaths: own[i].deaths / own[i].attempts, timeouts: own[i].timeouts / own[i].attempts }));
-      for (const c2 of group.candidates) {
+      for (const c3 of group.candidates) {
         const theirs = results[r2++];
-        const id = c2.kind === "swap" ? `${group.setup.id}:${c2.id}` : c2.id;
-        const { profile: _p, crates: _c, ...rest } = c2;
+        const id = c3.kind === "swap" ? `${group.setup.id}:${c3.id}` : c3.id;
+        const { profile: _p, crates: _c, ...rest } = c3;
         if (!combined.has(id)) combined.set(id, { ...rest, setupName: group.setup.name, perMonster: [] });
         group.edges.forEach((edge, i) => {
           const gain = rate(theirs[i]) - rate(own[i]);
@@ -9217,7 +9217,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         });
       }
     }
-    const candidates = [...combined.values()].map((c2) => ({ ...c2, levels: c2.perMonster.reduce((sum, m2) => sum + m2.levels, 0) / lab.monsters.length }));
+    const candidates = [...combined.values()].map((c3) => ({ ...c3, levels: c3.perMonster.reduce((sum, m2) => sum + m2.levels, 0) / lab.monsters.length }));
     return { rooms: accuracy.improveRooms, base, candidates };
   }
   function monstersFor(data, style) {
@@ -9230,14 +9230,14 @@ i.mwia-history-bid { background: #7ee2b0; }
   var LEVELS_PER_MILLION = { frugal: 2, balanced: 0.5, all: 0 };
   var ROUND_ROOMS = 2;
   var CONFIRM_TRIES = 3;
-  function applyCandidate(profile, c2) {
+  function applyCandidate(profile, c3) {
     const out = cloneProfile(profile);
-    const index = c2.slot?.startsWith("ability") ? Number(c2.slot.replace("ability", "")) : null;
-    if (c2.kind === "gear") equip(out, c2.slot, { hrid: c2.hrid, enhancementLevel: c2.enhancementLevel });
-    else if (c2.kind === "ability" || c2.kind === "abilityLevel") out.abilities[index] = { hrid: c2.hrid, level: c2.level };
-    else if (c2.kind === "drop") out.abilities[index] = null;
-    else if (c2.kind === "dropAll") out.abilities = out.abilities.map((entry, i) => i === 0 ? entry : null);
-    else if (c2.kind === "triggers") out.abilityTriggers = { ...out.abilityTriggers, ...Object.fromEntries(out.abilities.filter(Boolean).map((a) => [a.hrid, []])) };
+    const index = c3.slot?.startsWith("ability") ? Number(c3.slot.replace("ability", "")) : null;
+    if (c3.kind === "gear") equip(out, c3.slot, { hrid: c3.hrid, enhancementLevel: c3.enhancementLevel });
+    else if (c3.kind === "ability" || c3.kind === "abilityLevel") out.abilities[index] = { hrid: c3.hrid, level: c3.level };
+    else if (c3.kind === "drop") out.abilities[index] = null;
+    else if (c3.kind === "dropAll") out.abilities = out.abilities.map((entry, i) => i === 0 ? entry : null);
+    else if (c3.kind === "triggers") out.abilityTriggers = { ...out.abilityTriggers, ...Object.fromEntries(out.abilities.filter(Boolean).map((a) => [a.hrid, []])) };
     return out;
   }
   async function buildLoadout(pool, profile, data, settings2, opts, onProgress) {
@@ -9262,10 +9262,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const part2 = (from, size) => (done2, total) => onProgress?.(Math.round((from + size * done2 / Math.max(1, total)) * 1e3 / steps), 1e3);
     const before = await simulateCurves(pool, roomFighter(start2, data, crates), targets, accuracy.rooms, part2(0, 3));
     const edges = before.map((m2, i) => edgeOf(m2, 2e3 + i));
-    const subStyle = (c2) => c2.kind !== "gear" || !["main_hand", "two_hand"].includes(c2.slot) || data.itemDetailMap[c2.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style;
+    const subStyle = (c3) => c3.kind !== "gear" || !["main_hand", "two_hand"].includes(c3.slot) || data.itemDetailMap[c3.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style;
     const candidates = [
       // A loadout of its own sells nothing: what it replaces is still worn in your other loadouts.
-      ...gearCandidates(start2, { budget, starter, enhanceCost: opts.enhanceCost }).filter((c2) => c2.slot !== "pouch" && !c2.extraFood && subStyle(c2)).map((c2) => ({ ...c2, cost: c2.price ?? c2.cost, resale: 0, sold: [] })).filter((c2) => c2.cost <= budget),
+      ...gearCandidates(start2, { budget, starter, enhanceCost: opts.enhanceCost }).filter((c3) => c3.slot !== "pouch" && !c3.extraFood && subStyle(c3)).map((c3) => ({ ...c3, cost: c3.price ?? c3.cost, resale: 0, sold: [] })).filter((c3) => c3.cost <= budget),
       ...abilityCandidates(start2, budget)
     ];
     start2.abilities.forEach((entry, index) => {
@@ -9284,17 +9284,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     candidates.push({ kind: "triggers", slot: "triggers", cost: 0, owned: true, profile: quiet });
     const scoreAt = (edgeList) => (own, base) => edgeList.reduce((sum, edge, i) => sum + Math.max(-50, Math.min(50, (rate(own[i]) - rate(base[i])) / edge.slope)), 0) / edgeList.length;
     const screenRooms = Math.max(20, Math.round(accuracy.improveRooms * SCREEN_SHARE));
-    const first = await atEdges(pool, data, [{ profile: start2, crates, edges, repeat: BASE_REPEAT }, ...candidates.map((c2) => ({ profile: c2.profile, crates, edges }))], screenRooms, 0, part2(3, 5));
-    candidates.forEach((c2, i) => c2.levels = scoreAt(edges)(first[i + 1], first[0]));
+    const first = await atEdges(pool, data, [{ profile: start2, crates, edges, repeat: BASE_REPEAT }, ...candidates.map((c3) => ({ profile: c3.profile, crates, edges }))], screenRooms, 0, part2(3, 5));
+    candidates.forEach((c3, i) => c3.levels = scoreAt(edges)(first[i + 1], first[0]));
     const bySlot = /* @__PURE__ */ new Map();
-    for (const c2 of candidates.filter((c3) => c3.cost > 0 && c3.levels > 0).sort((a, b) => b.levels - a.levels)) {
-      const list = bySlot.get(c2.slot) || [];
-      if (list.length < PER_SLOT) list.push(c2);
-      bySlot.set(c2.slot, list);
+    for (const c3 of candidates.filter((c4) => c4.cost > 0 && c4.levels > 0).sort((a, b) => b.levels - a.levels)) {
+      const list = bySlot.get(c3.slot) || [];
+      if (list.length < PER_SLOT) list.push(c3);
+      bySlot.set(c3.slot, list);
     }
-    const shortlist2 = [...candidates.filter((c2) => c2.cost === 0), ...[...bySlot.values()].flat()];
+    const shortlist2 = [...candidates.filter((c3) => c3.cost === 0), ...[...bySlot.values()].flat()];
     const abilitySlots = [1, 2, 3, 4].map((i) => "ability" + i);
-    const slotsOf2 = (c2) => c2.slot === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : c2.slot === "main_hand" || c2.slot === "off_hand" ? [c2.slot, "two_hand"] : c2.kind === "dropAll" ? [...abilitySlots, "triggers", "abilities"] : c2.slot.startsWith("ability") && c2.slot !== "ability0" ? [c2.slot, "abilities"] : c2.slot === "triggers" ? ["triggers", "abilities"] : [c2.slot];
+    const slotsOf2 = (c3) => c3.slot === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : c3.slot === "main_hand" || c3.slot === "off_hand" ? [c3.slot, "two_hand"] : c3.kind === "dropAll" ? [...abilitySlots, "triggers", "abilities"] : c3.slot.startsWith("ability") && c3.slot !== "ability0" ? [c3.slot, "abilities"] : c3.slot === "triggers" ? ["triggers", "abilities"] : [c3.slot];
     const taken = /* @__PURE__ */ new Set();
     const picks = [];
     let left = budget;
@@ -9302,24 +9302,24 @@ i.mwia-history-bid { background: #7ee2b0; }
     let now2 = before;
     let lastRound = [];
     for (let round = 0; round < ROUNDS2; round++) {
-      const open2 = shortlist2.filter((c2) => !picks.includes(c2) && !slotsOf2(c2).some((x) => taken.has(x)) && c2.cost <= left);
+      const open2 = shortlist2.filter((c3) => !picks.includes(c3) && !slotsOf2(c3).some((x) => taken.has(x)) && c3.cost <= left);
       if (!open2.length) break;
       const roundEdges = now2.map((m2, i) => edgeOf(m2, 3e3 + 10 * round + i));
       const from = part2(8 + round, 1);
-      const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open2.map((c2) => ({ profile: applyCandidate(built, c2), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
-      open2.forEach((c2, i) => c2.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
+      const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open2.map((c3) => ({ profile: applyCandidate(built, c3), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
+      open2.forEach((c3, i) => c3.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
       lastRound = open2;
-      const dropOf = (c2) => c2.kind === "ability" && c2.replaces ? open2.find((d) => d.kind === "drop" && d.hrid === c2.replaces) : null;
-      const beatsDrop = (c2) => !dropOf(c2) || c2.roundLevels >= dropOf(c2).roundLevels + MIN_LEVELS;
-      const worth = (c2) => c2.roundLevels >= MIN_LEVELS && beatsDrop(c2) && (c2.cost === 0 || c2.roundLevels / (c2.cost / 1e6) >= minPerMillion);
+      const dropOf = (c3) => c3.kind === "ability" && c3.replaces ? open2.find((d) => d.kind === "drop" && d.hrid === c3.replaces) : null;
+      const beatsDrop = (c3) => !dropOf(c3) || c3.roundLevels >= dropOf(c3).roundLevels + MIN_LEVELS;
+      const worth = (c3) => c3.roundLevels >= MIN_LEVELS && beatsDrop(c3) && (c3.cost === 0 || c3.roundLevels / (c3.cost / 1e6) >= minPerMillion);
       const good = open2.filter(worth);
-      const order = [...good.filter((c2) => c2.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c2) => c2.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
+      const order = [...good.filter((c3) => c3.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c3) => c3.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
       let pick2 = null;
-      for (const [k, c2] of order.slice(0, CONFIRM_TRIES).entries()) {
-        const check = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, { profile: applyCandidate(built, c2), crates, edges: roundEdges, repeat: ROUND_ROOMS }], accuracy.improveRooms, 900 + 10 * round + k);
-        c2.roundLevels = (c2.roundLevels + scoreAt(roundEdges)(check[1], check[0])) / 2;
-        if (worth(c2)) {
-          pick2 = c2;
+      for (const [k, c3] of order.slice(0, CONFIRM_TRIES).entries()) {
+        const check = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, { profile: applyCandidate(built, c3), crates, edges: roundEdges, repeat: ROUND_ROOMS }], accuracy.improveRooms, 900 + 10 * round + k);
+        c3.roundLevels = (c3.roundLevels + scoreAt(roundEdges)(check[1], check[0])) / 2;
+        if (worth(c3)) {
+          pick2 = c3;
           break;
         }
       }
@@ -9345,7 +9345,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       picks: picks.map(strip),
       // The best of the rest, for "also tested".
       // The best of the rest in the last round, measured from (nearly) the finished list.
-      nearMisses: lastRound.filter((c2) => !picks.includes(c2) && c2.roundLevels > 0).sort((a, b) => b.roundLevels - a.roundLevels).slice(0, 6).map((c2) => ({ ...strip(c2), levels: c2.roundLevels })),
+      nearMisses: lastRound.filter((c3) => !picks.includes(c3) && c3.roundLevels > 0).sort((a, b) => b.roundLevels - a.roundLevels).slice(0, 6).map((c3) => ({ ...strip(c3), levels: c3.roundLevels })),
       tested: candidates.length,
       profile: built
     };
@@ -9520,10 +9520,11 @@ i.mwia-history-bid { background: #7ee2b0; }
   var OURS = `.${MARK}, .${NOTE}, .${CELL_MARK}, .${SKIP_MARK}, .${SKIP_BAR}`;
   var m = { deps: null, scanTimer: null, stored: void 0, advice: null, filling: null, stopFill: false, fillStatus: "" };
   var pct4 = (x) => `${Math.round(100 * x)}%`;
-  function rememberLabyrinth(lab) {
+  function rememberLabyrinth(lab, at2 = Date.now(), fromPi = false) {
     if (!lab) return;
     const kept3 = {
-      at: Date.now(),
+      at: at2,
+      ...fromPi ? { fromPi: true } : {},
       monsters: lab.monsters.map((x) => ({ hrid: x.hrid, setupId: x.setupId, setupName: x.setupName, safe: x.safe, curve: x.curve.map((p2) => ({ level: p2.level, wins: p2.wins, attempts: p2.attempts })) }))
     };
     m.stored = kept3;
@@ -9590,9 +9591,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   function runRooms(labyrinth = state.labyrinth) {
     if (!labyrinth?.isActive || !Array.isArray(labyrinth.roomData)) return [];
     const rooms = [];
-    labyrinth.roomData.forEach((row, r2) => (row || []).forEach((room, c2) => {
-      if (room?.monsterHrid && room.recommendedLevel) rooms.push({ row: r2, col: c2, hrid: room.monsterHrid, level: room.recommendedLevel, cleared: !!room.isCleared });
-      else if (room?.skillHrid && room.recommendedLevel) rooms.push({ row: r2, col: c2, skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel, cleared: !!room.isCleared });
+    labyrinth.roomData.forEach((row, r2) => (row || []).forEach((room, c3) => {
+      if (room?.monsterHrid && room.recommendedLevel) rooms.push({ row: r2, col: c3, hrid: room.monsterHrid, level: room.recommendedLevel, cleared: !!room.isCleared });
+      else if (room?.skillHrid && room.recommendedLevel) rooms.push({ row: r2, col: c3, skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel, cleared: !!room.isCleared });
     }));
     return rooms;
   }
@@ -10188,7 +10189,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       t4.unlucky ? coins6(t4.unlucky.cost) : "\u2013",
       duration2((sim || t4.mean).hours)
     ];
-    return `<details class="mwia-plan-row ${cls}" data-plan-toggle="${esc(toggle)}"${e.open.has(toggle) ? " open" : ""}><summary class="mwia-plan-grid">${cells.map((c2) => `<span>${c2}</span>`).join("")}</summary>${detailHtml2(plan, t4)}</details>`;
+    return `<details class="mwia-plan-row ${cls}" data-plan-toggle="${esc(toggle)}"${e.open.has(toggle) ? " open" : ""}><summary class="mwia-plan-grid">${cells.map((c3) => `<span>${c3}</span>`).join("")}</summary>${detailHtml2(plan, t4)}</details>`;
   }
   function detailHtml2(plan, t4) {
     const lines = [];
@@ -10236,9 +10237,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   async function setTarget(button3, id) {
     const target = Number(button3.dataset.planSet);
     const where = e.panels.get(id);
-    const characterId5 = state.character?.character?.id;
+    const characterId6 = state.character?.character?.id;
     const protectHrid = button3.dataset.protect;
-    const protect = protectHrid && characterId5 ? { hash: inventoryItemHash(characterId5, protectHrid), from: Number(button3.dataset.from) } : null;
+    const protect = protectHrid && characterId6 ? { hash: inventoryItemHash(characterId6, protectHrid), from: Number(button3.dataset.from) } : null;
     const result = where ? await setEnhancing(where.panel, target, protect) : false;
     e.statuses.set(
       id,
@@ -11081,8 +11082,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   // src/enhance-loop.js
   var ENHANCE_ACTION = "/actions/enhancing/enhance";
   var DECOMPOSE_ACTION = "/actions/alchemy/decompose";
-  function hashItem2(hash2) {
-    const parts = String(hash2 || "").split("::");
+  function hashItem2(hash3) {
+    const parts = String(hash3 || "").split("::");
     return parts.length >= 4 && parts[2].startsWith("/items/") ? { itemHrid: parts[2], level: Number(parts[3]) || 0 } : null;
   }
   function newLoop({ itemHrid, target, protect = null, catalyst = null, total, heldTarget = 0, perItem = [] }) {
@@ -11197,12 +11198,12 @@ i.mwia-history-bid { background: #7ee2b0; }
   async function openNext() {
     const loop = L.loop;
     if (!loop) return;
-    const hash2 = ownedHash(loop.itemHrid, 0);
+    const hash3 = ownedHash(loop.itemHrid, 0);
     const protect = loop.protect ? { hash: ownedHash(loop.protect.itemHrid, 0), from: loop.protect.from } : null;
-    const opened = await openEnhancing(hash2, loop.target, protect);
+    const opened = await openEnhancing(hash3, loop.target, protect);
     if (opened === "item") L.notice = null;
     else if (opened === "partial") L.notice = { kind: "info", text: `Opened with the item, but couldn't put ${itemName(loop.protect.itemHrid)} in as protection from +${loop.protect.from} \u2013 do that in the game.`, diag: navDiagnostics() };
-    else L.notice = { kind: "warn", text: `Could not open ${itemName(loop.itemHrid)} in Enhancing${hash2 ? "" : " \u2013 no +0 in the inventory"}. Open it yourself with the target +${loop.target}.`, diag: navDiagnostics() };
+    else L.notice = { kind: "warn", text: `Could not open ${itemName(loop.itemHrid)} in Enhancing${hash3 ? "" : " \u2013 no +0 in the inventory"}. Open it yourself with the target +${loop.target}.`, diag: navDiagnostics() };
     render2();
     scheduleMark();
   }
@@ -11779,17 +11780,17 @@ ${triggerWindowReport()}`, false);
     const past = best > 0 && Number.isFinite(gap) ? sell ? best - gap : best + gap : best;
     const candidates = [...prices2].map((price) => ({ price, under: false }));
     if (best > 0 && inRange(past)) candidates.push({ price: best, under: true });
-    const rank = (c2) => sell ? c2.price - (c2.under ? 0.5 : 0) : -(c2.price + (c2.under ? 0.5 : 0));
+    const rank = (c3) => sell ? c3.price - (c3.under ? 0.5 : 0) : -(c3.price + (c3.under ? 0.5 : 0));
     candidates.sort((x, y) => rank(y) - rank(x));
     const top = quantile(hours2.map((r2) => [r2[key2], 1]), sell ? USUAL_TOP : 1 - USUAL_TOP);
     const usual = (price) => top === null || !better2(top, price);
-    for (const c2 of candidates) {
-      const firstNow = best > 0 && (c2.under ? usual(past) : better2(c2.price, best) && usual(c2.price));
+    for (const c3 of candidates) {
+      const firstNow = best > 0 && (c3.under ? usual(past) : better2(c3.price, best) && usual(c3.price));
       let sold = 0;
       for (const seen of windows) {
         let front = 0;
         for (const [k, other] of seen) {
-          const value = !Number.isFinite(other) ? 1 : c2.under ? better2(other, c2.price) ? 0 : 1 : better2(other, c2.price) ? 0 : other === c2.price ? 0.5 : 1;
+          const value = !Number.isFinite(other) ? 1 : c3.under ? better2(other, c3.price) ? 0 : 1 : better2(other, c3.price) ? 0 : other === c3.price ? 0.5 : 1;
           front += firstNow && k === 1 ? 1 : value;
         }
         front *= horizon / seen.length;
@@ -11797,7 +11798,7 @@ ${triggerWindowReport()}`, false);
         if (front > 0 && front >= need) sold++;
       }
       const chance = sold / windows.length;
-      if (chance >= CONFIDENCE) return { price: c2.price, under: c2.under, chance, windows: windows.length, need };
+      if (chance >= CONFIDENCE) return { price: c3.price, under: c3.under, chance, windows: windows.length, need };
     }
     return { price: null, why: "none", windows: windows.length, need };
   }
@@ -11972,8 +11973,8 @@ ${triggerWindowReport()}`, false);
     };
     for (const queued of character.characterActions || []) {
       actionInputs(queued.actionHrid, "for your queue");
-      for (const hash2 of [queued.primaryItemHash, queued.secondaryItemHash]) {
-        const hrid = byHash.get(hash2) || (typeof hash2 === "string" ? hash2.split("::")[2] : null);
+      for (const hash3 of [queued.primaryItemHash, queued.secondaryItemHash]) {
+        const hrid = byHash.get(hash3) || (typeof hash3 === "string" ? hash3.split("::")[2] : null);
         if (!hrid) continue;
         add(hrid, "for your queue");
         if (queued.actionHrid?.includes("enhanc")) for (const cost of data.itemDetailMap[hrid]?.enhancementCosts || []) add(cost.itemHrid, "for your queue");
@@ -12262,22 +12263,22 @@ ${triggerWindowReport()}`, false);
   }
   function bestSwaps(improve) {
     const out = /* @__PURE__ */ new Map();
-    const dropOf = (c2, hrid) => improve.candidates.find((d) => d.kind === "swap" && !d.hrid && d.replaces === c2.replaces && d.setupName === c2.setupName)?.perMonster.find((m2) => m2.hrid === hrid);
-    for (const c2 of improve.candidates) {
-      if (c2.kind !== "swap") continue;
-      for (const m2 of c2.perMonster) {
+    const dropOf = (c3, hrid) => improve.candidates.find((d) => d.kind === "swap" && !d.hrid && d.replaces === c3.replaces && d.setupName === c3.setupName)?.perMonster.find((m2) => m2.hrid === hrid);
+    for (const c3 of improve.candidates) {
+      if (c3.kind !== "swap") continue;
+      for (const m2 of c3.perMonster) {
         if (m2.levels < 1 || m2.after <= m2.before) continue;
-        const drop = c2.hrid && c2.replaces ? dropOf(c2, m2.hrid) : null;
+        const drop = c3.hrid && c3.replaces ? dropOf(c3, m2.hrid) : null;
         if (drop && m2.levels < drop.levels + 1) continue;
         const known = out.get(m2.hrid);
-        if (!known || m2.levels > known.levels) out.set(m2.hrid, { levels: m2.levels, label: c2.label });
+        if (!known || m2.levels > known.levels) out.set(m2.hrid, { levels: m2.levels, label: c3.label });
       }
     }
     return new Map([...out].map(([hrid, s3]) => [hrid, `${esc(s3.label)} <span class="mwia-dim">(\u2248 +${s3.levels.toFixed(1)} levels)</span>`]));
   }
   function improveHtml(improve) {
-    const general = improve.candidates.filter((c2) => c2.kind !== "swap").sort((a, b) => b.levels - a.levels);
-    const useful = general.filter((c2) => c2.levels >= 0.5);
+    const general = improve.candidates.filter((c3) => c3.kind !== "swap").sort((a, b) => b.levels - a.levels);
+    const useful = general.filter((c3) => c3.levels >= 0.5);
     let html = `<h3>What takes you further</h3>
       <p class="mwia-dim">Each change is simulated against every monster, with the loadout you'd use for it, at the room level where you now win about
       half the rooms (${improve.rooms} rooms each). The gain is shown as room levels: how much deeper you could go for the same win rate, averaged over
@@ -12285,14 +12286,14 @@ ${triggerWindowReport()}`, false);
     if (!useful.length) html += `<p>None of the crates, skill levels or ability levels tested here takes you clearly further.</p>`;
     else {
       html += `<table class="mwia-table mwia-wide"><thead><tr><th>Work on</th><th class="mwia-num" title="Room levels gained, averaged over the ten room types">\u2248 Room levels</th><th>Helps most against</th></tr></thead><tbody>`;
-      for (const c2 of useful) {
-        const most = [...c2.perMonster].filter((m2) => m2.levels >= 1).sort((a, b) => b.levels - a.levels).slice(0, 4);
-        html += `<tr><td>${esc(c2.label)}</td><td class="mwia-num">+${c2.levels.toFixed(1)}</td>
+      for (const c3 of useful) {
+        const most = [...c3.perMonster].filter((m2) => m2.levels >= 1).sort((a, b) => b.levels - a.levels).slice(0, 4);
+        html += `<tr><td>${esc(c3.label)}</td><td class="mwia-num">+${c3.levels.toFixed(1)}</td>
               <td>${most.map((m2) => `${esc(monsterName(m2.hrid))} <span class="mwia-dim">+${m2.levels.toFixed(1)}</span>`).join(", ") || '<span class="mwia-dim">spread out</span>'}</td></tr>`;
       }
       html += `</tbody></table>`;
     }
-    const flat = [...new Set(general.filter((c2) => c2.levels < 0.5).map((c2) => c2.label))].map(esc);
+    const flat = [...new Set(general.filter((c3) => c3.levels < 0.5).map((c3) => c3.label))].map(esc);
     if (flat.length) html += `<p class="mwia-dim">No clear effect (within the noise): ${flat.join(", ")}.</p>`;
     html += `<p class="mwia-dim"><b>Better with</b> in the table above: an ability you know in place of one that monster's loadout uses.</p>`;
     return html;
@@ -12334,8 +12335,11 @@ ${triggerWindowReport()}`, false);
       <p class="mwia-dim">For: ${targets.join(", ") || "no room type"}.</p>
       <button class="mwia-btn" data-action="laby-build" ${busy ? "disabled" : ""}>Build loadout</button>`;
     if (!build || build.style !== style) return html;
+    return html + builtHtml(build, `<b>${cap2(build.style)} loadout</b>`, cartButton5, coins10);
+  }
+  function builtHtml(build, title, cartButton5, coins10) {
     const before = new Map(build.before.map((m2) => [m2.hrid, m2]));
-    html += `<div class="mwia-reco"><b>${cap2(build.style)} loadout</b> \u2013 ${build.picks.length || build.starter ? `for ${coins10(build.spent)} of your ${coins10(build.budget)}` : "nothing to buy"}`;
+    let html = `<div class="mwia-reco">${title} \u2013 ${build.picks.length || build.starter ? `for ${coins10(build.spent)} of your ${coins10(build.budget)}` : "nothing to buy"}`;
     if (build.starter) html += `<br>Weapon: <b>${esc(itemName(build.starter.hrid))}${build.starter.enhancementLevel ? " +" + build.starter.enhancementLevel : ""}</b> ${build.starter.owned ? '<span class="mwia-ok">you own it</span>' : "\u2013 " + coins10(build.starter.cost)}`;
     html += `<ol class="mwia-plan">${build.picks.map((p2) => `<li>${pickText(p2, coins10)}</li>`).join("") || "<li>Nothing tested takes these rooms clearly further within the budget.</li>"}</ol>`;
     const cart = cartOf(build);
@@ -12351,9 +12355,44 @@ ${triggerWindowReport()}`, false);
     if (build.nearMisses?.length) {
       html += `<details class="mwia-skill-sec"><summary>Also tested: the closest that didn't make the list (on top of it)</summary><ul>${build.nearMisses.map((p2) => `<li>${pickText(p2, coins10)}</li>`).join("")}</ul></details>`;
     }
-    html += `<p class="mwia-dim">"Now" is your gear (Gear from)${build.starter ? " with the weapon above" : ""}. Put the list on in the game, save it as a
+    html += `<p class="mwia-dim">"Now" is the loadout's gear${build.starter ? " with the weapon above" : ""}. Put the list on in the game, save it as a
       loadout and pick it for these room types in the Labyrinth automation. ${build.tested} changes tested; each has to take you at least half a room level further
       (and a purchase, under <b>Spending</b>, Frugal: 2 levels per 1M, Balanced: 0.5, All in: anything within the budget).</p>`;
+    return html;
+  }
+  var whenText = (at2) => at2 ? new Date(at2).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "\u2013";
+  var STAGES = { check: "checking the rooms", improve: "testing improvements", build: "building loadouts" };
+  function piCombatHtml(combat, busy) {
+    if (!combat.linked) return `<p class="mwia-dim">With your own Pi (<code>MWIA_ORDERS=1</code>, see pi/README.md) all of this is worked out there every night, ready when you look.</p>`;
+    if (!combat.works) return `<p class="mwia-dim">\u{1F967} Your Pi can work all of this out every night \u2013 update it (git pull, docker compose up -d --build).</p>`;
+    const { result, status: status2 } = combat;
+    const nightly = status2?.hour !== null && status2?.hour !== void 0 ? new Date(Date.UTC(2026, 0, 1, status2.hour)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "night";
+    let html = `<div class="mwia-reco">\u{1F967} <b>Your Pi</b> works out <b>Check the rooms</b>, <b>What should I improve?</b> and a <b>loadout build for each loadout in use</b> every night at ${nightly}, from your loadouts as they were last sent (they go when they change).`;
+    if (result) {
+      const partial = !result.done ? ` <span class="mwia-warn">(not finished: ${esc(STAGES[result.stage] ? `done up to ${result.stage}` : result.stage)})</span>` : "";
+      html += `<br>Shown: worked out ${whenText(result.at)}${result.finishedAt ? `\u2013${new Date(result.finishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}, loadouts as of ${whenText(result.requestAt)}${partial}.`;
+    } else html += `<br>Nothing worked out yet.`;
+    if (status2?.running) {
+      const p2 = status2.progress;
+      html += `<br><span class="mwia-dim">Working on it now${p2 ? `: ${esc(STAGES[p2.stage] || p2.stage)} ${Math.round(100 * p2.done / Math.max(1, p2.total))}%` : ""} (started ${whenText(status2.running)}).</span>`;
+    } else if (status2?.queued) html += `<br><span class="mwia-dim">Waiting for the Pi's other work to finish.</span>`;
+    else if (status2?.next) html += `<br><span class="mwia-dim">Next: ${whenText(status2.next)}.</span>`;
+    if (status2?.error && !status2.running) html += `<br><span class="mwia-bad">Last run failed: ${esc(status2.error)}</span>`;
+    if (combat.error) html += `<br><span class="mwia-bad">${esc(combat.error)}</span>`;
+    html += `<br><button class="mwia-btn" data-action="laby-combat-now" ${combat.waiting || combat.sending || busy ? "disabled" : ""}>\u25B6 Work it out on the Pi now</button>
+      <span class="mwia-dim">after changing gear or loadouts (it takes a while; you can close the game meanwhile).</span></div>`;
+    return html;
+  }
+  function piBuildsHtml(result, data, cartButton5, coins10 = shortCoins) {
+    if (!result?.builds?.length) return "";
+    let html = `<h3>Upgrades for each loadout <span class="mwia-dim">(from your Pi, ${whenText(result.at)})</span></h3>
+      <p class="mwia-dim">For every loadout the check picks for some room type: starting from what it wears, every piece of gear, ability and book within your
+      budget (${coins10(result.builds.find((b) => b.build)?.build.budget || 0)}) tried against the room types weak to its attack style \u2013 as <b>Build a loadout</b> below does.</p>`;
+    for (const b of result.builds) {
+      const title = `<b>${esc(b.setupName)}</b> <span class="mwia-dim">(${cap2(b.style)}: ${monstersFor(data, b.style).map((h3) => esc(monsterName(h3))).join(", ") || "no room type"})</span>`;
+      if (b.error || !b.build) html += `<div class="mwia-reco">${title}: <span class="mwia-bad">${esc(b.error || "no result")}</span></div>`;
+      else html += builtHtml(b.build, title, cartButton5, coins10);
+    }
     return html;
   }
   var OUTCOME = { win: "\u2705 won", loss: "\u2716 lost", shroud: "\u{1F32B} shrouded", cleared: "cleared" };
@@ -12397,19 +12436,19 @@ ${triggerWindowReport()}`, false);
       A value of ${SKIP_NEVER} never skips.</p>`;
     return html;
   }
-  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml3, slotted, setupsNote, cartButton: cartButton5, coins: coins10 = shortCoins, attempts = "", runs = "", skip = "" }) {
+  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml3, slotted, setupsNote, cartButton: cartButton5, coins: coins10 = shortCoins, attempts = "", runs = "", skip = "", pi = "", piBuilds = "" }) {
     const level = roomLevelSetting(settings2);
     let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
       1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
       The game's Labyrinth automation can put on a loadout for each room type, so every monster is judged with the loadout that does best against it.</p>
-      ${settingsHtml3(["accuracy"])}${setupsNote}
+      ${pi}${settingsHtml3(["accuracy"])}${setupsNote}
       <div class="mwia-settings">${crateSelect(settings2, "coffee", slotted.coffee)}${crateSelect(settings2, "food", slotted.food)}${floorSelect(level)}
       <label title="The room level to judge the rooms at; changing it needs no new simulation">Room level
         <input data-setting="labyLevel" type="number" min="1" max="300" step="1" size="4" value="${level}"></label></div>
       <button class="mwia-btn" data-action="laby-check" ${busy ? "disabled" : ""}>Check the rooms</button>`;
     if (lab) {
       const crates = Object.entries(lab.crates).filter(([, t4]) => t4).map(([k, t4]) => `${cap2(t4)} ${CRATE_KINDS[k]}`);
-      html += `<p class="mwia-dim">Simulated with ${crates.length ? crates.join(" and ") : "no crates"}, ${lab.rooms} rooms per monster and room level, ${lab.setups.length} loadout${lab.setups.length === 1 ? "" : "s"}.</p>`;
+      html += `<p class="mwia-dim">Simulated with ${crates.length ? crates.join(" and ") : "no crates"}, ${lab.rooms} rooms per monster and room level, ${lab.setups.length} loadout${lab.setups.length === 1 ? "" : "s"}${lab.fromPi ? ` \u2013 worked out on your Pi ${whenText(lab.fromPi)}` : ""}.</p>`;
       html += summaryHtml2(lab, level);
       html += roomGuide(lab, data, level);
       html += monsterTable(lab, profileOf, data, level, improve);
@@ -12419,6 +12458,7 @@ ${triggerWindowReport()}`, false);
     }
     html += skip;
     html += runs;
+    html += piBuilds;
     html += buildHtml(build, data, settings2, busy, settingsHtml3, cartButton5, coins10);
     html += attempts;
     html += `<h3>On the Labyrinth map</h3>
@@ -12441,7 +12481,7 @@ ${triggerWindowReport()}`, false);
         lines.push(`${monsterName(m2.hrid)} (${m2.setupName}): safe up to ${m2.safe ?? "<5"} \xB7 50% at ${m2.half === null ? "<5" : Math.round(m2.half)} \xB7 at ${level}: ${pctText(winAt(m2.curve, level))}`);
       }
     }
-    if (improve) for (const c2 of improve.candidates.filter((c3) => c3.kind !== "swap" && c3.levels >= 0.5).sort((a, b) => b.levels - a.levels)) lines.push(`Work on: ${c2.label} \u2248 +${c2.levels.toFixed(1)} room levels`);
+    if (improve) for (const c3 of improve.candidates.filter((c4) => c4.kind !== "swap" && c4.levels >= 0.5).sort((a, b) => b.levels - a.levels)) lines.push(`Work on: ${c3.label} \u2248 +${c3.levels.toFixed(1)} room levels`);
     if (build) {
       lines.push(`Built ${build.style} loadout for ${shortCoins(build.spent)}${build.starter ? ` with ${itemName(build.starter.hrid)}` : ""}: ${build.picks.map((p2) => p2.kind === "triggers" ? "no triggers" : p2.kind === "dropAll" ? "no abilities" : p2.kind === "drop" ? "without " + abilityName(p2.hrid) : p2.kind === "gear" ? itemName(p2.hrid) + (p2.enhancementLevel ? " +" + p2.enhancementLevel : "") : abilityName(p2.hrid) + (p2.kind === "abilityLevel" ? ` ${p2.level}` : "")).join(", ") || "nothing"}`);
       for (const m2 of build.after) lines.push(`  ${monsterName(m2.hrid)}: 50% at ${m2.half === null ? "<5" : Math.round(m2.half)}`);
@@ -12542,8 +12582,8 @@ ${triggerWindowReport()}`, false);
         return copy;
       });
       rows.slice(0, 30).forEach((row, i) => {
-        const cells = [...row.querySelectorAll('td, [role="cell"]')].map((c2) => short2(clean4(c2.textContent), 30));
-        const controls2 = [...row.querySelectorAll(CONTROLS)].filter((c2, _, all) => !all.some((o2) => o2 !== c2 && o2.contains(c2)));
+        const cells = [...row.querySelectorAll('td, [role="cell"]')].map((c3) => short2(clean4(c3.textContent), 30));
+        const controls2 = [...row.querySelectorAll(CONTROLS)].filter((c3, _, all) => !all.some((o2) => o2 !== c3 && o2.contains(c3)));
         lines.push(`  row ${i + 1}: ${cells.join(" | ")}${controls2.length ? ` \u27F6 ${controls2.map(controlText).join(" ; ")}` : ""}`);
       });
       if (rows.length > 30) lines.push(`  \u2026 ${rows.length - 30} more rows`);
@@ -12794,39 +12834,39 @@ ${triggerWindowReport()}`, false);
   }
   var hours = (minutes) => minutes >= 90 ? `${(minutes / 60).toFixed(1)} h` : `${Math.round(minutes)} min`;
   var signedMinutes = (minutes) => Math.abs(minutes) < 1 ? "" : `${minutes > 0 ? "+" : "\u2212"}${hours(Math.abs(minutes))}`;
-  function costText2(c2, result) {
-    if (c2.kind === "shop") {
-      const can = c2.affordable === null ? "" : c2.affordable ? ` <span class="mwia-ok" title="You have ${result.setup.tokens} tokens">\u2713</span>` : ` <span class="mwia-dim" title="You have ${result.setup.tokens} tokens">(you have ${result.setup.tokens})</span>`;
-      return `${c2.tokens} tokens${can}`;
+  function costText2(c3, result) {
+    if (c3.kind === "shop") {
+      const can = c3.affordable === null ? "" : c3.affordable ? ` <span class="mwia-ok" title="You have ${result.setup.tokens} tokens">\u2713</span>` : ` <span class="mwia-dim" title="You have ${result.setup.tokens} tokens">(you have ${result.setup.tokens})</span>`;
+      return `${c3.tokens} tokens${can}`;
     }
-    if (c2.kind === "skill") return c2.xp === null || c2.xp === void 0 ? "\u2013" : `${short3(c2.xp)} XP`;
-    if (c2.kind === "combat") return `<span class="mwia-dim" title="How to get them: What should I improve? and Build a loadout, above and below">${c2.loadout ? esc(c2.loadout) : ""}</span>`;
-    return c2.note ? `<span class="mwia-dim">${esc(c2.note)}</span>` : "";
+    if (c3.kind === "skill") return c3.xp === null || c3.xp === void 0 ? "\u2013" : `${short3(c3.xp)} XP`;
+    if (c3.kind === "combat") return `<span class="mwia-dim" title="How to get them: What should I improve? and Build a loadout, above and below">${c3.loadout ? esc(c3.loadout) : ""}</span>`;
+    return c3.note ? `<span class="mwia-dim">${esc(c3.note)}</span>` : "";
   }
-  var listed = (c2) => c2.sure && c2.floors >= WORTH || c2.minutes <= -3 && c2.floors > -WORTH;
+  var listed = (c3) => c3.sure && c3.floors >= WORTH || c3.minutes <= -3 && c3.floors > -WORTH;
   function candidateRows(result) {
     let html = "";
     let hidden = 0;
     for (const [kind, title] of GROUPS) {
-      const all = result.candidates.filter((c2) => c2.kind === kind);
+      const all = result.candidates.filter((c3) => c3.kind === kind);
       const list = all.filter(listed);
       hidden += all.length - list.length;
       if (!list.length) continue;
       const extra = kind === "shop" && result.setup.tokens !== null ? ` <span class="mwia-dim">(you have ${result.setup.tokens} tokens)</span>` : "";
       html += `<tr><th colspan="5">${title}${extra}</th></tr>`;
-      for (const c2 of list) {
-        const further = c2.sure && c2.floors >= WORTH;
-        const per = further && c2.kind === "shop" && c2.tokens ? ` <span class="mwia-dim" title="Floors more per 100 tokens">(${(100 * c2.floors / c2.tokens).toFixed(2)} / 100 tokens)</span>` : "";
-        html += `<tr><td>${esc(c2.label)}</td><td title="\xB1 ${c2.error.toFixed(2)}">${further ? signed2(c2.floors) + per : "\u2013"}</td><td>${further ? pct5(c2.reach) : ""}</td><td>${signedMinutes(c2.minutes)}</td><td>${costText2(c2, result)}</td></tr>`;
+      for (const c3 of list) {
+        const further = c3.sure && c3.floors >= WORTH;
+        const per = further && c3.kind === "shop" && c3.tokens ? ` <span class="mwia-dim" title="Floors more per 100 tokens">(${(100 * c3.floors / c3.tokens).toFixed(2)} / 100 tokens)</span>` : "";
+        html += `<tr><td>${esc(c3.label)}</td><td title="\xB1 ${c3.error.toFixed(2)}">${further ? signed2(c3.floors) + per : "\u2013"}</td><td>${further ? pct5(c3.reach) : ""}</td><td>${signedMinutes(c3.minutes)}</td><td>${costText2(c3, result)}</td></tr>`;
       }
     }
     return { html, hidden };
   }
-  function calibrationHtml(c2) {
-    if (!c2?.tries) return "";
-    const formula = `In the ${c2.open} tries at skilling rooms that could go either way the formula expected ${c2.expected} wins; you won ${c2.won}.`;
-    if (c2.applied) return `<p><b>Fitted to your ${c2.tries} logged skilling tries:</b> ${formula} They fit best with <b>${(100 * c2.penalty).toFixed(2)}% success lost per level below the room</b> instead of the formula's 1% \u2013 used here and for the map's marks from now on, and fitted again with every run.</p>`;
-    return `<p class="mwia-dim">${formula} ${c2.open < 15 ? "Too few yet to tell whether the formula is off." : `They would fit ${(100 * c2.best).toFixed(2)}% success lost per level below the room slightly better than the formula's 1%, not surely enough to use it.`}</p>`;
+  function calibrationHtml(c3) {
+    if (!c3?.tries) return "";
+    const formula = `In the ${c3.open} tries at skilling rooms that could go either way the formula expected ${c3.expected} wins; you won ${c3.won}.`;
+    if (c3.applied) return `<p><b>Fitted to your ${c3.tries} logged skilling tries:</b> ${formula} They fit best with <b>${(100 * c3.penalty).toFixed(2)}% success lost per level below the room</b> instead of the formula's 1% \u2013 used here and for the map's marks from now on, and fitted again with every run.</p>`;
+    return `<p class="mwia-dim">${formula} ${c3.open < 15 ? "Too few yet to tell whether the formula is off." : `They would fit ${(100 * c3.best).toFixed(2)}% success lost per level below the room slightly better than the formula's 1%, not surely enough to use it.`}</p>`;
   }
   function runsHtml({ run, setup }) {
     let html = `<h3>How far do you get?</h3>
@@ -12875,8 +12915,207 @@ ${triggerWindowReport()}`, false);
     const lines = [`Runs: ${result.now.floors.toFixed(2)} floors on average in ${hours(result.now.minutes)}, floor ${result.target} reached in ${pct5(result.now.reach)}, ${pct5(result.now.walled)} end with torches left (${result.runs} runs, ${result.setup.torches} ${result.setup.torchTier} torches, ${result.setup.shrouds} ${result.setup.shroudTier} shrouds, automation to floor ${result.setup.autoFloors}, ${result.setup.patience} tries a room, ${result.model.rooms} rooms recorded)`];
     if (result.calibration?.tries) lines.push(`Skilling formula against ${result.calibration.tries} tries: expected ${result.calibration.expected} wins of ${result.calibration.open} open ones, won ${result.calibration.won}; fitted penalty ${(100 * result.calibration.best).toFixed(2)}% a level${result.calibration.applied ? " (used)" : ""}`);
     lines.push(`Floors reached: ${result.reach.filter((f) => f.share >= 5e-3).map((f) => `${f.floor}: ${pct5(f.share)}`).join(", ")}`);
-    for (const c2 of result.candidates.filter(listed).slice(0, 15)) lines.push(`Further: ${c2.label} ${signed2(c2.floors)} floors${signedMinutes(c2.minutes) ? `, ${signedMinutes(c2.minutes)}` : ""}${c2.tokens ? ` for ${c2.tokens} tokens` : ""}${c2.xp ? ` for ${short3(c2.xp)} XP` : ""}`);
+    for (const c3 of result.candidates.filter(listed).slice(0, 15)) lines.push(`Further: ${c3.label} ${signed2(c3.floors)} floors${signedMinutes(c3.minutes) ? `, ${signedMinutes(c3.minutes)}` : ""}${c3.tokens ? ` for ${c3.tokens} tokens` : ""}${c3.xp ? ` for ${short3(c3.xp)} XP` : ""}`);
     return lines;
+  }
+
+  // src/labyrinth-combat-sync.js
+  var SENT_KEY = "mwia-laby-combat-sent";
+  var MIN_SEND_MS = 10 * 60 * 1e3;
+  var POLL_MS2 = 15e3;
+  var POLLS2 = 400;
+  var ACCURACY_ORDER = ["fast", "normal", "thorough"];
+  var c2 = { deps: null, result: null, status: null, piHash: null, uploaded: null, error: "", reading: null, sending: null, dataSending: null, data: null, asked: 0, polls: 0, listeners: /* @__PURE__ */ new Set() };
+  var characterId4 = () => state.character?.character?.id ?? null;
+  var onCombatChange = (listener) => c2.listeners.add(listener);
+  var notify3 = () => c2.listeners.forEach((listener) => listener());
+  function hash2(text) {
+    let h1 = 3735928559;
+    let h22 = 1103547991;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h22 = Math.imul(h22 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ h1 >>> 16, 2246822507) ^ Math.imul(h22 ^ h22 >>> 13, 3266489909);
+    h22 = Math.imul(h22 ^ h22 >>> 16, 2246822507) ^ Math.imul(h1 ^ h1 >>> 13, 3266489909);
+    return (4294967296 * (2097151 & h22) + (h1 >>> 0)).toString(36);
+  }
+  function sentLog() {
+    try {
+      return JSON.parse(localStorage.getItem(SENT_KEY) || "{}");
+    } catch {
+      return {};
+    }
+  }
+  function markSent2(id, sig) {
+    try {
+      localStorage.setItem(SENT_KEY, JSON.stringify({ ...sentLog(), [id]: { sig, at: Date.now() } }));
+    } catch {
+    }
+  }
+  function startLabyrinthCombat(deps) {
+    c2.deps = deps;
+    onPiSync(() => {
+      if (!piStatus().labyrinth?.combat || characterId4() === null) return;
+      c2.piHash = piStatus().labyrinth.combat.dataHash ?? null;
+      update().catch((error) => console.warn("[MWI Advisor] Labyrinth on the Pi", error));
+    });
+  }
+  async function update() {
+    await c2.deps.prepare?.().catch(() => {
+    });
+    if (!getClientData()) return;
+    await sendData();
+    await sendRequest(false);
+    await readCombat();
+  }
+  function packedData() {
+    const data = getClientData();
+    if (!data) return null;
+    if (c2.data?.of !== data || !c2.data.text) {
+      const text = JSON.stringify(data);
+      c2.data = { of: data, hash: hash2(text), text };
+    }
+    return c2.data;
+  }
+  async function gzip(text) {
+    if (typeof CompressionStream === "undefined") throw new Error("this browser can't compress the game's data for the Pi");
+    const stream = new Blob([`{"hash":${JSON.stringify(c2.data.hash)},"data":`, text, "}"]).stream().pipeThrough(new CompressionStream("gzip"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  function sendData() {
+    const config = piConfig();
+    const sent = (hash3) => hash3 === c2.piHash || hash3 === c2.uploaded;
+    if (!config || !getClientData() || c2.data?.of === getClientData() && sent(c2.data.hash)) return Promise.resolve();
+    const packed = packedData();
+    if (!packed || sent(packed.hash)) return Promise.resolve();
+    c2.dataSending || (c2.dataSending = (async () => {
+      try {
+        const body = await gzip(packed.text);
+        const response = await fetch(`${config.url}/labyrinth/combat/data`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/octet-stream" },
+          body,
+          cache: "no-store",
+          signal: AbortSignal.timeout?.(12e4)
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        c2.piHash = (await response.json()).dataHash ?? packed.hash;
+        c2.uploaded = packed.hash;
+        packed.text = null;
+      } catch (error) {
+        c2.error = `Sending the game's data to the Pi: ${error.message || error}`;
+      } finally {
+        c2.dataSending = null;
+      }
+    })());
+    return c2.dataSending;
+  }
+  function slim(profile, data) {
+    return { ...profile, inventory: (profile.inventory || []).filter((i) => data.itemDetailMap[i.hrid]?.equipmentDetail) };
+  }
+  function labyrinthCombatRequest() {
+    const data = getClientData();
+    const character = state.character;
+    if (!character || !data) return { error: "the game's data isn't loaded yet" };
+    const setups = c2.deps.setups();
+    if (!setups.length) return { error: "no loadouts yet" };
+    const settings2 = c2.deps.settings();
+    const accuracy = ACCURACY_ORDER.indexOf(settings2.accuracy) > ACCURACY_ORDER.indexOf("normal") ? settings2.accuracy : "normal";
+    const body = {
+      setups: setups.map((s3) => ({ id: String(s3.id), name: s3.name, profile: slim(s3.profile, data) })),
+      crates: chosenCrates(settings2, character),
+      settings: { accuracy, budget: Number(settings2.budget) || 0, spending: settings2.spending || "balanced" },
+      who: skillingCharacter(character, state.items, data)
+    };
+    return { request: { character: { id: characterId4(), name: character.character?.name || null }, version: scriptVersion(), ...body }, sig: hash2(JSON.stringify(body)) };
+  }
+  function sendRequest(now2) {
+    const config = piConfig();
+    const id = characterId4();
+    if (!config || id === null) return Promise.resolve(false);
+    c2.sending || (c2.sending = (async () => {
+      try {
+        const built = labyrinthCombatRequest();
+        if (built.error) throw new Error(built.error);
+        const last = sentLog()[id];
+        if (!now2 && last?.sig === built.sig) return false;
+        if (!now2 && last && Date.now() - last.at < MIN_SEND_MS) return false;
+        const at2 = Date.now();
+        const response = await fetch(`${config.url}/labyrinth/combat`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ request: { ...built.request, at: at2 }, now: !!now2 }),
+          cache: "no-store",
+          signal: AbortSignal.timeout?.(6e4)
+        });
+        if (response.status === 404 || response.status === 405) throw new Error("your Pi doesn't work out the Labyrinth yet \u2013 update it (git pull, docker compose up -d --build)");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const answer = await response.json();
+        markSent2(id, built.sig);
+        c2.error = "";
+        if (now2 || answer.started) {
+          c2.asked = at2;
+          c2.polls = 0;
+          setTimeout(poll2, POLL_MS2);
+        }
+        return true;
+      } catch (error) {
+        if (now2) c2.error = `Asking the Pi: ${error.message || error}`;
+        return false;
+      } finally {
+        c2.sending = null;
+        notify3();
+      }
+    })());
+    return c2.sending;
+  }
+  async function askCombatNow() {
+    c2.error = "";
+    await c2.deps.prepare?.();
+    await sendData();
+    await sendRequest(true);
+  }
+  function poll2() {
+    c2.polls++;
+    readCombat().then(() => {
+      if (!c2.asked) return;
+      const done2 = c2.result?.done && c2.result.requestAt >= c2.asked;
+      if (done2) c2.asked = 0;
+      else if (c2.status?.error && !c2.status.running && !c2.status.queued) {
+        c2.error = `The Pi: ${c2.status.error}`;
+        c2.asked = 0;
+      } else if (c2.polls >= POLLS2) c2.asked = 0;
+      else setTimeout(poll2, POLL_MS2);
+      notify3();
+    });
+  }
+  function readCombat() {
+    const config = piConfig();
+    const id = characterId4();
+    if (!config || id === null) return Promise.resolve();
+    c2.reading || (c2.reading = (async () => {
+      try {
+        const response = await fetch(`${config.url}/labyrinth/combat?character=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${config.key}` }, cache: "no-store", signal: AbortSignal.timeout?.(6e4) });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const answer = await response.json();
+        c2.status = { ...answer.status || {}, hour: answer.hour ?? null };
+        c2.piHash = answer.dataHash ?? c2.piHash;
+        const changed2 = answer.result && (answer.result.at !== c2.result?.at || answer.result.stage !== c2.result?.stage);
+        if (answer.result) c2.result = answer.result;
+        if (changed2) c2.deps.onResult?.(c2.result);
+      } catch (error) {
+        if (c2.asked) c2.error = `Reading from the Pi: ${error.message || error}`;
+      } finally {
+        c2.reading = null;
+        notify3();
+      }
+    })());
+    return c2.reading;
+  }
+  function combatState() {
+    return { linked: !!piConfig(), works: !!piStatus().labyrinth?.combat, result: c2.result, status: c2.status, error: c2.error, waiting: c2.asked > 0 || !!c2.status?.running || !!c2.status?.queued, sending: !!c2.dataSending };
   }
 
   // src/horizon.js
@@ -12917,9 +13156,9 @@ ${triggerWindowReport()}`, false);
     let h1 = 2166136261;
     let h22 = 16777619 ^ text.length;
     for (let i = 0; i < text.length; i++) {
-      const c2 = text.charCodeAt(i);
-      h1 = Math.imul(h1 ^ c2, 16777619);
-      h22 = Math.imul(h22 ^ c2, 1540483477);
+      const c3 = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c3, 16777619);
+      h22 = Math.imul(h22 ^ c3, 1540483477);
     }
     return (h1 >>> 0).toString(16).padStart(8, "0") + (h22 >>> 0).toString(16).padStart(8, "0");
   }
@@ -12927,12 +13166,12 @@ ${triggerWindowReport()}`, false);
   // src/horizon-sync.js
   var KEPT_KEY2 = "mwia-horizon";
   var SEND_EVERY_MS = 30 * 60 * 1e3;
-  var POLL_MS2 = 15 * 1e3;
-  var POLLS2 = 12;
+  var POLL_MS3 = 15 * 1e3;
+  var POLLS3 = 12;
   var COIN11 = "/items/coin";
   var INVENTORY10 = "/item_locations/inventory";
   var h2 = { plan: null, status: null, error: "", sentAt: 0, sending: null, reading: null, piHash: null, asked: 0, polls: 0, settings: () => ({}), listeners: /* @__PURE__ */ new Set(), packed: null };
-  var characterId4 = () => state.character?.character?.id ?? null;
+  var characterId5 = () => state.character?.character?.id ?? null;
   function kept2() {
     try {
       return JSON.parse(localStorage.getItem(KEPT_KEY2) || "{}");
@@ -12941,7 +13180,7 @@ ${triggerWindowReport()}`, false);
     }
   }
   function keep2(fields) {
-    const id = characterId4();
+    const id = characterId5();
     if (id === null) return;
     try {
       const all = kept2();
@@ -12950,17 +13189,17 @@ ${triggerWindowReport()}`, false);
     } catch {
     }
   }
-  var mine = () => characterId4() === null ? {} : kept2()[characterId4()] || {};
+  var mine = () => characterId5() === null ? {} : kept2()[characterId5()] || {};
   function onHorizonChange(listener) {
     h2.listeners.add(listener);
   }
-  var notify3 = () => h2.listeners.forEach((listener) => listener());
+  var notify4 = () => h2.listeners.forEach((listener) => listener());
   function startHorizonSync({ settings: settings2, prepare = async () => {
   } }) {
     h2.settings = settings2;
     h2.prepare = prepare;
     onPiSync(() => {
-      if (!piStatus().plan || characterId4() === null) return;
+      if (!piStatus().plan || characterId5() === null) return;
       readPlan();
       if (Date.now() - h2.sentAt > SEND_EVERY_MS) sendSnapshot();
     });
@@ -12968,7 +13207,7 @@ ${triggerWindowReport()}`, false);
   var horizonOptions = (settings2) => ({ days: Number(settings2.horizonDays) || 30, levelDays: Number(settings2.horizonLevelDays ?? 7) });
   function horizonState() {
     const plan = h2.plan || mine().plan || null;
-    return { linked: !!piConfig(), makesPlans: !!piStatus().plan, piOk: piStatus().ok, plan, status: h2.status, error: h2.error, sentAt: h2.sentAt, asked: h2.asked, waiting: h2.asked > 0 && !(plan?.snapshotAt >= h2.asked) && h2.polls < POLLS2 };
+    return { linked: !!piConfig(), makesPlans: !!piStatus().plan, piOk: piStatus().ok, plan, status: h2.status, error: h2.error, sentAt: h2.sentAt, asked: h2.asked, waiting: h2.asked > 0 && !(plan?.snapshotAt >= h2.asked) && h2.polls < POLLS3 };
   }
   function horizonNews() {
     const plan = horizonState().plan;
@@ -12979,7 +13218,7 @@ ${triggerWindowReport()}`, false);
     const key2 = planAdviceKey(horizonState().plan);
     if (key2 && key2 !== mine().seen) {
       keep2({ seen: key2 });
-      notify3();
+      notify4();
     }
   }
   function horizonSnapshot(options) {
@@ -13000,7 +13239,7 @@ ${triggerWindowReport()}`, false);
     }
     h2.packed = h2.packed?.source === data ? h2.packed : { source: data, ...planData(data) };
     return {
-      character: { id: characterId4(), name: state.character.character?.name || null },
+      character: { id: characterId5(), name: state.character.character?.name || null },
       at: Date.now(),
       version: scriptVersion(),
       who,
@@ -13040,7 +13279,7 @@ ${triggerWindowReport()}`, false);
         if (run) {
           h2.asked = snapshot2.at;
           h2.polls = 0;
-          setTimeout(poll2, POLL_MS2);
+          setTimeout(poll3, POLL_MS3);
         }
         return true;
       } catch (error) {
@@ -13048,21 +13287,21 @@ ${triggerWindowReport()}`, false);
         return false;
       } finally {
         h2.sending = null;
-        notify3();
+        notify4();
       }
     })());
     return h2.sending;
   }
-  function poll2() {
+  function poll3() {
     h2.polls++;
     readPlan().then(() => {
-      if (h2.asked && !(h2.plan?.snapshotAt >= h2.asked) && h2.polls < POLLS2) setTimeout(poll2, POLL_MS2);
-      else notify3();
+      if (h2.asked && !(h2.plan?.snapshotAt >= h2.asked) && h2.polls < POLLS3) setTimeout(poll3, POLL_MS3);
+      else notify4();
     });
   }
   function readPlan() {
     const config = piConfig();
-    const id = characterId4();
+    const id = characterId5();
     if (!config || id === null) return Promise.resolve();
     h2.reading || (h2.reading = (async () => {
       try {
@@ -13080,7 +13319,7 @@ ${triggerWindowReport()}`, false);
         h2.error = `Reading the plan from the Pi: ${error.message || error}`;
       } finally {
         h2.reading = null;
-        notify3();
+        notify4();
       }
     })());
     return h2.reading;
@@ -13488,6 +13727,19 @@ ${triggerWindowReport()}`, false);
       crates: chosenCrates(ui.settings, state.character)
     }, progress(`Building a ${style} loadout`));
   }
+  function adoptPiCombat(result) {
+    if (!result?.lab) return;
+    const local = lastLabyrinthCheck();
+    if (local && !local.fromPi && local.at > result.at) return;
+    if (ui.busy) return;
+    ui.labSetups = labyrinthSetups();
+    ui.labResult = { ...result.lab, fromPi: result.at };
+    ui.labImprove = result.improve || null;
+    if (local?.at !== result.at || !local.fromPi) {
+      rememberLabyrinth(result.lab, result.at, true);
+      labyrinthCheckChanged();
+    }
+  }
   function renderLabyrinthTab() {
     const data = getClientData();
     if (!state.character) return `<p>The script hasn't seen your character yet. <b>Reload the page (F5)</b> with the script enabled.</p>`;
@@ -13514,6 +13766,8 @@ ${triggerWindowReport()}`, false);
       coins: coins9,
       attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse()),
       runs: runsHtml({ run: runsState(), setup: runSetup(ui.settings) }),
+      pi: piCombatHtml(combatState(), ui.busy),
+      piBuilds: piBuildsHtml(combatState().result, data, cartButton4, coins9),
       skip: skipHtml(skipAdviceNow(), ui.settings, runSetup(ui.settings).maxAttempts)
     });
   }
@@ -13903,30 +14157,30 @@ ${triggerWindowReport()}`, false);
       \u23F1 = you kill faster than monsters appear there.</p>`;
     return html;
   }
-  function upgradeNotes(c2, base) {
+  function upgradeNotes(c3, base) {
     const notes = [];
-    if (c2.owned && c2.cost === 0 && c2.kind === "gear") notes.push('<span class="mwia-ok">you own it</span>');
-    if (c2.enhance) notes.push(`<span class="mwia-dim" title="${esc(enhanceDetail(c2))}">\u{1F528} enhance yourself</span>`);
-    if (c2.deathsDelta < 0 && base.deaths > 0) notes.push(`<span class="mwia-ok">fewer deaths</span>`);
-    if (!c2.safe) notes.push(`<span class="mwia-bad">more deaths</span>`);
+    if (c3.owned && c3.cost === 0 && c3.kind === "gear") notes.push('<span class="mwia-ok">you own it</span>');
+    if (c3.enhance) notes.push(`<span class="mwia-dim" title="${esc(enhanceDetail(c3))}">\u{1F528} enhance yourself</span>`);
+    if (c3.deathsDelta < 0 && base.deaths > 0) notes.push(`<span class="mwia-ok">fewer deaths</span>`);
+    if (!c3.safe) notes.push(`<span class="mwia-bad">more deaths</span>`);
     return notes.join(" ");
   }
-  function cartItems2(c2) {
-    const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c2.result?.consumables?.[hrid] || 0)));
-    if (c2.kind === "house") return c2.materials.filter((m2) => m2.hrid !== COIN12).map((m2) => ({ hrid: m2.hrid, quantity: m2.count }));
-    if (c2.kind === "abilityOrder" || c2.kind === "skillLevel" || c2.kind === "trigger") return [];
-    if (c2.enhance) return mergeCart([...enhanceCart(c2), ...c2.extraFood ? [{ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) }] : []]);
-    if (c2.kind === "abilityLevel") return [{ hrid: c2.bookHrid, quantity: c2.books }];
-    if (c2.kind === "ability") return c2.cost ? [{ hrid: c2.bookHrid, quantity: 1 }] : [];
-    if (c2.kind === "food" || c2.kind === "drinks") return c2.remove ? [] : [{ hrid: c2.hrid, quantity: forOneDay(c2.hrid) }];
-    const items = c2.cost ? [{ hrid: c2.hrid, quantity: 1, enhancementLevel: c2.enhancementLevel || 0 }] : [];
-    if (c2.extraFood) items.push({ hrid: c2.extraFood, quantity: forOneDay(c2.extraFood) });
+  function cartItems2(c3) {
+    const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c3.result?.consumables?.[hrid] || 0)));
+    if (c3.kind === "house") return c3.materials.filter((m2) => m2.hrid !== COIN12).map((m2) => ({ hrid: m2.hrid, quantity: m2.count }));
+    if (c3.kind === "abilityOrder" || c3.kind === "skillLevel" || c3.kind === "trigger") return [];
+    if (c3.enhance) return mergeCart([...enhanceCart(c3), ...c3.extraFood ? [{ hrid: c3.extraFood, quantity: forOneDay(c3.extraFood) }] : []]);
+    if (c3.kind === "abilityLevel") return [{ hrid: c3.bookHrid, quantity: c3.books }];
+    if (c3.kind === "ability") return c3.cost ? [{ hrid: c3.bookHrid, quantity: 1 }] : [];
+    if (c3.kind === "food" || c3.kind === "drinks") return c3.remove ? [] : [{ hrid: c3.hrid, quantity: forOneDay(c3.hrid) }];
+    const items = c3.cost ? [{ hrid: c3.hrid, quantity: 1, enhancementLevel: c3.enhancementLevel || 0 }] : [];
+    if (c3.extraFood) items.push({ hrid: c3.extraFood, quantity: forOneDay(c3.extraFood) });
     return items;
   }
   var COIN12 = "/items/coin";
-  function enhanceCart(c2) {
-    const e2 = c2.enhance;
-    const items = e2.start === "buy" ? [{ hrid: c2.hrid, quantity: 1, enhancementLevel: 0 }] : [];
+  function enhanceCart(c3) {
+    const e2 = c3.enhance;
+    const items = e2.start === "buy" ? [{ hrid: c3.hrid, quantity: 1, enhancementLevel: 0 }] : [];
     for (const m2 of e2.materials) if (m2.itemHrid !== COIN12) items.push({ hrid: m2.itemHrid, quantity: Math.ceil(m2.count * e2.attempts) });
     if (e2.protect && e2.protections > 0) items.push({ hrid: e2.protect.itemHrid, quantity: Math.ceil(e2.protections), enhancementLevel: 0 });
     for (const tea of e2.teas) items.push({ hrid: tea, quantity: Math.ceil(e2.drinks) });
@@ -13948,18 +14202,18 @@ ${triggerWindowReport()}`, false);
     if (h3 < 48) return `${dec3(h3, 1)} h`;
     return `${dec3(h3 / 24, 1)} days`;
   }
-  function enhanceDetail(c2) {
-    const e2 = c2.enhance;
+  function enhanceDetail(c3) {
+    const e2 = c3.enhance;
     const from = e2.start === "worn" ? `your +${e2.from}` : e2.start === "owned" ? `your copy at +${e2.from}` : `a +0 bought for ${coins9(e2.basePrice)}`;
-    const parts = [`from ${from} to +${c2.enhancementLevel}: about ${int(e2.attempts)} attempts (${hoursText2(e2.hours)} of Enhancing), materials and teas ${coins9(c2.price - e2.basePrice)}`];
+    const parts = [`from ${from} to +${c3.enhancementLevel}: about ${int(e2.attempts)} attempts (${hoursText2(e2.hours)} of Enhancing), materials and teas ${coins9(c3.price - e2.basePrice)}`];
     if (e2.protect) parts.push(`protected from +${e2.protect.from} with ${itemName(e2.protect.itemHrid)} (about ${dec3(e2.protections, 1)})`);
     parts.push(e2.teas.length ? `teas: ${e2.teas.map(itemName).join(", ")}` : "no teas");
     return parts.join("; ");
   }
-  function costText3(c2) {
-    if (!c2.cost && !c2.resale) return "(free)";
-    const sold = c2.resale ? ` (${coins9(c2.price)} \u2212 ${coins9(c2.resale)} selling your ${c2.sold.map((g4) => gearLabel(g4)).join(" and ")})` : "";
-    return `for ${c2.cost ? coins9(c2.cost) : "nothing"}${sold}`;
+  function costText3(c3) {
+    if (!c3.cost && !c3.resale) return "(free)";
+    const sold = c3.resale ? ` (${coins9(c3.price)} \u2212 ${coins9(c3.resale)} selling your ${c3.sold.map((g4) => gearLabel(g4)).join(" and ")})` : "";
+    return `for ${c3.cost ? coins9(c3.cost) : "nothing"}${sold}`;
   }
   var starterCart = (w) => w?.cost ? [{ hrid: w.hrid, quantity: 1, enhancementLevel: w.enhancementLevel }] : [];
   var cartLabel = (i) => `${i.quantity ? i.quantity + "\xD7 " : ""}${itemName(i.hrid)}${i.enhancementLevel ? " +" + i.enhancementLevel : ""}`;
@@ -14086,14 +14340,14 @@ ${triggerWindowReport()}`, false);
       }
     }
     const all = result.scope !== "abilities";
-    if (all) html += upgradeTable("Equipment", result.gear, base, (c2) => SLOT_NAMES[c2.slot], (c2) => gearLabel(c2) + (c2.extraFood ? ` <span class="mwia-dim">+ ${esc(itemName(c2.extraFood))} in new slot</span>` : ""), (c2) => c2.replaces ? gearLabel(c2.replaces) : "\u2013", "Item");
+    if (all) html += upgradeTable("Equipment", result.gear, base, (c3) => SLOT_NAMES[c3.slot], (c3) => gearLabel(c3) + (c3.extraFood ? ` <span class="mwia-dim">+ ${esc(itemName(c3.extraFood))} in new slot</span>` : ""), (c3) => c3.replaces ? gearLabel(c3.replaces) : "\u2013", "Item");
     html += upgradeTable(
       "Abilities",
       result.abilities,
       base,
-      (c2) => `Slot ${c2.slot.replace("ability", "")}`,
-      (c2) => esc(abilityName(c2.hrid)) + (c2.kind === "abilityLevel" ? ` <span class="mwia-dim">lvl ${c2.fromLevel} \u2192 ${c2.level} (${c2.books} books)</span>` : ` <span class="mwia-dim">lvl ${c2.level}</span>`) + (c2.triggers ? `<br><span class="mwia-dim">triggers: ${esc(describeTriggers(c2.triggers, getClientData()))}</span>` : ""),
-      (c2) => c2.kind === "abilityLevel" ? '<span class="mwia-dim">level up</span>' : c2.replaces ? esc(abilityName(c2.replaces)) : "\u2013",
+      (c3) => `Slot ${c3.slot.replace("ability", "")}`,
+      (c3) => esc(abilityName(c3.hrid)) + (c3.kind === "abilityLevel" ? ` <span class="mwia-dim">lvl ${c3.fromLevel} \u2192 ${c3.level} (${c3.books} books)</span>` : ` <span class="mwia-dim">lvl ${c3.level}</span>`) + (c3.triggers ? `<br><span class="mwia-dim">triggers: ${esc(describeTriggers(c3.triggers, getClientData()))}</span>` : ""),
+      (c3) => c3.kind === "abilityLevel" ? '<span class="mwia-dim">level up</span>' : c3.replaces ? esc(abilityName(c3.replaces)) : "\u2013",
       "Ability"
     );
     if (!getClientData().levelExperienceTable) {
@@ -14102,14 +14356,14 @@ ${triggerWindowReport()}`, false);
     html += orderTable(result.orders || []);
     html += triggerTable(result.triggers || [], result);
     if (all) {
-      html += upgradeTable("House", result.house || [], base, () => "House", (c2) => `${esc(c2.name)} <span class="mwia-dim">lvl ${c2.fromLevel} \u2192 ${c2.level}</span>`, () => "\u2013", "Room");
+      html += upgradeTable("House", result.house || [], base, () => "House", (c3) => `${esc(c3.name)} <span class="mwia-dim">lvl ${c3.fromLevel} \u2192 ${c3.level}</span>`, () => "\u2013", "Room");
       html += levelTable(result.levels || [], base);
       html += consumableTable("Drinks", result.drinks, base);
       html += consumableTable("Food", result.food, base);
     } else {
       html += `<p class="mwia-dim">Only abilities and triggers were tested. <b>Analyze upgrades</b> also tests gear, house rooms, drinks and food.</p>`;
     }
-    if (result.food.some((c2) => !c2.safe && c2.delta > 0) && result.gear.some((c2) => c2.extraFood && c2.safe && c2.delta > 0)) {
+    if (result.food.some((c3) => !c3.safe && c3.delta > 0) && result.gear.some((c3) => c3.extraFood && c3.safe && c3.delta > 0)) {
       html += `<p class="mwia-reco">Some food gives more XP but makes you die, because it replaces your only HP food. A bigger pouch gives an extra
           food slot so you can keep both \u2013 see the pouch row under Equipment.</p>`;
     }
@@ -14124,66 +14378,66 @@ ${triggerWindowReport()}`, false);
       (\u2716) are never put on the shopping list.</p>`;
     return html;
   }
-  function dropsHpFood(c2) {
-    if (c2.kind !== "food") return false;
+  function dropsHpFood(c3) {
+    if (c3.kind !== "food") return false;
     const items = getClientData().itemDetailMap;
     const heals = (hrid) => (items[hrid]?.consumableDetail?.hitpointRestore || 0) > 0;
     const before = currentProfile()?.food || [];
-    const after = c2.profile?.food || [];
+    const after = c3.profile?.food || [];
     return before.some((h3) => h3 && heals(h3)) && !after.some((h3) => h3 && heals(h3));
   }
-  function gainText2(c2) {
+  function gainText2(c3) {
     const gold = ui.upgradeResult.goal.gold;
-    const profit = `${signed4(coins9, perDay(c2.profitDelta))} profit/day`;
-    if (gold === 0) return `${pct6(c2.deltaPct)} ${xpLabel()}`;
+    const profit = `${signed4(coins9, perDay(c3.profitDelta))} profit/day`;
+    if (gold === 0) return `${pct6(c3.deltaPct)} ${xpLabel()}`;
     if (gold === 1) return profit;
-    return `${pct6(c2.deltaPct)} gain (${signed4(xpNum, c2.xpDelta)} ${xpLabel()}, ${profit})`;
+    return `${pct6(c3.deltaPct)} gain (${signed4(xpNum, c3.xpDelta)} ${xpLabel()}, ${profit})`;
   }
-  function confidenceCell(c2) {
-    const value = Math.round(c2.confidence * 100);
-    const cls = c2.confidence >= CONFIDENCE_LEVEL ? "mwia-ok" : c2.confidence >= 0.7 ? "mwia-warn" : "mwia-dim";
-    const title = c2.screened ? "Ruled out after one simulation: all but sure to give less than 1%, whatever the focus, so it got no more runs" : `Chance that this really improves your focus, from ${c2.runs.length} simulations`;
-    return `<span class="${cls}" title="${title}">${value}%${c2.screened ? " \u2717" : ""}</span>`;
+  function confidenceCell(c3) {
+    const value = Math.round(c3.confidence * 100);
+    const cls = c3.confidence >= CONFIDENCE_LEVEL ? "mwia-ok" : c3.confidence >= 0.7 ? "mwia-warn" : "mwia-dim";
+    const title = c3.screened ? "Ruled out after one simulation: all but sure to give less than 1%, whatever the focus, so it got no more runs" : `Chance that this really improves your focus, from ${c3.runs.length} simulations`;
+    return `<span class="${cls}" title="${title}">${value}%${c3.screened ? " \u2717" : ""}</span>`;
   }
   var CONF_TITLE = "How sure we are that this is an improvement and not luck (paired t-test over several simulations with different random seeds). Only \u2265 90% goes on the shopping list.";
   var GAIN_TITLE = "Improvement of your focus as a share of what you have now: XP/h and profit/h, weighted by the XP\u2013Gold slider";
   function upgradeTable(title, list, base, slotText, nameHtml, replacesHtml, nameHeader) {
-    const shown = list.filter((c2) => c2.delta > 0).slice(0, 20);
+    const shown = list.filter((c3) => c3.delta > 0).slice(0, 20);
     let html = `<h3>${title}</h3>`;
     if (!shown.length) return html + `<p class="mwia-dim">Nothing within budget improved your focus.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Slot</th><th>${nameHeader}</th><th>Replaces</th><th class="mwia-num">Price</th>
       <th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th><th class="mwia-num" title="${GAIN_TITLE}">Gain</th>
       <th class="mwia-num">Gain per 1M</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th><th></th></tr></thead><tbody>`;
-    for (const c2 of shown) {
-      const efficiency = c2.cost > 0 ? pct6(c2.delta / c2.cost * 1e6) : "\u221E";
-      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${slotText(c2)}</td><td>${nameHtml(c2)}</td><td>${replacesHtml(c2)}</td>
-          <td class="mwia-num"${c2.resale ? ` title="${coins9(c2.price)} \u2212 ${coins9(c2.resale)} for what it replaces"` : ""}>${c2.cost ? coins9(c2.cost) : "0"}${c2.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed4(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c2.profitDelta))}</td>
-          <td class="mwia-num">${pct6(c2.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c2)}</td>
-          <td>${upgradeNotes(c2, base)}</td><td>${cartButton4(cartItems2(c2))}</td></tr>`;
+    for (const c3 of shown) {
+      const efficiency = c3.cost > 0 ? pct6(c3.delta / c3.cost * 1e6) : "\u221E";
+      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${slotText(c3)}</td><td>${nameHtml(c3)}</td><td>${replacesHtml(c3)}</td>
+          <td class="mwia-num"${c3.resale ? ` title="${coins9(c3.price)} \u2212 ${coins9(c3.resale)} for what it replaces"` : ""}>${c3.cost ? coins9(c3.cost) : "0"}${c3.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td>
+          <td class="mwia-num">${pct6(c3.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c3)}</td>
+          <td>${upgradeNotes(c3, base)}</td><td>${cartButton4(cartItems2(c3))}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
-  function houseMaterials(c2) {
-    return c2.materials.map((m2) => m2.hrid === COIN12 ? `${coins9(m2.count)} coins` : `${int(m2.count)}\xD7 ${esc(itemName(m2.hrid))}`).join(", ");
+  function houseMaterials(c3) {
+    return c3.materials.map((m2) => m2.hrid === COIN12 ? `${coins9(m2.count)} coins` : `${int(m2.count)}\xD7 ${esc(itemName(m2.hrid))}`).join(", ");
   }
   function orderTable(list) {
-    const shown = list.filter((c2) => c2.delta > 0).slice(0, 5);
+    const shown = list.filter((c3) => c3.delta > 0).slice(0, 5);
     let html = `<h3>Ability order</h3>`;
     if (!list.length) return html + `<p class="mwia-dim">Fewer than two abilities in your slots \u2013 nothing to reorder.</p>`;
     if (!shown.length) return html + `<p class="mwia-dim">Your order is the best of the ${list.length + 1} orders tried.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Order</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th></tr></thead><tbody>`;
-    for (const c2 of shown) {
-      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${c2.order.map((h3) => esc(abilityName(h3))).join(" \u2192 ")}</td>
-          <td class="mwia-num">${signed4(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct6(c2.deltaPct)}</td>
-          <td class="mwia-num">${confidenceCell(c2)}</td><td>${upgradeNotes(c2, ui.upgradeResult.base)}</td></tr>`;
+    for (const c3 of shown) {
+      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${c3.order.map((h3) => esc(abilityName(h3))).join(" \u2192 ")}</td>
+          <td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td><td class="mwia-num">${pct6(c3.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c3)}</td><td>${upgradeNotes(c3, ui.upgradeResult.base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
-  var triggerTargetName = (c2) => c2.target === "food" ? itemName(c2.hrid) : abilityName(c2.hrid);
+  var triggerTargetName = (c3) => c3.target === "food" ? itemName(c3.hrid) : abilityName(c3.hrid);
   function triggerTable(list, result) {
     const data = getClientData();
-    const shown = list.filter((c2) => c2.delta > 0).slice(0, 8);
+    const shown = list.filter((c3) => c3.delta > 0).slice(0, 8);
     let html = `<h3>Triggers</h3>`;
     const waiting = Object.entries(result.telemetry?.abilities || {}).filter(([, s3]) => s3.waitingPerHour >= 0.1 * Math.max(1, s3.castsPerHour) && s3.waitingPerHour >= 3);
     if (waiting.length) {
@@ -14193,11 +14447,11 @@ ${triggerWindowReport()}`, false);
     if (!shown.length) return html + `<p class="mwia-dim">Your triggers are the best of the ${(result.triggerVariants || list).length + 1} settings tried.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>For</th><th>Triggers</th><th>Now</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th></tr></thead><tbody>`;
-    for (const c2 of shown) {
-      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${esc(triggerTargetName(c2))}</td><td>${esc(describeTriggers(c2.triggers, data))}</td>
-          <td class="mwia-dim">${esc(describeTriggers(c2.was, data))}</td>
-          <td class="mwia-num">${signed4(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct6(c2.deltaPct)}</td>
-          <td class="mwia-num">${confidenceCell(c2)}</td><td>${upgradeNotes(c2, ui.upgradeResult.base)}</td></tr>`;
+    for (const c3 of shown) {
+      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${esc(triggerTargetName(c3))}</td><td>${esc(describeTriggers(c3.triggers, data))}</td>
+          <td class="mwia-dim">${esc(describeTriggers(c3.was, data))}</td>
+          <td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td><td class="mwia-num">${pct6(c3.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c3)}</td><td>${upgradeNotes(c3, ui.upgradeResult.base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -14207,29 +14461,29 @@ ${triggerWindowReport()}`, false);
       The time is at the XP an hour that skill gets now, in this zone.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Skill</th><th>Levels</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num" title="Time to get there at the XP an hour the skill gets now">Time</th><th></th></tr></thead><tbody>`;
-    for (const c2 of list) {
-      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${SKILL_NAMES[c2.hrid] || esc(c2.hrid)}</td><td>${c2.fromLevel} \u2192 ${c2.level}</td>
-          <td class="mwia-num">${signed4(xpNum, c2.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct6(c2.deltaPct)}</td>
-          <td class="mwia-num">${confidenceCell(c2)}</td><td class="mwia-num">${hoursText2(c2.hoursToReach)}</td><td>${upgradeNotes(c2, base)}</td></tr>`;
+    for (const c3 of list) {
+      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${SKILL_NAMES[c3.hrid] || esc(c3.hrid)}</td><td>${c3.fromLevel} \u2192 ${c3.level}</td>
+          <td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td><td class="mwia-num">${pct6(c3.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c3)}</td><td class="mwia-num">${hoursText2(c3.hoursToReach)}</td><td>${upgradeNotes(c3, base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
   function consumableTable(title, list, base) {
-    const shown = list.filter((c2) => c2.delta > 0 || c2.deathsDelta < 0).slice(0, 10);
+    const shown = list.filter((c3) => c3.delta > 0 || c3.deathsDelta < 0).slice(0, 10);
     let html = `<h3>${title}</h3>`;
     if (!shown.length) return html + `<p class="mwia-dim">No ${title.toLowerCase()} noticeably improved your focus.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>${title === "Food" ? "Food" : "Drink"}</th><th>Replaces</th><th class="mwia-num">Unit price</th>
       <th class="mwia-num">Extra cost/day</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num" title="Includes the extra food/drink cost">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num">Deaths/h</th><th class="mwia-num" title="${countingLevels() ? "Extra cost per extra level" : "Extra cost per 1000 extra XP"}">${countingLevels() ? "Cost per level" : "Cost per 1000 XP"}</th><th></th></tr></thead><tbody>`;
-    for (const c2 of shown) {
+    for (const c3 of shown) {
       const unit = countingLevels() ? 1 : 1e3;
-      const per1000 = c2.xpDelta > 0 ? coins9(c2.costPerHourDelta / c2.xpDelta * unit) : c2.remove && c2.xpDelta < 0 ? `saves ${coins9(c2.costPerHourDelta / c2.xpDelta * unit)}` : "\u2013";
-      const name = (c2.remove ? `<i>Stop using</i> ${esc(itemName(c2.hrid))}` : esc(itemName(c2.hrid))) + (dropsHpFood(c2) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
-      html += `<tr class="${c2.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c2.replaces ? esc(itemName(c2.replaces)) : "\u2013"}</td>
-          <td class="mwia-num">${c2.remove ? "\u2013" : coins9(askPrice(c2.hrid))}</td><td class="mwia-num">${coins9(perDay(c2.costPerHourDelta))}</td><td class="mwia-num">${signed4(xpNum, c2.xpDelta)}</td>
-          <td class="mwia-num">${signed4(coins9, perDay(c2.profitDelta))}</td><td class="mwia-num">${pct6(c2.deltaPct)}</td><td class="mwia-num">${confidenceCell(c2)}</td>
-          <td class="mwia-num ${c2.safe ? "" : "mwia-bad"}">${dec3(c2.result.deaths, 2)}${c2.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
-          <td>${cartButton4(cartItems2(c2), "\u{1F6D2} 1 day")}</td></tr>`;
+      const per1000 = c3.xpDelta > 0 ? coins9(c3.costPerHourDelta / c3.xpDelta * unit) : c3.remove && c3.xpDelta < 0 ? `saves ${coins9(c3.costPerHourDelta / c3.xpDelta * unit)}` : "\u2013";
+      const name = (c3.remove ? `<i>Stop using</i> ${esc(itemName(c3.hrid))}` : esc(itemName(c3.hrid))) + (dropsHpFood(c3) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
+      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c3.replaces ? esc(itemName(c3.replaces)) : "\u2013"}</td>
+          <td class="mwia-num">${c3.remove ? "\u2013" : coins9(askPrice(c3.hrid))}</td><td class="mwia-num">${coins9(perDay(c3.costPerHourDelta))}</td><td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td>
+          <td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td><td class="mwia-num">${pct6(c3.deltaPct)}</td><td class="mwia-num">${confidenceCell(c3)}</td>
+          <td class="mwia-num ${c3.safe ? "" : "mwia-bad"}">${dec3(c3.result.deaths, 2)}${c3.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
+          <td>${cartButton4(cartItems2(c3), "\u{1F6D2} 1 day")}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -14336,15 +14590,15 @@ ${triggerWindowReport()}`, false);
     const steps = [`${kind} ${item}${level ? ` +${level}` : ""} ${kind === "enhance" ? `\u2192 +${value}` : `${label3} \xD7${value}`}`];
     steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
     const owned = held2 > 0;
-    const characterId5 = state.character?.character?.id;
-    if (owned && !characterId5) steps.push("no character id");
-    const hash2 = owned && characterId5 ? inventoryItemHash(characterId5, item, level) : null;
-    const ownHash = (hrid) => hrid && characterId5 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId5, hrid) : null;
+    const characterId6 = state.character?.character?.id;
+    if (owned && !characterId6) steps.push("no character id");
+    const hash3 = owned && characterId6 ? inventoryItemHash(characterId6, item, level) : null;
+    const ownHash = (hrid) => hrid && characterId6 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId6, hrid) : null;
     const protect = dataset.protect ? { hash: ownHash(dataset.protect), from: Number(dataset.protectFrom) } : null;
     const catalyst = dataset.catalyst ? { hash: ownHash(dataset.catalyst) } : null;
     clearNotice();
     ui.root.classList.add("mwia-hidden");
-    const opened = kind === "enhance" ? await openEnhancing(hash2, value, protect) : await openAlchemy(hash2, label3, value, catalyst);
+    const opened = kind === "enhance" ? await openEnhancing(hash3, value, protect) : await openAlchemy(hash3, label3, value, catalyst);
     if (opened === "item") return;
     if (opened === "partial") {
       const extra = kind === "enhance" ? `${dataset.protect ? `put ${itemName(dataset.protect)} in as protection from +${dataset.protectFrom}` : ""}` : `put ${itemName(dataset.catalyst)} in as the catalyst`;
@@ -14358,7 +14612,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.83.0" : "dev";
+  var VERSION3 = true ? "0.84.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -14443,6 +14697,10 @@ ${triggerWindowReport()}`, false);
         break;
       case "laby-runs":
         askRuns(ui.settings);
+        render3();
+        break;
+      case "laby-combat-now":
+        askCombatNow().finally(() => ui.tab === "labyrinth" && !ui.busy && render3());
         render3();
         break;
       case "laby-read":
@@ -14645,6 +14903,10 @@ ${triggerWindowReport()}`, false);
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare, penalty: fittedPenalty, skip: () => ({ rule: skipRule(ui.settings), teaCrate: runSetup(ui.settings).teaCrate }) });
     startLabyrinthLog({ predict: roomPrediction });
     startLabyrinthRuns({ prepare: () => loadClientData(ui.win) });
+    startLabyrinthCombat({ setups: labyrinthSetups, settings: () => ui.settings, prepare: () => loadClientData(ui.win), onResult: adoptPiCombat });
+    onCombatChange(() => {
+      if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "labyrinth") render3();
+    });
     onRunsChange(() => {
       if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "labyrinth") render3();
     });
@@ -14831,14 +15093,14 @@ ${triggerWindowReport()}`, false);
     }
     if (modals.length) setTimeout(scheduleScan11, 700);
     for (const modal of modals) {
-      let c2;
+      let c3;
       try {
-        c2 = getClientData() ? context(modal) : { error: `no game data (${l.loadError})` };
+        c3 = getClientData() ? context(modal) : { error: `no game data (${l.loadError})` };
       } catch (error) {
-        c2 = { error: String(error?.message || error) };
+        c3 = { error: String(error?.message || error) };
       }
       let box = modal.querySelector(".mwia-listprice");
-      if (!c2) {
+      if (!c3) {
         box?.remove();
         continue;
       }
@@ -14851,149 +15113,149 @@ ${triggerWindowReport()}`, false);
         else if (post) post.insertAdjacentElement("beforebegin", box);
         else modal.appendChild(box);
       }
-      if (!c2.error) notePrediction(prediction(c2));
-      const html = c2.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION4)} can't read this window: ${esc(c2.error)}. A screenshot of this helps.</div>` : boxHtml4(c2);
+      if (!c3.error) notePrediction(prediction(c3));
+      const html = c3.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION4)} can't read this window: ${esc(c3.error)}. A screenshot of this helps.</div>` : boxHtml4(c3);
       if (box.dataset.html !== html) {
         box.dataset.html = html;
         box.innerHTML = html;
       }
     }
   }
-  function boxHtml4(c2) {
-    const sell = c2.side === "sell";
-    const buttons = c2.suggestions.map((s3, i) => {
+  function boxHtml4(c3) {
+    const sell = c3.side === "sell";
+    const buttons = c3.suggestions.map((s3, i) => {
       const shown = s3.price === null ? "\u2014" : s3.kind === "wall" || s3.under ? `${sell ? "<" : ">"} ${shortCoins(s3.price)}` : shortCoins(s3.price);
-      return `<button type="button" data-listprice="${i}"${s3.price === null ? ' class="mwia-off"' : ""} title="${esc(titleFor(s3, c2))}"><b>${label2(s3)}</b><small>${shown}</small></button>`;
+      return `<button type="button" data-listprice="${i}"${s3.price === null ? ' class="mwia-off"' : ""} title="${esc(titleFor(s3, c3))}"><b>${label2(s3)}</b><small>${shown}</small></button>`;
     });
-    return `${limitHtml(c2)}${buttons.length ? `<div class="mwia-listprice-buttons">${buttons.join("")}</div>` : ""}<div class="mwia-listprice-info">${infoHtml(c2)}</div>`;
+    return `${limitHtml(c3)}${buttons.length ? `<div class="mwia-listprice-buttons">${buttons.join("")}</div>` : ""}<div class="mwia-listprice-info">${infoHtml(c3)}</div>`;
   }
-  function limitHtml(c2) {
-    const t4 = c2.limit;
+  function limitHtml(c3) {
+    const t4 = c3.limit;
     if (!t4) return "";
     const margin = `${Math.round(t4.margin * 100)}%`;
     const shown = t4.price === null ? "\u2014" : `\u2264 ${shortCoins(t4.price)}`;
-    return `<button type="button" class="mwia-listprice-limit${t4.price === null ? " mwia-off" : ""}" data-listprice="limit" title="${esc(limitTitle(t4, c2))}"><b>\u{1F9ED} Profit ${shown}</b><small>keeps ${margin} on ${esc(t4.job)}</small></button>`;
+    return `<button type="button" class="mwia-listprice-limit${t4.price === null ? " mwia-off" : ""}" data-listprice="limit" title="${esc(limitTitle(t4, c3))}"><b>\u{1F9ED} Profit ${shown}</b><small>keeps ${margin} on ${esc(t4.job)}</small></button>`;
   }
-  function limitTitle(t4, c2) {
+  function limitTitle(t4, c3) {
     const margin = `${Math.round(t4.margin * 100)}%`;
-    if (t4.price === null) return `${t4.job} needs ${itemName(c2.hrid)} at ${num(t4.exact)} or less to keep a ${margin} margin \u2013 under the tradable range (from ${num(c2.range.min)}). Nothing can be bought at a profit now.`;
+    if (t4.price === null) return `${t4.job} needs ${itemName(c3.hrid)} at ${num(t4.exact)} or less to keep a ${margin} margin \u2013 under the tradable range (from ${num(c3.range.min)}). Nothing can be bought at a profit now.`;
     const cap4 = t4.capped ? ` The tradable range stops at ${num(t4.price)}, under the ${num(t4.exact)} the margin allows.` : "";
-    const now2 = t4.listed === null ? `Open ${itemName(c2.hrid)} on the market to see how many are listed under it.` : t4.listed > 0 ? `${num(t4.listed)} listed at or under it now are bought at once, the cheapest first; the rest waits as a buy order at this price.` : `Nobody lists it that cheap now: the order waits for sellers.`;
-    return `The most ${itemName(c2.hrid)} may cost with the last action of ${t4.job} still making ${margin} (the other materials at their lowest ask).${cap4} ${now2} Worked out with the Skilling tab's prices ${Math.max(0, Math.round((Date.now() - t4.at) / 6e4))} min ago.`;
+    const now2 = t4.listed === null ? `Open ${itemName(c3.hrid)} on the market to see how many are listed under it.` : t4.listed > 0 ? `${num(t4.listed)} listed at or under it now are bought at once, the cheapest first; the rest waits as a buy order at this price.` : `Nobody lists it that cheap now: the order waits for sellers.`;
+    return `The most ${itemName(c3.hrid)} may cost with the last action of ${t4.job} still making ${margin} (the other materials at their lowest ask).${cap4} ${now2} Worked out with the Skilling tab's prices ${Math.max(0, Math.round((Date.now() - t4.at) / 6e4))} min ago.`;
   }
-  function titleFor(s3, c2) {
-    const sell = c2.side === "sell";
+  function titleFor(s3, c3) {
+    const sell = c3.side === "sell";
     const cap4 = s3.capped ? ` (the tradable range's ${s3.capped})` : "";
     if (s3.kind === "match") return `The best ${sell ? "sell" : "buy"} offer now: ${num(s3.price)}${cap4}.`;
     if (s3.kind === "wall") return `One step ${sell ? "under" : "over"} ${num(s3.wall.quantity)} at ${num(s3.price)}, the first level with a fifth of all ${sell ? "listed" : "bid"}; ${num(s3.wall.ahead)} lie in front of it.`;
-    return horizonTitle(s3, c2);
+    return horizonTitle(s3, c3);
   }
-  function prediction(c2) {
-    const key2 = `${c2.side}|${c2.hrid}|${c2.level}`;
+  function prediction(c3) {
+    const key2 = `${c3.side}|${c3.hrid}|${c3.level}`;
     const button3 = (s3) => s3.kind === "horizon" ? { h: s3.horizon, price: s3.price, under: !!s3.under, chance: s3.chance ?? null, windows: s3.windows ?? null, need: s3.need ?? null, why: s3.why ?? null } : { kind: s3.kind, price: s3.price };
     return {
-      side: c2.side,
-      item: c2.hrid,
-      level: c2.level,
-      quantity: c2.quantity,
-      best: c2.best,
-      othersBest: c2.book ? c2.levels[0]?.price ?? null : null,
-      bookAt: c2.book?.at ?? null,
-      takenPerHour: c2.taken?.perHour ?? null,
-      usual: c2.usual,
-      buttons: c2.suggestions.map(button3),
+      side: c3.side,
+      item: c3.hrid,
+      level: c3.level,
+      quantity: c3.quantity,
+      best: c3.best,
+      othersBest: c3.book ? c3.levels[0]?.price ?? null : null,
+      bookAt: c3.book?.at ?? null,
+      takenPerHour: c3.taken?.perHour ?? null,
+      usual: c3.usual,
+      buttons: c3.suggestions.map(button3),
       clicked: l.clicked?.key === key2 && Date.now() - l.clicked.at < PREDICTION_MS ? l.clicked.kind : null
     };
   }
-  function horizonTitle(s3, c2) {
-    const sell = c2.side === "sell";
+  function horizonTitle(s3, c3) {
+    const sell = c3.side === "sell";
     const goes = sell ? "sells" : "is bought";
     const pct7 = (share2) => `${Math.round(share2 * 100)}%`;
-    const rate3 = c2.taken ? `${sell ? "Buyers take" : "Sellers fill"} about ${num(c2.taken.perHour)} an hour from ${sell ? "sell" : "buy"} listings.` : "How many trade an hour isn't known yet, so the quantity isn't counted.";
+    const rate3 = c3.taken ? `${sell ? "Buyers take" : "Sellers fill"} about ${num(c3.taken.perHour)} an hour from ${sell ? "sell" : "buy"} listings.` : "How many trade an hour isn't known yet, so the quantity isn't counted.";
     if (s3.price === null) {
-      if (s3.why === "quantity") return `${num(c2.quantity)} is about ${num(c2.quantity / c2.taken.perHour)} h of what ${sell ? "buyers take" : "sellers fill"} (${num(c2.taken.perHour)} an hour): ${pct7(FILLED)} of it can't go within ${s3.horizon} h at any price.`;
+      if (s3.why === "quantity") return `${num(c3.quantity)} is about ${num(c3.quantity / c3.taken.perHour)} h of what ${sell ? "buyers take" : "sellers fill"} (${num(c3.taken.perHour)} an hour): ${pct7(FILLED)} of it can't go within ${s3.horizon} h at any price.`;
       if (s3.why === "history") return `Needs more hourly prices: ${s3.windows} of the 12 stretches of ${s3.horizon} h it looks back on so far.`;
-      if (s3.need > 1) return `${pct7(FILLED)} of ${num(c2.quantity)} takes about ${num(s3.need)} h first in line (${num(c2.taken.perHour)} an hour): no price was first in line that long in ${pct7(CONFIDENCE)} of past stretches of ${s3.horizon} h.`;
+      if (s3.need > 1) return `${pct7(FILLED)} of ${num(c3.quantity)} takes about ${num(s3.need)} h first in line (${num(c3.taken.perHour)} an hour): no price was first in line that long in ${pct7(CONFIDENCE)} of past stretches of ${s3.horizon} h.`;
       return `No price ${goes} within ${s3.horizon} h often enough.`;
     }
     const where = s3.under ? `One step ${sell ? "under" : "over"} the best offer (${num(s3.price)}): first in line now.` : `At ${num(s3.price)}.`;
-    return `${where} A ${pct7(CONFIDENCE)} chance that ${pct7(FILLED)} of ${num(c2.quantity)} ${goes} within ${s3.horizon} h \u2013 it did in ${pct7(s3.chance)} of ${s3.windows} past stretches of ${s3.horizon} h. ${rate3}`;
+    return `${where} A ${pct7(CONFIDENCE)} chance that ${pct7(FILLED)} of ${num(c3.quantity)} ${goes} within ${s3.horizon} h \u2013 it did in ${pct7(s3.chance)} of ${s3.windows} past stretches of ${s3.horizon} h. ${rate3}`;
   }
-  function infoHtml(c2) {
-    const sell = c2.side === "sell";
-    const price = priceIn(c2);
+  function infoHtml(c3) {
+    const sell = c3.side === "sell";
+    const price = priceIn(c3);
     const parts = [];
-    if (price > 0 && c2.book) {
-      const { better: better2, same: same2 } = standing(price, c2.levels, c2.side);
+    if (price > 0 && c3.book) {
+      const { better: better2, same: same2 } = standing(price, c3.levels, c3.side);
       parts.push(`${num(better2)} ${sell ? "listed cheaper" : "bid higher"}${same2 ? `, ${num(same2)} at ${num(price)}` : ""}`);
-      const age = Date.now() - c2.book.at;
+      const age = Date.now() - c3.book.at;
       if (age > BOOK_OLD_MS) parts.push(`order book ${Math.round(age / 6e4)} min old`);
-      const top = (sell ? c2.book.asks : c2.book.bids)[0]?.price;
-      if (c2.best > 0 && top > 0 && top !== c2.best) parts.push(`the order book's best (${num(top)}) isn't the window's \u2013 open ${esc(itemName(c2.hrid))}${c2.level ? ` +${c2.level}` : ""} on the market again`);
-    } else if (!c2.book) parts.push(`open ${esc(itemName(c2.hrid))}${c2.level ? ` +${c2.level}` : ""} on the market for the order book`);
-    const vs = price > 0 ? versusUsual(price, c2.usual) : null;
-    if (vs) parts.push(`${vs.diff >= 0 ? "+" : "\u2212"}${Math.abs(Math.round(vs.diff * 100))}% vs usual ${sell ? "ask" : "bid"} (${num(c2.usual)})`);
-    else if (!c2.usual) parts.push(`usual price after 12 h of prices${c2.hours ? ` (${c2.hours} so far)` : ""}`);
+      const top = (sell ? c3.book.asks : c3.book.bids)[0]?.price;
+      if (c3.best > 0 && top > 0 && top !== c3.best) parts.push(`the order book's best (${num(top)}) isn't the window's \u2013 open ${esc(itemName(c3.hrid))}${c3.level ? ` +${c3.level}` : ""} on the market again`);
+    } else if (!c3.book) parts.push(`open ${esc(itemName(c3.hrid))}${c3.level ? ` +${c3.level}` : ""} on the market for the order book`);
+    const vs = price > 0 ? versusUsual(price, c3.usual) : null;
+    if (vs) parts.push(`${vs.diff >= 0 ? "+" : "\u2212"}${Math.abs(Math.round(vs.diff * 100))}% vs usual ${sell ? "ask" : "bid"} (${num(c3.usual)})`);
+    else if (!c3.usual) parts.push(`usual price after 12 h of prices${c3.hours ? ` (${c3.hours} so far)` : ""}`);
     return parts.join(" \xB7 ");
   }
-  function priceIn(c2) {
-    if (c2.input) return numberIn(c2.input.value);
-    const text = [...c2.inputs.childNodes].filter((node) => node.nodeName !== "BUTTON").map((node) => node.textContent).join(" ");
+  function priceIn(c3) {
+    if (c3.input) return numberIn(c3.input.value);
+    const text = [...c3.inputs.childNodes].filter((node) => node.nodeName !== "BUTTON").map((node) => node.textContent).join(" ");
     return numberIn(text);
   }
-  function controls(c2) {
-    const buttons = [...c2.inputs.querySelectorAll("button")];
+  function controls(c3) {
+    const buttons = [...c3.inputs.querySelectorAll("button")];
     const by = (pattern) => buttons.find((b) => pattern.test(b.textContent.trim()));
     return { minus: by(/^[-−]$/), plus: by(/^\+$/), min: by(/^min$/i), max: by(/^max$/i) };
   }
   var MAX_STEPS = 400;
-  async function press(c2, button3) {
-    const before = priceIn(c2);
+  async function press(c3, button3) {
+    const before = priceIn(c3);
     button3.click();
     for (let i = 0; i < 10; i++) {
       await tick();
-      const now2 = priceIn(c2);
+      const now2 = priceIn(c3);
       if (now2 !== before) return now2;
     }
     return null;
   }
-  async function stepTo(c2, b, target, up = false) {
-    let price = priceIn(c2);
+  async function stepTo(c3, b, target, up = false) {
+    let price = priceIn(c3);
     for (let i = 0; i < MAX_STEPS && price !== null; i++) {
       if (price === target) return price;
       if (price < target) {
-        const next = await press(c2, b.plus);
+        const next = await press(c3, b.plus);
         if (next === null) return price;
-        if (next > target) return up ? next : press(c2, b.minus).then((back) => back ?? next);
+        if (next > target) return up ? next : press(c3, b.minus).then((back) => back ?? next);
         price = next;
       } else {
-        const next = await press(c2, b.minus);
+        const next = await press(c3, b.minus);
         if (next === null) return price;
-        if (next < target) return up ? press(c2, b.plus).then((back) => back ?? next) : next;
+        if (next < target) return up ? press(c3, b.plus).then((back) => back ?? next) : next;
         price = next;
       }
     }
     return price;
   }
   async function apply(modal, index) {
-    const c2 = context(modal);
-    const s3 = index === "limit" ? c2?.limit && { kind: "profit", price: c2.limit.price, capped: c2.limit.capped, step: 0 } : c2?.suggestions?.[index];
+    const c3 = context(modal);
+    const s3 = index === "limit" ? c3?.limit && { kind: "profit", price: c3.limit.price, capped: c3.limit.capped, step: 0 } : c3?.suggestions?.[index];
     if (!s3 || s3.price === null || l.applying) return;
-    l.clicked = { key: `${c2.side}|${c2.hrid}|${c2.level}`, kind: s3.kind === "horizon" ? `<${s3.horizon}h` : s3.kind, at: Date.now() };
+    l.clicked = { key: `${c3.side}|${c3.hrid}|${c3.level}`, kind: s3.kind === "horizon" ? `<${s3.horizon}h` : s3.kind, at: Date.now() };
     l.applying = true;
     try {
-      const b = controls(c2);
-      if (s3.capped === "max" && b.max) await press(c2, b.max);
-      else if (s3.capped === "min" && b.min) await press(c2, b.min);
+      const b = controls(c3);
+      if (s3.capped === "max" && b.max) await press(c3, b.max);
+      else if (s3.capped === "min" && b.min) await press(c3, b.min);
       else if (b.plus && b.minus) {
         const target = Math.round(s3.price);
-        if (c2.input) {
-          setReactInput(c2.input, target);
+        if (c3.input) {
+          setReactInput(c3.input, target);
           await tick();
         }
-        const reached = await stepTo(c2, b, target, s3.step > 0);
-        if (s3.step && reached === target) await press(c2, s3.step < 0 ? b.minus : b.plus);
-      } else if (c2.input) setReactInput(c2.input, Math.round(s3.price));
+        const reached = await stepTo(c3, b, target, s3.step > 0);
+        if (s3.step && reached === target) await press(c3, s3.step < 0 ? b.minus : b.plus);
+      } else if (c3.input) setReactInput(c3.input, Math.round(s3.price));
     } finally {
       l.applying = false;
     }

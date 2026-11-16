@@ -5,7 +5,8 @@
 // and your job results and purchases, shared between your devices (job-store.mjs),
 // and your Labyrinth attempts and the game's Labyrinth states (labyrinth-store.mjs), and works out the 📈 N-day
 // plan for your character from what a device sends about it (plan-store.mjs), and
-// simulates whole Labyrinth runs when a device asks (labyrinth-sim-store.mjs).
+// simulates whole Labyrinth runs when a device asks (labyrinth-sim-store.mjs), and works out
+// the Labyrinth's combat rooms for your loadouts every night (labyrinth-combat-store.mjs).
 // No dependencies.
 //
 //   node pi/server.mjs              serve (the default)
@@ -17,7 +18,8 @@
 // Settings (environment): MWIA_KEY (required to serve, at least 24 characters),
 // MWIA_DATA (default /data), PORT (default 8787), MWIA_MARKET_URL, MWIA_ORIGINS
 // (the game's sites allowed to read, comma separated), MWIA_ORDERS (1: take your
-// devices' order events, job results and purchases, Labyrinth attempts, and the 📈 plan), MWIA_LOG_REQUESTS (0: don't log each request; the key is never logged).
+// devices' order events, job results and purchases, Labyrinth attempts, and the 📈 plan), MWIA_LOG_REQUESTS (0: don't log each request; the key is never logged),
+// MWIA_LAB_COMBAT_HOUR (the hour, UTC, of the nightly Labyrinth combat run; default 3), MWIA_LAB_COMBAT_WORKERS (its threads; default 2).
 
 import http from "node:http";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -28,6 +30,7 @@ import { MAX_JOB_RECORDS, openJobStore } from "./job-store.mjs";
 import { MAX_ATTEMPTS, MAX_STATES, openLabyrinthStore } from "./labyrinth-store.mjs";
 import { MAX_SNAPSHOT_BYTES, openPlanStore } from "./plan-store.mjs";
 import { MAX_SIM_BYTES, openLabyrinthSim } from "./labyrinth-sim-store.mjs";
+import { MAX_COMBAT_BYTES, MAX_COMBAT_DATA_BYTES, openLabyrinthCombat } from "./labyrinth-combat-store.mjs";
 import { oneAtATime } from "./one-at-a-time.mjs";
 
 const DATA = process.env.MWIA_DATA || "/data";
@@ -98,6 +101,8 @@ function serve() {
     // The heavy jobs (the plan, the Labyrinth runs) go one at a time.
     const plans = ORDERS ? openPlanStore(DATA, { typical: store.typical, log, gate: oneAtATime }) : null;
     const labyrinthSim = ORDERS ? openLabyrinthSim(DATA, { log, gate: oneAtATime }) : null;
+    const combatHour = Number.isFinite(Number(process.env.MWIA_LAB_COMBAT_HOUR)) && process.env.MWIA_LAB_COMBAT_HOUR !== "" ? Number(process.env.MWIA_LAB_COMBAT_HOUR) : 3;
+    const labyrinthCombat = ORDERS ? openLabyrinthCombat(DATA, { log, gate: oneAtATime, hour: combatHour }) : null;
     const health = { lastFetch: null, lastError: null };
 
     async function poll() {
@@ -132,6 +137,18 @@ function serve() {
                 reject(Object.assign(error, { status: 400 }));
             }
         });
+        req.on("error", reject);
+    });
+
+    // The request's body as bytes, or null when it is too big.
+    const readBytes = (req, limit) => new Promise((resolve, reject) => {
+        const chunks = [];
+        let size = 0;
+        req.on("data", (chunk) => {
+            size += chunk.length;
+            if (size <= limit) chunks.push(chunk);
+        });
+        req.on("end", () => resolve(size > limit ? null : Buffer.concat(chunks)));
         req.on("error", reject);
     });
 
@@ -211,6 +228,24 @@ function serve() {
                 res.mwiaEvents = result.ok ? "runs asked" : "bad";
                 return send(result.ok ? 200 : 400, result);
             }
+            // The loadouts and settings the nightly Labyrinth combat run starts from (switched on with the orders).
+            if (req.method === "POST" && url.pathname === "/labyrinth/combat" && labyrinthCombat) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                const body = await readJson(req, MAX_COMBAT_BYTES);
+                if (!body) return send(413, { error: "too big" });
+                const result = labyrinthCombat.put(body);
+                res.mwiaEvents = result.ok ? `combat${body.now ? " now" : ""}` : "bad";
+                return send(result.ok ? 200 : 400, result);
+            }
+            // The game's data for it, gzipped, once a game patch.
+            if (req.method === "POST" && url.pathname === "/labyrinth/combat/data" && labyrinthCombat) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                const bytes = await readBytes(req, MAX_COMBAT_DATA_BYTES);
+                if (!bytes) return send(413, { error: "too big" });
+                const result = labyrinthCombat.putData(bytes);
+                res.mwiaEvents = result.ok ? `data ${bytes.length}` : "bad";
+                return send(result.ok ? 200 : 400, result);
+            }
             // What a device sees of your character, for the 📈 plan (switched on with the orders).
             if (req.method === "POST" && url.pathname === "/snapshot" && plans) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
@@ -220,10 +255,14 @@ function serve() {
                 res.mwiaEvents = result.ok ? `snapshot${body.data ? "+data" : ""}${body.run ? "+run" : ""}` : "bad";
                 return send(result.ok ? 200 : 400, result);
             }
-            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders, /jobs, /labyrinth, /labyrinth/states, /labyrinth/sim or /snapshot" : "GET only" });
+            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders, /jobs, /labyrinth, /labyrinth/states, /labyrinth/sim, /labyrinth/combat, /labyrinth/combat/data or /snapshot" : "GET only" });
             if (url.pathname === "/plan" && plans) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
                 return send(200, plans.get(url.searchParams.get("character")));
+            }
+            if (url.pathname === "/labyrinth/combat" && labyrinthCombat) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                return send(200, labyrinthCombat.get(url.searchParams.get("character")));
             }
             if (url.pathname === "/labyrinth/sim" && labyrinthSim) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
@@ -241,7 +280,7 @@ function serve() {
             if (url.pathname === "/status") return send(200, { ok: true, newest: store.status().newest, lastError: health.lastError });
             if (url.pathname !== "/history") return send(404, { error: "not found" });
             if (!authorized(req)) return send(401, { error: "wrong or missing key" });
-            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health, orders: orders ? orders.status() : null, jobs: jobs ? jobs.status() : null, labyrinth: labyrinth ? { ...labyrinth.status(), sim: true } : null, plan: plans ? plans.status() : null } });
+            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health, orders: orders ? orders.status() : null, jobs: jobs ? jobs.status() : null, labyrinth: labyrinth ? { ...labyrinth.status(), sim: true, combat: labyrinthCombat ? { dataHash: labyrinthCombat.dataHash(), hour: combatHour } : null } : null, plan: plans ? plans.status() : null } });
         } catch (error) {
             if (error.status === 400) return send(400, { error: "not JSON" });
             log("request failed:", error);

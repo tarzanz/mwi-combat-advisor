@@ -23,7 +23,9 @@ N-day plan for your character (see *The 📈 plan*).
   `POST /labyrinth` (Labyrinth attempts, at most 300 a request), read back with
   `GET /labyrinth`; and `POST /labyrinth/states` (the game's Labyrinth states, at
   most 20 a request of 64 kB each) and `POST /labyrinth/sim` (what whole
-  Labyrinth runs are simulated from; `GET /labyrinth/sim` reads the result).
+  Labyrinth runs are simulated from; `GET /labyrinth/sim` reads the result), and
+  `POST /labyrinth/combat` and `/labyrinth/combat/data` (the loadouts and the game's
+  data the nightly Labyrinth combat run works from; `GET /labyrinth/combat` reads it).
 - **Secrets** stay on the Pi: the key in `pi/.env` (not in git). Each browser gets
   it once from a link and keeps it in its own storage for the game's site.
 
@@ -195,3 +197,30 @@ newest result and how the job stands (`running`, `queued`, `error`, `ms`).
     data/labyrinth/sim/<character>/request.json   what a device sent last
     data/labyrinth/sim/<character>/result.json    the newest result
     data/labyrinth/sim/<character>/status.json    { at, ms, error, running }
+
+### The combat rooms, every night
+
+`POST /labyrinth/combat` with `{ request, now }` (what the userscript sends when
+your loadouts change: the character's id and name, every combat and Labyrinth
+loadout as the advisor builds it – gear, abilities, levels, buffs, the gear in the
+inventory – the crates, the accuracy, budget and spending, and the character's
+skilling levels and buffs for enhancing costs; at most 3 MB) keeps the request.
+`POST /labyrinth/combat/data` takes the game's data, gzipped `{ hash, data }` (at
+most 8 MB; sent once a game patch). Every night at `MWIA_LAB_COMBAT_HOUR` (UTC,
+default 3) – or at once with `now`, or when a character has no result yet –
+`dist/pi-labyrinth-combat.mjs` (built from `pi/labyrinth-combat-entry.js` by
+`npm run build`: the advisor's code and the combat engine bundled for Node) works
+out *Check the rooms*, *What should I improve?* and a *Build a loadout* for each
+loadout in use, in a process of its own (nice 19, 384 MB heap) with
+`MWIA_LAB_COMBAT_WORKERS` threads (default 2, 256 MB heap each; about 180 MB
+in all for a small character), never beside the 📈 plan or the run simulation,
+and not while the Pi's load is above its cores. Prices are the newest market file
+the Pi fetched. `GET /labyrinth/combat?character=<id>` reads the newest result (written
+as each part is done) and how the run stands (`running` with `progress`, `queued`,
+`error`, `ms`, `requestAt`, `next`).
+
+    data/labyrinth/combat/game-data.json.gz        the game's data as a device sent it
+    data/labyrinth/combat/<character>/request.json  what a device sent last
+    data/labyrinth/combat/<character>/result.json   the newest result
+    data/labyrinth/combat/<character>/progress.json how far a run has got
+    data/labyrinth/combat/<character>/status.json   { started, at, ms, error }

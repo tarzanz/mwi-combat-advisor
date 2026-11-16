@@ -396,6 +396,18 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   to the room level (its stats are built for level 100 and grow in proportion), from full HP and mana, no food or
   drinks – only the coffee and food crate opened on entry (*As chosen in the game*, none, or a tier) – and 2 minutes to
   win. The game's Labyrinth automation can put on a loadout for each room type, so the tab works per room type.
+  - **Worked out on your Pi every night** – with a Pi linked (`MWIA_ORDERS=1`), *Check the rooms*, *What should I
+    improve?* and a *Build a loadout* for **each loadout in use** (every loadout the check picks for a room type, in its
+    own attack style, from what it wears, with your budget and spending) are worked out there every night at 04:00
+    (03:00 UTC), so the tab shows a fairly fresh result at once instead of the phone simulating for a long time. The
+    page sends your loadouts as they are (gear, abilities, levels, buffs; of the inventory only the gear), the crates
+    and the settings when they change (at most every 10 minutes), and the game's data gzipped once a game patch; at
+    least the *normal* accuracy is used. The first time, the Pi works it out at once; **▶ Work it out on the Pi now**
+    asks for a run after changing gear or loadouts. The tab says when it was worked out, from loadouts of when, what
+    the Pi is doing now and when the next run is. The Pi's check is used like your own: for the room guide, the
+    automation's marks, the skip levels and the map – unless you tap *Check the rooms* here afterwards, which is then
+    newer until the next night. Under *Upgrades for each loadout* every built loadout is shown as *Build a loadout*
+    shows one: what to buy or change, with 🛒, and the room levels before and after.
   - **Room guide** – one tile per room type: the loadout to put on (✅ / ⚠) or *Shroud or go around* (✖, with the
     best loadout and its win rate), at the floor or room level you pick, and the deepest floor where it is safe.
   - **Check the rooms** – every saved combat (and Labyrinth) loadout, and what you wear now if no loadout matches it,
@@ -722,7 +734,8 @@ node test/enhance-loop-test.mjs                           # the enhance ⇄ deco
 node test/market-test.mjs                                 # Market tab rules in Node
 node test/price-history-browser-test.mjs /tmp             # price history: marketplace box and Skilling warnings
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
-node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts, states and simulated runs, Pi down, unlink
+node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts, states, the nightly combat rooms and simulated runs, Pi down, unlink
+node test/labyrinth-combat-test.mjs                        # the Pi's nightly Labyrinth combat run (dist/pi-labyrinth-combat.mjs, after npm run build) and its store
 node test/horizon-test.mjs                                # the 📈 plan in Node: blocks, the market's share, coins, tools, clothes, +levels, house, training, cautious prices, no community buffs
 node test/horizon-browser-test.mjs /tmp                   # the 📈 plan end to end: snapshot to a real Pi, ▶ Plan now, the tab, the blue dot
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out

@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { gunzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { openStore } from "../pi/history-store.mjs";
 import { openOrderStore } from "../pi/order-store.mjs";
 import { openJobStore } from "../pi/job-store.mjs";
@@ -194,8 +194,17 @@ try {
         sim = await getSim(1).then((r) => r.json());
     }
     check("labyrinth runs: what goes wrong is said, the last result stays", /Check the rooms/.test(sim.status.error || "") && sim.result?.requestAt === 4242, JSON.stringify(sim.status));
+    // The nightly Labyrinth combat run: its routes (the run itself is checked in labyrinth-combat-test).
+    const postCombat = (body, key = KEY) => fetch(base + "/labyrinth/combat", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Origin: "https://www.milkywayidle.com" }, body: JSON.stringify(body) });
+    const postCombatData = (bytes, key = KEY) => fetch(base + "/labyrinth/combat/data", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/octet-stream", Origin: "https://www.milkywayidle.com" }, body: bytes });
+    const combatRequest = { character: { id: 31, name: "Tester" }, at: 99, setups: [{ id: "1", name: "Magic", profile: { levels: { magic: 50 }, abilities: [null] } }] };
+    check("labyrinth combat: no key, nothing written or read", (await postCombat({ request: combatRequest }, "nope")).status === 401 && (await postCombatData(gzipSync("{}"), "nope")).status === 401 && (await fetch(base + "/labyrinth/combat?character=31")).status === 401);
+    check("labyrinth combat: a request without loadouts and data that isn't the game's are refused", (await postCombat({ request: { character: { id: 31 }, setups: [] } })).status === 400 && (await postCombatData(gzipSync(JSON.stringify({ hash: "x", data: {} })))).status === 400);
+    const combatTook = await postCombat({ request: combatRequest }).then((r) => r.json());
+    const combatRead = await fetch(base + "/labyrinth/combat?character=31", { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
+    check("labyrinth combat: a request kept, waiting for the game's data; read back with the next night", combatTook.ok && combatTook.dataHash === null && combatTook.started === false && combatRead.result === null && combatRead.status.requestAt === 99 && combatRead.status.next > Date.now() && combatRead.hour === 3, JSON.stringify({ combatTook, combatRead }));
     const withLab = await fetch(base + "/history?epoch=" + all.epoch, { headers: { Authorization: `Bearer ${KEY}` } }).then((r) => r.json());
-    check("the history says Labyrinth attempts and states are taken", withLab.status.labyrinth?.attempts === 3 && withLab.status.labyrinth.states === 3 && withLab.status.labyrinth.sim === true, JSON.stringify(withLab.status));
+    check("the history says Labyrinth attempts and states are taken", withLab.status.labyrinth?.attempts === 3 && withLab.status.labyrinth.states === 3 && withLab.status.labyrinth.sim === true && withLab.status.labyrinth.combat?.hour === 3 && withLab.status.labyrinth.combat.dataHash === null, JSON.stringify(withLab.status));
 
     // The 📈 plan: a snapshot in, the plan out (the planning itself is checked below, without the server).
     const postSnap = (body, key = KEY) => fetch(base + "/snapshot", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Origin: "https://www.milkywayidle.com" }, body: JSON.stringify(body) });

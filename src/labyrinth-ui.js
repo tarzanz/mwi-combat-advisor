@@ -226,9 +226,13 @@ function buildHtml(build, data, settings, busy, settingsHtml, cartButton, coins)
       <p class="mwia-dim">For: ${targets.join(", ") || "no room type"}.</p>
       <button class="mwia-btn" data-action="laby-build" ${busy ? "disabled" : ""}>Build loadout</button>`;
     if (!build || build.style !== style) return html;
+    return html + builtHtml(build, `<b>${cap(build.style)} loadout</b>`, cartButton, coins);
+}
 
+// A built loadout: what to buy or change, the room levels before and after.
+function builtHtml(build, title, cartButton, coins) {
     const before = new Map(build.before.map((m) => [m.hrid, m]));
-    html += `<div class="mwia-reco"><b>${cap(build.style)} loadout</b> – ${build.picks.length || build.starter ? `for ${coins(build.spent)} of your ${coins(build.budget)}` : "nothing to buy"}`;
+    let html = `<div class="mwia-reco">${title} – ${build.picks.length || build.starter ? `for ${coins(build.spent)} of your ${coins(build.budget)}` : "nothing to buy"}`;
     if (build.starter) html += `<br>Weapon: <b>${esc(itemName(build.starter.hrid))}${build.starter.enhancementLevel ? " +" + build.starter.enhancementLevel : ""}</b> ${build.starter.owned ? '<span class="mwia-ok">you own it</span>' : "– " + coins(build.starter.cost)}`;
     html += `<ol class="mwia-plan">${build.picks.map((p) => `<li>${pickText(p, coins)}</li>`).join("") || "<li>Nothing tested takes these rooms clearly further within the budget.</li>"}</ol>`;
     const cart = cartOf(build);
@@ -246,9 +250,51 @@ function buildHtml(build, data, settings, busy, settingsHtml, cartButton, coins)
             .map((p) => `<li>${pickText(p, coins)}</li>`)
             .join("")}</ul></details>`;
     }
-    html += `<p class="mwia-dim">"Now" is your gear (Gear from)${build.starter ? " with the weapon above" : ""}. Put the list on in the game, save it as a
+    html += `<p class="mwia-dim">"Now" is the loadout's gear${build.starter ? " with the weapon above" : ""}. Put the list on in the game, save it as a
       loadout and pick it for these room types in the Labyrinth automation. ${build.tested} changes tested; each has to take you at least half a room level further
       (and a purchase, under <b>Spending</b>, Frugal: 2 levels per 1M, Balanced: 0.5, All in: anything within the budget).</p>`;
+    return html;
+}
+
+// ---------- worked out on your Pi every night ----------
+
+const whenText = (at) => (at ? new Date(at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "–");
+const STAGES = { check: "checking the rooms", improve: "testing improvements", build: "building loadouts" };
+
+// The line at the top of the tab: when the Pi worked it out, and a run now.
+export function piCombatHtml(combat, busy) {
+    if (!combat.linked) return `<p class="mwia-dim">With your own Pi (<code>MWIA_ORDERS=1</code>, see pi/README.md) all of this is worked out there every night, ready when you look.</p>`;
+    if (!combat.works) return `<p class="mwia-dim">🥧 Your Pi can work all of this out every night – update it (git pull, docker compose up -d --build).</p>`;
+    const { result, status } = combat;
+    const nightly = status?.hour !== null && status?.hour !== undefined ? new Date(Date.UTC(2026, 0, 1, status.hour)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "night";
+    let html = `<div class="mwia-reco">🥧 <b>Your Pi</b> works out <b>Check the rooms</b>, <b>What should I improve?</b> and a <b>loadout build for each loadout in use</b> every night at ${nightly}, from your loadouts as they were last sent (they go when they change).`;
+    if (result) {
+        const partial = !result.done ? ` <span class="mwia-warn">(not finished: ${esc(STAGES[result.stage] ? `done up to ${result.stage}` : result.stage)})</span>` : "";
+        html += `<br>Shown: worked out ${whenText(result.at)}${result.finishedAt ? `–${new Date(result.finishedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}, loadouts as of ${whenText(result.requestAt)}${partial}.`;
+    } else html += `<br>Nothing worked out yet.`;
+    if (status?.running) {
+        const p = status.progress;
+        html += `<br><span class="mwia-dim">Working on it now${p ? `: ${esc(STAGES[p.stage] || p.stage)} ${Math.round((100 * p.done) / Math.max(1, p.total))}%` : ""} (started ${whenText(status.running)}).</span>`;
+    } else if (status?.queued) html += `<br><span class="mwia-dim">Waiting for the Pi's other work to finish.</span>`;
+    else if (status?.next) html += `<br><span class="mwia-dim">Next: ${whenText(status.next)}.</span>`;
+    if (status?.error && !status.running) html += `<br><span class="mwia-bad">Last run failed: ${esc(status.error)}</span>`;
+    if (combat.error) html += `<br><span class="mwia-bad">${esc(combat.error)}</span>`;
+    html += `<br><button class="mwia-btn" data-action="laby-combat-now" ${combat.waiting || combat.sending || busy ? "disabled" : ""}>▶ Work it out on the Pi now</button>
+      <span class="mwia-dim">after changing gear or loadouts (it takes a while; you can close the game meanwhile).</span></div>`;
+    return html;
+}
+
+// The Pi's build for each loadout in use, in that loadout's attack style.
+export function piBuildsHtml(result, data, cartButton, coins = shortCoins) {
+    if (!result?.builds?.length) return "";
+    let html = `<h3>Upgrades for each loadout <span class="mwia-dim">(from your Pi, ${whenText(result.at)})</span></h3>
+      <p class="mwia-dim">For every loadout the check picks for some room type: starting from what it wears, every piece of gear, ability and book within your
+      budget (${coins(result.builds.find((b) => b.build)?.build.budget || 0)}) tried against the room types weak to its attack style – as <b>Build a loadout</b> below does.</p>`;
+    for (const b of result.builds) {
+        const title = `<b>${esc(b.setupName)}</b> <span class="mwia-dim">(${cap(b.style)}: ${monstersFor(data, b.style).map((h) => esc(monsterName(h))).join(", ") || "no room type"})</span>`;
+        if (b.error || !b.build) html += `<div class="mwia-reco">${title}: <span class="mwia-bad">${esc(b.error || "no result")}</span></div>`;
+        else html += builtHtml(b.build, title, cartButton, coins);
+    }
     return html;
 }
 
@@ -302,19 +348,19 @@ export function skipHtml(advice, settings, maxAttempts) {
     return html;
 }
 
-export function renderLabyrinth({ lab, improve, build, profileOf, data, settings, busy, settingsHtml, slotted, setupsNote, cartButton, coins = shortCoins, attempts = "", runs = "", skip = "" }) {
+export function renderLabyrinth({ lab, improve, build, profileOf, data, settings, busy, settingsHtml, slotted, setupsNote, cartButton, coins = shortCoins, attempts = "", runs = "", skip = "", pi = "", piBuilds = "" }) {
     const level = roomLevelSetting(settings);
     let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
       1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
       The game's Labyrinth automation can put on a loadout for each room type, so every monster is judged with the loadout that does best against it.</p>
-      ${settingsHtml(["accuracy"])}${setupsNote}
+      ${pi}${settingsHtml(["accuracy"])}${setupsNote}
       <div class="mwia-settings">${crateSelect(settings, "coffee", slotted.coffee)}${crateSelect(settings, "food", slotted.food)}${floorSelect(level)}
       <label title="The room level to judge the rooms at; changing it needs no new simulation">Room level
         <input data-setting="labyLevel" type="number" min="1" max="300" step="1" size="4" value="${level}"></label></div>
       <button class="mwia-btn" data-action="laby-check" ${busy ? "disabled" : ""}>Check the rooms</button>`;
     if (lab) {
         const crates = Object.entries(lab.crates).filter(([, t]) => t).map(([k, t]) => `${cap(t)} ${CRATE_KINDS[k]}`);
-        html += `<p class="mwia-dim">Simulated with ${crates.length ? crates.join(" and ") : "no crates"}, ${lab.rooms} rooms per monster and room level, ${lab.setups.length} loadout${lab.setups.length === 1 ? "" : "s"}.</p>`;
+        html += `<p class="mwia-dim">Simulated with ${crates.length ? crates.join(" and ") : "no crates"}, ${lab.rooms} rooms per monster and room level, ${lab.setups.length} loadout${lab.setups.length === 1 ? "" : "s"}${lab.fromPi ? ` – worked out on your Pi ${whenText(lab.fromPi)}` : ""}.</p>`;
         html += summaryHtml(lab, level);
         html += roomGuide(lab, data, level);
         html += monsterTable(lab, profileOf, data, level, improve);
@@ -324,6 +370,7 @@ export function renderLabyrinth({ lab, improve, build, profileOf, data, settings
     }
     html += skip;
     html += runs;
+    html += piBuilds;
     html += buildHtml(build, data, settings, busy, settingsHtml, cartButton, coins);
     html += attempts;
     html += `<h3>On the Labyrinth map</h3>
