@@ -32,6 +32,7 @@ import { MAX_SNAPSHOT_BYTES, openPlanStore } from "./plan-store.mjs";
 import { MAX_SIM_BYTES, openLabyrinthSim } from "./labyrinth-sim-store.mjs";
 import { MAX_COMBAT_BYTES, MAX_COMBAT_DATA_BYTES, openLabyrinthCombat } from "./labyrinth-combat-store.mjs";
 import { oneAtATime } from "./one-at-a-time.mjs";
+import { MAX_COMBAT_PLAN_BYTES, openCombatPlan } from "./combat-plan-store.mjs";
 
 const DATA = process.env.MWIA_DATA || "/data";
 const PORT = Number(process.env.PORT || 8787);
@@ -103,6 +104,8 @@ function serve() {
     const labyrinthSim = ORDERS ? openLabyrinthSim(DATA, { log, gate: oneAtATime }) : null;
     const combatHour = Number.isFinite(Number(process.env.MWIA_LAB_COMBAT_HOUR)) && process.env.MWIA_LAB_COMBAT_HOUR !== "" ? Number(process.env.MWIA_LAB_COMBAT_HOUR) : 3;
     const labyrinthCombat = ORDERS ? openLabyrinthCombat(DATA, { log, gate: oneAtATime, hour: combatHour }) : null;
+    // The ⚔ combat plan: the same night, after the Labyrinth run (its loadouts and game data).
+    const combatPlan = ORDERS ? openCombatPlan(DATA, { log, gate: oneAtATime, hour: combatHour }) : null;
     const health = { lastFetch: null, lastError: null };
 
     async function poll() {
@@ -246,6 +249,15 @@ function serve() {
                 res.mwiaEvents = result.ok ? `data ${bytes.length}` : "bad";
                 return send(result.ok ? 200 : 400, result);
             }
+            // The ⚔ combat plan's settings (style, days, reserve …); now: work it out at once.
+            if (req.method === "POST" && url.pathname === "/combat-plan" && combatPlan) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                const body = await readJson(req, MAX_COMBAT_PLAN_BYTES);
+                if (!body) return send(413, { error: "too big" });
+                const result = combatPlan.put(body);
+                res.mwiaEvents = result.ok ? `combat plan${result.started ? " run" : ""}` : "bad";
+                return send(result.ok ? 200 : 400, result);
+            }
             // What a device sees of your character, for the 📈 plan (switched on with the orders).
             if (req.method === "POST" && url.pathname === "/snapshot" && plans) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
@@ -255,7 +267,7 @@ function serve() {
                 res.mwiaEvents = result.ok ? `snapshot${body.data ? "+data" : ""}${body.run ? "+run" : ""}` : "bad";
                 return send(result.ok ? 200 : 400, result);
             }
-            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders, /jobs, /labyrinth, /labyrinth/states, /labyrinth/sim, /labyrinth/combat, /labyrinth/combat/data or /snapshot" : "GET only" });
+            if (req.method !== "GET") return send(405, { error: ORDERS ? "GET, or POST to /orders, /jobs, /labyrinth, /labyrinth/states, /labyrinth/sim, /labyrinth/combat, /labyrinth/combat/data, /combat-plan or /snapshot" : "GET only" });
             if (url.pathname === "/plan" && plans) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
                 return send(200, plans.get(url.searchParams.get("character")));
@@ -263,6 +275,10 @@ function serve() {
             if (url.pathname === "/labyrinth/combat" && labyrinthCombat) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
                 return send(200, labyrinthCombat.get(url.searchParams.get("character")));
+            }
+            if (url.pathname === "/combat-plan" && combatPlan) {
+                if (!authorized(req)) return send(401, { error: "wrong or missing key" });
+                return send(200, combatPlan.get(url.searchParams.get("character")));
             }
             if (url.pathname === "/labyrinth/sim" && labyrinthSim) {
                 if (!authorized(req)) return send(401, { error: "wrong or missing key" });
@@ -280,7 +296,7 @@ function serve() {
             if (url.pathname === "/status") return send(200, { ok: true, newest: store.status().newest, lastError: health.lastError });
             if (url.pathname !== "/history") return send(404, { error: "not found" });
             if (!authorized(req)) return send(401, { error: "wrong or missing key" });
-            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health, orders: orders ? orders.status() : null, jobs: jobs ? jobs.status() : null, labyrinth: labyrinth ? { ...labyrinth.status(), sim: true, combat: labyrinthCombat ? { dataHash: labyrinthCombat.dataHash(), hour: combatHour } : null } : null, plan: plans ? plans.status() : null } });
+            return send(200, { ...store.since(Object.fromEntries(url.searchParams)), status: { ...store.status(), ...health, orders: orders ? orders.status() : null, jobs: jobs ? jobs.status() : null, labyrinth: labyrinth ? { ...labyrinth.status(), sim: true, combat: labyrinthCombat ? { dataHash: labyrinthCombat.dataHash(), hour: combatHour } : null } : null, combatPlan: !!combatPlan, plan: plans ? plans.status() : null } });
         } catch (error) {
             if (error.status === 400) return send(400, { error: "not JSON" });
             log("request failed:", error);

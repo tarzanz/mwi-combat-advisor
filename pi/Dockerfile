@@ -10,8 +10,9 @@ COPY src/horizon.js src/skilling.js src/skilling-upgrades.js src/levels.js src/a
 # The Labyrinth run simulation, the same files as the userscript's Labyrinth tab.
 COPY src/labyrinth-run.js src/labyrinth-skilling.js ./src/
 # The Labyrinth's combat rooms every night: the advisor's code and the engine, bundled by build.mjs.
-COPY dist/pi-labyrinth-combat.mjs ./dist/
-COPY pi/history-store.mjs pi/order-store.mjs pi/job-store.mjs pi/labyrinth-store.mjs pi/plan-store.mjs pi/planner.mjs pi/labyrinth-sim-store.mjs pi/labyrinth-sim.mjs pi/labyrinth-combat-store.mjs pi/one-at-a-time.mjs pi/server.mjs ./pi/
+# The ⚔ combat plan every night too, bundled the same way.
+COPY dist/pi-labyrinth-combat.mjs dist/pi-combat-plan.mjs ./dist/
+COPY pi/history-store.mjs pi/order-store.mjs pi/job-store.mjs pi/labyrinth-store.mjs pi/plan-store.mjs pi/planner.mjs pi/labyrinth-sim-store.mjs pi/labyrinth-sim.mjs pi/labyrinth-combat-store.mjs pi/combat-plan-store.mjs pi/one-at-a-time.mjs pi/server.mjs ./pi/
 ENV MWIA_DATA=/data PORT=8787
 EXPOSE 8787
 HEALTHCHECK --interval=5m --timeout=10s CMD wget -qO- http://127.0.0.1:8787/status >/dev/null || exit 1

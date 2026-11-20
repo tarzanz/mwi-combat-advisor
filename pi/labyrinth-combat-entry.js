@@ -6,96 +6,11 @@
 // MWIA_LAB_COMBAT_WORKERS: the threads (2 when not set).
 
 import os from "node:os";
-import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { gunzipSync } from "node:zlib";
-import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
-import { ENGINE_TABLES, fill } from "../src/data-shim.js";
+import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { runLabyrinthSim } from "../src/sim-core.js";
-
-const readData = (file) => JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"));
-
-class ThreadPool {
-    constructor(size, dataFile) {
-        this.size = size;
-        this.dataFile = dataFile;
-        this.workers = [];
-        this.queue = [];
-        this.pending = new Map();
-        this.nextId = 1;
-    }
-
-    async start() {
-        const ready = [];
-        for (let i = 0; i < this.size; i++) {
-            const worker = new Worker(new URL(import.meta.url), { workerData: { dataFile: this.dataFile }, resourceLimits: { maxOldGenerationSizeMb: 256 } });
-            const entry = { worker, busy: true };
-            ready.push(
-                new Promise((resolve, reject) => {
-                    worker.once("error", reject);
-                    worker.on("message", (message) => {
-                        if (message.ready) {
-                            entry.busy = false;
-                            resolve();
-                            return this.pump();
-                        }
-                        entry.busy = false;
-                        const task = this.pending.get(message.id);
-                        this.pending.delete(message.id);
-                        if (message.error) task?.reject(new Error(message.error));
-                        else task?.resolve(message.result);
-                        this.pump();
-                    });
-                })
-            );
-            this.workers.push(entry);
-        }
-        await Promise.all(ready);
-        for (const entry of this.workers) entry.worker.on("error", (error) => this.fail(error));
-    }
-
-    fail(error) {
-        for (const task of [...this.queue, ...this.pending.values()]) task.reject(error);
-        this.queue = [];
-        this.pending.clear();
-    }
-
-    run(job) {
-        return new Promise((resolve, reject) => {
-            this.queue.push({ id: this.nextId++, job, resolve, reject });
-            this.pump();
-        });
-    }
-
-    runAll(jobs, onProgress) {
-        let done = 0;
-        return Promise.all(jobs.map((job) => this.run(job).then((result) => (onProgress?.(++done, jobs.length), result))));
-    }
-
-    pump() {
-        for (const entry of this.workers) {
-            if (entry.busy || !this.queue.length) continue;
-            const task = this.queue.shift();
-            entry.busy = true;
-            this.pending.set(task.id, task);
-            entry.worker.postMessage({ id: task.id, job: task.job });
-        }
-    }
-
-    terminate() {
-        return Promise.all(this.workers.map((entry) => entry.worker.terminate()));
-    }
-}
-
-// The newest market file the Pi fetched (history-store.mjs keeps them as they came).
-function newestMarket(rawDir) {
-    if (!existsSync(rawDir)) return null;
-    for (const day of readdirSync(rawDir).sort().reverse()) {
-        const files = readdirSync(path.join(rawDir, day)).filter((f) => f.endsWith(".json.gz")).sort();
-        if (files.length) return JSON.parse(gunzipSync(readFileSync(path.join(rawDir, day, files[files.length - 1]))).toString("utf8"));
-    }
-    return null;
-}
+import { ThreadPool, loadAdvisor, serveWorker } from "./node-pool.js";
 
 async function main() {
     try {
@@ -106,20 +21,11 @@ async function main() {
     const [charDir, dataFile, rawDir] = process.argv.slice(2);
     const started = Date.now();
     const request = JSON.parse(readFileSync(path.join(charDir, "request.json"), "utf8"));
-    const { hash, data } = readData(dataFile);
-    const market = newestMarket(rawDir);
-    if (!market?.marketData) throw new Error("no market file on the Pi yet");
-
-    // The advisor's modules read the game data and the prices the way the userscript does.
-    const nativeFetch = globalThis.fetch;
-    globalThis.fetch = async (url, ...rest) => (String(url).includes("marketplace.json") ? { ok: true, json: async () => market } : nativeFetch(url, ...rest));
-    const { loadClientData, loadPrices, marketEntry } = await import("../src/game-data.js");
+    const { hash, data, market } = await loadAdvisor(dataFile, rawDir);
+    const { marketEntry } = await import("../src/game-data.js");
     const { marketPricer } = await import("../src/skilling.js");
     const { selfEnhanceCosts } = await import("../src/enhancing.js");
     const { runLabyrinthCombat } = await import("../src/labyrinth-combat.js");
-    await loadClientData({ localStorageUtil: { getInitClientData: () => data } });
-    await loadPrices();
-    fill(Object.fromEntries(ENGINE_TABLES.map((t) => [t, data[t] || {}])));
 
     let enhanceCost = null;
     if (request.who) {
@@ -141,7 +47,7 @@ async function main() {
     };
 
     const workers = Math.max(1, Math.min(4, Number(process.env.MWIA_LAB_COMBAT_WORKERS) || 2));
-    const pool = new ThreadPool(workers, dataFile);
+    const pool = new ThreadPool(workers, dataFile, import.meta.url);
     await pool.start();
     try {
         const result = await runLabyrinthCombat(pool, request, data, {
@@ -156,17 +62,5 @@ async function main() {
 }
 
 // A worker runs rooms; the main thread the analyses.
-if (!isMainThread) {
-    const { data } = readData(workerData.dataFile);
-    fill(Object.fromEntries(ENGINE_TABLES.map((t) => [t, data[t] || {}])));
-    parentPort.on("message", async ({ id, job }) => {
-        try {
-            parentPort.postMessage({ id, result: await runLabyrinthSim(job) });
-        } catch (error) {
-            parentPort.postMessage({ id, error: String(error?.stack || error) });
-        }
-    });
-    parentPort.postMessage({ ready: true });
-} else {
-    await main();
-}
+if (!isMainThread) serveWorker(parentPort, workerData, runLabyrinthSim);
+else await main();

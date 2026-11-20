@@ -12,6 +12,7 @@ import { esc, shortCoins } from "./format.js";
 import { visible } from "./game-nav.js";
 import { LOADOUT_ROUNDS } from "./analysis.js";
 import { combatLoadouts, slotCounts } from "./profile.js";
+import { cleanTriggers } from "./triggers.js";
 import { heldStock } from "./skilling.js";
 
 const SCAN_MS = 400;
@@ -219,7 +220,13 @@ function scan() {
     const marked = new Set();
     let html = null;
     let at = null;
-    if (found) {
+    // The ⚔ combat plan's loadout open in the panel: what the plan says, green and red – no simulation.
+    const planned = found ? g.deps.plan?.() || null : null;
+    const planShown = planned ? shownLoadout(found, state.character, { id: planned.setupId }) : null;
+    if (found && planned && planShown?.id === planned.setupId) {
+        at = found;
+        html = planBoxHtml(found, planned, planShown, marked);
+    } else if (found) {
         const fight = queuedFight(state.character);
         const chosen = fight ? fightLoadout(state.character, fight) : null;
         if (fight && chosen) {
@@ -243,6 +250,55 @@ function scan() {
         box.dataset.html = html;
         box.innerHTML = html;
     }
+}
+
+// The plan's loadout: slots it keeps glow green, slots it changes red; what to put in, wear
+// and set the triggers of is listed. planned: { setupId, phase } (the first combat phase).
+const planLine = (html) => `<div class="mwia-guide-note mwia-guide-low">✗ ${html}</div>`;
+
+function planBoxHtml(found, planned, loadout, marked) {
+    const want = planned.phase.loadout;
+    const data = getClientData();
+    const wantAbilities = new Set((want.abilities || []).map((a) => a?.hrid).filter(Boolean));
+    const wantItems = new Set([...(want.drinks || []), ...(want.food || [])].filter(Boolean));
+    const mark = (slots, keep, label) => {
+        for (const slot of slots) {
+            if (!slot.hrid) continue;
+            const right = keep.has(slot.hrid);
+            const value = right ? "right" : "wrong";
+            const title = right ? `${label(slot.hrid)}: as the ⚔ plan says (MWI Advisor)` : `Take out ${label(slot.hrid)} – the ⚔ plan doesn't use it (MWI Advisor)`;
+            if (slot.el.dataset.mwiaSlot !== value) slot.el.dataset.mwiaSlot = value;
+            if (slot.el.title !== title) slot.el.title = title;
+            marked.add(slot.el);
+        }
+    };
+    mark(found.abilities.slots, wantAbilities, abilityName);
+    mark(found.consumables.slots, wantItems, itemName);
+    const shownAbilities = new Set(found.abilities.slots.map((s) => s.hrid));
+    const shownItems = new Set(found.consumables.slots.map((s) => s.hrid));
+    const lines = [];
+    const putIn = [...[...wantAbilities].filter((h) => !shownAbilities.has(h)).map(abilityName), ...[...wantItems].filter((h) => !shownItems.has(h)).map(itemName)];
+    if (putIn.length) lines.push(planLine(`<b>Put in:</b> ${esc(putIn.join(", "))}`));
+    const profile = g.deps.profileOf(loadout);
+    if (profile && data) {
+        const wear = [];
+        for (const [slot, w] of Object.entries(want.equipment || {})) {
+            const has = profile.equipment?.[slot];
+            if (!w || (has && has.hrid === w.hrid && (has.enhancementLevel || 0) === (w.enhancementLevel || 0))) continue;
+            wear.push(`${itemName(w.hrid)}${w.enhancementLevel ? ` +${w.enhancementLevel}` : ""}`);
+        }
+        if (wear.length) lines.push(planLine(`<b>Wear:</b> ${esc(wear.join(", "))}`));
+        const triggers = [...wantAbilities, ...wantItems].filter((hrid) => {
+            const map = hrid.startsWith("/abilities/") ? "abilityTriggers" : "consumableTriggers";
+            const w = want[map]?.[hrid];
+            return w && JSON.stringify(cleanTriggers(w)) !== JSON.stringify(cleanTriggers(profile[map]?.[hrid] || []));
+        });
+        if (triggers.length) lines.push(planLine(`<b>Set the triggers of:</b> ${esc(triggers.map((h) => (h.startsWith("/abilities/") ? abilityName(h) : itemName(h))).join(", "))} <span class="mwia-guide-dim">(⚙, then ▶ Fill in and Save)</span>`));
+    }
+    const zone = planned.phase.zone;
+    const intro = `<div class="mwia-guide-note">The ⚔ plan's loadout <b>${esc(loadout.name || "Loadout")}</b>, to fight in <b>${fightName(zone)}</b>. Green: as the plan says; red: take it out.</div>`;
+    const body = lines.length ? lines.join("") : `<div class="mwia-guide-note">✓ Everything as the plan says.</div>`;
+    return `<div class="mwia-guide-head"><b>⚔ Combat plan</b> <span>MWI Advisor</span></div>` + intro + body;
 }
 
 const fightName = (fight) => esc(actionName(fight.zoneHrid) || fight.zoneHrid.split("/").pop()) + (fight.tier ? ` T${fight.tier}` : "");

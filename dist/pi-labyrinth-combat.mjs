@@ -2140,7 +2140,7 @@ var init_skilling_upgrades = __esm({
 var VERSION, UPDATE_URL, LATEST_URL, CHECK_EVERY_MS, scriptVersion;
 var init_version_tag = __esm({
   "src/version-tag.js"() {
-    VERSION = true ? "0.84.0" : "dev";
+    VERSION = true ? "0.85.0" : "dev";
     UPDATE_URL = typeof __MWIA_UPDATE_URL__ !== "undefined" ? __MWIA_UPDATE_URL__ : "";
     LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
     CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -3049,12 +3049,10 @@ var init_labyrinth_combat = __esm({
 });
 
 // pi/labyrinth-combat-entry.js
-init_data_shim();
 import os from "node:os";
-import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import { gunzipSync } from "node:zlib";
-import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
+import { readFileSync as readFileSync2, renameSync, writeFileSync } from "node:fs";
+import path2 from "node:path";
+import { isMainThread, parentPort, workerData } from "node:worker_threads";
 
 // engine/combatUtilities.js
 var CombatUtilities = class _CombatUtilities {
@@ -8372,10 +8370,16 @@ async function runLabyrinthSim(job) {
   }
 }
 
-// pi/labyrinth-combat-entry.js
+// pi/node-pool.js
+init_data_shim();
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { gunzipSync } from "node:zlib";
+import { Worker } from "node:worker_threads";
 var readData = (file) => JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"));
 var ThreadPool = class {
-  constructor(size, dataFile) {
+  constructor(size, dataFile, entry) {
+    this.entry = new URL(entry);
     this.size = size;
     this.dataFile = dataFile;
     this.workers = [];
@@ -8386,7 +8390,7 @@ var ThreadPool = class {
   async start() {
     const ready = [];
     for (let i = 0; i < this.size; i++) {
-      const worker = new Worker(new URL(import.meta.url), { workerData: { dataFile: this.dataFile }, resourceLimits: { maxOldGenerationSizeMb: 256 } });
+      const worker = new Worker(this.entry, { workerData: { dataFile: this.dataFile }, resourceLimits: { maxOldGenerationSizeMb: 256 } });
       const entry = { worker, busy: true };
       ready.push(
         new Promise((resolve, reject) => {
@@ -8447,6 +8451,32 @@ function newestMarket(rawDir) {
   }
   return null;
 }
+async function loadAdvisor(dataFile, rawDir) {
+  const { hash: hash2, data } = readData(dataFile);
+  const market = newestMarket(rawDir);
+  if (!market?.marketData) throw new Error("no market file on the Pi yet");
+  const nativeFetch = globalThis.fetch;
+  globalThis.fetch = async (url, ...rest) => String(url).includes("marketplace.json") ? { ok: true, json: async () => market } : nativeFetch(url, ...rest);
+  const { loadClientData: loadClientData2, loadPrices: loadPrices2 } = await Promise.resolve().then(() => (init_game_data(), game_data_exports));
+  await loadClientData2({ localStorageUtil: { getInitClientData: () => data } });
+  await loadPrices2();
+  fill(Object.fromEntries(ENGINE_TABLES.map((t) => [t, data[t] || {}])));
+  return { hash: hash2, data, market };
+}
+function serveWorker(parentPort2, workerData2, run) {
+  const { data } = readData(workerData2.dataFile);
+  fill(Object.fromEntries(ENGINE_TABLES.map((t) => [t, data[t] || {}])));
+  parentPort2.on("message", async ({ id, job }) => {
+    try {
+      parentPort2.postMessage({ id, result: await run(job) });
+    } catch (error) {
+      parentPort2.postMessage({ id, error: String(error?.stack || error) });
+    }
+  });
+  parentPort2.postMessage({ ready: true });
+}
+
+// pi/labyrinth-combat-entry.js
 async function main() {
   try {
     os.setPriority(19);
@@ -8454,26 +8484,19 @@ async function main() {
   }
   const [charDir, dataFile, rawDir] = process.argv.slice(2);
   const started = Date.now();
-  const request2 = JSON.parse(readFileSync(path.join(charDir, "request.json"), "utf8"));
-  const { hash: hash2, data } = readData(dataFile);
-  const market = newestMarket(rawDir);
-  if (!market?.marketData) throw new Error("no market file on the Pi yet");
-  const nativeFetch = globalThis.fetch;
-  globalThis.fetch = async (url, ...rest) => String(url).includes("marketplace.json") ? { ok: true, json: async () => market } : nativeFetch(url, ...rest);
-  const { loadClientData: loadClientData2, loadPrices: loadPrices2, marketEntry: marketEntry2 } = await Promise.resolve().then(() => (init_game_data(), game_data_exports));
+  const request2 = JSON.parse(readFileSync2(path2.join(charDir, "request.json"), "utf8"));
+  const { hash: hash2, data, market } = await loadAdvisor(dataFile, rawDir);
+  const { marketEntry: marketEntry2 } = await Promise.resolve().then(() => (init_game_data(), game_data_exports));
   const { marketPricer: marketPricer2 } = await Promise.resolve().then(() => (init_skilling(), skilling_exports));
   const { selfEnhanceCosts: selfEnhanceCosts2 } = await Promise.resolve().then(() => (init_enhancing(), enhancing_exports));
   const { runLabyrinthCombat: runLabyrinthCombat2 } = await Promise.resolve().then(() => (init_labyrinth_combat(), labyrinth_combat_exports));
-  await loadClientData2({ localStorageUtil: { getInitClientData: () => data } });
-  await loadPrices2();
-  fill(Object.fromEntries(ENGINE_TABLES.map((t) => [t, data[t] || {}])));
   let enhanceCost = null;
   if (request2.who) {
     const market2 = marketPricer2((hrid) => marketEntry2(hrid), data, "bid");
     enhanceCost = (hrid, starts) => selfEnhanceCosts2(hrid, request2.who, data, market2, starts);
   }
   const write = (name, value) => {
-    const file = path.join(charDir, name);
+    const file = path2.join(charDir, name);
     writeFileSync(file + ".tmp", JSON.stringify(value));
     renameSync(file + ".tmp", file);
   };
@@ -8485,7 +8508,7 @@ async function main() {
     write("progress.json", { stage, done, total, at: shown });
   };
   const workers = Math.max(1, Math.min(4, Number(process.env.MWIA_LAB_COMBAT_WORKERS) || 2));
-  const pool = new ThreadPool(workers, dataFile);
+  const pool = new ThreadPool(workers, dataFile, import.meta.url);
   await pool.start();
   try {
     const result = await runLabyrinthCombat2(pool, request2, data, {
@@ -8498,20 +8521,8 @@ async function main() {
     await pool.terminate();
   }
 }
-if (!isMainThread) {
-  const { data } = readData(workerData.dataFile);
-  fill(Object.fromEntries(ENGINE_TABLES.map((t) => [t, data[t] || {}])));
-  parentPort.on("message", async ({ id, job }) => {
-    try {
-      parentPort.postMessage({ id, result: await runLabyrinthSim(job) });
-    } catch (error) {
-      parentPort.postMessage({ id, error: String(error?.stack || error) });
-    }
-  });
-  parentPort.postMessage({ ready: true });
-} else {
-  await main();
-}
+if (!isMainThread) serveWorker(parentPort, workerData, runLabyrinthSim);
+else await main();
 
 // ---- Third-party licences ----
 // MWICombatSimulator (engine/):

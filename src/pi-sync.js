@@ -37,8 +37,8 @@ const STATES_AFTER_MS = 5 * 1000;
 
 // status: ok (null before the first try), at: the last good sync, error, newest: the Pi's newest file, piError: its own last fetch error,
 // orders: null (the Pi doesn't take them) or { at: the last send, sent: in it, waiting, error }.
-// jobs, labyrinth: null (the Pi doesn't take them) or { at: the last sync, error }; plan: whether the Pi makes 📈 plans.
-const NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null, labyrinth: null, plan: false };
+// jobs, labyrinth: null (the Pi doesn't take them) or { at: the last sync, error }; plan: whether the Pi makes 📈 plans; combatPlan: ⚔ combat plans.
+const NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null, labyrinth: null, plan: false, combatPlan: false };
 const p = { running: null, sending: null, jobSync: null, labSync: null, labTimer: null, statesTimer: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: new Set() };
 
 // A link from the server: saves its address and key, then takes them out of the address bar.
@@ -129,7 +129,7 @@ export function syncNow() {
             const takesLabyrinth = !!wire.status?.labyrinth;
             // The 📈 plan (horizon-sync.js) reads and sends on its own after each sync.
             const makesPlans = !!wire.status?.plan;
-            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? { ...(p.status.labyrinth || { at: null, error: "" }), states: wire.status.labyrinth.states !== undefined, sim: !!wire.status.labyrinth.sim, combat: wire.status.labyrinth.combat || null } : null, plan: makesPlans };
+            p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? { ...(p.status.labyrinth || { at: null, error: "" }), states: wire.status.labyrinth.states !== undefined, sim: !!wire.status.labyrinth.sim, combat: wire.status.labyrinth.combat || null } : null, plan: makesPlans, combatPlan: !!wire.status?.combatPlan };
             if (takesOrders) await sendOrders();
             if (takesJobs) await syncJobs();
             if (takesLabyrinth) await syncLabyrinth();

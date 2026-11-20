@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWI Advisor
 // @namespace    local.mwi-combat-advisor
-// @version      0.84.0
+// @version      0.85.0
 // @description  Advice for Milky Way Idle: where to fight and what to buy (simulating your own character), what to make, levelling, teas and market prices.
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -686,11 +686,11 @@
     const successBuff = fraction("/buff_types/alchemy_success");
     const wisdom = fraction("/buff_types/wisdom");
     const xpBase = k.xp * (10 + itemLevel) * (1 + wisdom);
-    const plus = action.enhancementLevel || 0;
-    const plusAsk = plus > 0 ? plusBuy(action.itemHrid, plus) : null;
-    const forSale = plus === 0 || plusAsk !== null;
-    const price = itemPrice !== null ? itemPrice : plus > 0 ? plusAsk ?? plusHeld(action.itemHrid, plus) : market.buy(action.itemHrid);
-    const coins10 = coinCost(kind, detail);
+    const plus2 = action.enhancementLevel || 0;
+    const plusAsk = plus2 > 0 ? plusBuy(action.itemHrid, plus2) : null;
+    const forSale = plus2 === 0 || plusAsk !== null;
+    const price = itemPrice !== null ? itemPrice : plus2 > 0 ? plusAsk ?? plusHeld(action.itemHrid, plus2) : market.buy(action.itemHrid);
+    const coins11 = coinCost(kind, detail);
     const drinksPerHour = 12 * who.concentration;
     const teaCosts = teas.map((hrid) => {
       const p2 = market.buy(hrid) ?? market.sell(hrid).bid ?? 0;
@@ -714,20 +714,20 @@
         outputs.push({ itemHrid, count: count3, kind: kindOf, price: sell.price, sell, value: count3 * sell.price });
       };
       let selfBack = 0;
-      for (const o2 of successOutputs(kind, detail, plus)) {
+      for (const o2 of successOutputs(kind, detail, plus2)) {
         if (o2.itemHrid === action.itemHrid) selfBack += o2.count * bulk * successRate;
         else add(o2.itemHrid, o2.count * bulk * successRate, "product");
       }
       add(essence.itemHrid, essence.count, "essence");
       add(rare.itemHrid, rare.count, "rare");
-      const inputs = [{ itemHrid: action.itemHrid, enhancementLevel: plus, count: bulk - selfBack, price, value: (bulk - selfBack) * (price || 0), ...forSale ? {} : { forSale: false } }];
-      if (coins10) inputs.push({ itemHrid: COIN, count: coins10, price: 1, value: coins10 });
+      const inputs = [{ itemHrid: action.itemHrid, enhancementLevel: plus2, count: bulk - selfBack, price, value: (bulk - selfBack) * (price || 0), ...forSale ? {} : { forSale: false } }];
+      if (coins11) inputs.push({ itemHrid: COIN, count: coins11, price: 1, value: coins11 });
       if (catalyst.itemHrid) inputs.push({ itemHrid: catalyst.itemHrid, count: successRate, price: catalyst.price, value: successRate * catalyst.price, catalyst: true });
       const revenuePerAction = outputs.reduce((sum, o2) => sum + o2.value, 0);
       const costPerAction = inputs.reduce((sum, i) => sum + i.value, 0);
       const profitPerHour = actionsPerHour * (revenuePerAction - costPerAction) - teaPerHour;
       const xpPerAction = xpBase * (successRate + FAIL_XP * (1 - successRate));
-      const main = plus > 0 && outputs.find((o2) => o2.itemHrid === ENHANCING_ESSENCE) || outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
+      const main = plus2 > 0 && outputs.find((o2) => o2.itemHrid === ENHANCING_ESSENCE) || outputs.filter((o2) => o2.kind === "product").sort((a, b) => b.value - a.value)[0] || null;
       const warnings = [];
       if (main && main.sell.note) warnings.push({ kind: main.sell.note, itemHrid: main.itemHrid, ask: main.sell.ask, bid: main.sell.bid });
       const r2 = {
@@ -760,11 +760,11 @@
         xpPerAction,
         xpPerHour: actionsPerHour * xpPerAction,
         valid: price !== null && price !== void 0 && successRate > 0 && (!!main || kind === "coinify"),
-        enhancementLevel: plus,
+        enhancementLevel: plus2,
         warnings,
         buffsKnown: !!who.buffs,
         bulk,
-        coinCost: coins10,
+        coinCost: coins11,
         baseRate,
         successRate,
         penalty,
@@ -833,15 +833,15 @@
       const guarded = L2 >= from;
       const b1 = b[L2 + 1];
       const b2 = b[L2 + 2];
-      const keep3 = 1 - up1 * b1 - up2 * b2 * b1;
-      if (keep3 <= 1e-15) return null;
+      const keep4 = 1 - up1 * b1 - up2 * b2 * b1;
+      if (keep4 <= 1e-15) return null;
       const cost = [1, xpPer[L2], guarded ? fail : 0];
       for (let i = 0; i < 3; i++) {
         const a1 = a[3 * (L2 + 1) + i];
-        a[3 * L2 + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L2 + 2) + i] + b2 * a1)) / keep3;
+        a[3 * L2 + i] = (cost[i] + up1 * a1 + up2 * (a[3 * (L2 + 2) + i] + b2 * a1)) / keep4;
       }
-      b[L2] = guarded ? fail / keep3 : 0;
-      d[L2] = (up1 * d[L2 + 1] + up2 * (b2 * d[L2 + 1] + d[L2 + 2]) + (guarded ? 0 : fail)) / keep3;
+      b[L2] = guarded ? fail / keep4 : 0;
+      d[L2] = (up1 * d[L2 + 1] + up2 * (b2 * d[L2 + 1] + d[L2 + 2]) + (guarded ? 0 : fail)) / keep4;
     }
     const rest = 1 - d[0];
     if (rest <= 1e-15) return null;
@@ -1174,17 +1174,17 @@
       let moved = 0;
       for (const h3 of items) {
         let best = sell(h3);
-        let pick2 = null;
+        let pick3 = null;
         for (const step of steps(h3)) {
           const v = (step.outputs.reduce((sum, o2) => sum + o2.count * value(o2.itemHrid), 0) - step.paid - (teaPerHour + charge) * step.hours) / step.net;
           if (v > best + 1e-9) {
             best = v;
-            pick2 = step;
+            pick3 = step;
           }
         }
         moved = Math.max(moved, Math.abs(best - worth.get(h3)) / Math.max(1, Math.abs(best)));
         worth.set(h3, best);
-        choice.set(h3, pick2);
+        choice.set(h3, pick3);
       }
       if (moved < 1e-9) break;
     }
@@ -1710,7 +1710,7 @@
     const low = price.diff !== null && price.diff < -PRICE_BAND;
     return { swing: price.swing, diff: price.diff, bySwing, high, low, share: bySwing * (high ? HIGH_PRICE_SHARE : 1) };
   }
-  function suggestCount(entry, { stock, book = null, hours: hours2 = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins10 = Infinity, have: have6 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now: now2 = Date.now() }) {
+  function suggestCount(entry, { stock, book = null, hours: hours2 = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, hideThinMargins = false, coins: coins11 = Infinity, have: have6 = () => 0, heldPrice = null, sellAt = "ask", price = null, liquidity: liquidity2 = null, inputMarket = null, now: now2 = Date.now() }) {
     if (entry.action.function !== "/action_functions/production" && entry.action.function !== ALCHEMY_FUNCTION || !entry.valid || !entry.mainCount) return null;
     const breakEven = breakEvenPrice(entry);
     const profitableBids = book ? book.bids.filter((o2) => o2.price >= breakEven).reduce((sum, o2) => sum + o2.quantity, 0) : null;
@@ -1808,7 +1808,7 @@
       }
     }
     const share2 = coinShare[rating.rating] ?? coinShare.thin;
-    const budget = coins10 * share2;
+    const budget = coins11 * share2;
     let limitedByCoins = false;
     if (spend(count3) > budget) {
       let low = 0;
@@ -1892,17 +1892,17 @@
     }
     return { value, saving };
   }
-  function enhanceBudget(entry, { hours: hours2 = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins10 = Infinity, inputMarket = null }) {
+  function enhanceBudget(entry, { hours: hours2 = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins11 = Infinity, inputMarket = null }) {
     if (!entry.valid || entry.action.function !== ENHANCE_FUNCTION) return null;
     const rating = inputMarket?.(entry.action.itemHrid)?.liquidity || { rating: "thin", known: false };
     const share2 = coinShare[rating.rating] ?? coinShare.thin;
-    const budget = coins10 * share2;
+    const budget = coins11 * share2;
     const item = entry.base.owned ? 0 : entry.base.price;
     const perHour = (entry.costPerAttempt * entry.actionsPerHour + entry.teaPerHour) * (entry.enhanceShare ?? 1);
     const fill = item > budget ? 0 : perHour > 0 ? Math.min(1, (budget - item) / (perHour * hours2)) : 1;
     return { rating, share: share2, budget, item, perHour, need: item + perHour * hours2, fill, hours: fill * hours2, plannedHours: hours2 };
   }
-  function suggestChainCount(entry, chain, { stock, hours: hours2 = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins10 = Infinity, price = null, liquidity: liquidity2 = null, inputMarket = null }) {
+  function suggestChainCount(entry, chain, { stock, hours: hours2 = PLAN_MODES.away.hours, coinShare = PLAN_MODES.away.coinShare, coins: coins11 = Infinity, price = null, liquidity: liquidity2 = null, inputMarket = null }) {
     if (!chain || !entry.mainCount || chain.profitPerHour <= 0) return null;
     const planned = Math.max(1, Math.floor(hours2 / chain.hoursPerAction));
     const held2 = stock.inventory + stock.listed;
@@ -1921,7 +1921,7 @@
       }
     }
     const share2 = coinShare[rating.rating] ?? coinShare.thin;
-    const budget = coins10 * share2;
+    const budget = coins11 * share2;
     const limitedByCoins = chain.cashPerAction > 0 && count3 * chain.cashPerAction > budget;
     if (limitedByCoins) count3 = Math.floor(budget / chain.cashPerAction);
     return { count: count3, hours: count3 * chain.hoursPerAction, cash: count3 * chain.cashPerAction, liquidity: rating, ratedBy, coinShare: share2, budget, limitedByCoins, held: held2, heldOff };
@@ -2065,14 +2065,14 @@
       }
       if (n5 > 1e-12) sold.push({ ...o2, count: n5, value: n5 * o2.price, kind: o2.kind === "product" ? "recovered" : o2.kind });
     }
-    const coins10 = r2.coinCost * per;
+    const coins11 = r2.coinCost * per;
     const catalyst = r2.inputs.find((i) => i.catalyst);
-    if (coins10 > 0) inputs.push({ itemHrid: COIN3, count: coins10, price: 1, value: coins10 });
+    if (coins11 > 0) inputs.push({ itemHrid: COIN3, count: coins11, price: 1, value: coins11 });
     if (catalyst) inputs.push({ ...catalyst, count: catalyst.count * per, value: catalyst.value * per });
     const craftHours = 1 / entry.actionsPerHour;
     const alchemyHours = per / r2.actionsPerHour;
     const share2 = craftHours / (craftHours + alchemyHours);
-    const back = reused.reduce((sum, x) => sum + x.count * x.price, 0) + sold.reduce((sum, x) => sum + x.value, 0) - coins10 - (catalyst ? catalyst.value * per : 0) - r2.teaPerHour * alchemyHours;
+    const back = reused.reduce((sum, x) => sum + x.count * x.price, 0) + sold.reduce((sum, x) => sum + x.value, 0) - coins11 - (catalyst ? catalyst.value * per : 0) - r2.teaPerHour * alchemyHours;
     const valuePerItem = back / out.count;
     if (!(valuePerItem > out.price)) return null;
     const outputs = [...entry.outputs.map((o2) => o2 === out ? { ...o2, price: 0, value: 0, decomposed: true } : o2), ...sold];
@@ -2104,17 +2104,17 @@
   var leveling = (action) => action.function === ENHANCE_FUNCTION || action.function === ALCHEMY_FUNCTION;
   var sameTeas = (a, b) => a.length === b.length && a.every((hrid) => b.includes(hrid));
   var SHORTLIST = 40;
-  function shortlist(candidates, keep3 = () => false) {
+  function shortlist(candidates, keep4 = () => false) {
     if (candidates.length <= 3 * SHORTLIST) return candidates;
-    const tried = candidates.map((c3) => {
-      const gold = c3.evaluate([], (r2) => r2.goldPerDay);
-      const xp = c3.evaluate([], (r2) => r2.xpPerDay);
-      const cheap = c3.evaluate([], (r2) => -coinsPerXp(r2));
-      return { c: c3, gold: gold.valid ? gold.goldPerDay : -Infinity, xp: xp.valid ? xp.xpPerDay : -Infinity, perCoin: -coinsPerXp(cheap) };
+    const tried = candidates.map((c4) => {
+      const gold = c4.evaluate([], (r2) => r2.goldPerDay);
+      const xp = c4.evaluate([], (r2) => r2.xpPerDay);
+      const cheap = c4.evaluate([], (r2) => -coinsPerXp(r2));
+      return { c: c4, gold: gold.valid ? gold.goldPerDay : -Infinity, xp: xp.valid ? xp.xpPerDay : -Infinity, perCoin: -coinsPerXp(cheap) };
     });
-    const kept3 = new Set(candidates.filter(keep3));
-    for (const key2 of ["gold", "xp", "perCoin"]) [...tried].sort((a, b) => b[key2] - a[key2]).slice(0, SHORTLIST).forEach((t4) => kept3.add(t4.c));
-    return candidates.filter((c3) => kept3.has(c3));
+    const kept4 = new Set(candidates.filter(keep4));
+    for (const key2 of ["gold", "xp", "perCoin"]) [...tried].sort((a, b) => b[key2] - a[key2]).slice(0, SHORTLIST).forEach((t4) => kept4.add(t4.c));
+    return candidates.filter((c4) => kept4.has(c4));
   }
   function rankSkilling(who, data, market, { skill = "all", teaMode = "current", plan = null, goldWeight = 1, countLevels = false, leveling: levelingOptions2 = {} } = {}) {
     var _a;
@@ -2141,7 +2141,7 @@
       }
     }
     const levelingList = skill === ENHANCING || skill === ALCHEMY;
-    const owned = (c3) => (levelingOptions2.owned?.(c3.action.itemHrid, c3.action.enhancementLevel || 0) || 0) > 0 || c3.action.hrid === levelingOptions2.fixed?.hrid;
+    const owned = (c4) => (levelingOptions2.owned?.(c4.action.itemHrid, c4.action.enhancementLevel || 0) || 0) > 0 || c4.action.hrid === levelingOptions2.fixed?.hrid;
     if (skill === ENHANCING) doable.push(...shortlist(enhancingActions(data, market, (hrid) => levelingOptions2.owned?.(hrid, 0) || 0).map((action) => ({ action, evaluate: evaluator(action) })), owned));
     if (skill === ALCHEMY) doable.push(...shortlist(alchemyActions(data, market, levelingOptions2.plusLevels).map((action) => ({ action, evaluate: evaluator(action) })), owned));
     const XP_FLOOR = countLevels ? 1e-6 : 1;
@@ -2260,7 +2260,7 @@
     if (abs >= 1e4) return fixed(n5 / 1e3, abs >= 1e5 ? 0 : 1) + "k";
     return Math.round(n5).toLocaleString("en-US");
   }
-  var esc = (s3) => String(s3 ?? "").replace(/[&<>"']/g, (c3) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c3]);
+  var esc = (s3) => String(s3 ?? "").replace(/[&<>"']/g, (c4) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c4]);
 
   // src/skilling-upgrades.js
   var MAX_HOUSE_LEVEL = 8;
@@ -2421,8 +2421,8 @@
       const step = [...room.actionBuffs || [], ...room.globalBuffs || []].map((b) => ({ typeHrid: b.typeHrid, flatBoost: (level === 0 ? b.flatBoost : b.flatBoostLevelBonus) || 0, ratioBoost: (level === 0 ? b.ratioBoost : b.ratioBoostLevelBonus) || 0 }));
       const after = m2.day(withBuffs(step));
       const costs = room.upgradeCostsMap?.[String(level + 1)] || [];
-      const priced = costs.map((c3) => ({ itemHrid: c3.itemHrid, count: c3.count, price: market.buy(c3.itemHrid) }));
-      const price = priced.some((c3) => c3.price === null) ? null : priced.reduce((sum, c3) => sum + c3.count * c3.price, 0);
+      const priced = costs.map((c4) => ({ itemHrid: c4.itemHrid, count: c4.count, price: market.buy(c4.itemHrid) }));
+      const price = priced.some((c4) => c4.price === null) ? null : priced.reduce((sum, c4) => sum + c4.count * c4.price, 0);
       const gain = after ? worth(after) - worth(base) : 0;
       if (gain > 1) {
         upgrades.push({ kind: "house", roomHrid: room.hrid, name: room.name, level: level + 1, price, materials: priced, gainPerDay: gain, goldPerDay: after.goldPerDay - base.goldPerDay, xpPerDay: after.xpPerDay - base.xpPerDay, paybackDays: price === null ? null : price / gain, bestAction: after.action, target: after.target ?? null });
@@ -2438,7 +2438,7 @@
     }
     upgrades.sort((a, b) => (a.paybackDays ?? Infinity) - (b.paybackDays ?? Infinity));
     const outlived = [];
-    const kept3 = upgrades.filter((u) => {
+    const kept4 = upgrades.filter((u) => {
       const next = u.kind === "item" && u.paybackDays > 0 ? nextTierFor(u, who, data, listings) : null;
       if (!next || !(u.paybackDays > next.days)) return true;
       outlived.push({ ...u, nextTier: next });
@@ -2450,7 +2450,7 @@
       const mine2 = Object.values(equipped).reduce((sum, e2) => sum + itemSkillBuffs(e2.itemHrid, e2.enhancementLevel, skill, data).buffs.filter((b) => b.typeHrid === "/buff_types/action_speed").reduce((s3, b) => s3 + b.flatBoost, 0), 0);
       check = { game, mine: mine2, matches: Math.abs(game - mine2) < 5e-3 };
     }
-    return { base, upgrades: kept3, outlived, check, xpPrice };
+    return { base, upgrades: kept4, outlived, check, xpPrice };
   }
   function nextTierFor(u, who, data, listings) {
     const detail = data.itemDetailMap[u.itemHrid]?.equipmentDetail;
@@ -2746,15 +2746,15 @@
       if (Number.isFinite(at(r2.p, i))) prices2.push([at(r2.p, i), Number.isFinite(v) ? v : 1]);
     }
     const counted2 = counts.length;
-    const cap4 = SPIKE * (median(counts.filter((v) => v > 0).map((v) => [v, 1])) ?? 0);
+    const cap5 = SPIKE * (median(counts.filter((v) => v > 0).map((v) => [v, 1])) ?? 0);
     const sum = (list) => list.reduce((total, v) => total + v, 0);
     const perDay2 = (list) => counted2 ? sum(list) / counted2 * 24 : null;
-    return { hours: counted2, perDay: perDay2(counts.map((v) => Math.min(v, cap4))), rawPerDay: perDay2(counts), selling: counted2 ? counts.filter((v) => v > 0).length / counted2 : null, price: median(prices2), enough: counted2 >= MIN_HOURS };
+    return { hours: counted2, perDay: perDay2(counts.map((v) => Math.min(v, cap5))), rawPerDay: perDay2(counts), selling: counted2 ? counts.filter((v) => v > 0).length / counted2 : null, price: median(prices2), enough: counted2 >= MIN_HOURS };
   }
   function historyCsv(items, hours2, days, exportedAt = /* @__PURE__ */ new Date(), { hourlySold = false } = {}) {
     const num2 = (v) => Number.isFinite(v) ? String(Math.round(v * 100) / 100) : "";
     const hourText = (hour) => new Date(hour * HOUR_MS).toISOString().slice(0, 13);
-    const dayText2 = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
+    const dayText3 = (day) => new Date(day * 24 * HOUR_MS).toISOString().slice(0, 10);
     const id = (hrid) => hrid.replace(/^\/items\//, "");
     const sold = (d, i) => at(d.vn, i) ? `${num2(at(d.v, i) || 0)},${at(d.vn, i)},${num2(at(d.p, i))}` : ",,";
     const lines = [
@@ -2786,13 +2786,13 @@
     }
     for (const d of hourlySold ? [] : rollUpDays(hours2.filter((r2) => r2.sold), items.length)) {
       items.forEach((hrid, i) => {
-        if (at(d.v, i) > 0) lines.push(`sold,${dayText2(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
+        if (at(d.v, i) > 0) lines.push(`sold,${dayText3(d.day)},${id(hrid)},,,,,,,,${sold(d, i)}`);
       });
     }
     for (const d of days) {
       items.forEach((hrid, i) => {
         if (!at(d.n, i)) return;
-        lines.push(`day,${dayText2(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)},${sold(d, i)}`);
+        lines.push(`day,${dayText3(d.day)},${id(hrid)},${[d.a, d.b, d.aLow, d.aHigh, d.bLow, d.bHigh].map((list) => num2(at(list, i))).join(",")},${at(d.n, i)},${sold(d, i)}`);
       });
     }
     return { csv: lines.join("\n") + "\n", items: items.length, hours: hours2.length, days: days.length };
@@ -2999,8 +2999,8 @@
     if (i === void 0) return null;
     const days = await loadAllDays();
     const newestDay = days.length ? days[days.length - 1].day : 0;
-    const pick2 = (key2, span) => median(days.filter((d) => newestDay - d.day < span).map((d) => [at(d[key2], i), at(d.n, i) || 1]));
-    return { a90: pick2("a", 90), b90: pick2("b", 90), a365: pick2("a", 365), b365: pick2("b", 365), days: days.filter((d) => at(d.n, i)).length };
+    const pick3 = (key2, span) => median(days.filter((d) => newestDay - d.day < span).map((d) => [at(d[key2], i), at(d.n, i) || 1]));
+    return { a90: pick3("a", 90), b90: pick3("b", 90), a365: pick3("a", 365), b365: pick3("b", 365), days: days.filter((d) => at(d.n, i)).length };
   }
   async function exportHistory() {
     await loadHistory();
@@ -3141,12 +3141,12 @@
   }
   var FEW_ROLLS = 10;
   function rollWarnings(entry) {
-    const plus = isAlchemy(entry) ? entry.action.enhancementLevel || 0 : isEnhance(entry) && entry.finish ? entry.target : 0;
-    if (!plus) return [];
-    const n5 = isAlchemy(entry) ? entry.suggestion?.count ?? have(entry.action.itemHrid, plus) : Math.round(entry.itemsPerHour * (entry.budget?.hours ?? PLAN_MODES.away.hours));
+    const plus2 = isAlchemy(entry) ? entry.action.enhancementLevel || 0 : isEnhance(entry) && entry.finish ? entry.target : 0;
+    if (!plus2) return [];
+    const n5 = isAlchemy(entry) ? entry.suggestion?.count ?? have(entry.action.itemHrid, plus2) : Math.round(entry.itemsPerHour * (entry.budget?.hours ?? PLAN_MODES.away.hours));
     if (n5 >= FEW_ROLLS) return [];
     const successRate = isAlchemy(entry) ? entry.successRate : entry.finish.entry.successRate;
-    return [{ kind: "oneroll", itemHrid: entry.action.itemHrid, level: plus, successRate, count: n5 }];
+    return [{ kind: "oneroll", itemHrid: entry.action.itemHrid, level: plus2, successRate, count: n5 }];
   }
   function enhanceWarnings(entry) {
     const sell = entry.outputs[0]?.sell;
@@ -3333,8 +3333,8 @@
   function alchemyOddsHtml(e2) {
     const parts = [e2.catalyst.itemHrid && `catalyst ${pct(e2.catalyst.bonus)} (${esc(itemName(e2.catalyst.itemHrid))})`, e2.successBuff && `teas and buffs ${pct(e2.successBuff)}`, e2.penalty && `<span class="mwia-warn">item level ${e2.requiredLevel} over your ${dec(e2.effectiveLevel, 0)}: ${pct(e2.penalty)}</span>`].filter(Boolean);
     const bulk = e2.bulk > 1 ? ` Each action takes ${e2.bulk} at once.` : "";
-    const plus = e2.action.enhancementLevel || 0;
-    const essence = plus ? ` At +${plus} it also gives round(2 \xD7 (0.5 + 0.1 \xD7 1.05^${getClientData().itemDetailMap[e2.action.itemHrid]?.itemLevel || 0}) \xD7 2^${plus}) = ${count(decomposeEssence(getClientData().itemDetailMap[e2.action.itemHrid]?.itemLevel, plus))} Enhancing Essence on a success.${e2.inputs[0]?.forSale === false ? " Nobody sells one at that +level: only yours, counted at what they would sell for." : ""}` : "";
+    const plus2 = e2.action.enhancementLevel || 0;
+    const essence = plus2 ? ` At +${plus2} it also gives round(2 \xD7 (0.5 + 0.1 \xD7 1.05^${getClientData().itemDetailMap[e2.action.itemHrid]?.itemLevel || 0}) \xD7 2^${plus2}) = ${count(decomposeEssence(getClientData().itemDetailMap[e2.action.itemHrid]?.itemLevel, plus2))} Enhancing Essence on a success.${e2.inputs[0]?.forSale === false ? " Nobody sells one at that +level: only yours, counted at what they would sell for." : ""}` : "";
     const coinsText = e2.coinCost ? ` It costs ${coins(e2.coinCost)} coins, lost on a failure like the item.` : "";
     const catalyst = e2.catalyst.itemHrid ? ` The catalyst is used up only on a success (${coins(e2.catalyst.price)} each).` : " No catalyst pays off with your Focus.";
     return `${dec(e2.baseRate * 100, 0)}% base${parts.length ? ` \xD7 (1 ${parts.map((p2) => "+ " + p2).join(" ")})` : ""} = <b>${dec(e2.successRate * 100, 2)}%</b>.${bulk}${essence}${coinsText}${catalyst} <span class="mwia-dim">A failure still gives a tenth of the XP.</span>`;
@@ -3407,12 +3407,12 @@
     return `${dec(r2.successRate * 100, 1)}% success, ${outs}${costs ? ` \u2212 ${costs}` : ""}${teas}`;
   }
   function chainHtml(e2) {
-    const c3 = e2.chain;
-    const shares = [`${dec(c3.craftShare * 100, 0)}% ${esc(e2.action.name)}`, ...[...c3.shares].sort((a, b) => b.share - a.share).map((s3) => `${dec(s3.share * 100, 0)}% ${esc(itemName(s3.itemHrid))} <span class="mwia-dim">(${skillLabel(s3.action.type.split("/").pop())}, ${count(s3.count)} each)</span>`)];
-    const better2 = c3.profitPerHour > e2.profitPerHour;
-    return `Make every material your levels allow, buy the rest: <b>${coins(c3.profitPerHour)}/h = ${coins(c3.goldPerDay)}/day</b>
-        <span class="${better2 ? "mwia-ok" : "mwia-dim"}">(${better2 ? "+" : "\u2212"}${coins(Math.abs(c3.goldPerDay - e2.goldPerDay))}/day vs buying)</span>.
-        <br>Of each hour: ${shares.join(" \xB7 ")}.${c3.bought.length ? `<br>Still bought: ${esc(names(c3.bought))}.` : ""}
+    const c4 = e2.chain;
+    const shares = [`${dec(c4.craftShare * 100, 0)}% ${esc(e2.action.name)}`, ...[...c4.shares].sort((a, b) => b.share - a.share).map((s3) => `${dec(s3.share * 100, 0)}% ${esc(itemName(s3.itemHrid))} <span class="mwia-dim">(${skillLabel(s3.action.type.split("/").pop())}, ${count(s3.count)} each)</span>`)];
+    const better2 = c4.profitPerHour > e2.profitPerHour;
+    return `Make every material your levels allow, buy the rest: <b>${coins(c4.profitPerHour)}/h = ${coins(c4.goldPerDay)}/day</b>
+        <span class="${better2 ? "mwia-ok" : "mwia-dim"}">(${better2 ? "+" : "\u2212"}${coins(Math.abs(c4.goldPerDay - e2.goldPerDay))}/day vs buying)</span>.
+        <br>Of each hour: ${shares.join(" \xB7 ")}.${c4.bought.length ? `<br>Still bought: ${esc(names(c4.bought))}.` : ""}
         <br><span class="mwia-dim">Each step uses that skill's teas; the gold is per hour of the whole chain.</span>${chainTrainText(e2)}`;
   }
   function chainTrainText(e2) {
@@ -3443,9 +3443,9 @@
     } else {
       const k = ALCHEMY_KINDS[e2.action.kind];
       const n5 = e2.suggestion?.count || 0;
-      const plus = e2.action.enhancementLevel || 0;
+      const plus2 = e2.action.enhancementLevel || 0;
       const catalyst = e2.catalyst?.itemHrid ? ` data-catalyst="${esc(e2.catalyst.itemHrid)}"` : "";
-      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}"${plus ? ` data-level="${plus}"` : ""} data-label="${esc(k.name)}" data-value="${n5}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))}${plus ? ` +${plus}` : ""} (from your inventory)${n5 ? ` and ${n5} actions` : ""}${e2.catalyst?.itemHrid ? `, with ${esc(itemName(e2.catalyst.itemHrid))}` : ""}">\u25B6 ${k.name}${n5 ? ` ${n5.toLocaleString("en-US")}` : ""}</button>`;
+      open2 = `<button class="mwia-btn" data-action="skilling-level" data-kind="alchemy" data-item="${esc(item)}"${plus2 ? ` data-level="${plus2}"` : ""} data-label="${esc(k.name)}" data-value="${n5}"${catalyst} title="Opens ${k.name} with ${esc(itemName(item))}${plus2 ? ` +${plus2}` : ""} (from your inventory)${n5 ? ` and ${n5} actions` : ""}${e2.catalyst?.itemHrid ? `, with ${esc(itemName(e2.catalyst.itemHrid))}` : ""}">\u25B6 ${k.name}${n5 ? ` ${n5.toLocaleString("en-US")}` : ""}</button>`;
       const items = n5 ? e2.inputs.filter((i) => i.itemHrid !== COIN4 && i.forSale !== false).map((i) => ({ hrid: i.itemHrid, ...i.enhancementLevel ? { enhancementLevel: i.enhancementLevel } : {}, quantity: Math.max(0, Math.ceil(i.count * n5) - have(i.itemHrid, i.enhancementLevel || 0)) })).filter((i) => i.quantity > 0) : [];
       buy = items.length ? { items, title: `Adds what ${n5.toLocaleString("en-US")} actions use, less what you have: ${items.map((i) => `${i.quantity} ${itemName(i.hrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`).join(", ")}` } : null;
     }
@@ -3572,8 +3572,8 @@
     book: (s3) => `few ${esc(itemName(s3.limitedByBook))} listed`,
     coins: () => "coins"
   };
-  function salesCapText(cap4, name, mean) {
-    return `<span class="mwia-warn">The market takes about ${soldText(cap4.perDay)} ${name} a day; made all day you'd have ${count(cap4.made)}, the rest going for ${coins(cap4.floor)}: ${coins(mean)} each on average.</span>`;
+  function salesCapText(cap5, name, mean) {
+    return `<span class="mwia-warn">The market takes about ${soldText(cap5.perDay)} ${name} a day; made all day you'd have ${count(cap5.made)}, the rest going for ${coins(cap5.floor)}: ${coins(mean)} each on average.</span>`;
   }
   function liquidityText(l2) {
     const share2 = (x) => `${Math.round(x * 100)}%`;
@@ -4039,7 +4039,7 @@
   }
   var ENHANCING_PANEL = '[class*="SkillActionDetail_enhancingComponent"]';
   var ALCHEMY_PANEL = '[class*="SkillActionDetail_alchemyComponent"]';
-  var inventoryItemHash = (characterId6, itemHrid, level = 0) => `${characterId6}::/item_locations/inventory::${itemHrid}::${level}`;
+  var inventoryItemHash = (characterId7, itemHrid, level = 0) => `${characterId7}::/item_locations/inventory::${itemHrid}::${level}`;
   function componentWith(element, method) {
     const nodes = element ? [element, ...element.querySelectorAll("input, button, select")].map(pageView) : [];
     const upFrom = (start2) => {
@@ -4097,8 +4097,8 @@
     if (!method) return { ok: false, step: `no ${label3} method (${methodList(component)})` };
     attempt(() => component[method](hash3));
     await sleep(200);
-    const ok = holds(component, hash3);
-    return { ok, step: `${label3}: ${method} called${ok ? "" : ` but not in the slot (${methodList(component)})`}` };
+    const ok2 = holds(component, hash3);
+    return { ok: ok2, step: `${label3}: ${method} called${ok2 ? "" : ` but not in the slot (${methodList(component)})`}` };
   }
   async function openEnhancing(itemHash, target, protect = null, timeoutMs = 4e3) {
     const steps = [];
@@ -4304,7 +4304,7 @@
     const all = Object.keys(ledger.history).sort((a, b) => ledger.history[a].endedAt - ledger.history[b].endedAt);
     for (const k of all.slice(0, Math.max(0, all.length - MAX_HISTORY))) delete ledger.history[k];
   }
-  var newerReport = (incoming, kept3) => !kept3 || incoming.actions > kept3.actions || incoming.endedAt > kept3.endedAt;
+  var newerReport = (incoming, kept4) => !kept4 || incoming.actions > kept4.actions || incoming.endedAt > kept4.endedAt;
   function mergeFromPi2(ledger, wire) {
     let changed2 = false;
     for (const { key: key2, report } of wire.reports || []) {
@@ -4435,8 +4435,8 @@
     const profit = f.profitPerAction * n5;
     return { actions: n5, profit, margin: f.margin, perHour: f.profitPerHour, actionsPerHour: f.actionsPerHour, parts };
   }
-  function compactForecast(row) {
-    const entry = row?.single || row;
+  function compactForecast(row2) {
+    const entry = row2?.single || row2;
     if (!entry || !(entry.actionsPerHour > 0)) return null;
     return {
       name: entry.name,
@@ -4525,10 +4525,10 @@
     const L2 = j.ledger;
     const running2 = runningAction(state.character?.characterActions);
     if (!running2 || !counted(running2.actionHrid)) return;
-    const kept3 = L2.forecasts[running2.id];
-    if (kept3 && (kept3.settled || !completed)) return;
+    const kept4 = L2.forecasts[running2.id];
+    if (kept4 && (kept4.settled || !completed)) return;
     if (!whenReady(() => keepForecast(completed))) return;
-    L2.forecasts[running2.id] = { at: kept3?.at ?? Date.now(), settled: completed, forecast: forecastFor(running2.actionHrid, itemOfHash2(running2.primaryItemHash), levelOfHash2(running2.primaryItemHash)) };
+    L2.forecasts[running2.id] = { at: kept4?.at ?? Date.now(), settled: completed, forecast: forecastFor(running2.actionHrid, itemOfHash2(running2.primaryItemHash), levelOfHash2(running2.primaryItemHash)) };
     const ids = Object.keys(L2.forecasts).sort((a, b) => L2.forecasts[a].at - L2.forecasts[b].at);
     for (const id of ids.slice(0, Math.max(0, ids.length - MAX_FORECASTS))) delete L2.forecasts[id];
     save();
@@ -4560,7 +4560,7 @@
     if (!queue) return !ended(e2);
     return queue.some((a) => a.id === e2.characterActionId && a.actionHrid === e2.actionHrid && !a.isDone);
   }
-  var stale = (kept3, e2) => kept3.actions !== (Number(e2.actionCount) || 0) || kept3.endedAt !== time(e2.endTime);
+  var stale = (kept4, e2) => kept4.actions !== (Number(e2.actionCount) || 0) || kept4.endedAt !== time(e2.endTime);
   var changed = () => {
     for (const listener of j.changed) listener();
   };
@@ -4590,9 +4590,9 @@
     const data = getClientData();
     for (const e2 of todo.sort((a, b) => time(a.endTime) - time(b.endTime))) {
       const keptEntry = L2.forecasts[e2.characterActionId];
-      const kept3 = keptEntry?.forecast || null;
+      const kept4 = keptEntry?.forecast || null;
       const item = itemOfHash2(e2.primaryItemHash);
-      const forecast = kept3 || forecastFor(e2.actionHrid, item);
+      const forecast = kept4 || forecastFor(e2.actionHrid, item);
       const job = {
         id: e2.characterActionId,
         actionHrid: e2.actionHrid,
@@ -4602,8 +4602,8 @@
         hours: (time(e2.endTime) - time(e2.startTime)) / 36e5,
         deltas: entryDeltas(e2, data, forecast),
         forecast,
-        forecastNow: !kept3 && !!forecast,
-        forecastSettled: kept3 ? keptEntry.settled !== false : null
+        forecastNow: !kept4 && !!forecast,
+        forecastSettled: kept4 ? keptEntry.settled !== false : null
       };
       job.name = forecast?.name || jobName(e2, data);
       const key2 = entryKey(e2);
@@ -4633,8 +4633,8 @@
       const bulk = bulkOf(detail);
       const level = levelOfHash2(e2.primaryItemHash);
       add(keyOf(item, level), -bulk * count3);
-      const coins10 = coinCost(kind, detail) * count3;
-      if (coins10) add(keyOf(COIN6), -coins10);
+      const coins11 = coinCost(kind, detail) * count3;
+      if (coins11) add(keyOf(COIN6), -coins11);
       const catalyst = itemOfHash2(e2.secondaryItemHash);
       if (catalyst) {
         const per = successOutputs(kind, detail, level).filter((o2) => o2.count > 0);
@@ -4704,10 +4704,10 @@
       if (!card) continue;
       const key2 = entryKey(e2);
       const report = j.ledger.reports[key2];
-      const kept3 = j.ledger.history[key2];
+      const kept4 = j.ledger.history[key2];
       const soFar = j.soFar.get(key2);
-      const html = running(e2) ? soFar && soFar.actions === (Number(e2.actionCount) || 0) ? lineHtml(soFar, "running") : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>` : report && kept3 && !stale(kept3, e2) ? lineHtml(report) : soFar ? lineHtml(soFar, "ended") : `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>`;
-      let line = [...card.children].find((c3) => c3.classList.contains("mwia-jobline"));
+      const html = running(e2) ? soFar && soFar.actions === (Number(e2.actionCount) || 0) ? lineHtml(soFar, "running") : `<div class="mwia-dim">\u{1F9ED} running \u2013 the result comes when it ends</div>` : report && kept4 && !stale(kept4, e2) ? lineHtml(report) : soFar ? lineHtml(soFar, "ended") : `<div class="mwia-dim">\u{1F9ED} working it out\u2026</div>`;
+      let line = [...card.children].find((c4) => c4.classList.contains("mwia-jobline"));
       if (!line) {
         line = document.createElement("div");
         line.className = "mwia-jobline";
@@ -4756,16 +4756,16 @@
 
   // src/stats.js
   function logGamma(x) {
-    const c3 = [76.18009172947146, -86.50532032941678, 24.01409824083091, -1.231739572450155, 0.001208650973866179, -5395239384953e-18];
+    const c4 = [76.18009172947146, -86.50532032941678, 24.01409824083091, -1.231739572450155, 0.001208650973866179, -5395239384953e-18];
     let y = x;
     const tmp = x + 5.5 - (x + 0.5) * Math.log(x + 5.5);
     let series = 1.000000000190015;
-    for (const coefficient of c3) series += coefficient / ++y;
+    for (const coefficient of c4) series += coefficient / ++y;
     return -tmp + Math.log(2.5066282746310007 * series / x);
   }
   function betaContinuedFraction(a, b, x) {
     const tiny = 1e-30;
-    let c3 = 1;
+    let c4 = 1;
     let d = 1 - (a + b) * x / (a + 1);
     if (Math.abs(d) < tiny) d = tiny;
     d = 1 / d;
@@ -4775,17 +4775,17 @@
       let aa = m2 * (b - m2) * x / ((a + m22 - 1) * (a + m22));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
-      c3 = 1 + aa / c3;
-      if (Math.abs(c3) < tiny) c3 = tiny;
+      c4 = 1 + aa / c4;
+      if (Math.abs(c4) < tiny) c4 = tiny;
       d = 1 / d;
-      h3 *= d * c3;
+      h3 *= d * c4;
       aa = -(a + m2) * (a + b + m2) * x / ((a + m22) * (a + m22 + 1));
       d = 1 + aa * d;
       if (Math.abs(d) < tiny) d = tiny;
-      c3 = 1 + aa / c3;
-      if (Math.abs(c3) < tiny) c3 = tiny;
+      c4 = 1 + aa / c4;
+      if (Math.abs(c4) < tiny) c4 = tiny;
       d = 1 / d;
-      const delta = d * c3;
+      const delta = d * c4;
       h3 *= delta;
       if (Math.abs(delta - 1) < 3e-12) break;
     }
@@ -5137,7 +5137,7 @@
   }
 
   // src/version-tag.js
-  var VERSION = true ? "0.84.0" : "dev";
+  var VERSION = true ? "0.85.0" : "dev";
   var UPDATE_URL = true ? "https://raw.githubusercontent.com/tarzanz/mwi-combat-advisor/main/dist/mwi-combat-advisor.user.js" : "";
   var LATEST_URL = UPDATE_URL.replace(/dist\/[^/]+$/, "package.json");
   var CHECK_EVERY_MS = 6 * 60 * 60 * 1e3;
@@ -5189,8 +5189,8 @@
   function scan() {
     const name = document.querySelector(NAME);
     if (!name) return;
-    const row = name.querySelector(NAME_ROW) || name;
-    let tag = row.querySelector(".mwia-version");
+    const row2 = name.querySelector(NAME_ROW) || name;
+    let tag = row2.querySelector(".mwia-version");
     if (!tag) {
       tag = document.createElement("a");
       tag.className = "mwia-version";
@@ -5200,7 +5200,7 @@
         event.stopPropagation();
         if (!tag.classList.contains("mwia-version-old")) event.preventDefault();
       });
-      row.appendChild(tag);
+      row2.appendChild(tag);
     }
     const old = versionTag.latest && isNewer(versionTag.latest, VERSION);
     const text = old ? `v${VERSION} \u2013 update` : `v${VERSION}`;
@@ -5318,10 +5318,10 @@
       let excess = count3 - MAX_ENTRIES + Math.round(MAX_ENTRIES / 10);
       const cursor = runs.index("used").openKeyCursor();
       cursor.onsuccess = () => {
-        const c3 = cursor.result;
-        if (!c3 || excess-- <= 0) return;
-        runs.delete(c3.primaryKey);
-        c3.continue();
+        const c4 = cursor.result;
+        if (!c4 || excess-- <= 0) return;
+        runs.delete(c4.primaryKey);
+        c4.continue();
       };
     }
     await finished(tx);
@@ -5354,9 +5354,9 @@
       } else if (job.telemetry) toRun[slotOf.get(key2)] = job;
       return { run: slotOf.get(key2) };
     });
-    const kept3 = jobs.length - plan.filter((p2) => p2.run !== void 0).length;
-    if (kept3) onProgress?.(kept3, jobs.length);
-    const results = toRun.length ? await pool.runAll(toRun, (done2) => onProgress?.(kept3 + done2, kept3 + toRun.length)) : [];
+    const kept4 = jobs.length - plan.filter((p2) => p2.run !== void 0).length;
+    if (kept4) onProgress?.(kept4, jobs.length);
+    const results = toRun.length ? await pool.runAll(toRun, (done2) => onProgress?.(kept4 + done2, kept4 + toRun.length)) : [];
     const used = now();
     const writes = /* @__PURE__ */ new Map();
     const out = plan.map((p2, i) => {
@@ -5507,11 +5507,11 @@
       const used = telemetry.consumables[hrid]?.uses || 0;
       if (!detail || !used) continue;
       const was = consumableTriggers(profile, hrid, data);
-      for (const [condition, restore3, short4] of [
+      for (const [condition, restore4, short4] of [
         [C("missing_hp"), detail.hitpointRestore, telemetry.deaths > 0],
         [C("missing_mp"), detail.manapointRestore, blockedTotal >= SHARE * Math.max(1, castsTotal)]
       ]) {
-        if (!(restore3 > 0)) continue;
+        if (!(restore4 > 0)) continue;
         const now2 = valueOf(was, SELF, condition, GTE);
         if (now2 === null) continue;
         const value = short4 ? whole(now2 / 2) : whole(now2 * 1.5);
@@ -5606,10 +5606,10 @@
   }
   function average(results) {
     const n5 = results.length;
-    const mean = (pick2) => results.reduce((sum, r2) => sum + pick2(r2), 0) / n5;
-    const meanMap = (pick2) => {
+    const mean = (pick3) => results.reduce((sum, r2) => sum + pick3(r2), 0) / n5;
+    const meanMap = (pick3) => {
       const out = {};
-      for (const r2 of results) for (const [k, v] of Object.entries(pick2(r2))) out[k] = (out[k] || 0) + v / n5;
+      for (const r2 of results) for (const [k, v] of Object.entries(pick3(r2))) out[k] = (out[k] || 0) + v / n5;
       return out;
     };
     return {
@@ -5668,9 +5668,12 @@
   }
   async function analyzeZones(pool, profile, settings2, onProgress) {
     const variants = [];
-    for (const zone of combatZones()) {
-      for (let tier = 0; tier <= Math.min(settings2.maxTier, zone.maxDifficulty ?? 0); tier++) {
-        variants.push({ zone: { zoneHrid: zone.hrid, tier } });
+    if (settings2.zones) for (const zone of settings2.zones) variants.push({ zone: { zoneHrid: zone.zoneHrid, tier: zone.tier } });
+    else {
+      for (const zone of combatZones()) {
+        for (let tier = 0; tier <= Math.min(settings2.maxTier, zone.maxDifficulty ?? 0); tier++) {
+          variants.push({ zone: { zoneHrid: zone.hrid, tier } });
+        }
       }
     }
     const data = getClientData();
@@ -5961,7 +5964,7 @@
       const level = profile.houseRooms?.[room.hrid] || 0;
       const costs = room.upgradeCostsMap?.[String(level + 1)];
       if (!costs?.length) continue;
-      const materials2 = costs.map((c3) => ({ hrid: c3.itemHrid, count: c3.count, price: askPrice(c3.itemHrid, 0) }));
+      const materials2 = costs.map((c4) => ({ hrid: c4.itemHrid, count: c4.count, price: askPrice(c4.itemHrid, 0) }));
       if (materials2.some((m2) => m2.price === null)) continue;
       const cost = materials2.reduce((sum, m2) => sum + m2.count * m2.price, 0);
       if (cost > budget) continue;
@@ -6017,16 +6020,16 @@
   }
   function bestPerItem(evaluated) {
     const groups = /* @__PURE__ */ new Map();
-    for (const c3 of evaluated) {
-      const key2 = [c3.kind, c3.hrid, c3.enhancementLevel ?? "", ["abilityLevel", "house", "skillLevel"].includes(c3.kind) ? c3.level : "", c3.remove ? "remove" : ""].join("|");
+    for (const c4 of evaluated) {
+      const key2 = [c4.kind, c4.hrid, c4.enhancementLevel ?? "", ["abilityLevel", "house", "skillLevel"].includes(c4.kind) ? c4.level : "", c4.remove ? "remove" : ""].join("|");
       if (!groups.has(key2)) groups.set(key2, []);
-      groups.get(key2).push(c3);
+      groups.get(key2).push(c4);
     }
     return [...groups.values()].map((options) => {
-      const pool = options.some((c3) => c3.safe) ? options.filter((c3) => c3.safe) : options;
+      const pool = options.some((c4) => c4.safe) ? options.filter((c4) => c4.safe) : options;
       const top = pool.reduce((a, b) => b.delta > a.delta ? b : a);
       if (!top.extraFood || top.delta <= 0) return top;
-      return pool.filter((c3) => c3.delta >= 0.85 * top.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta)[0];
+      return pool.filter((c4) => c4.delta >= 0.85 * top.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta)[0];
     });
   }
   function triggerCandidates(profile, telemetry, only = null) {
@@ -6061,15 +6064,15 @@
     const firstItems = items.map((item) => ({ ...item, seeds: item.seeds.slice(0, 1) }));
     let total = items.reduce((sum, item) => sum + item.seeds.length, 0);
     const first = await simulateRuns(pool, firstItems, zone, settings2.hours, (done2) => onProgress?.(done2, total));
-    const keep3 = items.map((item, i) => item.seeds.length < 2 || NOT_SCREENED.has(candidates[i].kind) || !ruledOut(first[i][0], baseRuns, goals));
-    const restItems = items.map((item, i) => keep3[i] ? { ...item, seeds: item.seeds.slice(1) } : null).filter(Boolean);
+    const keep4 = items.map((item, i) => item.seeds.length < 2 || NOT_SCREENED.has(candidates[i].kind) || !ruledOut(first[i][0], baseRuns, goals));
+    const restItems = items.map((item, i) => keep4[i] ? { ...item, seeds: item.seeds.slice(1) } : null).filter(Boolean);
     const done0 = firstItems.length;
     total = done0 + restItems.reduce((sum, item) => sum + item.seeds.length, 0);
     const rest = await simulateRuns(pool, restItems, zone, settings2.hours, (done2) => onProgress?.(done0 + done2, total));
     let r2 = 0;
     return items.map((item, i) => {
       if (item.telemetry) item.telemetryOut = [...firstItems[i].telemetryOut || []];
-      if (!keep3[i]) {
+      if (!keep4[i]) {
         candidates[i].screened = true;
         return first[i];
       }
@@ -6084,28 +6087,29 @@
     const budget = settings2.budget;
     const all = settings2.scope !== "abilities";
     const seeds = (n5) => Array.from({ length: n5 }, (_, i) => i);
+    const keep4 = settings2.keep || (() => true);
     const candidates = [
       ...all ? gearCandidates(profile, settings2) : [],
       ...abilityCandidates(profile, budget),
       ...abilityOrderCandidates(profile),
       ...all ? houseCandidates(profile, budget) : [],
-      ...all ? skillLevelCandidates(profile) : [],
+      ...all && !settings2.noSkillLevels ? skillLevelCandidates(profile) : [],
       ...all ? consumableCandidates(profile, "drinks") : [],
       ...all ? consumableCandidates(profile, "food") : []
-    ];
+    ].filter(keep4);
     const baseItem2 = { profile, seeds: seeds(settings2.seeds * BASE_SEED_FACTOR), telemetry: true };
     const planned = baseItem2.seeds.length + candidates.length * settings2.seeds;
     const [baseRuns] = await simulateRuns(pool, [baseItem2], zone, settings2.hours, (done2) => onProgress?.(done2, planned));
     const telemetry = mergeTelemetry(baseItem2.telemetryOut);
-    for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) {
+    for (const { change, profile: variant } of settings2.noTriggers ? [] : triggerCandidates(profile, telemetry)) {
       candidates.push(triggerCandidate(change, variant));
     }
-    candidates.forEach((c3, id) => c3.id = id);
-    const items = candidates.map((c3) => ({ profile: c3.profile, seeds: seeds(settings2.seeds), telemetry: c3.kind === "ability" }));
+    candidates.forEach((c4, id) => c4.id = id);
+    const items = candidates.map((c4) => ({ profile: c4.profile, seeds: seeds(settings2.seeds), telemetry: !settings2.noTriggers && c4.kind === "ability" }));
     const done0 = baseItem2.seeds.length;
     const base = summarize3(baseRuns, zone.tier, profile);
     const runs = await simulateScreened(pool, candidates, items, baseRuns, base, zone, settings2, (done2, total) => onProgress?.(done0 + done2, done0 + total));
-    const simulated = candidates.map((c3, i) => ({ ...c3, result: summarize3(runs[i], zone.tier, c3.profile), runs: runs[i], telemetry: items[i].telemetry ? mergeTelemetry(items[i].telemetryOut) : void 0 }));
+    const simulated = candidates.map((c4, i) => ({ ...c4, result: summarize3(runs[i], zone.tier, c4.profile), runs: runs[i], telemetry: items[i].telemetry ? mergeTelemetry(items[i].telemetryOut) : void 0 }));
     const slots = slotCounts(profile, getClientData());
     const emptyAbilitySlots = [];
     for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
@@ -6122,8 +6126,8 @@
       telemetry: summaryOfTelemetry(telemetry),
       candidates: simulated
     };
-    await tuneNewAbilities(pool, raw, settings2, onRefineProgress);
-    for (const c3 of raw.candidates) delete c3.telemetry;
+    if (!settings2.noTriggers) await tuneNewAbilities(pool, raw, settings2, onRefineProgress);
+    for (const c4 of raw.candidates) delete c4.telemetry;
     for (let round = 0; round < 2; round++) {
       if (!await refineUncertain(pool, raw, settings2, onRefineProgress)) break;
     }
@@ -6142,22 +6146,22 @@
   }
   async function tuneNewAbilities(pool, raw, settings2, onProgress) {
     const rated = rateUpgrades(raw, settings2);
-    const top = rated.abilities.filter((c3) => c3.kind === "ability" && c3.delta > 0).slice(0, TUNED_ABILITIES);
+    const top = rated.abilities.filter((c4) => c4.kind === "ability" && c4.delta > 0).slice(0, TUNED_ABILITIES);
     const tries = [];
     for (const rated2 of top) {
-      const c3 = raw.candidates.find((x) => x.id === rated2.id);
-      if (!c3?.telemetry) continue;
-      for (const { change, profile } of triggerCandidates(c3.profile, c3.telemetry, [c3.hrid])) {
-        const { result, runs: runs2, telemetry, id: id2, screened, ...rest } = c3;
+      const c4 = raw.candidates.find((x) => x.id === rated2.id);
+      if (!c4?.telemetry) continue;
+      for (const { change, profile } of triggerCandidates(c4.profile, c4.telemetry, [c4.hrid])) {
+        const { result, runs: runs2, telemetry, id: id2, screened, ...rest } = c4;
         tries.push({ ...rest, profile, triggers: change.triggers, was: change.was, rule: change.rule });
       }
     }
     if (!tries.length) return 0;
     const seeds = Array.from({ length: raw.seedsPerRound }, (_, i) => i);
     const runs = await simulateRuns(pool, tries.map((t4) => ({ profile: t4.profile, seeds })), raw.zone, raw.hours, onProgress);
-    const scores = (c3) => c3.runs.map((r2) => score(r2, rated.goal));
+    const scores = (c4) => c4.runs.map((r2) => score(r2, rated.goal));
     const mean = (list) => list.reduce((a, b) => a + b, 0) / list.length;
-    let id = Math.max(...raw.candidates.map((c3) => c3.id)) + 1;
+    let id = Math.max(...raw.candidates.map((c4) => c4.id)) + 1;
     for (const plain of top.map((r2) => raw.candidates.find((x) => x.id === r2.id))) {
       const mine2 = tries.map((t4, i) => ({ ...t4, result: summarize3(runs[i], raw.zone.tier, t4.profile), runs: runs[i] })).filter((t4) => t4.hrid === plain.hrid && t4.slot === plain.slot);
       const better2 = mine2.filter((t4) => mean(scores(t4)) > mean(scores(plain)) && (confidenceGreater(scores(t4), scores(plain)) ?? 0) >= TUNED_CONFIDENCE).sort((a, b) => mean(scores(b)) - mean(scores(a)))[0];
@@ -6169,24 +6173,24 @@
   function uncertainCandidates(raw, settings2) {
     const rated = rateUpgrades(raw, settings2);
     const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
-    return [...rated.gear, ...rated.abilities, ...rated.house, ...rated.orders, ...rated.triggers, ...rated.drinks, ...rated.food].filter((c3) => c3.delta > 0 && c3.safe && c3.confidence < REFINE_BELOW && c3.runs.length < maxRuns).sort((a, b) => b.delta - a.delta).slice(0, MAX_REFINED);
+    return [...rated.gear, ...rated.abilities, ...rated.house, ...rated.orders, ...rated.triggers, ...rated.drinks, ...rated.food].filter((c4) => c4.delta > 0 && c4.safe && c4.confidence < REFINE_BELOW && c4.runs.length < maxRuns).sort((a, b) => b.delta - a.delta).slice(0, MAX_REFINED);
   }
   async function refineUncertain(pool, raw, settings2, onProgress) {
     const rated = rateUpgrades(raw, settings2);
     const maxRuns = raw.seedsPerRound * MAX_SEED_FACTOR;
     const rows = uncertainCandidates(raw, settings2);
     const siblings = rated.triggerVariants.filter((v) => rows.some((r2) => r2.kind === "trigger" && r2.hrid === v.hrid && r2.id !== v.id) && v.delta > 0 && v.safe && v.confidence < REFINE_BELOW && v.runs.length < maxRuns);
-    const targets = [...rows, ...siblings].map((c3) => raw.candidates.find((x) => x.id === c3.id));
+    const targets = [...rows, ...siblings].map((c4) => raw.candidates.find((x) => x.id === c4.id));
     if (!targets.length) return 0;
-    const items = targets.map((c3) => {
-      const first = Math.max(...c3.runs.map((r2) => r2.seed)) + 1;
-      return { profile: c3.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
+    const items = targets.map((c4) => {
+      const first = Math.max(...c4.runs.map((r2) => r2.seed)) + 1;
+      return { profile: c4.profile, seeds: Array.from({ length: raw.seedsPerRound }, (_, i) => first + i) };
     });
     const runs = await simulateRuns(pool, items, raw.zone, raw.hours, onProgress);
-    targets.forEach((c3, i) => {
-      delete c3.screened;
-      c3.runs = [...c3.runs, ...runs[i]];
-      c3.result = summarize3(c3.runs, raw.zone.tier, c3.profile);
+    targets.forEach((c4, i) => {
+      delete c4.screened;
+      c4.runs = [...c4.runs, ...runs[i]];
+      c4.result = summarize3(c4.runs, raw.zone.tier, c4.profile);
     });
     return targets.length;
   }
@@ -6195,59 +6199,59 @@
     const goal = makeGoal(settings2, { xp: xpValue(base, settings2), gold: base.loot });
     const baseScore = score(base, goal);
     const baseScores = raw.baseRuns.map((r2) => score(r2, goal));
-    const used = (c3) => c3.remove || !["food", "drinks"].includes(c3.kind) || (c3.result.consumables[c3.hrid] || 0) > 0.01;
-    const evaluated = raw.candidates.filter(used).map((c3) => {
-      const delta = score(c3.result, goal) - baseScore;
-      const confidence = (c3.runs.length < 2 ? confidenceOneRun(score(c3.runs[0], goal), baseScores) : confidenceGreater(c3.runs.map((r2) => score(r2, goal)), baseScores)) ?? 0.5;
+    const used = (c4) => c4.remove || !["food", "drinks"].includes(c4.kind) || (c4.result.consumables[c4.hrid] || 0) > 0.01;
+    const evaluated = raw.candidates.filter(used).map((c4) => {
+      const delta = score(c4.result, goal) - baseScore;
+      const confidence = (c4.runs.length < 2 ? confidenceOneRun(score(c4.runs[0], goal), baseScores) : confidenceGreater(c4.runs.map((r2) => score(r2, goal)), baseScores)) ?? 0.5;
       return {
-        ...c3,
+        ...c4,
         delta,
         deltaPct: delta,
         // scores are already fractions of the reference
         confidence,
         significant: confidence >= CONFIDENCE_LEVEL,
-        xpDelta: xpValue(c3.result, settings2) - xpValue(base, settings2),
-        profitDelta: c3.result.profit - base.profit,
+        xpDelta: xpValue(c4.result, settings2) - xpValue(base, settings2),
+        profitDelta: c4.result.profit - base.profit,
         // A change that makes you die noticeably more often is never recommended, whatever the
         // gain – unless you accept rare deaths and it stays within that limit.
-        safe: c3.result.deaths <= Math.max(base.deaths * 1.1 + 0.3, deathLimit(settings2)),
-        costPerHourDelta: c3.result.cost - base.cost,
-        deathsDelta: c3.result.deaths - base.deaths
+        safe: c4.result.deaths <= Math.max(base.deaths * 1.1 + 0.3, deathLimit(settings2)),
+        costPerHourDelta: c4.result.cost - base.cost,
+        deathsDelta: c4.result.deaths - base.deaths
       };
     });
     const best = bestPerItem(evaluated);
     const byDelta = (a, b) => b.delta - a.delta;
     const table = getClientData()?.levelExperienceTable;
-    for (const c3 of best) {
-      if (c3.kind !== "skillLevel") continue;
-      const rate3 = base.xp?.[c3.hrid] || 0;
-      const xpNow = Array.isArray(table) ? experienceOf(table, raw.baseProfile.allExperience?.["/skills/" + c3.hrid], c3.fromLevel) : null;
-      const need = Array.isArray(table) && table[c3.level] !== void 0 ? Math.max(0, table[c3.level] - xpNow) : null;
-      c3.xpNeeded = need;
-      c3.hoursToReach = need === null || !(rate3 > 0) ? null : need / rate3;
+    for (const c4 of best) {
+      if (c4.kind !== "skillLevel") continue;
+      const rate3 = base.xp?.[c4.hrid] || 0;
+      const xpNow = Array.isArray(table) ? experienceOf(table, raw.baseProfile.allExperience?.["/skills/" + c4.hrid], c4.fromLevel) : null;
+      const need = Array.isArray(table) && table[c4.level] !== void 0 ? Math.max(0, table[c4.level] - xpNow) : null;
+      c4.xpNeeded = need;
+      c4.hoursToReach = need === null || !(rate3 > 0) ? null : need / rate3;
     }
     return {
       ...raw,
       goal,
       baseScore,
-      gear: best.filter((c3) => c3.kind === "gear").sort(byDelta),
-      abilities: best.filter((c3) => c3.kind === "ability" || c3.kind === "abilityLevel").sort(byDelta),
-      orders: best.filter((c3) => c3.kind === "abilityOrder").sort(byDelta),
-      triggers: best.filter((c3) => c3.kind === "trigger").sort(byDelta),
-      triggerVariants: evaluated.filter((c3) => c3.kind === "trigger"),
-      house: best.filter((c3) => c3.kind === "house").sort(byDelta),
-      levels: best.filter((c3) => c3.kind === "skillLevel").sort((a, b) => a.hrid.localeCompare(b.hrid) || a.level - b.level),
-      drinks: best.filter((c3) => c3.kind === "drinks").sort(byDelta),
-      food: best.filter((c3) => c3.kind === "food").sort(byDelta)
+      gear: best.filter((c4) => c4.kind === "gear").sort(byDelta),
+      abilities: best.filter((c4) => c4.kind === "ability" || c4.kind === "abilityLevel").sort(byDelta),
+      orders: best.filter((c4) => c4.kind === "abilityOrder").sort(byDelta),
+      triggers: best.filter((c4) => c4.kind === "trigger").sort(byDelta),
+      triggerVariants: evaluated.filter((c4) => c4.kind === "trigger"),
+      house: best.filter((c4) => c4.kind === "house").sort(byDelta),
+      levels: best.filter((c4) => c4.kind === "skillLevel").sort((a, b) => a.hrid.localeCompare(b.hrid) || a.level - b.level),
+      drinks: best.filter((c4) => c4.kind === "drinks").sort(byDelta),
+      food: best.filter((c4) => c4.kind === "food").sort(byDelta)
     };
   }
   function stepConfidence(analysis, from, to) {
     if (!from) return to.confidence;
-    const scores = (c3) => c3.runs.map((r2) => score(r2, analysis.goal));
+    const scores = (c4) => c4.runs.map((r2) => score(r2, analysis.goal));
     return confidenceGreater(scores(to), scores(from)) ?? 0.5;
   }
   function hullSteps(group, options, minGain, minEfficiency, confident) {
-    const points = [{ cost: 0, delta: 0, candidate: null }, ...options.map((c3) => ({ cost: c3.cost, delta: c3.delta, candidate: c3 }))].sort(
+    const points = [{ cost: 0, delta: 0, candidate: null }, ...options.map((c4) => ({ cost: c4.cost, delta: c4.delta, candidate: c4 }))].sort(
       (a, b) => a.cost - b.cost || b.delta - a.delta
     );
     const rising = [];
@@ -6280,12 +6284,12 @@
     return steps;
   }
   function pickConsumable(list, gold) {
-    const ok = list.filter((c3) => c3.significant && c3.safe && c3.delta > 0);
-    if (!ok.length) return { value: null, max: null };
-    const max = ok.reduce((a, b) => b.delta > a.delta + 1e-9 || Math.abs(b.delta - a.delta) <= 1e-9 && b.remove ? b : a);
+    const ok2 = list.filter((c4) => c4.significant && c4.safe && c4.delta > 0);
+    if (!ok2.length) return { value: null, max: null };
+    const max = ok2.reduce((a, b) => b.delta > a.delta + 1e-9 || Math.abs(b.delta - a.delta) <= 1e-9 && b.remove ? b : a);
     const preferStopping = (a, b) => (b.remove ? 1 : 0) - (a.remove ? 1 : 0);
-    const value = gold > 0 ? max : ok.filter((c3) => c3.delta >= 0.5 * max.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta || preferStopping(a, b))[0];
-    const stop = ok.find((c3) => c3.remove && c3.slot === value.slot && c3 !== value && c3.delta >= value.delta - STOP_TOLERANCE);
+    const value = gold > 0 ? max : ok2.filter((c4) => c4.delta >= 0.5 * max.delta).sort((a, b) => a.costPerHourDelta - b.costPerHourDelta || preferStopping(a, b))[0];
+    const stop = ok2.find((c4) => c4.remove && c4.slot === value.slot && c4 !== value && c4.delta >= value.delta - STOP_TOLERANCE);
     const chosen = stop || value;
     return { value: chosen, max: max === chosen ? null : max };
   }
@@ -6294,19 +6298,19 @@
     budget -= analysis.starter?.cost || 0;
     const minGain = 0.01;
     const minEfficiency = (SPENDING[spending] || SPENDING.balanced).minPctPerMillion / 100 / 1e6;
-    const usable = (c3) => c3.significant && c3.safe && c3.delta > 0;
+    const usable = (c4) => c4.significant && c4.safe && c4.delta > 0;
     const groups = /* @__PURE__ */ new Map();
-    for (const c3 of analysis.gear.filter(usable)) {
-      const key2 = c3.slot === "main_hand" || c3.slot === "two_hand" ? "weapon" : c3.slot;
+    for (const c4 of analysis.gear.filter(usable)) {
+      const key2 = c4.slot === "main_hand" || c4.slot === "two_hand" ? "weapon" : c4.slot;
       if (!groups.has(key2)) groups.set(key2, []);
-      groups.get(key2).push(c3);
+      groups.get(key2).push(c4);
     }
-    for (const c3 of analysis.abilities.filter(usable)) {
-      const key2 = c3.kind === "abilityLevel" || c3.replaces ? c3.slot : "new-ability:" + c3.hrid;
+    for (const c4 of analysis.abilities.filter(usable)) {
+      const key2 = c4.kind === "abilityLevel" || c4.replaces ? c4.slot : "new-ability:" + c4.hrid;
       if (!groups.has(key2)) groups.set(key2, []);
-      groups.get(key2).push(c3);
+      groups.get(key2).push(c4);
     }
-    for (const c3 of (analysis.house || []).filter(usable)) groups.set(c3.slot, [...groups.get(c3.slot) || [], c3]);
+    for (const c4 of (analysis.house || []).filter(usable)) groups.set(c4.slot, [...groups.get(c4.slot) || [], c4]);
     const confident = (from, to) => stepConfidence(analysis, from, to) >= CONFIDENCE_LEVEL;
     const steps = [...groups.entries()].flatMap(([key2, options]) => hullSteps(key2, options, minGain, minEfficiency, confident));
     steps.sort((a, b) => b.efficiency - a.efficiency || b.gain - a.gain);
@@ -6340,12 +6344,12 @@
     const food = pickConsumable(analysis.food, analysis.goal.gold);
     const data = getClientData();
     if (food.value && !food.value.remove && picks.some((p2) => p2.extraFood && sameKind(p2.extraFood, food.value.hrid, data))) food.value = null;
-    const order = (analysis.orders || []).filter((c3) => usable(c3) && c3.delta >= STOP_TOLERANCE).sort((a, b) => b.delta - a.delta)[0] || null;
+    const order = (analysis.orders || []).filter((c4) => usable(c4) && c4.delta >= STOP_TOLERANCE).sort((a, b) => b.delta - a.delta)[0] || null;
     const gone = /* @__PURE__ */ new Set([...picks.filter((p2) => p2.kind === "ability" && p2.replaces).map((p2) => p2.replaces), ...[food.value, drink.value].filter((p2) => p2?.remove || p2?.replaces).map((p2) => p2.replaces || p2.hrid)]);
     const triggers = [];
-    for (const c3 of analysis.triggers || []) {
-      if (!usable(c3) || c3.delta < STOP_TOLERANCE || gone.has(c3.hrid) || triggers.some((t4) => t4.hrid === c3.hrid)) continue;
-      triggers.push(c3);
+    for (const c4 of analysis.triggers || []) {
+      if (!usable(c4) || c4.delta < STOP_TOLERANCE || gone.has(c4.hrid) || triggers.some((t4) => t4.hrid === c4.hrid)) continue;
+      triggers.push(c4);
     }
     return { picks, starter, spent, drink: drink.value, drinkMax: drink.max, food: food.value, foodMax: food.max, order, triggers };
   }
@@ -6364,15 +6368,15 @@
   }
   function applyPlan(profile, plan) {
     const result = cloneProfile(profile);
-    for (const pick2 of plan.picks) {
-      if (pick2.kind === "gear") {
-        equip(result, pick2.slot, { hrid: pick2.hrid, enhancementLevel: pick2.enhancementLevel });
-        if (pick2.extraFood) putConsumable(result.food, "food" + pick2.extraFoodSlot, pick2.extraFood);
-      } else if (pick2.kind === "ability" || pick2.kind === "abilityLevel") {
-        result.abilities[Number(pick2.slot.replace("ability", ""))] = { hrid: pick2.hrid, level: pick2.level };
-        if (pick2.triggers) result.abilityTriggers = { ...result.abilityTriggers || {}, [pick2.hrid]: pick2.triggers };
-      } else if (pick2.kind === "house") {
-        result.houseRooms = { ...result.houseRooms, [pick2.hrid]: pick2.level };
+    for (const pick3 of plan.picks) {
+      if (pick3.kind === "gear") {
+        equip(result, pick3.slot, { hrid: pick3.hrid, enhancementLevel: pick3.enhancementLevel });
+        if (pick3.extraFood) putConsumable(result.food, "food" + pick3.extraFoodSlot, pick3.extraFood);
+      } else if (pick3.kind === "ability" || pick3.kind === "abilityLevel") {
+        result.abilities[Number(pick3.slot.replace("ability", ""))] = { hrid: pick3.hrid, level: pick3.level };
+        if (pick3.triggers) result.abilityTriggers = { ...result.abilityTriggers || {}, [pick3.hrid]: pick3.triggers };
+      } else if (pick3.kind === "house") {
+        result.houseRooms = { ...result.houseRooms, [pick3.hrid]: pick3.level };
       }
     }
     if (plan.order) reorderAbilities(result, plan.order.order);
@@ -6380,8 +6384,8 @@
       const map = t4.target === "ability" ? "abilityTriggers" : "consumableTriggers";
       result[map] = { ...result[map] || {}, [t4.hrid]: t4.triggers };
     }
-    for (const pick2 of [plan.drink, plan.food]) {
-      if (pick2) putConsumable(pick2.kind === "food" ? result.food : result.drinks, pick2.slot, pick2.remove ? null : pick2.hrid);
+    for (const pick3 of [plan.drink, plan.food]) {
+      if (pick3) putConsumable(pick3.kind === "food" ? result.food : result.drinks, pick3.slot, pick3.remove ? null : pick3.hrid);
     }
     return result;
   }
@@ -6423,37 +6427,37 @@
       variant.abilities[i] = null;
       without.push({ kind: "ability", index: i, profile: variant });
     }
-    const removals = [...consumableCandidates(profile, "drinks", { onlyUseful: true }), ...consumableCandidates(profile, "food", { onlyUseful: true })].filter((c3) => c3.remove);
+    const removals = [...consumableCandidates(profile, "drinks", { onlyUseful: true }), ...consumableCandidates(profile, "food", { onlyUseful: true })].filter((c4) => c4.remove);
     const baseItem2 = { profile, seeds: seeds(settings2.seeds * BASE_SEED_FACTOR) };
-    const first = [baseItem2, ...[...without, ...removals].map((c3) => ({ profile: c3.profile, seeds: seeds(settings2.seeds) }))];
+    const first = [baseItem2, ...[...without, ...removals].map((c4) => ({ profile: c4.profile, seeds: seeds(settings2.seeds) }))];
     const firstRuns = first.reduce((sum, item) => sum + item.seeds.length, 0);
     let planned = firstRuns * 5;
     const [baseRuns, ...stepOne] = await simulateRuns(pool, first, zone, settings2.hours, (done2) => onProgress?.(done2, planned));
     const base = summarize3(baseRuns, zone.tier, profile);
     const goal = makeGoal(settings2, { xp: xpValue(base, settings2), gold: base.loot });
-    const scored = [...without, ...removals].map((c3, i) => ({ ...c3, score: score(summarize3(stepOne[i], zone.tier, c3.profile), goal), runs: stepOne[i] }));
-    const weakest = (pick2) => scored.filter(pick2).sort((a, b) => b.score - a.score)[0] || null;
-    const ability = weakest((c3) => c3.kind === "ability");
-    const drink = weakest((c3) => c3.kind === "drinks");
-    const meal = weakest((c3) => c3.kind === "food");
-    const index = (c3) => c3 ? Number(c3.slot.replace(/\D+/g, "")) : null;
+    const scored = [...without, ...removals].map((c4, i) => ({ ...c4, score: score(summarize3(stepOne[i], zone.tier, c4.profile), goal), runs: stepOne[i] }));
+    const weakest = (pick3) => scored.filter(pick3).sort((a, b) => b.score - a.score)[0] || null;
+    const ability = weakest((c4) => c4.kind === "ability");
+    const drink = weakest((c4) => c4.kind === "drinks");
+    const meal = weakest((c4) => c4.kind === "food");
+    const index = (c4) => c4 ? Number(c4.slot.replace(/\D+/g, "")) : null;
     const candidates = [
       ...abilityCandidates(profile, 0, ability?.index ?? null),
       ...abilityOrderCandidates(profile),
-      ...consumableCandidates(profile, "drinks", { onlyUseful: true, replace: drinks.every(Boolean) ? index(drink) : null }).filter((c3) => !c3.remove),
-      ...consumableCandidates(profile, "food", { onlyUseful: true, replace: food.every(Boolean) ? index(meal) : null }).filter((c3) => !c3.remove)
+      ...consumableCandidates(profile, "drinks", { onlyUseful: true, replace: drinks.every(Boolean) ? index(drink) : null }).filter((c4) => !c4.remove),
+      ...consumableCandidates(profile, "food", { onlyUseful: true, replace: food.every(Boolean) ? index(meal) : null }).filter((c4) => !c4.remove)
     ];
     planned = firstRuns + candidates.length * settings2.seeds;
-    const items = candidates.map((c3) => ({ profile: c3.profile, seeds: seeds(settings2.seeds) }));
+    const items = candidates.map((c4) => ({ profile: c4.profile, seeds: seeds(settings2.seeds) }));
     const runs = await simulateScreened(pool, candidates, items, baseRuns, base, zone, settings2, (done2, total) => {
       planned = firstRuns + total;
       onProgress?.(firstRuns + done2, planned);
     });
     const simulated = [
-      ...candidates.map((c3, i) => ({ ...c3, result: summarize3(runs[i], zone.tier, c3.profile), runs: runs[i] })),
-      ...scored.filter((c3) => c3.remove).map(({ score: _, ...c3 }) => ({ ...c3, result: summarize3(c3.runs, zone.tier, c3.profile) }))
+      ...candidates.map((c4, i) => ({ ...c4, result: summarize3(runs[i], zone.tier, c4.profile), runs: runs[i] })),
+      ...scored.filter((c4) => c4.remove).map(({ score: _, ...c4 }) => ({ ...c4, result: summarize3(c4.runs, zone.tier, c4.profile) }))
     ];
-    simulated.forEach((c3, id) => c3.id = id);
+    simulated.forEach((c4, id) => c4.id = id);
     const emptyAbilitySlots = [];
     for (let i = 1; i <= slots.abilities; i++) if (!profile.abilities[i]) emptyAbilitySlots.push(i);
     const raw = { zone, hours: settings2.hours, seedsPerRound: settings2.seeds, scope: "loadout", emptyAbilitySlots, starter: null, baseProfile: profile, base, baseRuns, telemetry: null, candidates: simulated };
@@ -6803,6 +6807,17 @@ i.mwia-history-bid { background: #7ee2b0; }
 .mwia-tool-list li .mwia-guide-cart { margin-top: 0; flex: 0 0 auto; }
 [data-mwia-tea="wrong"] { outline: 3px solid #ff4d4d !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-wrong 1.2s ease-in-out infinite; }
 [data-mwia-slot="wrong"] { outline: 3px solid #ff4d4d !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-wrong 1.2s ease-in-out infinite; }
+.mwia-cp-next { margin: 6px 0 10px; }
+.mwia-cp-next h4 { margin: 10px 0 4px; font-size: 13px; }
+.mwia-cp-head-ok { color: #3ddc84; }
+.mwia-cp-head-no { color: #ff7a7a; }
+.mwia-cp-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.mwia-cp-list li { margin: 2px 0; padding: 3px 6px; border-left: 4px solid transparent; border-radius: 3px; }
+.mwia-cp-green { border-left-color: #3ddc84 !important; background: rgba(61, 220, 132, 0.10); }
+.mwia-cp-red { border-left-color: #ff4d4d !important; background: rgba(255, 77, 77, 0.14); }
+.mwia-cp-ok { color: #3ddc84; font-weight: 700; }
+.mwia-cp-no { color: #ff4d4d; font-weight: 700; }
+[data-mwia-slot="right"] { outline: 3px solid #3ddc84 !important; outline-offset: -3px; border-radius: 4px; }
 .mwia-loadout-box .mwia-guide-cart[disabled] { opacity: 0.6; cursor: default; }
 [data-mwia-tea="right"] { outline: 3px solid #3ddc84 !important; outline-offset: -3px; border-radius: 4px; animation: mwia-tea-right 1.2s ease-in-out infinite; }
 @keyframes mwia-tea-wrong { 0%, 100% { box-shadow: 0 0 4px 1px rgba(255, 77, 77, 0.5); } 50% { box-shadow: 0 0 12px 4px rgba(255, 77, 77, 0.95); } }
@@ -6937,7 +6952,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var ex = { win: null, scanTimer: null, context: () => ({}), loading: null };
   var n = (x) => Math.round(x).toLocaleString("en-US");
   var coins3 = (x) => (x < 0 ? "\u2212" : "") + shortCoins(Math.abs(x));
-  var words = (hrid) => String(hrid || "").split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (c3) => c3.toUpperCase());
+  var words = (hrid) => String(hrid || "").split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (c4) => c4.toUpperCase());
   function setExportContext(fn) {
     ex.context = fn;
   }
@@ -7007,8 +7022,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
   }
   function exportText() {
-    const c3 = state.character;
-    if (!c3) return "MWI Advisor export: the game hasn't sent the character yet \u2013 reload the page.";
+    const c4 = state.character;
+    if (!c4) return "MWI Advisor export: the game hasn't sent the character yet \u2013 reload the page.";
     const data = getClientData();
     const items = [...state.items.values()];
     const age = pricesAge();
@@ -7017,21 +7032,21 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (!lines.length) return;
       out.push("", `## ${title}`, ...lines);
     };
-    out.push(`# MWI Advisor export`, `Version ${scriptVersion()} \xB7 ${(/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace("T", " ")} UTC \xB7 character ${c3.character?.name || "?"} \xB7 prices ${age === null ? "not loaded" : `${Math.round(age / 6e4)} min old`}`);
+    out.push(`# MWI Advisor export`, `Version ${scriptVersion()} \xB7 ${(/* @__PURE__ */ new Date()).toISOString().slice(0, 16).replace("T", " ")} UTC \xB7 character ${c4.character?.name || "?"} \xB7 prices ${age === null ? "not loaded" : `${Math.round(age / 6e4)} min old`}`);
     const context2 = ex.context() || {};
     if (context2.settings) section("Settings", [JSON.stringify(context2.settings)]);
     const total = (s3) => s3.skillHrid.endsWith("/total_level");
-    const skills = (c3.characterSkills || []).filter((s3) => s3.skillHrid).sort((a, b) => total(b) - total(a) || b.level - a.level || (b.experience || 0) - (a.experience || 0)).map((s3) => `${words(s3.skillHrid)} ${s3.level}${s3.experience !== void 0 && s3.experience !== null ? ` (${n(s3.experience)} XP)` : ""}`);
+    const skills = (c4.characterSkills || []).filter((s3) => s3.skillHrid).sort((a, b) => total(b) - total(a) || b.level - a.level || (b.experience || 0) - (a.experience || 0)).map((s3) => `${words(s3.skillHrid)} ${s3.level}${s3.experience !== void 0 && s3.experience !== null ? ` (${n(s3.experience)} XP)` : ""}`);
     section("Levels", [skills.join(" \xB7 ")]);
     const worn2 = items.filter((i) => i.itemHrid && i.itemLocationHrid && i.itemLocationHrid !== INVENTORY_LOCATION);
     section("Equipment", worn2.map((i) => `${words(i.itemLocationHrid)}: ${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`));
-    const drinks = Object.entries(c3.actionTypeDrinkSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
+    const drinks = Object.entries(c4.actionTypeDrinkSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
     section("Drinks in slots", drinks);
-    const food = Object.entries(c3.actionTypeFoodSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
+    const food = Object.entries(c4.actionTypeFoodSlotsMap || {}).map(([type, list]) => `${words(type)}: ${(list || []).map((slot) => slot?.itemHrid ? itemName(slot.itemHrid) : "empty").join(", ") || "none"}`);
     section("Food in slots", food);
-    const house = Object.entries(c3.characterHouseRoomMap || {}).filter(([, room]) => room?.level).map(([hrid, room]) => `${data?.houseRoomDetailMap?.[hrid]?.name || words(hrid)} ${room.level}`);
+    const house = Object.entries(c4.characterHouseRoomMap || {}).filter(([, room]) => room?.level).map(([hrid, room]) => `${data?.houseRoomDetailMap?.[hrid]?.name || words(hrid)} ${room.level}`);
     section("House", [house.join(" \xB7 ")].filter(Boolean));
-    const abilities = (c3.characterAbilities || []).filter((a) => a.abilityHrid).map((a) => `${words(a.abilityHrid)} ${a.level}${a.slotNumber ? ` (slot ${a.slotNumber})` : ""}`);
+    const abilities = (c4.characterAbilities || []).filter((a) => a.abilityHrid).map((a) => `${words(a.abilityHrid)} ${a.level}${a.slotNumber ? ` (slot ${a.slotNumber})` : ""}`);
     section("Abilities", [abilities.join(" \xB7 ")].filter(Boolean));
     const stacks = items.filter((i) => i.itemHrid && i.itemLocationHrid === INVENTORY_LOCATION);
     const coinCount = stacks.filter((i) => i.itemHrid === COIN7).reduce((sum, i) => sum + (i.count || 0), 0);
@@ -7050,9 +7065,9 @@ i.mwia-history-bid { background: #7ee2b0; }
       `Inventory (${priced.length} stacks, most valuable first)`,
       priced.map(({ i, ask, bid, how, worth }) => `${itemName(i.itemHrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""} \xD7${n(i.count || 0)} \xB7 ask ${ask === null ? "\u2013" : coins3(ask)} \xB7 bid ${bid === null ? "\u2013" : coins3(bid)} \xB7 worth ${coins3(worth)}${how ? ` (${how})` : ""}`)
     );
-    const listings = (c3.myMarketListings || []).map((l2) => `${l2.isSell ? "Sell" : "Buy"} ${itemName(l2.itemHrid)}${l2.enhancementLevel ? ` +${l2.enhancementLevel}` : ""} \xD7${n(l2.orderQuantity || 0)} @ ${coins3(Number(l2.price) || 0)}${l2.filledQuantity ? ` (${n(l2.filledQuantity)} filled)` : ""}`);
+    const listings = (c4.myMarketListings || []).map((l2) => `${l2.isSell ? "Sell" : "Buy"} ${itemName(l2.itemHrid)}${l2.enhancementLevel ? ` +${l2.enhancementLevel}` : ""} \xD7${n(l2.orderQuantity || 0)} @ ${coins3(Number(l2.price) || 0)}${l2.filledQuantity ? ` (${n(l2.filledQuantity)} filled)` : ""}`);
     section("Market orders", listings);
-    const queue = (c3.characterActions || []).map((a) => `${actionName(a.actionHrid) || words(a.actionHrid)}${a.hasMaxCount ? ` ${n(a.currentCount || 0)}/${n(a.maxCount || 0)}` : " (no limit)"}${a.primaryItemHash ? ` \xB7 ${itemName(String(a.primaryItemHash).split("::")[2])}` : ""}`);
+    const queue = (c4.characterActions || []).map((a) => `${actionName(a.actionHrid) || words(a.actionHrid)}${a.hasMaxCount ? ` ${n(a.currentCount || 0)}/${n(a.maxCount || 0)}` : " (no limit)"}${a.primaryItemHash ? ` \xB7 ${itemName(String(a.primaryItemHash).split("::")[2])}` : ""}`);
     section("Action queue", queue);
     for (const { title, lines } of context2.sections || []) section(title, lines);
     return out.join("\n") + "\n";
@@ -7282,16 +7297,16 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!before?.roomData || !after?.roomData) return [];
     if (before.currentFloor !== after.currentFloor || before.startedAt && after.startedAt && before.startedAt !== after.startedAt) return [];
     const out = [];
-    after.roomData.forEach((row, r2) => (row || []).forEach((room, c3) => {
-      const was = before.roomData[r2]?.[c3];
+    after.roomData.forEach((row2, r2) => (row2 || []).forEach((room, c4) => {
+      const was = before.roomData[r2]?.[c4];
       if (!room || !was || !roomKey(was) || was.isCleared) return;
       const emptied = !roomKey(room) && !!room.isCleared;
       if (!emptied && roomKey(room) !== roomKey(was)) return;
       const told = emptied ? { ...was, isCleared: true } : room;
       const failsBefore = failsOf(was);
       const fails = Math.max(failsBefore, failsOf(room));
-      for (let f = failsBefore + 1; f <= fails; f++) out.push({ row: r2, col: c3, room: told, outcome: "loss", fails: f, failsBefore: f - 1 });
-      if (room.isCleared) out.push({ row: r2, col: c3, room: told, outcome: "win", fails, failsBefore });
+      for (let f = failsBefore + 1; f <= fails; f++) out.push({ row: r2, col: c4, room: told, outcome: "loss", fails: f, failsBefore: f - 1 });
+      if (room.isCleared) out.push({ row: r2, col: c4, room: told, outcome: "win", fails, failsBefore });
     }));
     const used = (Number(before.shroudCount) || 0) - (Number(after.shroudCount) || 0);
     const cleared = out.filter((x) => x.outcome === "win");
@@ -7339,11 +7354,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const [k, v] of Object.entries(info)) if (/^labyrinth/.test(k) && Number.isFinite(v)) shop[k.slice(9)] = v;
     const predictions = {};
     if (g.predict) {
-      labyrinth.roomData.forEach((row, r2) => (row || []).forEach((room, c3) => {
+      labyrinth.roomData.forEach((row2, r2) => (row2 || []).forEach((room, c4) => {
         if (!room || room.isCleared || !roomKey(room)) return;
         try {
           const p2 = g.predict(room, labyrinth);
-          if (p2) predictions[`${r2},${c3}`] = p2;
+          if (p2) predictions[`${r2},${c4}`] = p2;
         } catch {
         }
       }));
@@ -7423,8 +7438,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (!added) return 0;
     L2.list.sort((a, b) => a.at - b.at);
     if (L2.list.length > MAX_KEPT) L2.list.splice(0, L2.list.length - MAX_KEPT);
-    const kept3 = new Set(L2.list.map((a) => a.uid));
-    L2.unsent = L2.unsent.filter((u) => kept3.has(u));
+    const kept4 = new Set(L2.list.map((a) => a.uid));
+    L2.unsent = L2.unsent.filter((u) => kept4.has(u));
     save3();
     for (const fn of g.listeners) fn();
     return added;
@@ -7541,7 +7556,7 @@ i.mwia-history-bid { background: #7ee2b0; }
   var ATTEMPT_BATCH = 100;
   var STATE_BATCH = 10;
   var STATES_AFTER_MS = 5 * 1e3;
-  var NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null, labyrinth: null, plan: false };
+  var NO_STATUS = { ok: null, at: null, error: "", newest: null, piError: null, orders: null, jobs: null, labyrinth: null, plan: false, combatPlan: false };
   var p = { running: null, sending: null, jobSync: null, labSync: null, labTimer: null, statesTimer: null, ordersTimer: null, jobsTimer: null, tried: 0, status: { ...NO_STATUS }, listeners: /* @__PURE__ */ new Set() };
   function readPairing(win2) {
     const match = /(?:^#|&)mwia-pi=([A-Za-z0-9_-]+)/.exec(win2.location.hash);
@@ -7619,7 +7634,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         const takesJobs = !!wire.status?.jobs;
         const takesLabyrinth = !!wire.status?.labyrinth;
         const makesPlans = !!wire.status?.plan;
-        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? { ...p.status.labyrinth || { at: null, error: "" }, states: wire.status.labyrinth.states !== void 0, sim: !!wire.status.labyrinth.sim, combat: wire.status.labyrinth.combat || null } : null, plan: makesPlans };
+        p.status = { ok: true, at: Date.now(), error: "", newest: wire.status?.newest ?? null, piError: wire.status?.lastError ?? null, orders: takesOrders ? p.status.orders || { at: null, sent: 0, waiting: queuedOrders().length, error: "" } : null, jobs: takesJobs ? p.status.jobs || { at: null, error: "" } : null, labyrinth: takesLabyrinth ? { ...p.status.labyrinth || { at: null, error: "" }, states: wire.status.labyrinth.states !== void 0, sim: !!wire.status.labyrinth.sim, combat: wire.status.labyrinth.combat || null } : null, plan: makesPlans, combatPlan: !!wire.status?.combatPlan };
         if (takesOrders) await sendOrders();
         if (takesJobs) await syncJobs();
         if (takesLabyrinth) await syncLabyrinth();
@@ -7812,9 +7827,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   function fullWidthRow(node) {
     const panel = node.closest('[class*="MarketplacePanel_marketplacePanel"]') || document.body;
     const width = panel.getBoundingClientRect().width;
-    let row = node;
-    while (row.parentElement && row.parentElement !== panel && row.getBoundingClientRect().width < 0.8 * width) row = row.parentElement;
-    return row;
+    let row2 = node;
+    while (row2.parentElement && row2.parentElement !== panel && row2.getBoundingClientRect().width < 0.8 * width) row2 = row2.parentElement;
+    return row2;
   }
   async function scan2() {
     const current = currentItem();
@@ -8398,10 +8413,10 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (heading) skill = heading.textContent.trim().toLowerCase();
     }
     if (!skill) return null;
-    const row = box && visible(box) ? box : label3.nextElementSibling;
-    const slots = row ? [...row.children].filter((el) => visible(el) && !ours(el)) : [];
-    if (!slots.length) return { skill, error: `no tea slots next to "Consumables" (${row ? row.tagName.toLowerCase() : "nothing"} after the label)` };
-    return { skill, slots, anchor: row };
+    const row2 = box && visible(box) ? box : label3.nextElementSibling;
+    const slots = row2 ? [...row2.children].filter((el) => visible(el) && !ours(el)) : [];
+    if (!slots.length) return { skill, error: `no tea slots next to "Consumables" (${row2 ? row2.tagName.toLowerCase() : "nothing"} after the label)` };
+    return { skill, slots, anchor: row2 };
   }
   function findPicker() {
     let menu = [...document.querySelectorAll(MENU)].find(visible);
@@ -8694,7 +8709,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     const marked = /* @__PURE__ */ new Set();
     let html = null;
     let at2 = null;
-    if (found) {
+    const planned = found ? g3.deps.plan?.() || null : null;
+    const planShown = planned ? shownLoadout(found, state.character, { id: planned.setupId }) : null;
+    if (found && planned && planShown?.id === planned.setupId) {
+      at2 = found;
+      html = planBoxHtml(found, planned, planShown, marked);
+    } else if (found) {
       const fight = queuedFight(state.character);
       const chosen = fight ? fightLoadout(state.character, fight) : null;
       if (fight && chosen) {
@@ -8716,6 +8736,51 @@ i.mwia-history-bid { background: #7ee2b0; }
       box.dataset.html = html;
       box.innerHTML = html;
     }
+  }
+  var planLine = (html) => `<div class="mwia-guide-note mwia-guide-low">\u2717 ${html}</div>`;
+  function planBoxHtml(found, planned, loadout, marked) {
+    const want = planned.phase.loadout;
+    const data = getClientData();
+    const wantAbilities = new Set((want.abilities || []).map((a) => a?.hrid).filter(Boolean));
+    const wantItems = new Set([...want.drinks || [], ...want.food || []].filter(Boolean));
+    const mark3 = (slots, keep4, label3) => {
+      for (const slot of slots) {
+        if (!slot.hrid) continue;
+        const right = keep4.has(slot.hrid);
+        const value = right ? "right" : "wrong";
+        const title = right ? `${label3(slot.hrid)}: as the \u2694 plan says (MWI Advisor)` : `Take out ${label3(slot.hrid)} \u2013 the \u2694 plan doesn't use it (MWI Advisor)`;
+        if (slot.el.dataset.mwiaSlot !== value) slot.el.dataset.mwiaSlot = value;
+        if (slot.el.title !== title) slot.el.title = title;
+        marked.add(slot.el);
+      }
+    };
+    mark3(found.abilities.slots, wantAbilities, abilityName);
+    mark3(found.consumables.slots, wantItems, itemName);
+    const shownAbilities = new Set(found.abilities.slots.map((s3) => s3.hrid));
+    const shownItems = new Set(found.consumables.slots.map((s3) => s3.hrid));
+    const lines = [];
+    const putIn = [...[...wantAbilities].filter((h3) => !shownAbilities.has(h3)).map(abilityName), ...[...wantItems].filter((h3) => !shownItems.has(h3)).map(itemName)];
+    if (putIn.length) lines.push(planLine(`<b>Put in:</b> ${esc(putIn.join(", "))}`));
+    const profile = g3.deps.profileOf(loadout);
+    if (profile && data) {
+      const wear = [];
+      for (const [slot, w] of Object.entries(want.equipment || {})) {
+        const has = profile.equipment?.[slot];
+        if (!w || has && has.hrid === w.hrid && (has.enhancementLevel || 0) === (w.enhancementLevel || 0)) continue;
+        wear.push(`${itemName(w.hrid)}${w.enhancementLevel ? ` +${w.enhancementLevel}` : ""}`);
+      }
+      if (wear.length) lines.push(planLine(`<b>Wear:</b> ${esc(wear.join(", "))}`));
+      const triggers = [...wantAbilities, ...wantItems].filter((hrid) => {
+        const map = hrid.startsWith("/abilities/") ? "abilityTriggers" : "consumableTriggers";
+        const w = want[map]?.[hrid];
+        return w && JSON.stringify(cleanTriggers(w)) !== JSON.stringify(cleanTriggers(profile[map]?.[hrid] || []));
+      });
+      if (triggers.length) lines.push(planLine(`<b>Set the triggers of:</b> ${esc(triggers.map((h3) => h3.startsWith("/abilities/") ? abilityName(h3) : itemName(h3)).join(", "))} <span class="mwia-guide-dim">(\u2699, then \u25B6 Fill in and Save)</span>`));
+    }
+    const zone = planned.phase.zone;
+    const intro = `<div class="mwia-guide-note">The \u2694 plan's loadout <b>${esc(loadout.name || "Loadout")}</b>, to fight in <b>${fightName(zone)}</b>. Green: as the plan says; red: take it out.</div>`;
+    const body = lines.length ? lines.join("") : `<div class="mwia-guide-note">\u2713 Everything as the plan says.</div>`;
+    return `<div class="mwia-guide-head"><b>\u2694 Combat plan</b> <span>MWI Advisor</span></div>` + intro + body;
   }
   var fightName = (fight) => esc(actionName(fight.zoneHrid) || fight.zoneHrid.split("/").pop()) + (fight.tier ? ` T${fight.tier}` : "");
   var head2 = (note2) => `<div class="mwia-guide-head"><b>\u{1F9ED} Loadout for your next fight</b> <span>MWI Advisor${note2 ? " \xB7 " + note2 : ""}</span></div>`;
@@ -8824,9 +8889,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   function markSlots(found, final, marked) {
     const abilities = new Set([final.special, ...final.abilities].filter(Boolean));
     const consumables = new Set([...final.drinks, ...final.food].filter(Boolean));
-    const check = (slots, keep3, label3) => {
+    const check = (slots, keep4, label3) => {
       for (const slot of slots) {
-        if (!slot.hrid || keep3.has(slot.hrid)) continue;
+        if (!slot.hrid || keep4.has(slot.hrid)) continue;
         const title = `Take out ${label3(slot.hrid)} (MWI Advisor)`;
         if (slot.el.dataset.mwiaSlot !== "wrong") slot.el.dataset.mwiaSlot = "wrong";
         if (slot.el.title !== title) slot.el.title = title;
@@ -8916,12 +8981,12 @@ i.mwia-history-bid { background: #7ee2b0; }
     return null;
   }
   function chosenCrates(settings2, character) {
-    const pick2 = (kind) => {
+    const pick3 = (kind) => {
       const value = settings2[kind === "coffee" ? "labyCoffee" : "labyFood"] || "slots";
       if (value === "slots") return slottedCrate(character, kind);
       return CRATE_TIERS.includes(value) ? value : null;
     };
-    return { coffee: pick2("coffee"), food: pick2("food") };
+    return { coffee: pick3("coffee"), food: pick3("food") };
   }
   function crateBuffs(data, crates) {
     const buffs = [];
@@ -9107,9 +9172,9 @@ i.mwia-history-bid { background: #7ee2b0; }
       results.push({ id: setup.id, name: setup.name, monsters: curves });
     }
     const best = monsters.map((hrid, m2) => {
-      let pick2 = null;
-      for (const setup of results) if (!pick2 || better(setup.monsters[m2], pick2.monster)) pick2 = { setup, monster: setup.monsters[m2] };
-      return { ...pick2.monster, setupId: pick2.setup.id, setupName: pick2.setup.name };
+      let pick3 = null;
+      for (const setup of results) if (!pick3 || better(setup.monsters[m2], pick3.monster)) pick3 = { setup, monster: setup.monsters[m2] };
+      return { ...pick3.monster, setupId: pick3.setup.id, setupName: pick3.setup.name };
     });
     return { crates, rooms: accuracy.rooms, setups: results, monsters: best };
   }
@@ -9197,7 +9262,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const runs = [];
     for (const group of groups.values()) {
       runs.push({ profile: group.setup.profile, crates: lab.crates, edges: group.edges, repeat: BASE_REPEAT });
-      for (const c3 of group.candidates) runs.push({ profile: c3.profile, crates: c3.crates, edges: group.edges });
+      for (const c4 of group.candidates) runs.push({ profile: c4.profile, crates: c4.crates, edges: group.edges });
     }
     const results = await atEdges(pool, data, runs, accuracy.improveRooms, 0, onProgress);
     const combined = /* @__PURE__ */ new Map();
@@ -9206,10 +9271,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     for (const group of groups.values()) {
       const own = results[r2++];
       group.edges.forEach((edge, i) => base.push({ hrid: edge.hrid, level: edge.level, setupName: group.setup.name, win: rate(own[i]), deaths: own[i].deaths / own[i].attempts, timeouts: own[i].timeouts / own[i].attempts }));
-      for (const c3 of group.candidates) {
+      for (const c4 of group.candidates) {
         const theirs = results[r2++];
-        const id = c3.kind === "swap" ? `${group.setup.id}:${c3.id}` : c3.id;
-        const { profile: _p, crates: _c, ...rest } = c3;
+        const id = c4.kind === "swap" ? `${group.setup.id}:${c4.id}` : c4.id;
+        const { profile: _p, crates: _c, ...rest } = c4;
         if (!combined.has(id)) combined.set(id, { ...rest, setupName: group.setup.name, perMonster: [] });
         group.edges.forEach((edge, i) => {
           const gain = rate(theirs[i]) - rate(own[i]);
@@ -9217,7 +9282,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         });
       }
     }
-    const candidates = [...combined.values()].map((c3) => ({ ...c3, levels: c3.perMonster.reduce((sum, m2) => sum + m2.levels, 0) / lab.monsters.length }));
+    const candidates = [...combined.values()].map((c4) => ({ ...c4, levels: c4.perMonster.reduce((sum, m2) => sum + m2.levels, 0) / lab.monsters.length }));
     return { rooms: accuracy.improveRooms, base, candidates };
   }
   function monstersFor(data, style) {
@@ -9230,14 +9295,14 @@ i.mwia-history-bid { background: #7ee2b0; }
   var LEVELS_PER_MILLION = { frugal: 2, balanced: 0.5, all: 0 };
   var ROUND_ROOMS = 2;
   var CONFIRM_TRIES = 3;
-  function applyCandidate(profile, c3) {
+  function applyCandidate(profile, c4) {
     const out = cloneProfile(profile);
-    const index = c3.slot?.startsWith("ability") ? Number(c3.slot.replace("ability", "")) : null;
-    if (c3.kind === "gear") equip(out, c3.slot, { hrid: c3.hrid, enhancementLevel: c3.enhancementLevel });
-    else if (c3.kind === "ability" || c3.kind === "abilityLevel") out.abilities[index] = { hrid: c3.hrid, level: c3.level };
-    else if (c3.kind === "drop") out.abilities[index] = null;
-    else if (c3.kind === "dropAll") out.abilities = out.abilities.map((entry, i) => i === 0 ? entry : null);
-    else if (c3.kind === "triggers") out.abilityTriggers = { ...out.abilityTriggers, ...Object.fromEntries(out.abilities.filter(Boolean).map((a) => [a.hrid, []])) };
+    const index = c4.slot?.startsWith("ability") ? Number(c4.slot.replace("ability", "")) : null;
+    if (c4.kind === "gear") equip(out, c4.slot, { hrid: c4.hrid, enhancementLevel: c4.enhancementLevel });
+    else if (c4.kind === "ability" || c4.kind === "abilityLevel") out.abilities[index] = { hrid: c4.hrid, level: c4.level };
+    else if (c4.kind === "drop") out.abilities[index] = null;
+    else if (c4.kind === "dropAll") out.abilities = out.abilities.map((entry, i) => i === 0 ? entry : null);
+    else if (c4.kind === "triggers") out.abilityTriggers = { ...out.abilityTriggers, ...Object.fromEntries(out.abilities.filter(Boolean).map((a) => [a.hrid, []])) };
     return out;
   }
   async function buildLoadout(pool, profile, data, settings2, opts, onProgress) {
@@ -9262,10 +9327,10 @@ i.mwia-history-bid { background: #7ee2b0; }
     const part2 = (from, size) => (done2, total) => onProgress?.(Math.round((from + size * done2 / Math.max(1, total)) * 1e3 / steps), 1e3);
     const before = await simulateCurves(pool, roomFighter(start2, data, crates), targets, accuracy.rooms, part2(0, 3));
     const edges = before.map((m2, i) => edgeOf(m2, 2e3 + i));
-    const subStyle = (c3) => c3.kind !== "gear" || !["main_hand", "two_hand"].includes(c3.slot) || data.itemDetailMap[c3.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style;
+    const subStyle = (c4) => c4.kind !== "gear" || !["main_hand", "two_hand"].includes(c4.slot) || data.itemDetailMap[c4.hrid]?.equipmentDetail?.combatStats?.combatStyleHrids?.[0] === "/combat_styles/" + style;
     const candidates = [
       // A loadout of its own sells nothing: what it replaces is still worn in your other loadouts.
-      ...gearCandidates(start2, { budget, starter, enhanceCost: opts.enhanceCost }).filter((c3) => c3.slot !== "pouch" && !c3.extraFood && subStyle(c3)).map((c3) => ({ ...c3, cost: c3.price ?? c3.cost, resale: 0, sold: [] })).filter((c3) => c3.cost <= budget),
+      ...gearCandidates(start2, { budget, starter, enhanceCost: opts.enhanceCost }).filter((c4) => c4.slot !== "pouch" && !c4.extraFood && subStyle(c4)).map((c4) => ({ ...c4, cost: c4.price ?? c4.cost, resale: 0, sold: [] })).filter((c4) => c4.cost <= budget),
       ...abilityCandidates(start2, budget)
     ];
     start2.abilities.forEach((entry, index) => {
@@ -9284,17 +9349,17 @@ i.mwia-history-bid { background: #7ee2b0; }
     candidates.push({ kind: "triggers", slot: "triggers", cost: 0, owned: true, profile: quiet });
     const scoreAt = (edgeList) => (own, base) => edgeList.reduce((sum, edge, i) => sum + Math.max(-50, Math.min(50, (rate(own[i]) - rate(base[i])) / edge.slope)), 0) / edgeList.length;
     const screenRooms = Math.max(20, Math.round(accuracy.improveRooms * SCREEN_SHARE));
-    const first = await atEdges(pool, data, [{ profile: start2, crates, edges, repeat: BASE_REPEAT }, ...candidates.map((c3) => ({ profile: c3.profile, crates, edges }))], screenRooms, 0, part2(3, 5));
-    candidates.forEach((c3, i) => c3.levels = scoreAt(edges)(first[i + 1], first[0]));
+    const first = await atEdges(pool, data, [{ profile: start2, crates, edges, repeat: BASE_REPEAT }, ...candidates.map((c4) => ({ profile: c4.profile, crates, edges }))], screenRooms, 0, part2(3, 5));
+    candidates.forEach((c4, i) => c4.levels = scoreAt(edges)(first[i + 1], first[0]));
     const bySlot = /* @__PURE__ */ new Map();
-    for (const c3 of candidates.filter((c4) => c4.cost > 0 && c4.levels > 0).sort((a, b) => b.levels - a.levels)) {
-      const list = bySlot.get(c3.slot) || [];
-      if (list.length < PER_SLOT) list.push(c3);
-      bySlot.set(c3.slot, list);
+    for (const c4 of candidates.filter((c5) => c5.cost > 0 && c5.levels > 0).sort((a, b) => b.levels - a.levels)) {
+      const list = bySlot.get(c4.slot) || [];
+      if (list.length < PER_SLOT) list.push(c4);
+      bySlot.set(c4.slot, list);
     }
-    const shortlist2 = [...candidates.filter((c3) => c3.cost === 0), ...[...bySlot.values()].flat()];
+    const shortlist2 = [...candidates.filter((c4) => c4.cost === 0), ...[...bySlot.values()].flat()];
     const abilitySlots = [1, 2, 3, 4].map((i) => "ability" + i);
-    const slotsOf2 = (c3) => c3.slot === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : c3.slot === "main_hand" || c3.slot === "off_hand" ? [c3.slot, "two_hand"] : c3.kind === "dropAll" ? [...abilitySlots, "triggers", "abilities"] : c3.slot.startsWith("ability") && c3.slot !== "ability0" ? [c3.slot, "abilities"] : c3.slot === "triggers" ? ["triggers", "abilities"] : [c3.slot];
+    const slotsOf2 = (c4) => c4.slot === "two_hand" ? ["two_hand", "main_hand", "off_hand"] : c4.slot === "main_hand" || c4.slot === "off_hand" ? [c4.slot, "two_hand"] : c4.kind === "dropAll" ? [...abilitySlots, "triggers", "abilities"] : c4.slot.startsWith("ability") && c4.slot !== "ability0" ? [c4.slot, "abilities"] : c4.slot === "triggers" ? ["triggers", "abilities"] : [c4.slot];
     const taken = /* @__PURE__ */ new Set();
     const picks = [];
     let left = budget;
@@ -9302,33 +9367,33 @@ i.mwia-history-bid { background: #7ee2b0; }
     let now2 = before;
     let lastRound = [];
     for (let round = 0; round < ROUNDS2; round++) {
-      const open2 = shortlist2.filter((c3) => !picks.includes(c3) && !slotsOf2(c3).some((x) => taken.has(x)) && c3.cost <= left);
+      const open2 = shortlist2.filter((c4) => !picks.includes(c4) && !slotsOf2(c4).some((x) => taken.has(x)) && c4.cost <= left);
       if (!open2.length) break;
       const roundEdges = now2.map((m2, i) => edgeOf(m2, 3e3 + 10 * round + i));
       const from = part2(8 + round, 1);
-      const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open2.map((c3) => ({ profile: applyCandidate(built, c3), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
-      open2.forEach((c3, i) => c3.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
+      const results = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, ...open2.map((c4) => ({ profile: applyCandidate(built, c4), crates, edges: roundEdges }))], ROUND_ROOMS * accuracy.improveRooms, 500 + round, from);
+      open2.forEach((c4, i) => c4.roundLevels = scoreAt(roundEdges)(results[i + 1], results[0]));
       lastRound = open2;
-      const dropOf = (c3) => c3.kind === "ability" && c3.replaces ? open2.find((d) => d.kind === "drop" && d.hrid === c3.replaces) : null;
-      const beatsDrop = (c3) => !dropOf(c3) || c3.roundLevels >= dropOf(c3).roundLevels + MIN_LEVELS;
-      const worth = (c3) => c3.roundLevels >= MIN_LEVELS && beatsDrop(c3) && (c3.cost === 0 || c3.roundLevels / (c3.cost / 1e6) >= minPerMillion);
+      const dropOf = (c4) => c4.kind === "ability" && c4.replaces ? open2.find((d) => d.kind === "drop" && d.hrid === c4.replaces) : null;
+      const beatsDrop = (c4) => !dropOf(c4) || c4.roundLevels >= dropOf(c4).roundLevels + MIN_LEVELS;
+      const worth = (c4) => c4.roundLevels >= MIN_LEVELS && beatsDrop(c4) && (c4.cost === 0 || c4.roundLevels / (c4.cost / 1e6) >= minPerMillion);
       const good = open2.filter(worth);
-      const order = [...good.filter((c3) => c3.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c3) => c3.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
-      let pick2 = null;
-      for (const [k, c3] of order.slice(0, CONFIRM_TRIES).entries()) {
-        const check = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, { profile: applyCandidate(built, c3), crates, edges: roundEdges, repeat: ROUND_ROOMS }], accuracy.improveRooms, 900 + 10 * round + k);
-        c3.roundLevels = (c3.roundLevels + scoreAt(roundEdges)(check[1], check[0])) / 2;
-        if (worth(c3)) {
-          pick2 = c3;
+      const order = [...good.filter((c4) => c4.cost === 0).sort((a, b) => b.roundLevels - a.roundLevels), ...good.filter((c4) => c4.cost > 0).sort((a, b) => b.roundLevels / b.cost - a.roundLevels / a.cost)];
+      let pick3 = null;
+      for (const [k, c4] of order.slice(0, CONFIRM_TRIES).entries()) {
+        const check = await atEdges(pool, data, [{ profile: built, crates, edges: roundEdges, repeat: BASE_REPEAT }, { profile: applyCandidate(built, c4), crates, edges: roundEdges, repeat: ROUND_ROOMS }], accuracy.improveRooms, 900 + 10 * round + k);
+        c4.roundLevels = (c4.roundLevels + scoreAt(roundEdges)(check[1], check[0])) / 2;
+        if (worth(c4)) {
+          pick3 = c4;
           break;
         }
       }
-      if (!pick2) break;
-      pick2.levels = pick2.roundLevels;
-      picks.push(pick2);
-      slotsOf2(pick2).forEach((x) => taken.add(x));
-      left -= pick2.cost;
-      built = applyCandidate(built, pick2);
+      if (!pick3) break;
+      pick3.levels = pick3.roundLevels;
+      picks.push(pick3);
+      slotsOf2(pick3).forEach((x) => taken.add(x));
+      left -= pick3.cost;
+      built = applyCandidate(built, pick3);
       now2 = await simulateCurves(pool, roomFighter(built, data, crates), targets, accuracy.rooms, part2(8 + round, 1));
     }
     const after = now2;
@@ -9345,7 +9410,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       picks: picks.map(strip),
       // The best of the rest, for "also tested".
       // The best of the rest in the last round, measured from (nearly) the finished list.
-      nearMisses: lastRound.filter((c3) => !picks.includes(c3) && c3.roundLevels > 0).sort((a, b) => b.roundLevels - a.roundLevels).slice(0, 6).map((c3) => ({ ...strip(c3), levels: c3.roundLevels })),
+      nearMisses: lastRound.filter((c4) => !picks.includes(c4) && c4.roundLevels > 0).sort((a, b) => b.roundLevels - a.roundLevels).slice(0, 6).map((c4) => ({ ...strip(c4), levels: c4.roundLevels })),
       tested: candidates.length,
       profile: built
     };
@@ -9522,14 +9587,14 @@ i.mwia-history-bid { background: #7ee2b0; }
   var pct4 = (x) => `${Math.round(100 * x)}%`;
   function rememberLabyrinth(lab, at2 = Date.now(), fromPi = false) {
     if (!lab) return;
-    const kept3 = {
+    const kept4 = {
       at: at2,
       ...fromPi ? { fromPi: true } : {},
       monsters: lab.monsters.map((x) => ({ hrid: x.hrid, setupId: x.setupId, setupName: x.setupName, safe: x.safe, curve: x.curve.map((p2) => ({ level: p2.level, wins: p2.wins, attempts: p2.attempts })) }))
     };
-    m.stored = kept3;
+    m.stored = kept4;
     try {
-      localStorage.setItem(STORE, JSON.stringify(kept3));
+      localStorage.setItem(STORE, JSON.stringify(kept4));
     } catch {
     }
     scheduleScan8();
@@ -9565,8 +9630,8 @@ i.mwia-history-bid { background: #7ee2b0; }
       }
     }, SCAN_MS8);
   }
-  function rowMonster(row, monsters, data) {
-    const label3 = row.querySelector(LABEL2) || row.querySelector("td");
+  function rowMonster(row2, monsters, data) {
+    const label3 = row2.querySelector(LABEL2) || row2.querySelector("td");
     if (!label3) return null;
     const use = label3.querySelector("use");
     const icon = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1];
@@ -9591,9 +9656,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   function runRooms(labyrinth = state.labyrinth) {
     if (!labyrinth?.isActive || !Array.isArray(labyrinth.roomData)) return [];
     const rooms = [];
-    labyrinth.roomData.forEach((row, r2) => (row || []).forEach((room, c3) => {
-      if (room?.monsterHrid && room.recommendedLevel) rooms.push({ row: r2, col: c3, hrid: room.monsterHrid, level: room.recommendedLevel, cleared: !!room.isCleared });
-      else if (room?.skillHrid && room.recommendedLevel) rooms.push({ row: r2, col: c3, skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel, cleared: !!room.isCleared });
+    labyrinth.roomData.forEach((row2, r2) => (row2 || []).forEach((room, c4) => {
+      if (room?.monsterHrid && room.recommendedLevel) rooms.push({ row: r2, col: c4, hrid: room.monsterHrid, level: room.recommendedLevel, cleared: !!room.isCleared });
+      else if (room?.skillHrid && room.recommendedLevel) rooms.push({ row: r2, col: c4, skill: room.skillHrid.split("/").pop(), level: room.recommendedLevel, cleared: !!room.isCleared });
     }));
     return rooms;
   }
@@ -9614,11 +9679,11 @@ i.mwia-history-bid { background: #7ee2b0; }
       skipMarks(table, advice);
       if (!check) continue;
       const data = getClientData();
-      for (const row of table.querySelectorAll("tbody tr")) {
-        const monster = rowMonster(row, check.monsters, data);
+      for (const row2 of table.querySelectorAll("tbody tr")) {
+        const monster = rowMonster(row2, check.monsters, data);
         if (!monster) continue;
-        const cell = row.children[1] || row.lastElementChild;
-        const chosenId = row.querySelector(CHOSEN)?.value ?? "";
+        const cell = row2.children[1] || row2.lastElementChild;
+        const chosenId = row2.querySelector(CHOSEN)?.value ?? "";
         const mark3 = markFor(monster, chosenId, level);
         const cls = `${MARK} mwia-laby-${mark3.kind}${mark3.chosen ? "" : " mwia-laby-pick"}`;
         let el = cell.querySelector(`.${MARK}`);
@@ -9654,8 +9719,8 @@ i.mwia-history-bid { background: #7ee2b0; }
     m.advice = { key: key2, at: Date.now(), rule, rows, combatLevel: combatLevel2, checkedAt: check?.at ?? null, skilling: !!who };
     return m.advice;
   }
-  function rowKey(row) {
-    const label3 = row.querySelector(LABEL2) || row.querySelector("td");
+  function rowKey(row2) {
+    const label3 = row2.querySelector(LABEL2) || row2.querySelector("td");
     if (!label3) return null;
     const use = label3.querySelector("use");
     const icon = (use?.getAttribute("href") || use?.getAttribute("xlink:href") || "").split("#")[1] || "";
@@ -9667,11 +9732,11 @@ i.mwia-history-bid { background: #7ee2b0; }
     const hrid = Object.keys(monsters).find((h3) => (monsters[h3]?.name || "").toLowerCase() === name);
     if (hrid) return `monster:${hrid}`;
     const check = lastCheck();
-    const kept3 = check?.monsters.find((x) => x.hrid === `/monsters/${icon}`);
-    return kept3 ? `monster:${kept3.hrid}` : null;
+    const kept4 = check?.monsters.find((x) => x.hrid === `/monsters/${icon}`);
+    return kept4 ? `monster:${kept4.hrid}` : null;
   }
-  function skipCell(row) {
-    return [...row.children].reverse().find((td) => [...td.querySelectorAll("button")].some((b) => /^(edit|save)$/i.test(b.textContent.trim()))) || null;
+  function skipCell(row2) {
+    return [...row2.children].reverse().find((td) => [...td.querySelectorAll("button")].some((b) => /^(edit|save)$/i.test(b.textContent.trim()))) || null;
   }
   var gameText = (el) => [...el.childNodes].filter((n5) => !(n5.classList && n5.classList.contains(SKIP_MARK))).map((n5) => n5.textContent).join(" ");
   function currentSkip(cell) {
@@ -9683,11 +9748,11 @@ i.mwia-history-bid { background: #7ee2b0; }
   function rowsWithAdvice(table, advice) {
     const byKey = new Map((advice?.rows || []).map((r2) => [r2.key, r2]));
     const out = [];
-    for (const row of table.querySelectorAll("tbody tr")) {
-      const key2 = rowKey(row);
-      const cell = skipCell(row);
+    for (const row2 of table.querySelectorAll("tbody tr")) {
+      const key2 = rowKey(row2);
+      const cell = skipCell(row2);
       if (!key2 || !cell) continue;
-      out.push({ row, cell, key: key2, advice: byKey.get(key2) || null, current: currentSkip(cell) });
+      out.push({ row: row2, cell, key: key2, advice: byKey.get(key2) || null, current: currentSkip(cell) });
     }
     return out;
   }
@@ -9954,13 +10019,13 @@ i.mwia-history-bid { background: #7ee2b0; }
   function simulateTries(p2, blessed, start2, targets, from, runs, random) {
     const top = Math.max(...targets);
     const out = Object.fromEntries(targets.map((t4) => [t4, { attempts: new Float64Array(runs), protections: new Float64Array(runs) }]));
-    const cap4 = 50 * MAX_MEAN;
+    const cap5 = 50 * MAX_MEAN;
     for (let r2 = 0; r2 < runs; r2++) {
       let level = start2;
       let a = 0;
       let g4 = 0;
       let next = 0;
-      while (level < top && a < cap4) {
+      while (level < top && a < cap5) {
         a++;
         if (random() < p2[level]) level += blessed > 0 && random() < blessed ? 2 : 1;
         else if (level >= from) {
@@ -10012,25 +10077,25 @@ i.mwia-history-bid { background: #7ee2b0; }
     }
     const spread = /* @__PURE__ */ new Map();
     const groups = /* @__PURE__ */ new Map();
-    for (const pick2 of picks) {
-      if (pick2.cycle.attempts > MAX_MEAN) continue;
-      const key2 = pick2.guarded ? pick2.from : "none";
+    for (const pick3 of picks) {
+      if (pick3.cycle.attempts > MAX_MEAN) continue;
+      const key2 = pick3.guarded ? pick3.from : "none";
       if (!groups.has(key2)) groups.set(key2, []);
-      groups.get(key2).push(pick2);
+      groups.get(key2).push(pick3);
     }
     for (const [key2, list] of groups) {
       const from = key2 === "none" ? MAX_TARGET + 1 : key2;
-      const most = Math.max(...list.map((pick2) => pick2.cycle.attempts));
+      const most = Math.max(...list.map((pick3) => pick3.cycle.attempts));
       const runs = Math.round(Math.min(MAX_RUNS, Math.max(MIN_RUNS, STEP_BUDGET / Math.max(1, most))));
-      const tries = simulateTries(rates, blessed, start2, list.map((pick2) => pick2.target), from, runs, seededRandom(seed * 7919 + (key2 === "none" ? 0 : key2)));
-      for (const pick2 of list) {
-        const { attempts, protections } = tries[pick2.target];
-        const costs = attempts.map((a, i) => a * attemptCost + (pick2.guarded ? protections[i] * guard.price : 0));
+      const tries = simulateTries(rates, blessed, start2, list.map((pick3) => pick3.target), from, runs, seededRandom(seed * 7919 + (key2 === "none" ? 0 : key2)));
+      for (const pick3 of list) {
+        const { attempts, protections } = tries[pick3.target];
+        const costs = attempts.map((a, i) => a * attemptCost + (pick3.guarded ? protections[i] * guard.price : 0));
         const at2 = (q) => {
           const n5 = quantile2(attempts, q);
-          return { attempts: n5, protections: pick2.guarded ? quantile2(protections, q) : 0, cost: quantile2(costs, q), hours: n5 * cycleSeconds / 3600 };
+          return { attempts: n5, protections: pick3.guarded ? quantile2(protections, q) : 0, cost: quantile2(costs, q), hours: n5 * cycleSeconds / 3600 };
         };
-        spread.set(pick2.target, { typical: at2(TYPICAL), unlucky: at2(UNLUCKY), runs });
+        spread.set(pick3.target, { typical: at2(TYPICAL), unlucky: at2(UNLUCKY), runs });
       }
     }
     const targets = picks.map(({ target, bare, from, cycle, cost, guarded }) => {
@@ -10049,21 +10114,21 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   function withStock(plan, have6) {
     const owned = (hrid) => Math.max(0, (have6(hrid) || 0) - (hrid === plan.itemHrid && plan.start === 0 ? 1 : 0));
-    const coins10 = have6(COIN8) || 0;
+    const coins11 = have6(COIN8) || 0;
     const needs = (t4, outcome) => {
       if (!outcome) return null;
       const list = plan.perAttempt.map((i) => ({ itemHrid: i.itemHrid, price: i.price, tea: !!i.tea, count: Math.ceil(i.count * outcome.attempts) }));
       if (t4.protect) list.push({ itemHrid: t4.protect.itemHrid, price: t4.protect.price, protection: true, count: Math.ceil(outcome.protections) });
       for (const n5 of list) {
-        n5.have = n5.itemHrid === COIN8 ? coins10 : owned(n5.itemHrid);
+        n5.have = n5.itemHrid === COIN8 ? coins11 : owned(n5.itemHrid);
         n5.short = Math.max(0, n5.count - n5.have);
       }
       const coinsNeeded = list.reduce((sum, n5) => sum + (n5.itemHrid === COIN8 ? n5.count : n5.short * n5.price), 0);
-      return { ...outcome, list, coinsNeeded, affordable: coinsNeeded <= coins10 };
+      return { ...outcome, list, coinsNeeded, affordable: coinsNeeded <= coins11 };
     };
     const targets = plan.targets.map((t4) => ({ ...t4, mean: needs(t4, t4.mean), typical: needs(t4, t4.typical), unlucky: needs(t4, t4.unlucky) }));
-    const reach = (pick2) => targets.reduce((top, t4) => pick2(t4)?.affordable ? t4.target : top, null);
-    return { ...plan, coins: coins10, targets, reach: { typical: reach((t4) => t4.typical || t4.mean), unlucky: reach((t4) => t4.unlucky) } };
+    const reach = (pick3) => targets.reduce((top, t4) => pick3(t4)?.affordable ? t4.target : top, null);
+    return { ...plan, coins: coins11, targets, reach: { typical: reach((t4) => t4.typical || t4.mean), unlucky: reach((t4) => t4.unlucky) } };
   }
 
   // src/enhance-plan-ui.js
@@ -10147,19 +10212,19 @@ i.mwia-history-bid { background: #7ee2b0; }
   var head3 = (title, note2) => `<div class="mwia-guide-head"><b>${title}</b> <span>${note2}</span></div>`;
   function boxHtml3(itemHrid, start2, id, key2) {
     const status2 = e.statuses.get(id);
-    const statusHtml3 = status2 ? `<div class="mwia-guide-status">${esc(status2)}</div>` : "";
+    const statusHtml4 = status2 ? `<div class="mwia-guide-status">${esc(status2)}</div>` : "";
     const title = head3("\u{1F3AF} Enhancing plan", `MWI Advisor \xB7 ${esc(itemName(itemHrid))}${start2 ? ` +${start2}` : ""}`);
     if (start2 >= 20) return title + `<div class="mwia-guide-note">Already at +20.</div>`;
     const saved = e.plans.get(id);
     const button3 = (label3) => `<button class="mwia-guide-cart mwia-plan-run" data-plan-run="${esc(id)}" ${e.busy ? "disabled" : ""}>${label3}</button>`;
     if (e.busy === id) return title + `<div class="mwia-guide-note mwia-plan-busy">\u{1F3B2} Simulating thousands of tries from +${start2} to every target\u2026 this can take a few seconds.</div>`;
     if (!saved) {
-      return title + `<div class="mwia-guide-note">What reaching each +level typically costs and takes, with bad luck, which protection is worth it and the materials against what you have \u2013 simulated with your odds here (it can take a few seconds).</div>` + button3(`\u{1F3B2} Simulate +${start2 + 1} \u2026 +20`) + statusHtml3;
+      return title + `<div class="mwia-guide-note">What reaching each +level typically costs and takes, with bad luck, which protection is worth it and the materials against what you have \u2013 simulated with your odds here (it can take a few seconds).</div>` + button3(`\u{1F3B2} Simulate +${start2 + 1} \u2026 +20`) + statusHtml4;
     }
-    if (!saved.plan) return title + `<div class="mwia-guide-note">Can't plan this item: it has no enhancing materials, or one of them isn't for sale.</div>` + statusHtml3;
+    if (!saved.plan) return title + `<div class="mwia-guide-note">Can't plan this item: it has no enhancing materials, or one of them isn't for sale.</div>` + statusHtml4;
     const plan = withStock(saved.plan, have5);
     const stale2 = saved.key !== key2 ? `<div class="mwia-guide-note mwia-guide-low">Prices, your teas or your Enhancing have changed since. ${button3("\u{1F3B2} Simulate again")}</div>` : "";
-    return title + stale2 + summaryHtml(plan) + tableHtml(plan, id) + statusHtml3;
+    return title + stale2 + summaryHtml(plan) + tableHtml(plan, id) + statusHtml4;
   }
   function summaryHtml(plan) {
     const odds = [];
@@ -10189,7 +10254,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       t4.unlucky ? coins6(t4.unlucky.cost) : "\u2013",
       duration2((sim || t4.mean).hours)
     ];
-    return `<details class="mwia-plan-row ${cls}" data-plan-toggle="${esc(toggle)}"${e.open.has(toggle) ? " open" : ""}><summary class="mwia-plan-grid">${cells.map((c3) => `<span>${c3}</span>`).join("")}</summary>${detailHtml2(plan, t4)}</details>`;
+    return `<details class="mwia-plan-row ${cls}" data-plan-toggle="${esc(toggle)}"${e.open.has(toggle) ? " open" : ""}><summary class="mwia-plan-grid">${cells.map((c4) => `<span>${c4}</span>`).join("")}</summary>${detailHtml2(plan, t4)}</details>`;
   }
   function detailHtml2(plan, t4) {
     const lines = [];
@@ -10237,9 +10302,9 @@ i.mwia-history-bid { background: #7ee2b0; }
   async function setTarget(button3, id) {
     const target = Number(button3.dataset.planSet);
     const where = e.panels.get(id);
-    const characterId6 = state.character?.character?.id;
+    const characterId7 = state.character?.character?.id;
     const protectHrid = button3.dataset.protect;
-    const protect = protectHrid && characterId6 ? { hash: inventoryItemHash(characterId6, protectHrid), from: Number(button3.dataset.from) } : null;
+    const protect = protectHrid && characterId7 ? { hash: inventoryItemHash(characterId7, protectHrid), from: Number(button3.dataset.from) } : null;
     const result = where ? await setEnhancing(where.panel, target, protect) : false;
     e.statuses.set(
       id,
@@ -10376,8 +10441,8 @@ i.mwia-history-bid { background: #7ee2b0; }
   function labelTableCells(container) {
     for (const table of container.querySelectorAll(".mwia-wide")) {
       const headers = [...table.querySelectorAll("thead th")].map((th) => th.textContent.trim());
-      for (const row of table.querySelectorAll("tbody tr")) {
-        [...row.cells].forEach((cell, i) => {
+      for (const row2 of table.querySelectorAll("tbody tr")) {
+        [...row2.cells].forEach((cell, i) => {
           cell.dataset.label = headers[i] || "";
           if (TITLE_COLUMNS.has(headers[i])) cell.classList.add("mwia-card-title");
         });
@@ -10405,17 +10470,17 @@ i.mwia-history-bid { background: #7ee2b0; }
   function readPlanningTab(doc, data) {
     const byName = new Map(Object.values(data.itemDetailMap).map((item) => [item.name, item.hrid]));
     const goals = [];
-    for (const row of doc.querySelectorAll(".planning-goal")) {
-      const enabled = row.querySelector('input[type="checkbox"]')?.checked !== false;
-      const id = row.querySelector(".planning-goal-current")?.dataset.goalId || "";
+    for (const row2 of doc.querySelectorAll(".planning-goal")) {
+      const enabled = row2.querySelector('input[type="checkbox"]')?.checked !== false;
+      const id = row2.querySelector(".planning-goal-current")?.dataset.goalId || "";
       const match = id.match(/^(house|item):(.+)$/);
-      const target = Math.floor(Number(row.querySelector('input[type="number"]')?.value));
+      const target = Math.floor(Number(row2.querySelector('input[type="number"]')?.value));
       if (!enabled || !match || !(target > 0)) continue;
       goals.push({ kind: match[1], hrid: match[2], target });
     }
     const policies = /* @__PURE__ */ new Map();
-    for (const row of doc.querySelectorAll(".planning-step")) {
-      const summary2 = row.querySelector(":scope > summary") || row;
+    for (const row2 of doc.querySelectorAll(".planning-step")) {
+      const summary2 = row2.querySelector(":scope > summary") || row2;
       const hrid = itemFromIcon(summary2.querySelector(".planning-row-icon")) || byName.get(summary2.querySelector(".planning-step-name")?.textContent.trim());
       const policy = activePolicy(summary2);
       if (hrid && policy) policies.set(hrid, policy);
@@ -10513,15 +10578,15 @@ i.mwia-history-bid { background: #7ee2b0; }
       const wanted = demand.get(hrid) || 0;
       const have6 = owned.get(hrid) || 0;
       const need = Math.max(0, wanted - have6);
-      const row = { hrid, name: name(hrid), wanted, have: have6, need };
+      const row2 = { hrid, name: name(hrid), wanted, have: have6, need };
       if (produced(hrid)) {
         const action = actions.get(hrid);
         const perAction = action.outputItems[0].count || 1;
-        row.action = action;
-        row.count = Math.ceil(need / perAction - 1e-9);
-        for (const input of inputsOf(action)) add(input.hrid, row.count * input.count);
+        row2.action = action;
+        row2.count = Math.ceil(need / perAction - 1e-9);
+        for (const input of inputsOf(action)) add(input.hrid, row2.count * input.count);
       }
-      rows.set(hrid, row);
+      rows.set(hrid, row2);
     }
     return { order, rows };
   }
@@ -10539,31 +10604,31 @@ i.mwia-history-bid { background: #7ee2b0; }
     const height = /* @__PURE__ */ new Map();
     const heightOf = (hrid) => {
       if (height.has(hrid)) return height.get(hrid);
-      const row = rows.get(hrid);
-      const value = row?.action ? 1 + Math.max(0, ...inputsOf(row.action).map((input) => heightOf(input.hrid))) : 0;
+      const row2 = rows.get(hrid);
+      const value = row2?.action ? 1 + Math.max(0, ...inputsOf(row2.action).map((input) => heightOf(input.hrid))) : 0;
       height.set(hrid, value);
       return value;
     };
-    const madeRows = order.map((hrid) => rows.get(hrid)).filter((row) => row.action);
-    const stops = madeRows.filter((row) => row.count > 0).sort((a, b) => heightOf(a.hrid) - heightOf(b.hrid) || a.action.type.localeCompare(b.action.type) || (a.action.sortIndex ?? 0) - (b.action.sortIndex ?? 0)).map((row) => {
-      const required = row.action.levelRequirement;
+    const madeRows = order.map((hrid) => rows.get(hrid)).filter((row2) => row2.action);
+    const stops = madeRows.filter((row2) => row2.count > 0).sort((a, b) => heightOf(a.hrid) - heightOf(b.hrid) || a.action.type.localeCompare(b.action.type) || (a.action.sortIndex ?? 0) - (b.action.sortIndex ?? 0)).map((row2) => {
+      const required = row2.action.levelRequirement;
       return {
-        itemHrid: row.hrid,
-        name: row.name,
-        actionHrid: row.action.hrid,
-        actionName: row.action.name,
-        skill: row.action.type.split("/").pop(),
-        category: row.action.category,
-        count: row.count,
-        output: row.count * (row.action.outputItems[0].count || 1),
-        need: row.need,
+        itemHrid: row2.hrid,
+        name: row2.name,
+        actionHrid: row2.action.hrid,
+        actionName: row2.action.name,
+        skill: row2.action.type.split("/").pop(),
+        category: row2.action.category,
+        count: row2.count,
+        output: row2.count * (row2.action.outputItems[0].count || 1),
+        need: row2.need,
         levelRequired: required?.level || 0,
         level: skills[required?.skillHrid] ?? null,
         skillHrid: required?.skillHrid || null
       };
     });
-    const covered = madeRows.filter((row) => row.count === 0).map((row) => row.name);
-    const shortages = order.map((hrid) => rows.get(hrid)).filter((row) => !row.action && row.need > 0).map((row) => ({ itemHrid: row.hrid, name: row.name, need: Math.ceil(row.need - 1e-9), buy: policies.get(row.hrid) === "buy" }));
+    const covered = madeRows.filter((row2) => row2.count === 0).map((row2) => row2.name);
+    const shortages = order.map((hrid) => rows.get(hrid)).filter((row2) => !row2.action && row2.need > 0).map((row2) => ({ itemHrid: row2.hrid, name: row2.name, need: Math.ceil(row2.need - 1e-9), buy: policies.get(row2.hrid) === "buy" }));
     const sources = gatheringSources(data);
     const gather = shortages.filter((shortage) => sources.has(shortage.itemHrid)).map((shortage) => {
       const { action, mean, variance } = sources.get(shortage.itemHrid);
@@ -10598,15 +10663,15 @@ i.mwia-history-bid { background: #7ee2b0; }
   }
   var COIN10 = "/items/coin";
   function boughtCost(rows, price) {
-    let coins10 = 0;
+    let coins11 = 0;
     const unpriced = [];
-    for (const row of rows.values()) {
-      if (row.action || row.need <= 0 || row.hrid === COIN10) continue;
-      const each = price(row.hrid);
-      if (each === null || each === void 0) unpriced.push(row.name);
-      else coins10 += Math.ceil(row.need - 1e-9) * each;
+    for (const row2 of rows.values()) {
+      if (row2.action || row2.need <= 0 || row2.hrid === COIN10) continue;
+      const each = price(row2.hrid);
+      if (each === null || each === void 0) unpriced.push(row2.name);
+      else coins11 += Math.ceil(row2.need - 1e-9) * each;
     }
-    return { coins: coins10, unpriced };
+    return { coins: coins11, unpriced };
   }
   function planCosts({ goals, policies }, data, { owned, houseLevels = {}, price }) {
     const actions = productionActions(data);
@@ -10614,7 +10679,7 @@ i.mwia-history-bid { background: #7ee2b0; }
     const { demand } = goalDemand(goals, data, houseLevels);
     const run = (produced) => resolve(demand, produced, actions, owned, name).rows;
     const current = run((hrid) => PRODUCE.has(policies.get(hrid)) && actions.has(hrid));
-    const wanted = new Map([...current.values()].map((row) => [row.hrid, row.wanted]));
+    const wanted = new Map([...current.values()].map((row2) => [row2.hrid, row2.wanted]));
     return {
       wanted,
       current: boughtCost(current, price),
@@ -10973,7 +11038,7 @@ i.mwia-history-bid { background: #7ee2b0; }
       if (!train.stops.length) html += `<p>Nothing needs to be made \u2014 your inventory already covers the plan.</p>`;
       if (train.covered.length) html += `<p class="mwia-dim">Already in inventory: ${esc(train.covered.join(", "))}</p>`;
       const buyable = toBuy(train).filter((s3) => s3.itemHrid !== "/items/coin");
-      const coins10 = train.shortages.find((s3) => s3.itemHrid === "/items/coin");
+      const coins11 = train.shortages.find((s3) => s3.itemHrid === "/items/coin");
       const gatherable = new Map((train.gather || []).map((item) => [item.itemHrid, item]));
       const gatherButton = (s3) => {
         const item = gatherable.get(s3.itemHrid);
@@ -10984,7 +11049,7 @@ i.mwia-history-bid { background: #7ee2b0; }
         html += `<p><b>Missing materials:</b> ${buyable.map((s3) => `${esc(s3.name)} \xD7${n3(s3.need)}${gatherButton(s3)}`).join(", ")}
               <button class="mwia-cart-btn" data-train="cart" title="Add the missing materials to the MWITools shopping cart">\u{1F6D2} Add to cart</button></p>`;
       }
-      if (coins10) html += `<p class="mwia-warn">Coins short: ${n3(coins10.need)}</p>`;
+      if (coins11) html += `<p class="mwia-warn">Coins short: ${n3(coins11.need)}</p>`;
       for (const warning of train.warnings) html += `<p class="mwia-warn">\u26A0 ${esc(warning)}</p>`;
     }
     t3.root.innerHTML = html;
@@ -11297,27 +11362,27 @@ i.mwia-history-bid { background: #7ee2b0; }
       L.icon.title = `\u{1F501} ${itemName(loop.itemHrid)} \u2192 +${loop.target}: ${st.phase === "decompose" ? `${n4(st.heldTarget)} ready to decompose` : `${n4(st.queued)}/${n4(st.total)} queued`} \u2013 tap to open`;
     }
     const item = esc(itemName(loop.itemHrid));
-    const plus = `+${loop.target}`;
+    const plus2 = `+${loop.target}`;
     const button3 = (action, text, title = "") => `<button class="mwia-cart-btn" data-loop="${action}"${title ? ` title="${esc(title)}"` : ""}>${text}</button>`;
     const headline = {
       queue: `${n4(st.queued)}/${n4(st.total)} queued`,
       short: `${n4(st.queued)}/${n4(st.total)} queued \u2013 no ${item} +0 left`,
       running: `All ${n4(st.queued)} queued \xB7 ${n4(st.inQueue)} still in the queue`,
-      decompose: `${n4(st.heldTarget)} \xD7 ${plus} ready to decompose`,
-      empty: `Done \u2013 none reached ${plus}`,
-      done: `\u{1F9EA} Decompose of ${n4(loop.decompose?.count ?? st.heldTarget)} \xD7 ${plus} queued`
+      decompose: `${n4(st.heldTarget)} \xD7 ${plus2} ready to decompose`,
+      empty: `Done \u2013 none reached ${plus2}`,
+      done: `\u{1F9EA} Decompose of ${n4(loop.decompose?.count ?? st.heldTarget)} \xD7 ${plus2} queued`
     }[st.phase];
     let html = `<div class="mwia-train-head">
         <button class="mwia-link" data-loop="toggle" title="Show or hide the details">${L.collapsed ? "\u25B8" : "\u25BE"}</button>
-        <b>\u{1F501} ${item} \u2192 ${plus} \u{1F9EA}</b>
+        <b>\u{1F501} ${item} \u2192 ${plus2} \u{1F9EA}</b>
         <button class="mwia-link" data-loop="minimize" title="Shrink to a \u{1F9EA} icon (tap it to open again)">\u2796</button>
         <button class="mwia-link" data-loop="end" title="End the loop">\u2715</button>
       </div>
       <div class="mwia-train-now">${headline}</div>`;
     if (L.notice) html += `<div class="mwia-notice mwia-notice-${L.notice.kind}">${esc(L.notice.text)}${L.notice.diag ? `<div class="mwia-notice-diag">${esc(L.notice.diag)}</div>` : ""}</div>`;
     const buttons = [];
-    if (st.phase === "queue") buttons.push(button3("next", `\u25B6 Next ${item}`, `Opens Enhancing with a +0 ${itemName(loop.itemHrid)} and the target ${plus}`));
-    if (st.phase === "decompose") buttons.push(button3("decompose", `\u{1F9EA} Decompose ${n4(st.heldTarget)} \xD7 ${plus}`, `Opens Decompose with the ${n4(st.heldTarget)} ${itemName(loop.itemHrid)} ${plus} you have`));
+    if (st.phase === "queue") buttons.push(button3("next", `\u25B6 Next ${item}`, `Opens Enhancing with a +0 ${itemName(loop.itemHrid)} and the target ${plus2}`));
+    if (st.phase === "decompose") buttons.push(button3("decompose", `\u{1F9EA} Decompose ${n4(st.heldTarget)} \xD7 ${plus2}`, `Opens Decompose with the ${n4(st.heldTarget)} ${itemName(loop.itemHrid)} ${plus2} you have`));
     if (["done", "empty", "short"].includes(st.phase)) {
       if (st.heldZero > 0) buttons.push(button3("again", `\u{1F501} Again (${n4(st.heldZero)})`, `A new loop with the ${n4(st.heldZero)} +0 you have`));
       if (loop.perItem?.length) buttons.push(button3("cart", `\u{1F6D2} ${n4(loop.total)} more`, `Adds what ${n4(loop.total)} more take to the MWITools cart, less what you have`));
@@ -11325,15 +11390,15 @@ i.mwia-history-bid { background: #7ee2b0; }
     if (buttons.length) html += `<div class="mwia-train-buttons">${buttons.join("")}</div>`;
     if (!L.collapsed) {
       const help = {
-        queue: `Click the game's <b>Add to queue</b> (or <b>Start</b>) \u2013 again for each ${item} while the window stays open. The game stops each one at ${plus}.`,
-        short: `Buy more, or decompose what reached ${plus} once you have some.`,
-        running: `When they are done, decompose the ${plus} here. Nothing opens by itself.`,
+        queue: `Click the game's <b>Add to queue</b> (or <b>Start</b>) \u2013 again for each ${item} while the window stays open. The game stops each one at ${plus2}.`,
+        short: `Buy more, or decompose what reached ${plus2} once you have some.`,
+        running: `When they are done, decompose the ${plus2} here. Nothing opens by itself.`,
         decompose: `Click the game's <b>Start</b> or <b>Add to queue</b> in Decompose.`,
         empty: "",
         done: `Buy the next round with \u{1F6D2}, then \u{1F501} Again.`
       }[st.phase];
       if (help) html += `<p class="mwia-dim">${help}</p>`;
-      html += `<p class="mwia-dim">In the inventory: ${n4(st.heldZero)} at +0 \xB7 ${n4(st.heldTarget)} at ${plus}${st.ended ? ` \xB7 ${n4(st.ended)} jobs done` : ""}.</p>`;
+      html += `<p class="mwia-dim">In the inventory: ${n4(st.heldZero)} at +0 \xB7 ${n4(st.heldTarget)} at ${plus2}${st.ended ? ` \xB7 ${n4(st.ended)} jobs done` : ""}.</p>`;
     }
     L.root.innerHTML = html;
   }
@@ -11425,9 +11490,9 @@ i.mwia-history-bid { background: #7ee2b0; }
     return found[found.length - 1] || null;
   }
   function shownTriggers(box) {
-    return [...box.querySelectorAll(ROW)].map((row) => {
-      const natives = [...row.querySelectorAll(NATIVE)].map((input) => input.value);
-      const value = row.querySelector(VALUE);
+    return [...box.querySelectorAll(ROW)].map((row2) => {
+      const natives = [...row2.querySelectorAll(NATIVE)].map((input) => input.value);
+      const value = row2.querySelector(VALUE);
       return { dependencyHrid: natives[0] || "", conditionHrid: natives[1] || "", comparatorHrid: natives[2] || "", value: value ? Number(value.value) || 0 : 0 };
     });
   }
@@ -11504,9 +11569,9 @@ i.mwia-history-bid { background: #7ee2b0; }
       failed = `controls threw ${error?.message || error}`;
     }
     steps.push(`controls: ${failed || "done"}`);
-    const ok = !failed && sameTriggers(shownTriggers(box), triggers);
-    if (!ok) steps.push(`window shows ${JSON.stringify(shownTriggers(box).map(key))}, wanted ${JSON.stringify(triggers.map(key))}`);
-    return { ok, how: "controls", diag: steps.join(" \xB7 ") };
+    const ok2 = !failed && sameTriggers(shownTriggers(box), triggers);
+    if (!ok2) steps.push(`window shows ${JSON.stringify(shownTriggers(box).map(key))}, wanted ${JSON.stringify(triggers.map(key))}`);
+    return { ok: ok2, how: "controls", diag: steps.join(" \xB7 ") };
   }
 
   // src/trigger-window.js
@@ -11635,8 +11700,8 @@ i.mwia-history-bid { background: #7ee2b0; }
         continue;
       }
       lines.push(`${label3}: heading ${describe(heading)} in ${describe(heading.parentElement)}`);
-      const row = heading.nextElementSibling || heading.parentElement?.nextElementSibling;
-      if (row) outline(row, 4, lines);
+      const row2 = heading.nextElementSibling || heading.parentElement?.nextElementSibling;
+      if (row2) outline(row2, 4, lines);
     }
   }
   function triggerWindowReport() {
@@ -11749,11 +11814,11 @@ ${triggerWindowReport()}`, false);
     const sold = hours2.filter((r2) => r2.sold);
     if (sold.length < MIN_HOURS) return null;
     const count3 = (r2) => Number.isFinite(r2.v) ? r2.v : 0;
-    const cap4 = SPIKE * (median(sold.filter((r2) => count3(r2) > 0).map((r2) => [count3(r2), 1])) ?? 0);
+    const cap5 = SPIKE * (median(sold.filter((r2) => count3(r2) > 0).map((r2) => [count3(r2), 1])) ?? 0);
     let taken = 0;
     for (const r2 of sold) {
       const askShare = r2.a > r2.b && Number.isFinite(r2.p) ? Math.min(1, Math.max(0, (r2.p - r2.b) / (r2.a - r2.b))) : 0.5;
-      taken += Math.min(count3(r2), cap4) * (side === "sell" ? askShare : 1 - askShare);
+      taken += Math.min(count3(r2), cap5) * (side === "sell" ? askShare : 1 - askShare);
     }
     return { hours: sold.length, perHour: taken / sold.length };
   }
@@ -11780,17 +11845,17 @@ ${triggerWindowReport()}`, false);
     const past = best > 0 && Number.isFinite(gap) ? sell ? best - gap : best + gap : best;
     const candidates = [...prices2].map((price) => ({ price, under: false }));
     if (best > 0 && inRange(past)) candidates.push({ price: best, under: true });
-    const rank = (c3) => sell ? c3.price - (c3.under ? 0.5 : 0) : -(c3.price + (c3.under ? 0.5 : 0));
+    const rank = (c4) => sell ? c4.price - (c4.under ? 0.5 : 0) : -(c4.price + (c4.under ? 0.5 : 0));
     candidates.sort((x, y) => rank(y) - rank(x));
     const top = quantile(hours2.map((r2) => [r2[key2], 1]), sell ? USUAL_TOP : 1 - USUAL_TOP);
     const usual = (price) => top === null || !better2(top, price);
-    for (const c3 of candidates) {
-      const firstNow = best > 0 && (c3.under ? usual(past) : better2(c3.price, best) && usual(c3.price));
+    for (const c4 of candidates) {
+      const firstNow = best > 0 && (c4.under ? usual(past) : better2(c4.price, best) && usual(c4.price));
       let sold = 0;
       for (const seen of windows) {
         let front = 0;
         for (const [k, other] of seen) {
-          const value = !Number.isFinite(other) ? 1 : c3.under ? better2(other, c3.price) ? 0 : 1 : better2(other, c3.price) ? 0 : other === c3.price ? 0.5 : 1;
+          const value = !Number.isFinite(other) ? 1 : c4.under ? better2(other, c4.price) ? 0 : 1 : better2(other, c4.price) ? 0 : other === c4.price ? 0.5 : 1;
           front += firstNow && k === 1 ? 1 : value;
         }
         front *= horizon / seen.length;
@@ -11798,7 +11863,7 @@ ${triggerWindowReport()}`, false);
         if (front > 0 && front >= need) sold++;
       }
       const chance = sold / windows.length;
-      if (chance >= CONFIDENCE) return { price: c3.price, under: c3.under, chance, windows: windows.length, need };
+      if (chance >= CONFIDENCE) return { price: c4.price, under: c4.under, chance, windows: windows.length, need };
     }
     return { price: null, why: "none", windows: windows.length, need };
   }
@@ -11901,19 +11966,19 @@ ${triggerWindowReport()}`, false);
     out.generous = !!vs && (sell ? vs.label === "below" : vs.label === "above");
     return out;
   }
-  function sellSuggestions(items, { data, entryOf, summaryOf = () => null, reserved = /* @__PURE__ */ new Map(), keep: keep3 = /* @__PURE__ */ new Set(), listed: listed2 = () => 0, rules = MARKET_RULES }) {
+  function sellSuggestions(items, { data, entryOf, summaryOf = () => null, reserved = /* @__PURE__ */ new Map(), keep: keep4 = /* @__PURE__ */ new Set(), listed: listed2 = () => 0, rules = MARKET_RULES }) {
     const rows = [];
-    const kept3 = [];
+    const kept4 = [];
     for (const { hrid, level = 0, count: count3 } of items) {
       const item = data.itemDetailMap[hrid];
       if (hrid === "/items/coin" || !item || !(count3 > 0)) continue;
       const key2 = keepKey(hrid, level);
-      if (keep3.has(key2)) {
-        kept3.push({ hrid, level, count: count3, why: "pinned" });
+      if (keep4.has(key2)) {
+        kept4.push({ hrid, level, count: count3, why: "pinned" });
         continue;
       }
       if (reserved.has(hrid)) {
-        kept3.push({ hrid, level, count: count3, why: reserved.get(hrid) });
+        kept4.push({ hrid, level, count: count3, why: reserved.get(hrid) });
         continue;
       }
       if (!item.isTradable) continue;
@@ -11955,7 +12020,7 @@ ${triggerWindowReport()}`, false);
       });
     }
     rows.sort((a, b) => b.value - a.value);
-    return { rows, kept: kept3 };
+    return { rows, kept: kept4 };
   }
   var keepKey = (hrid, level = 0) => `${hrid}#${level}`;
   function reservedItems(character, items, data, trainActions = []) {
@@ -12008,11 +12073,11 @@ ${triggerWindowReport()}`, false);
   }
   var keepSet = () => new Set(readJson2(KEEP_KEY, []));
   function toggleKeep(hrid, level) {
-    const keep3 = keepSet();
+    const keep4 = keepSet();
     const key2 = keepKey(hrid, Number(level) || 0);
-    if (keep3.has(key2)) keep3.delete(key2);
-    else keep3.add(key2);
-    writeJson2(KEEP_KEY, [...keep3]);
+    if (keep4.has(key2)) keep4.delete(key2);
+    else keep4.add(key2);
+    writeJson2(KEEP_KEY, [...keep4]);
   }
   function toggleShowAllMarket() {
     view2.showAll = !view2.showAll;
@@ -12131,7 +12196,7 @@ ${triggerWindowReport()}`, false);
         return [];
       }
     })();
-    const { rows, kept: kept3 } = sellSuggestions(inventoryItems(), {
+    const { rows, kept: kept4 } = sellSuggestions(inventoryItems(), {
       data,
       entryOf: marketEntry,
       summaryOf: priceSummary,
@@ -12148,8 +12213,8 @@ ${triggerWindowReport()}`, false);
     }
     const hidden = rows.length - shown.length;
     html += `<p><button class="mwia-link" data-action="market-all">${view2.showAll ? "Hide small amounts" : `Show all${hidden ? ` (${hidden} under ${coins7(MARKET_RULES.minValue)})` : ""}`}</button></p>`;
-    if (kept3.length) {
-      html += `<details class="mwia-skill-sec"><summary>Kept, not offered (${kept3.length})</summary><ul>${kept3.map((k) => `<li>${label(k.hrid, k.level)} \xD7 ${k.count.toLocaleString("en-US")} \u2013 ${esc(WHY[k.why] || k.why)}${k.why === "pinned" ? ` <button class="mwia-link" data-action="market-keep" data-item="${esc(k.hrid)}" data-level="${k.level}">unpin</button>` : ""}</li>`).join("")}</ul></details>`;
+    if (kept4.length) {
+      html += `<details class="mwia-skill-sec"><summary>Kept, not offered (${kept4.length})</summary><ul>${kept4.map((k) => `<li>${label(k.hrid, k.level)} \xD7 ${k.count.toLocaleString("en-US")} \u2013 ${esc(WHY[k.why] || k.why)}${k.why === "pinned" ? ` <button class="mwia-link" data-action="market-keep" data-item="${esc(k.hrid)}" data-level="${k.level}">unpin</button>` : ""}</li>`).join("")}</ul></details>`;
     }
     html += `<p class="mwia-dim"><b>Sell now</b> when listing would gain under ${pctAbs(MARKET_RULES.quickSpread)}; else <b>List</b> at the lowest ask, never above the week's usual ask.
       Teas, food and drinks in your slots, materials for your queue or a running train, and what you pin \u{1F4CC} are never offered.</p>`;
@@ -12263,22 +12328,22 @@ ${triggerWindowReport()}`, false);
   }
   function bestSwaps(improve) {
     const out = /* @__PURE__ */ new Map();
-    const dropOf = (c3, hrid) => improve.candidates.find((d) => d.kind === "swap" && !d.hrid && d.replaces === c3.replaces && d.setupName === c3.setupName)?.perMonster.find((m2) => m2.hrid === hrid);
-    for (const c3 of improve.candidates) {
-      if (c3.kind !== "swap") continue;
-      for (const m2 of c3.perMonster) {
+    const dropOf = (c4, hrid) => improve.candidates.find((d) => d.kind === "swap" && !d.hrid && d.replaces === c4.replaces && d.setupName === c4.setupName)?.perMonster.find((m2) => m2.hrid === hrid);
+    for (const c4 of improve.candidates) {
+      if (c4.kind !== "swap") continue;
+      for (const m2 of c4.perMonster) {
         if (m2.levels < 1 || m2.after <= m2.before) continue;
-        const drop = c3.hrid && c3.replaces ? dropOf(c3, m2.hrid) : null;
+        const drop = c4.hrid && c4.replaces ? dropOf(c4, m2.hrid) : null;
         if (drop && m2.levels < drop.levels + 1) continue;
         const known = out.get(m2.hrid);
-        if (!known || m2.levels > known.levels) out.set(m2.hrid, { levels: m2.levels, label: c3.label });
+        if (!known || m2.levels > known.levels) out.set(m2.hrid, { levels: m2.levels, label: c4.label });
       }
     }
     return new Map([...out].map(([hrid, s3]) => [hrid, `${esc(s3.label)} <span class="mwia-dim">(\u2248 +${s3.levels.toFixed(1)} levels)</span>`]));
   }
   function improveHtml(improve) {
-    const general = improve.candidates.filter((c3) => c3.kind !== "swap").sort((a, b) => b.levels - a.levels);
-    const useful = general.filter((c3) => c3.levels >= 0.5);
+    const general = improve.candidates.filter((c4) => c4.kind !== "swap").sort((a, b) => b.levels - a.levels);
+    const useful = general.filter((c4) => c4.levels >= 0.5);
     let html = `<h3>What takes you further</h3>
       <p class="mwia-dim">Each change is simulated against every monster, with the loadout you'd use for it, at the room level where you now win about
       half the rooms (${improve.rooms} rooms each). The gain is shown as room levels: how much deeper you could go for the same win rate, averaged over
@@ -12286,22 +12351,22 @@ ${triggerWindowReport()}`, false);
     if (!useful.length) html += `<p>None of the crates, skill levels or ability levels tested here takes you clearly further.</p>`;
     else {
       html += `<table class="mwia-table mwia-wide"><thead><tr><th>Work on</th><th class="mwia-num" title="Room levels gained, averaged over the ten room types">\u2248 Room levels</th><th>Helps most against</th></tr></thead><tbody>`;
-      for (const c3 of useful) {
-        const most = [...c3.perMonster].filter((m2) => m2.levels >= 1).sort((a, b) => b.levels - a.levels).slice(0, 4);
-        html += `<tr><td>${esc(c3.label)}</td><td class="mwia-num">+${c3.levels.toFixed(1)}</td>
+      for (const c4 of useful) {
+        const most = [...c4.perMonster].filter((m2) => m2.levels >= 1).sort((a, b) => b.levels - a.levels).slice(0, 4);
+        html += `<tr><td>${esc(c4.label)}</td><td class="mwia-num">+${c4.levels.toFixed(1)}</td>
               <td>${most.map((m2) => `${esc(monsterName(m2.hrid))} <span class="mwia-dim">+${m2.levels.toFixed(1)}</span>`).join(", ") || '<span class="mwia-dim">spread out</span>'}</td></tr>`;
       }
       html += `</tbody></table>`;
     }
-    const flat = [...new Set(general.filter((c3) => c3.levels < 0.5).map((c3) => c3.label))].map(esc);
+    const flat = [...new Set(general.filter((c4) => c4.levels < 0.5).map((c4) => c4.label))].map(esc);
     if (flat.length) html += `<p class="mwia-dim">No clear effect (within the noise): ${flat.join(", ")}.</p>`;
     html += `<p class="mwia-dim"><b>Better with</b> in the table above: an ability you know in place of one that monster's loadout uses.</p>`;
     return html;
   }
-  function pickText(p2, coins10) {
+  function pickText(p2, coins11) {
     const gear = (hrid, level) => `${esc(itemName(hrid))}${level ? " +" + level : ""}`;
     const levels = `<span class="mwia-dim">\u2248 +${p2.levels.toFixed(1)} room levels</span>`;
-    const price = p2.cost ? coins10(p2.cost) : p2.owned ? '<span class="mwia-ok">you own it</span>' : "free";
+    const price = p2.cost ? coins11(p2.cost) : p2.owned ? '<span class="mwia-ok">you own it</span>' : "free";
     if (p2.kind === "gear") {
       const how = p2.enhance ? ` <span class="mwia-dim">(\u{1F528} enhance it yourself)</span>` : "";
       return `${cap2(p2.slot.replace("_", " "))}: <b>${gear(p2.hrid, p2.enhancementLevel)}</b>${p2.replaces ? ` instead of ${gear(p2.replaces.hrid, p2.replaces.enhancementLevel)}` : ""}${how} \u2013 ${price} \xB7 ${levels}`;
@@ -12322,7 +12387,7 @@ ${triggerWindowReport()}`, false);
     }
     return items;
   }
-  function buildHtml(build, data, settings2, busy, settingsHtml3, cartButton5, coins10) {
+  function buildHtml(build, data, settings2, busy, settingsHtml4, cartButton5, coins11) {
     const style = buildStyleSetting(settings2);
     const targets = monstersFor(data, style).map((h3) => esc(monsterName(h3)));
     let html = `<h3>Build a loadout for the Labyrinth</h3>
@@ -12331,17 +12396,17 @@ ${triggerWindowReport()}`, false);
       win about half. Ranked by room levels per coin \u2013 for winning 2-minute duels, not for XP or loot.</p>
       <div class="mwia-settings"><label title="The attack style to build for; the room types weak to it are the targets">Fight as
         <select data-setting="labyStyle">${ATTACK_STYLES.map((s3) => `<option value="${s3}" ${s3 === style ? "selected" : ""}>${cap2(s3)}</option>`).join("")}</select></label></div>
-      ${settingsHtml3(["gear", "budget", "spending"])}
+      ${settingsHtml4(["gear", "budget", "spending"])}
       <p class="mwia-dim">For: ${targets.join(", ") || "no room type"}.</p>
       <button class="mwia-btn" data-action="laby-build" ${busy ? "disabled" : ""}>Build loadout</button>`;
     if (!build || build.style !== style) return html;
-    return html + builtHtml(build, `<b>${cap2(build.style)} loadout</b>`, cartButton5, coins10);
+    return html + builtHtml(build, `<b>${cap2(build.style)} loadout</b>`, cartButton5, coins11);
   }
-  function builtHtml(build, title, cartButton5, coins10) {
+  function builtHtml(build, title, cartButton5, coins11) {
     const before = new Map(build.before.map((m2) => [m2.hrid, m2]));
-    let html = `<div class="mwia-reco">${title} \u2013 ${build.picks.length || build.starter ? `for ${coins10(build.spent)} of your ${coins10(build.budget)}` : "nothing to buy"}`;
-    if (build.starter) html += `<br>Weapon: <b>${esc(itemName(build.starter.hrid))}${build.starter.enhancementLevel ? " +" + build.starter.enhancementLevel : ""}</b> ${build.starter.owned ? '<span class="mwia-ok">you own it</span>' : "\u2013 " + coins10(build.starter.cost)}`;
-    html += `<ol class="mwia-plan">${build.picks.map((p2) => `<li>${pickText(p2, coins10)}</li>`).join("") || "<li>Nothing tested takes these rooms clearly further within the budget.</li>"}</ol>`;
+    let html = `<div class="mwia-reco">${title} \u2013 ${build.picks.length || build.starter ? `for ${coins11(build.spent)} of your ${coins11(build.budget)}` : "nothing to buy"}`;
+    if (build.starter) html += `<br>Weapon: <b>${esc(itemName(build.starter.hrid))}${build.starter.enhancementLevel ? " +" + build.starter.enhancementLevel : ""}</b> ${build.starter.owned ? '<span class="mwia-ok">you own it</span>' : "\u2013 " + coins11(build.starter.cost)}`;
+    html += `<ol class="mwia-plan">${build.picks.map((p2) => `<li>${pickText(p2, coins11)}</li>`).join("") || "<li>Nothing tested takes these rooms clearly further within the budget.</li>"}</ol>`;
     const cart = cartOf(build);
     if (cart.length) html += cartButton5(cart, "\u{1F6D2} Add all to the cart");
     html += `</div><table class="mwia-table mwia-wide mwia-laby-built"><thead><tr><th>Monster</th><th class="mwia-num" title="Highest room level with at least ${pctText(SAFE_WIN)} of the rooms won">Safe: now</th><th class="mwia-num">Safe: built</th><th class="mwia-num" title="Room level where you win half the rooms">50%: now</th><th class="mwia-num">50%: built</th></tr></thead><tbody>`;
@@ -12353,7 +12418,7 @@ ${triggerWindowReport()}`, false);
     }
     html += `</tbody></table>`;
     if (build.nearMisses?.length) {
-      html += `<details class="mwia-skill-sec"><summary>Also tested: the closest that didn't make the list (on top of it)</summary><ul>${build.nearMisses.map((p2) => `<li>${pickText(p2, coins10)}</li>`).join("")}</ul></details>`;
+      html += `<details class="mwia-skill-sec"><summary>Also tested: the closest that didn't make the list (on top of it)</summary><ul>${build.nearMisses.map((p2) => `<li>${pickText(p2, coins11)}</li>`).join("")}</ul></details>`;
     }
     html += `<p class="mwia-dim">"Now" is the loadout's gear${build.starter ? " with the weapon above" : ""}. Put the list on in the game, save it as a
       loadout and pick it for these room types in the Labyrinth automation. ${build.tested} changes tested; each has to take you at least half a room level further
@@ -12383,15 +12448,15 @@ ${triggerWindowReport()}`, false);
       <span class="mwia-dim">after changing gear or loadouts (it takes a while; you can close the game meanwhile).</span></div>`;
     return html;
   }
-  function piBuildsHtml(result, data, cartButton5, coins10 = shortCoins) {
+  function piBuildsHtml(result, data, cartButton5, coins11 = shortCoins) {
     if (!result?.builds?.length) return "";
     let html = `<h3>Upgrades for each loadout <span class="mwia-dim">(from your Pi, ${whenText(result.at)})</span></h3>
       <p class="mwia-dim">For every loadout the check picks for some room type: starting from what it wears, every piece of gear, ability and book within your
-      budget (${coins10(result.builds.find((b) => b.build)?.build.budget || 0)}) tried against the room types weak to its attack style \u2013 as <b>Build a loadout</b> below does.</p>`;
+      budget (${coins11(result.builds.find((b) => b.build)?.build.budget || 0)}) tried against the room types weak to its attack style \u2013 as <b>Build a loadout</b> below does.</p>`;
     for (const b of result.builds) {
       const title = `<b>${esc(b.setupName)}</b> <span class="mwia-dim">(${cap2(b.style)}: ${monstersFor(data, b.style).map((h3) => esc(monsterName(h3))).join(", ") || "no room type"})</span>`;
       if (b.error || !b.build) html += `<div class="mwia-reco">${title}: <span class="mwia-bad">${esc(b.error || "no result")}</span></div>`;
-      else html += builtHtml(b.build, title, cartButton5, coins10);
+      else html += builtHtml(b.build, title, cartButton5, coins11);
     }
     return html;
   }
@@ -12436,12 +12501,12 @@ ${triggerWindowReport()}`, false);
       A value of ${SKIP_NEVER} never skips.</p>`;
     return html;
   }
-  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml3, slotted, setupsNote, cartButton: cartButton5, coins: coins10 = shortCoins, attempts = "", runs = "", skip = "", pi = "", piBuilds = "" }) {
+  function renderLabyrinth({ lab, improve, build, profileOf, data, settings: settings2, busy, settingsHtml: settingsHtml4, slotted, setupsNote, cartButton: cartButton5, coins: coins11 = shortCoins, attempts = "", runs = "", skip = "", pi = "", piBuilds = "" }) {
     const level = roomLevelSetting(settings2);
     let html = `<p>Simulates your combat loadouts against each of the ten Labyrinth monsters, room level by room level, as the game fights a combat room:
       1 against 1, scaled to the room level, from full HP and mana, <b>no food or drinks</b> (only the crates you open on entry) and <b>2 minutes</b> to win.
       The game's Labyrinth automation can put on a loadout for each room type, so every monster is judged with the loadout that does best against it.</p>
-      ${pi}${settingsHtml3(["accuracy"])}${setupsNote}
+      ${pi}${settingsHtml4(["accuracy"])}${setupsNote}
       <div class="mwia-settings">${crateSelect(settings2, "coffee", slotted.coffee)}${crateSelect(settings2, "food", slotted.food)}${floorSelect(level)}
       <label title="The room level to judge the rooms at; changing it needs no new simulation">Room level
         <input data-setting="labyLevel" type="number" min="1" max="300" step="1" size="4" value="${level}"></label></div>
@@ -12459,7 +12524,7 @@ ${triggerWindowReport()}`, false);
     html += skip;
     html += runs;
     html += piBuilds;
-    html += buildHtml(build, data, settings2, busy, settingsHtml3, cartButton5, coins10);
+    html += buildHtml(build, data, settings2, busy, settingsHtml4, cartButton5, coins11);
     html += attempts;
     html += `<h3>On the Labyrinth map</h3>
       <p>Next: marks on the game's Labyrinth map (and later its automation settings) saying which loadout to use in each room. For that the script
@@ -12481,7 +12546,7 @@ ${triggerWindowReport()}`, false);
         lines.push(`${monsterName(m2.hrid)} (${m2.setupName}): safe up to ${m2.safe ?? "<5"} \xB7 50% at ${m2.half === null ? "<5" : Math.round(m2.half)} \xB7 at ${level}: ${pctText(winAt(m2.curve, level))}`);
       }
     }
-    if (improve) for (const c3 of improve.candidates.filter((c4) => c4.kind !== "swap" && c4.levels >= 0.5).sort((a, b) => b.levels - a.levels)) lines.push(`Work on: ${c3.label} \u2248 +${c3.levels.toFixed(1)} room levels`);
+    if (improve) for (const c4 of improve.candidates.filter((c5) => c5.kind !== "swap" && c5.levels >= 0.5).sort((a, b) => b.levels - a.levels)) lines.push(`Work on: ${c4.label} \u2248 +${c4.levels.toFixed(1)} room levels`);
     if (build) {
       lines.push(`Built ${build.style} loadout for ${shortCoins(build.spent)}${build.starter ? ` with ${itemName(build.starter.hrid)}` : ""}: ${build.picks.map((p2) => p2.kind === "triggers" ? "no triggers" : p2.kind === "dropAll" ? "no abilities" : p2.kind === "drop" ? "without " + abilityName(p2.hrid) : p2.kind === "gear" ? itemName(p2.hrid) + (p2.enhancementLevel ? " +" + p2.enhancementLevel : "") : abilityName(p2.hrid) + (p2.kind === "abilityLevel" ? ` ${p2.level}` : "")).join(", ") || "nothing"}`);
       for (const m2 of build.after) lines.push(`  ${monsterName(m2.hrid)}: 50% at ${m2.half === null ? "<5" : Math.round(m2.half)}`);
@@ -12581,9 +12646,9 @@ ${triggerWindowReport()}`, false);
         copy.querySelectorAll('[class*="mwia"]').forEach((n5) => n5.remove());
         return copy;
       });
-      rows.slice(0, 30).forEach((row, i) => {
-        const cells = [...row.querySelectorAll('td, [role="cell"]')].map((c3) => short2(clean4(c3.textContent), 30));
-        const controls2 = [...row.querySelectorAll(CONTROLS)].filter((c3, _, all) => !all.some((o2) => o2 !== c3 && o2.contains(c3)));
+      rows.slice(0, 30).forEach((row2, i) => {
+        const cells = [...row2.querySelectorAll('td, [role="cell"]')].map((c4) => short2(clean4(c4.textContent), 30));
+        const controls2 = [...row2.querySelectorAll(CONTROLS)].filter((c4, _, all) => !all.some((o2) => o2 !== c4 && o2.contains(c4)));
         lines.push(`  row ${i + 1}: ${cells.join(" | ")}${controls2.length ? ` \u27F6 ${controls2.map(controlText).join(" ; ")}` : ""}`);
       });
       if (rows.length > 30) lines.push(`  \u2026 ${rows.length - 30} more rows`);
@@ -12834,39 +12899,39 @@ ${triggerWindowReport()}`, false);
   }
   var hours = (minutes) => minutes >= 90 ? `${(minutes / 60).toFixed(1)} h` : `${Math.round(minutes)} min`;
   var signedMinutes = (minutes) => Math.abs(minutes) < 1 ? "" : `${minutes > 0 ? "+" : "\u2212"}${hours(Math.abs(minutes))}`;
-  function costText2(c3, result) {
-    if (c3.kind === "shop") {
-      const can = c3.affordable === null ? "" : c3.affordable ? ` <span class="mwia-ok" title="You have ${result.setup.tokens} tokens">\u2713</span>` : ` <span class="mwia-dim" title="You have ${result.setup.tokens} tokens">(you have ${result.setup.tokens})</span>`;
-      return `${c3.tokens} tokens${can}`;
+  function costText2(c4, result) {
+    if (c4.kind === "shop") {
+      const can = c4.affordable === null ? "" : c4.affordable ? ` <span class="mwia-ok" title="You have ${result.setup.tokens} tokens">\u2713</span>` : ` <span class="mwia-dim" title="You have ${result.setup.tokens} tokens">(you have ${result.setup.tokens})</span>`;
+      return `${c4.tokens} tokens${can}`;
     }
-    if (c3.kind === "skill") return c3.xp === null || c3.xp === void 0 ? "\u2013" : `${short3(c3.xp)} XP`;
-    if (c3.kind === "combat") return `<span class="mwia-dim" title="How to get them: What should I improve? and Build a loadout, above and below">${c3.loadout ? esc(c3.loadout) : ""}</span>`;
-    return c3.note ? `<span class="mwia-dim">${esc(c3.note)}</span>` : "";
+    if (c4.kind === "skill") return c4.xp === null || c4.xp === void 0 ? "\u2013" : `${short3(c4.xp)} XP`;
+    if (c4.kind === "combat") return `<span class="mwia-dim" title="How to get them: What should I improve? and Build a loadout, above and below">${c4.loadout ? esc(c4.loadout) : ""}</span>`;
+    return c4.note ? `<span class="mwia-dim">${esc(c4.note)}</span>` : "";
   }
-  var listed = (c3) => c3.sure && c3.floors >= WORTH || c3.minutes <= -3 && c3.floors > -WORTH;
+  var listed = (c4) => c4.sure && c4.floors >= WORTH || c4.minutes <= -3 && c4.floors > -WORTH;
   function candidateRows(result) {
     let html = "";
     let hidden = 0;
     for (const [kind, title] of GROUPS) {
-      const all = result.candidates.filter((c3) => c3.kind === kind);
+      const all = result.candidates.filter((c4) => c4.kind === kind);
       const list = all.filter(listed);
       hidden += all.length - list.length;
       if (!list.length) continue;
       const extra = kind === "shop" && result.setup.tokens !== null ? ` <span class="mwia-dim">(you have ${result.setup.tokens} tokens)</span>` : "";
       html += `<tr><th colspan="5">${title}${extra}</th></tr>`;
-      for (const c3 of list) {
-        const further = c3.sure && c3.floors >= WORTH;
-        const per = further && c3.kind === "shop" && c3.tokens ? ` <span class="mwia-dim" title="Floors more per 100 tokens">(${(100 * c3.floors / c3.tokens).toFixed(2)} / 100 tokens)</span>` : "";
-        html += `<tr><td>${esc(c3.label)}</td><td title="\xB1 ${c3.error.toFixed(2)}">${further ? signed2(c3.floors) + per : "\u2013"}</td><td>${further ? pct5(c3.reach) : ""}</td><td>${signedMinutes(c3.minutes)}</td><td>${costText2(c3, result)}</td></tr>`;
+      for (const c4 of list) {
+        const further = c4.sure && c4.floors >= WORTH;
+        const per = further && c4.kind === "shop" && c4.tokens ? ` <span class="mwia-dim" title="Floors more per 100 tokens">(${(100 * c4.floors / c4.tokens).toFixed(2)} / 100 tokens)</span>` : "";
+        html += `<tr><td>${esc(c4.label)}</td><td title="\xB1 ${c4.error.toFixed(2)}">${further ? signed2(c4.floors) + per : "\u2013"}</td><td>${further ? pct5(c4.reach) : ""}</td><td>${signedMinutes(c4.minutes)}</td><td>${costText2(c4, result)}</td></tr>`;
       }
     }
     return { html, hidden };
   }
-  function calibrationHtml(c3) {
-    if (!c3?.tries) return "";
-    const formula = `In the ${c3.open} tries at skilling rooms that could go either way the formula expected ${c3.expected} wins; you won ${c3.won}.`;
-    if (c3.applied) return `<p><b>Fitted to your ${c3.tries} logged skilling tries:</b> ${formula} They fit best with <b>${(100 * c3.penalty).toFixed(2)}% success lost per level below the room</b> instead of the formula's 1% \u2013 used here and for the map's marks from now on, and fitted again with every run.</p>`;
-    return `<p class="mwia-dim">${formula} ${c3.open < 15 ? "Too few yet to tell whether the formula is off." : `They would fit ${(100 * c3.best).toFixed(2)}% success lost per level below the room slightly better than the formula's 1%, not surely enough to use it.`}</p>`;
+  function calibrationHtml(c4) {
+    if (!c4?.tries) return "";
+    const formula = `In the ${c4.open} tries at skilling rooms that could go either way the formula expected ${c4.expected} wins; you won ${c4.won}.`;
+    if (c4.applied) return `<p><b>Fitted to your ${c4.tries} logged skilling tries:</b> ${formula} They fit best with <b>${(100 * c4.penalty).toFixed(2)}% success lost per level below the room</b> instead of the formula's 1% \u2013 used here and for the map's marks from now on, and fitted again with every run.</p>`;
+    return `<p class="mwia-dim">${formula} ${c4.open < 15 ? "Too few yet to tell whether the formula is off." : `They would fit ${(100 * c4.best).toFixed(2)}% success lost per level below the room slightly better than the formula's 1%, not surely enough to use it.`}</p>`;
   }
   function runsHtml({ run, setup }) {
     let html = `<h3>How far do you get?</h3>
@@ -12915,7 +12980,7 @@ ${triggerWindowReport()}`, false);
     const lines = [`Runs: ${result.now.floors.toFixed(2)} floors on average in ${hours(result.now.minutes)}, floor ${result.target} reached in ${pct5(result.now.reach)}, ${pct5(result.now.walled)} end with torches left (${result.runs} runs, ${result.setup.torches} ${result.setup.torchTier} torches, ${result.setup.shrouds} ${result.setup.shroudTier} shrouds, automation to floor ${result.setup.autoFloors}, ${result.setup.patience} tries a room, ${result.model.rooms} rooms recorded)`];
     if (result.calibration?.tries) lines.push(`Skilling formula against ${result.calibration.tries} tries: expected ${result.calibration.expected} wins of ${result.calibration.open} open ones, won ${result.calibration.won}; fitted penalty ${(100 * result.calibration.best).toFixed(2)}% a level${result.calibration.applied ? " (used)" : ""}`);
     lines.push(`Floors reached: ${result.reach.filter((f) => f.share >= 5e-3).map((f) => `${f.floor}: ${pct5(f.share)}`).join(", ")}`);
-    for (const c3 of result.candidates.filter(listed).slice(0, 15)) lines.push(`Further: ${c3.label} ${signed2(c3.floors)} floors${signedMinutes(c3.minutes) ? `, ${signedMinutes(c3.minutes)}` : ""}${c3.tokens ? ` for ${c3.tokens} tokens` : ""}${c3.xp ? ` for ${short3(c3.xp)} XP` : ""}`);
+    for (const c4 of result.candidates.filter(listed).slice(0, 15)) lines.push(`Further: ${c4.label} ${signed2(c4.floors)} floors${signedMinutes(c4.minutes) ? `, ${signedMinutes(c4.minutes)}` : ""}${c4.tokens ? ` for ${c4.tokens} tokens` : ""}${c4.xp ? ` for ${short3(c4.xp)} XP` : ""}`);
     return lines;
   }
 
@@ -13127,21 +13192,21 @@ ${triggerWindowReport()}`, false);
   }
   var ACTION_FIELDS = ["hrid", "function", "type", "category", "name", "levelRequirement", "baseTimeCost", "experienceGain", "dropTable", "essenceDropTable", "rareDropTable", "upgradeItemHrid", "inputItems", "outputItems", "sortIndex"];
   function planData(data) {
-    const pick2 = (object, fields) => Object.fromEntries(fields.filter((f) => object[f] !== void 0).map((f) => [f, object[f]]));
+    const pick3 = (object, fields) => Object.fromEntries(fields.filter((f) => object[f] !== void 0).map((f) => [f, object[f]]));
     const types = new Set(SKILLING_SKILLS.map((s3) => ACTION_TYPE + s3));
     const actionDetailMap = {};
     for (const [hrid, action] of Object.entries(data.actionDetailMap || {})) {
-      if (types.has(action.type) && /\/(gathering|production)$/.test(action.function || "")) actionDetailMap[hrid] = pick2(action, ACTION_FIELDS);
+      if (types.has(action.type) && /\/(gathering|production)$/.test(action.function || "")) actionDetailMap[hrid] = pick3(action, ACTION_FIELDS);
     }
     const itemDetailMap = {};
     for (const [hrid, item] of Object.entries(data.itemDetailMap || {})) {
-      const out = pick2(item, ["hrid", "name", "isTradable", "sellPrice", "sortIndex"]);
-      if (item.consumableDetail) out.consumableDetail = pick2(item.consumableDetail, ["usableInActionTypeMap", "buffs"]);
-      if (item.equipmentDetail) out.equipmentDetail = pick2(item.equipmentDetail, ["type", "levelRequirements", "noncombatStats", "noncombatEnhancementBonuses"]);
+      const out = pick3(item, ["hrid", "name", "isTradable", "sellPrice", "sortIndex"]);
+      if (item.consumableDetail) out.consumableDetail = pick3(item.consumableDetail, ["usableInActionTypeMap", "buffs"]);
+      if (item.equipmentDetail) out.equipmentDetail = pick3(item.equipmentDetail, ["type", "levelRequirements", "noncombatStats", "noncombatEnhancementBonuses"]);
       itemDetailMap[hrid] = out;
     }
     const houseRoomDetailMap = {};
-    for (const [hrid, room] of Object.entries(data.houseRoomDetailMap || {})) houseRoomDetailMap[hrid] = pick2(room, ["hrid", "name", "skillHrid", "usableInActionTypeMap", "actionBuffs", "globalBuffs", "upgradeCostsMap"]);
+    for (const [hrid, room] of Object.entries(data.houseRoomDetailMap || {})) houseRoomDetailMap[hrid] = pick3(room, ["hrid", "name", "skillHrid", "usableInActionTypeMap", "actionBuffs", "globalBuffs", "upgradeCostsMap"]);
     const trimmed = {
       actionDetailMap,
       itemDetailMap,
@@ -13156,9 +13221,9 @@ ${triggerWindowReport()}`, false);
     let h1 = 2166136261;
     let h22 = 16777619 ^ text.length;
     for (let i = 0; i < text.length; i++) {
-      const c3 = text.charCodeAt(i);
-      h1 = Math.imul(h1 ^ c3, 16777619);
-      h22 = Math.imul(h22 ^ c3, 1540483477);
+      const c4 = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c4, 16777619);
+      h22 = Math.imul(h22 ^ c4, 1540483477);
     }
     return (h1 >>> 0).toString(16).padStart(8, "0") + (h22 >>> 0).toString(16).padStart(8, "0");
   }
@@ -13482,9 +13547,398 @@ ${triggerWindowReport()}`, false);
     return html;
   }
 
+  // src/combat-plan.js
+  var COMBAT_PLAN_DAYS = [7, 14, 30, 60, 90];
+  var BLOCK_HOURS = 8;
+  var BLOCKS_A_DAY = 24 / BLOCK_HOURS;
+
+  // src/combat-plan-sync.js
+  var KEPT_KEY3 = "mwia-combat-plan";
+  var POLL_MS4 = 15e3;
+  var POLLS4 = 400;
+  var c3 = { deps: null, result: null, status: null, sent: null, error: "", reading: null, sending: null, asked: 0, polls: 0, listeners: /* @__PURE__ */ new Set(), loaded: null };
+  var characterId6 = () => state.character?.character?.id ?? null;
+  var onCombatPlanChange = (listener) => c3.listeners.add(listener);
+  var notify5 = () => c3.listeners.forEach((listener) => listener());
+  function combatPlanOptions(settings2) {
+    return {
+      style: settings2.cplanStyle || "magic",
+      meleeType: settings2.cplanMelee || "any",
+      days: Number(settings2.cplanDays) || 30,
+      reserve: Number(settings2.cplanReserve ?? 5e6) || 0,
+      charms: !!settings2.cplanCharms,
+      setupId: settings2.cplanSetup || "auto",
+      acceptRareDeaths: !!settings2.acceptRareDeaths
+    };
+  }
+  function kept3() {
+    try {
+      return JSON.parse(localStorage.getItem(KEPT_KEY3) || "{}") || {};
+    } catch {
+      return {};
+    }
+  }
+  function keep3() {
+    const id = characterId6();
+    if (id === null) return;
+    try {
+      localStorage.setItem(KEPT_KEY3, JSON.stringify({ ...kept3(), [id]: { result: c3.result, status: c3.status, sent: c3.sent } }));
+    } catch {
+    }
+  }
+  function restore3() {
+    const id = characterId6();
+    if (id === null || c3.loaded === id) return;
+    c3.loaded = id;
+    const entry = kept3()[id];
+    c3.result = entry?.result || null;
+    c3.status = entry?.status || null;
+    c3.sent = entry?.sent || null;
+  }
+  function startCombatPlan(deps) {
+    c3.deps = deps;
+    onPiSync(() => {
+      if (!piStatus().combatPlan || characterId6() === null) return;
+      restore3();
+      sendSettings(false).then(() => readCombatPlan()).catch((error) => console.warn("[MWI Advisor] combat plan on the Pi", error));
+    });
+  }
+  function sendSettings(now2) {
+    const config = piConfig();
+    const id = characterId6();
+    if (!config || id === null) return Promise.resolve(false);
+    restore3();
+    const mine2 = (c3.sending || Promise.resolve()).then(async () => {
+      try {
+        const settings2 = combatPlanOptions(c3.deps.settings());
+        const sig = JSON.stringify(settings2);
+        if (!now2 && c3.sent === sig) return false;
+        const at2 = Date.now();
+        const response = await fetch(`${config.url}/combat-plan`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ character: { id, name: state.character.character?.name || null }, settings: settings2, version: scriptVersion(), now: !!now2 }),
+          cache: "no-store",
+          signal: AbortSignal.timeout?.(6e4)
+        });
+        if (response.status === 404 || response.status === 405) throw new Error("your Pi doesn't work out combat plans yet \u2013 update it (git pull, docker compose up -d --build)");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const answer = await response.json();
+        c3.sent = sig;
+        c3.error = answer.loadouts === false ? "The Pi has none of your loadouts yet: they go with the Labyrinth's requests a minute or so after the page loads." : "";
+        keep3();
+        if (answer.started) {
+          c3.asked = at2;
+          c3.polls = 0;
+          setTimeout(poll4, POLL_MS4);
+        }
+        return true;
+      } catch (error) {
+        c3.error = `Asking the Pi: ${error.message || error}`;
+        return false;
+      } finally {
+        if (c3.sending === mine2) c3.sending = null;
+        notify5();
+      }
+    });
+    c3.sending = mine2;
+    return mine2;
+  }
+  async function askCombatPlanNow() {
+    c3.error = "";
+    await sendSettings(true);
+  }
+  function poll4() {
+    c3.polls++;
+    readCombatPlan().then(() => {
+      if (!c3.asked) return;
+      if (c3.result && c3.result.at >= c3.asked - 6e4 && !c3.status?.running && !c3.status?.queued) c3.asked = 0;
+      else if (c3.status?.error && !c3.status.running && !c3.status.queued) {
+        c3.error = `The Pi: ${c3.status.error}`;
+        c3.asked = 0;
+      } else if (c3.polls >= POLLS4) c3.asked = 0;
+      else setTimeout(poll4, POLL_MS4);
+      notify5();
+    });
+  }
+  function readCombatPlan() {
+    const config = piConfig();
+    const id = characterId6();
+    if (!config || id === null) return Promise.resolve();
+    restore3();
+    c3.reading || (c3.reading = (async () => {
+      try {
+        const response = await fetch(`${config.url}/combat-plan?character=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${config.key}` }, cache: "no-store", signal: AbortSignal.timeout?.(6e4) });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const answer = await response.json();
+        c3.status = { ...answer.status || {}, hour: answer.hour ?? null };
+        if (c3.status.loadouts && c3.error.startsWith("The Pi has none")) c3.error = "";
+        const changed2 = answer.result && answer.result.at !== c3.result?.at;
+        if (answer.result) c3.result = answer.result;
+        keep3();
+        if (changed2) c3.deps.onResult?.(c3.result);
+      } catch (error) {
+        if (c3.asked) c3.error = `Reading from the Pi: ${error.message || error}`;
+      } finally {
+        c3.reading = null;
+        notify5();
+      }
+    })());
+    return c3.reading;
+  }
+  function combatPlanState() {
+    restore3();
+    return {
+      linked: !!piConfig(),
+      works: !!piStatus().combatPlan,
+      result: c3.result,
+      status: c3.status,
+      error: c3.error,
+      waiting: c3.asked > 0 || !!c3.status?.running || !!c3.status?.queued,
+      stale: !!c3.result && c3.sent !== null && JSON.stringify(c3.result.settings ? pick2(c3.result.settings) : null) !== JSON.stringify(pick2(JSON.parse(c3.sent)))
+    };
+  }
+  var pick2 = (s3) => ({ style: s3.style, meleeType: s3.meleeType, days: s3.days, reserve: s3.reserve, charms: !!s3.charms, setupId: s3.setupId });
+  function combatPlanNow() {
+    restore3();
+    const phases = c3.result?.phases || [];
+    return phases.find((p2) => p2.kind === "combat") || null;
+  }
+  var combatPlanResult = () => (restore3(), c3.result);
+
+  // src/combat-plan-ui.js
+  var RESERVE_CHOICES = [0, 5e6, 2e7, 5e7, 1e8, 25e7];
+  var CONSUMABLE_HOURS_MAX = 72;
+  var SLOTS2 = ["main_hand", "two_hand", "off_hand", "head", "body", "legs", "feet", "hands", "neck", "earrings", "ring", "back", "charm", "pouch"];
+  var coins9 = (n5) => (n5 < 0 ? "\u2212" : "") + shortCoins(Math.abs(n5));
+  var cap4 = (s3) => s3.charAt(0).toUpperCase() + s3.slice(1);
+  var dayText2 = (d) => (Math.round(d * 3) / 3).toFixed(1).replace(/\.0$/, "");
+  var zoneText = (z) => `${esc(actionName(z.zoneHrid))}${z.tier ? ` T${z.tier}` : ""}`;
+  var plus = (hrid, level) => `${esc(itemName(hrid))}${level ? ` +${level}` : ""}`;
+  var ok = (good) => good ? `<span class="mwia-cp-ok">\u2713</span>` : `<span class="mwia-cp-no">\u2717</span>`;
+  var row = (good, html) => `<li class="${good ? "mwia-cp-green" : "mwia-cp-red"}">${ok(good)} ${html}</li>`;
+  function ago3(ms) {
+    if (!ms) return "\u2014";
+    const minutes = Math.round((Date.now() - ms) / 6e4);
+    if (minutes < 1) return "just now";
+    if (minutes < 90) return `${minutes} min ago`;
+    const hours2 = Math.round(minutes / 60);
+    return hours2 < 48 ? `${hours2} h ago` : `${Math.round(hours2 / 24)} days ago`;
+  }
+  function inTime2(ms) {
+    const minutes = Math.round((ms - Date.now()) / 6e4);
+    if (minutes <= 0) return "soon";
+    if (minutes < 90) return `in ${minutes} min`;
+    return `in ${Math.round(minutes / 60)} h`;
+  }
+  function ownedNow() {
+    const data = getClientData();
+    if (!state.character || !data) return null;
+    const profile = buildProfile(state.character, state.items, data);
+    const gear = [...Object.values(profile.equipment || {}), ...profile.inventory || []].filter(Boolean);
+    return {
+      profile,
+      hasGear: (hrid, level) => gear.some((g4) => g4.hrid === hrid && (g4.enhancementLevel || 0) >= (level || 0)),
+      abilityLevel: (hrid) => profile.learnedAbilities?.[hrid] || 0,
+      room: (hrid) => profile.houseRooms?.[hrid] || 0,
+      count: (hrid) => heldStock(state.character, state.items, hrid).inventory
+    };
+  }
+  function planLoadout(result, setups) {
+    const id = result?.setup?.id;
+    return id && setups.find((s3) => s3.id === id) || null;
+  }
+  var sameTriggers2 = (a, b) => JSON.stringify(cleanTriggers(a || [])) === JSON.stringify(cleanTriggers(b || []));
+  var gearKey = (g4) => g4 ? `${g4.hrid}+${g4.enhancementLevel || 0}` : "";
+  var normalAbilities = (list) => (list || []).slice(1).map((a) => a?.hrid || null);
+  function consumablesToBuy(phase, have6) {
+    const hours2 = Math.min(CONSUMABLE_HOURS_MAX, (phase.to - phase.from) * 24);
+    const wanted = [...phase.loadout.drinks || [], ...phase.loadout.food || []].filter(Boolean);
+    return [...new Set(wanted)].map((hrid) => {
+      const need = Math.ceil((phase.rates.consumablesPerHour?.[hrid] || 0) * hours2);
+      const held2 = have6 ? have6.count(hrid) : 0;
+      return { hrid, need, held: held2, missing: Math.max(0, need - held2), hours: hours2 };
+    });
+  }
+  function missingForCart(phase, have6) {
+    const items = [];
+    for (const b of phase.buys || []) {
+      if (b.kind === "gear" && !have6.hasGear(b.hrid, b.enhancementLevel)) items.push({ hrid: b.hrid, enhancementLevel: b.enhancementLevel || 0, quantity: 1 });
+      if ((b.kind === "ability" || b.kind === "abilityLevel") && b.bookHrid && have6.abilityLevel(b.hrid) < b.level) items.push({ hrid: b.bookHrid, quantity: Math.max(1, b.books || 1) - have6.count(b.bookHrid) });
+      if (b.kind === "house" && have6.room(b.hrid) < b.level) for (const m2 of b.materials || []) items.push({ hrid: m2.hrid, quantity: m2.count - have6.count(m2.hrid) });
+    }
+    for (const c4 of consumablesToBuy(phase, have6)) if (c4.missing > 0) items.push({ hrid: c4.hrid, quantity: c4.missing });
+    return items.filter((i) => i.quantity > 0);
+  }
+  function buyRows(phase, have6) {
+    const rows = [];
+    for (const b of phase.buys || []) {
+      if (b.kind === "gear") {
+        const sold = b.sold?.length ? ` <span class="mwia-dim">(sell ${b.sold.map((g4) => plus(g4.hrid, g4.enhancementLevel)).join(", ")})</span>` : "";
+        rows.push(row(have6.hasGear(b.hrid, b.enhancementLevel), `Buy <b>${plus(b.hrid, b.enhancementLevel)}</b> for ${b.slot.replace("_", " ")} \u2013 ${coins9(b.price)}${sold}`));
+      } else if (b.kind === "ability") {
+        rows.push(row(have6.abilityLevel(b.hrid) >= 1, `Buy and read <b>${esc(itemName(b.bookHrid || ""))}</b> \u2013 ${coins9(b.cost)}`));
+      } else if (b.kind === "abilityLevel") {
+        rows.push(row(have6.abilityLevel(b.hrid) >= b.level, `Read ${b.books} \xD7 <b>${esc(itemName(b.bookHrid || ""))}</b> for ${esc(abilityName(b.hrid))} ${b.fromLevel} \u2192 ${b.level} \u2013 ${coins9(b.cost)}`));
+      } else if (b.kind === "house") {
+        rows.push(row(have6.room(b.hrid) >= b.level, `Build <b>${esc(cap4((b.hrid || "").split("/").pop().replace(/_/g, " ")))}</b> level ${b.level} \u2013 materials ${coins9(b.cost)}`));
+      }
+    }
+    for (const c4 of consumablesToBuy(phase, have6)) {
+      rows.push(row(c4.missing === 0, `${c4.need.toLocaleString("en-US")} \xD7 <b>${esc(itemName(c4.hrid))}</b> for ${Math.round(c4.hours)} h <span class="mwia-dim">(you have ${c4.held.toLocaleString("en-US")})</span>`));
+    }
+    return rows;
+  }
+  function loadoutRows2(phase, game) {
+    const rows = [];
+    const want = phase.loadout;
+    const has = game?.profile || null;
+    const data = getClientData();
+    for (const slot of SLOTS2) {
+      const w = want.equipment?.[slot] || null;
+      const g4 = has?.equipment?.[slot] || null;
+      if (!w && !g4) continue;
+      if (!w) {
+        rows.push(row(false, `${slot.replace("_", " ")}: take off ${plus(g4.hrid, g4.enhancementLevel)}`));
+        continue;
+      }
+      rows.push(row(gearKey(w) === gearKey(g4), `${slot.replace("_", " ")}: <b>${plus(w.hrid, w.enhancementLevel)}</b>${g4 && gearKey(w) !== gearKey(g4) ? ` <span class="mwia-dim">(now ${plus(g4.hrid, g4.enhancementLevel)})</span>` : ""}`));
+    }
+    const wantAbilities = normalAbilities(want.abilities);
+    const hasAbilities = normalAbilities(has?.abilities);
+    wantAbilities.forEach((hrid, i) => {
+      if (!hrid && !hasAbilities[i]) return;
+      const good = hrid === (hasAbilities[i] || null);
+      rows.push(row(good, `Ability ${i + 1}: <b>${hrid ? esc(abilityName(hrid)) : "empty"}</b>${!good && hasAbilities[i] ? ` <span class="mwia-dim">(now ${esc(abilityName(hasAbilities[i]))})</span>` : ""}`));
+    });
+    if (want.abilities?.[0]?.hrid || has?.abilities?.[0]?.hrid) {
+      const w = want.abilities?.[0]?.hrid || null;
+      rows.push(row(w === (has?.abilities?.[0]?.hrid || null), `Special: <b>${w ? esc(abilityName(w)) : "empty"}</b>`));
+    }
+    const slots = data && has ? slotCounts(has, data) : null;
+    for (const [kind, label3] of [["drinks", "Drink"], ["food", "Food"]]) {
+      const w = (want[kind] || []).filter(Boolean);
+      const g4 = (has?.[kind] || []).slice(0, slots ? slots[kind] : void 0).filter(Boolean);
+      for (const hrid of w) rows.push(row(g4.includes(hrid), `${label3}: <b>${esc(itemName(hrid))}</b>`));
+      for (const hrid of g4) if (!w.includes(hrid)) rows.push(row(false, `${label3}: take out ${esc(itemName(hrid))}`));
+    }
+    return rows;
+  }
+  function triggerRows(phase, game) {
+    const data = getClientData() || {};
+    const want = phase.loadout;
+    const has = game?.profile || null;
+    const rows = [];
+    const tuned = new Set((phase.triggers || []).map((t4) => t4.hrid));
+    const abilities = (want.abilities || []).map((a) => a?.hrid).filter(Boolean);
+    for (const hrid of abilities) {
+      const w = want.abilityTriggers?.[hrid];
+      if (!w) continue;
+      const good = has ? sameTriggers2(w, has.abilityTriggers?.[hrid]) : false;
+      rows.push(row(good, `${esc(abilityName(hrid))}: <b>${esc(describeTriggers(w, data))}</b>${tuned.has(hrid) ? ' <span class="mwia-dim">(tuned)</span>' : ""}`));
+    }
+    for (const hrid of [...want.food || [], ...want.drinks || []].filter(Boolean)) {
+      const w = want.consumableTriggers?.[hrid];
+      if (!w) continue;
+      const good = has ? sameTriggers2(w, has.consumableTriggers?.[hrid]) : false;
+      rows.push(row(good, `${esc(itemName(hrid))}: <b>${esc(describeTriggers(w, data))}</b>${tuned.has(hrid) ? ' <span class="mwia-dim">(tuned)</span>' : ""}`));
+    }
+    return rows;
+  }
+  function nextHtml(result, setups) {
+    const phases = result.phases || [];
+    const first = phases[0];
+    const fight = phases.find((p2) => p2.kind === "combat");
+    const have6 = ownedNow();
+    if (!first || !have6) return "";
+    const game = planLoadout(result, setups);
+    const parts = [];
+    if (first.kind === "skilling") {
+      parts.push(`<p><b>First: ${dayText2((first.to - first.from) * 24)} h of skilling</b>${first.job ? ` \u2013 ${esc(first.job)}` : ""} (as the \u{1F4C8} plan says) for ${coins9(first.gold)}: ${first.why === "saving up" ? "the plan saves up for gear before it fights" : "it pays for the purchases below"}.</p>`);
+    }
+    if (!fight) return parts.join("") + `<p>The plan doesn't fight within its days.</p>`;
+    const buys = buyRows(fight, have6);
+    const loadout = loadoutRows2(fight, game);
+    const triggers = triggerRows(fight, game);
+    const queued = queuedFight(state.character);
+    const zoneGood = queued && queued.zoneHrid === fight.zone.zoneHrid && (queued.tier || 0) === (fight.zone.tier || 0);
+    const done2 = (rows) => rows.every((r2) => r2.includes("mwia-cp-green"));
+    const head4 = (n5, title, rows) => `<h4 class="${done2(rows) ? "mwia-cp-head-ok" : "mwia-cp-head-no"}">${done2(rows) ? "\u2713" : n5} ${title}</h4>`;
+    const cart = missingForCart(fight, have6);
+    parts.push(`<div class="mwia-cp-next">`);
+    parts.push(`<p><b>Then fight in ${zoneText(fight.zone)}</b> for ${dayText2(fight.to - fight.from)} days \u2013 ${fight.rates.levelsPerDay.toFixed(2)} levels a day, ${coins9(fight.rates.profitPerHour)}/h.</p>`);
+    parts.push(head4(1, "Buy", buys) + (buys.length ? `<ul class="mwia-cp-list">${buys.join("")}</ul>` : `<p class="mwia-dim">Nothing to buy.</p>`));
+    if (cart.length) parts.push(`<button class="mwia-btn" data-action="cplan-cart" title="${esc(cart.map((i) => `${i.quantity} ${itemName(i.hrid)}${i.enhancementLevel ? ` +${i.enhancementLevel}` : ""}`).join(", "))}">\u{1F6D2} Add the ${cart.length} missing to the MWITools cart</button>`);
+    parts.push(head4(2, `Loadout ${game ? `\u201C${esc(game.name)}\u201D` : ""}`, loadout) + (game ? `<ul class="mwia-cp-list">${loadout.join("")}</ul>` : `<p class="mwia-warn">The loadout the plan was made for isn't among yours any more \u2013 pick one under Loadout.</p>`));
+    parts.push(head4(3, "Triggers", triggers) + (triggers.length ? `<ul class="mwia-cp-list">${triggers.join("")}</ul><p class="mwia-dim">The loadout's \u2699 in the game opens its trigger window; \u25B6 Fill in there puts these in, and you tap Save.</p>` : `<p class="mwia-dim">No triggers to set.</p>`));
+    parts.push(head4(4, "Fight", [row(zoneGood, "")]) + `<ul class="mwia-cp-list">${row(zoneGood, `${zoneText(fight.zone)}${queued && !zoneGood ? ` <span class="mwia-dim">(queued now: ${zoneText(queued)})</span>` : ""}`)}</ul>`);
+    parts.push(`</div>`);
+    return parts.join("");
+  }
+  function settingsHtml2(settings2, setups) {
+    const o2 = combatPlanOptions(settings2);
+    const option = (value, label3, current) => `<option value="${esc(String(value))}" ${String(current) === String(value) ? "selected" : ""}>${esc(label3)}</option>`;
+    const loadouts = combatLoadouts(state.character);
+    return `<div class="mwia-settings">
+      <label title="The style the plan trains and fights in; it never switches.">Style <select data-setting="cplanStyle">${["magic", "ranged", "melee"].map((s3) => option(s3, cap4(s3), o2.style)).join("")}</select></label>
+      ${o2.style === "melee" ? `<label title="Keep to one melee style, or let the plan pick the weapon.">Melee <select data-setting="cplanMelee">${["any", "stab", "slash", "smash"].map((s3) => option(s3, s3 === "any" ? "Any weapon" : cap4(s3), o2.meleeType)).join("")}</select></label>` : ""}
+      <label title="How far ahead the plan looks.">Days <select data-setting="cplanDays">${COMBAT_PLAN_DAYS.map((d) => option(d, `${d} days`, o2.days)).join("")}</select></label>
+      <label title="Coins never go below this; everything above it, and what skilling earns, may be spent.">Keep <select data-setting="cplanReserve">${RESERVE_CHOICES.map((r2) => option(r2, r2 ? coins9(r2) : "nothing", o2.reserve)).join("")}</select></label>
+      <label title="The game loadout the plan builds in (its gear, abilities, drinks, food and triggers).">Loadout <select data-setting="cplanSetup">${option("auto", "Auto (the style's)", o2.setupId)}${loadouts.map((l2) => option(l2.id, l2.name || "Loadout", o2.setupId)).join("")}</select></label>
+      <label title="Charms put extra XP into one skill only; off, the plan never buys one."><input type="checkbox" data-setting="cplanCharms" ${o2.charms ? "checked" : ""}> Charms</label>
+      <button class="mwia-btn" data-action="cplan-run" title="Have the Pi work the plan out now (it takes the Pi about an hour; it runs every night anyway).">\u25B6 Work it out now</button>
+    </div>`;
+  }
+  function statusHtml3(st) {
+    const lines = [];
+    const r2 = st.result;
+    if (r2) lines.push(`Worked out ${ago3(r2.finishedAt || r2.at)} (${Math.round((r2.ms || 0) / 6e4)} min on the Pi, from your loadouts as they were ${ago3(r2.loadoutsAt)}).`);
+    if (st.stale) lines.push(`<span class="mwia-warn">Made with other settings \u2013 tap \u25B6 Work it out now (or wait for the night).</span>`);
+    const p2 = st.status?.progress;
+    if (st.status?.running) lines.push(`<span class="mwia-warn">\u23F3 The Pi is working the plan out${p2 ? ` \u2013 ${esc(p2.stage)} ${p2.done}/${p2.total}` : ""}\u2026</span>`);
+    else if (st.waiting) lines.push(`<span class="mwia-warn">\u23F3 Waiting for the Pi (it runs one heavy job at a time)\u2026</span>`);
+    else if (st.status?.next) lines.push(`Next plan ${inTime2(st.status.next)}.`);
+    if (st.status?.error) lines.push(`<span class="mwia-bad">The Pi's last try failed: ${esc(st.status.error)}</span>`);
+    if (st.error) lines.push(`<span class="mwia-bad">${esc(st.error)}</span>`);
+    return lines.length ? `<p class="mwia-dim">${lines.join(" ")}</p>` : "";
+  }
+  function summaryHtml3(r2) {
+    const skills = r2.skills || [];
+    const levels = skills.map((s3) => `${cap4(s3)} ${Math.floor(r2.start.levels[s3])} \u2192 <b>${Math.floor(r2.end.levels[s3])}</b>`).join(", ");
+    const base = r2.baseline;
+    const vs = base ? ` Fighting as you are (nothing bought): +${base.gained.toFixed(1)} levels, so the plan gives <b>${(r2.gained - base.gained >= 0 ? "+" : "\u2212") + Math.abs(r2.gained - base.gained).toFixed(1)}</b>.` : "";
+    const days = r2.settings.days;
+    const skilling = r2.stats.skillingBlocks ? ` ${dayText2(r2.stats.skillingBlocks / 3)} of the ${days} days go to skilling (${coins9(r2.stats.skillingGold)} for purchases).` : "";
+    return `<p><b>In ${days} days: +${r2.gained.toFixed(1)} levels</b> (${levels}).${vs}${skilling} Spends ${coins9(r2.stats.spent)}; combat ${r2.stats.combatProfit >= 0 ? "earns" : "costs"} ${coins9(Math.abs(r2.stats.combatProfit))}; coins at the end ${coins9(r2.end.coins)}. Skilling in the combat time would have earned ${coins9(r2.skillingForgone)}.</p>`;
+  }
+  function phasesHtml(r2) {
+    const rows = (r2.phases || []).map((p2) => {
+      const when2 = `day ${dayText2(p2.from)}\u2013${dayText2(p2.to)}`;
+      if (p2.kind === "skilling") return `<tr><td>${when2}</td><td>\u{1F33F} Skilling${p2.job ? `: ${esc(p2.job)}` : ""}</td><td>+${coins9(p2.gold)}</td><td></td><td>${coins9(p2.coins)}</td></tr>`;
+      const buys = (p2.buys || []).map((b) => b.kind === "gear" ? plus(b.hrid, b.enhancementLevel) : b.kind === "house" ? esc(cap4(b.hrid.split("/").pop().replace(/_/g, " "))) + ` ${b.level}` : `${esc(abilityName(b.hrid))} ${b.level}`).join(", ");
+      const gained = Object.entries(p2.gained || {}).filter(([, v]) => v >= 0.05).map(([s3, v]) => `${cap4(s3).slice(0, 3)} +${v.toFixed(1)}`).join(", ");
+      return `<tr><td>${when2}</td><td>\u2694 ${zoneText(p2.zone)}${buys ? `<br><span class="mwia-dim">buy ${buys}</span>` : ""}</td><td>${p2.rates.levelsPerDay.toFixed(2)}/day</td><td>${gained}</td><td>${coins9(p2.coins)}</td></tr>`;
+    });
+    return `<details><summary>Every phase</summary><table class="mwia-table"><tr><th>When</th><th>What</th><th>Rate</th><th>Levels</th><th>Coins after</th></tr>${rows.join("")}</table></details>`;
+  }
+  function renderCombatPlan(settings2, setups) {
+    const st = combatPlanState();
+    if (!st.linked) return `<p>The combat plan is worked out on your Pi (see the Guide tab: <i>Your Pi</i>). Link one first.</p>`;
+    if (!st.works) return `<p>Your Pi doesn't work out combat plans yet \u2013 update it (git pull, then docker compose up -d --build in pi/).</p>`;
+    let html = settingsHtml2(settings2, setups) + statusHtml3(st);
+    const r2 = st.result;
+    if (!r2) return html + `<p>No plan yet. It needs your loadouts on the Pi (they go with the Labyrinth's requests) and is worked out at night, or now with \u25B6.</p>`;
+    html += summaryHtml3(r2);
+    if (r2.starter) html += `<p class="mwia-warn">Your loadout has no ${esc(r2.settings.style)} weapon: the plan starts with ${plus(r2.starter.hrid, r2.starter.enhancementLevel)}${r2.starter.owned ? " from your inventory" : ` for ${coins9(r2.starter.cost)}`}.</p>`;
+    html += nextHtml(r2, setups);
+    html += phasesHtml(r2);
+    html += `<p class="mwia-dim">Levels in ${(r2.skills || []).map(cap4).join(", ")} count; the triggers and ability order are tuned for the first fight only, the next night tunes the next one. Drinks and food are bought for the phase, at most ${CONSUMABLE_HOURS_MAX} h.</p>`;
+    return html;
+  }
+
   // src/ui.js
   var SETTINGS_KEY = "mwia-settings";
-  var DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30, horizonDays: 30, horizonLevelDays: 7 };
+  var DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2e6, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30, horizonDays: 30, horizonLevelDays: 7, cplanStyle: "magic", cplanMelee: "any", cplanDays: 30, cplanReserve: 5e6, cplanCharms: false, cplanSetup: "auto" };
   var SKILL_NAMES = {
     stamina: "Stamina",
     intelligence: "Intelligence",
@@ -13572,7 +14026,7 @@ ${triggerWindowReport()}`, false);
   var pct6 = (n5) => (n5 >= 0 ? "+" : "") + dec3(n5 * 100, 1) + "%";
   var HOURS_PER_DAY3 = 24;
   var perDay = (perHour) => perHour * HOURS_PER_DAY3;
-  function coins9(n5) {
+  function coins10(n5) {
     if (n5 === null || n5 === void 0) return "\u2013";
     const abs = Math.abs(n5);
     if (abs >= 1e9) return dec3(n5 / 1e9, 2) + "B";
@@ -13759,15 +14213,15 @@ ${triggerWindowReport()}`, false);
       data,
       settings: ui.settings,
       busy: ui.busy,
-      settingsHtml: settingsHtml2,
+      settingsHtml: settingsHtml3,
       slotted: { coffee: slottedCrate(state.character, "coffee"), food: slottedCrate(state.character, "food") },
       setupsNote: `<p class="mwia-dim">Loadouts: ${setups.map((s3) => `<b>${esc(s3.name)}</b>`).join(", ")}${setups.length < 2 ? " \u2013 save a loadout per combat style in the game to compare them here" : ""}.</p>`,
       cartButton: cartButton4,
-      coins: coins9,
+      coins: coins10,
       attempts: attemptsHtml(attemptSummary(), labyrinthAttempts().slice(-15).reverse()),
       runs: runsHtml({ run: runsState(), setup: runSetup(ui.settings) }),
       pi: piCombatHtml(combatState(), ui.busy),
-      piBuilds: piBuildsHtml(combatState().result, data, cartButton4, coins9),
+      piBuilds: piBuildsHtml(combatState().result, data, cartButton4, coins10),
       skip: skipHtml(skipAdviceNow(), ui.settings, runSetup(ui.settings).maxAttempts)
     });
   }
@@ -13798,6 +14252,32 @@ ${triggerWindowReport()}`, false);
       ui.triggerAdvice = {};
     }
     return ui.triggerAdvice;
+  }
+  function plannedLoadout() {
+    const result = combatPlanResult();
+    const phase = combatPlanNow();
+    return result?.setup?.id && phase ? { setupId: result.setup.id, phase } : null;
+  }
+  function planTriggerAdvice(hrid) {
+    const phase = combatPlanNow();
+    const map = hrid.startsWith("/abilities/") ? phase?.loadout?.abilityTriggers : phase?.loadout?.consumableTriggers;
+    return map?.[hrid] ? { triggers: map[hrid] } : null;
+  }
+  function adoptCombatPlan() {
+    const phase = combatPlanNow();
+    if (!phase) return;
+    rememberCombatSetup(phase.zone, { drinks: (phase.loadout.drinks || []).filter(Boolean), food: (phase.loadout.food || []).filter(Boolean), perHour: phase.rates.consumablesPerHour || {}, encountersPerHour: phase.rates.encountersPerHour });
+  }
+  async function addPlanToCart(items) {
+    if (!items.length) return;
+    try {
+      const outcome = await addToCart(ui.win, items);
+      const n5 = outcome.added.length + outcome.updated.length;
+      ui.notice = { level: outcome.failed.length ? "warn" : "info", text: `${n5} added to the MWITools cart${outcome.present.length ? `, ${outcome.present.length} already there` : ""}${outcome.failed.length ? `, ${outcome.failed.length} failed` : ""}.` };
+    } catch (error) {
+      ui.notice = { level: "warn", text: error.message || String(error) };
+    }
+    render3();
   }
   function saveCombatSetup() {
     const raw = ui.upgradeRaw;
@@ -13846,13 +14326,14 @@ ${triggerWindowReport()}`, false);
     ui.cartItems = /* @__PURE__ */ new Map();
     let html = "";
     if (ui.error) html += `<div class="mwia-error">${esc(ui.error)}</div>`;
-    if (ui.notice && ["upgrades", "skilling", "market", "labyrinth"].includes(ui.tab)) html += noticeHtml(ui.notice);
+    if (ui.notice && ["upgrades", "skilling", "market", "labyrinth", "cplan"].includes(ui.tab)) html += noticeHtml(ui.notice);
     if (ui.busy) html += progressHtml();
     if (ui.tab === "overview") html += renderOverview();
     else if (ui.tab === "zones") html += renderZones();
     else if (ui.tab === "upgrades") html += renderUpgrades();
     else if (ui.tab === "skilling") html += renderSkillingTab();
     else if (ui.tab === "horizon") html += renderHorizon(ui.settings);
+    else if (ui.tab === "cplan") html += renderCombatPlan(ui.settings, labyrinthSetups());
     else if (ui.tab === "market") html += renderMarketTab();
     else if (ui.tab === "labyrinth") html += renderLabyrinthTab();
     else html += renderGuide();
@@ -13918,7 +14399,7 @@ ${triggerWindowReport()}`, false);
     node.querySelector(".mwia-progress-label span").textContent = `${p2.label} ${p2.total ? `${p2.done}/${p2.total}` : ""}`;
     node.querySelector(".mwia-bar div").style.width = `${p2.total ? 100 * p2.done / p2.total : 0}%`;
   }
-  function settingsHtml2(fields) {
+  function settingsHtml3(fields) {
     const s3 = ui.settings;
     const parts = [];
     if (fields.includes("focus")) {
@@ -14002,7 +14483,7 @@ ${triggerWindowReport()}`, false);
     }
     const consumableList = (list, count3) => Array.from({ length: count3 }, (_, i) => `<li>${list[i] ? esc(itemName(list[i])) : '<span class="mwia-warn">empty slot</span>'}</li>`).join("");
     return `
-    ${combatLoadouts(state.character).length ? settingsHtml2(["gear"]) : ""}${loadoutNote(profile)}
+    ${combatLoadouts(state.character).length ? settingsHtml3(["gear"]) : ""}${loadoutNote(profile)}
     <div class="mwia-grid">
       <section><h3>Levels</h3>
         <table class="mwia-table">${levelRows}
@@ -14120,19 +14601,19 @@ ${triggerWindowReport()}`, false);
   function renderZones() {
     let html = `<p>Simulates your current setup against every combat zone and shows where you get the most XP or gold per hour
       <b>${ui.settings.acceptRareDeaths ? "while dying rarely at most" : "without dying"}</b>.</p>
-      ${settingsHtml2(["focus", "levels", "gear", "style", "risk", "accuracy", "maxTier"])}${loadoutNote(currentProfile())}
+      ${settingsHtml3(["focus", "levels", "gear", "style", "risk", "accuracy", "maxTier"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="zones" ${ui.busy ? "disabled" : ""}>Run zone analysis</button>`;
     if (!ui.zoneResults) return html;
     const goal = zoneGoal(ui.zoneResults, ui.settings);
     const best = pickBestZone(ui.zoneResults, ui.settings);
     if (ui.zoneStarter) {
       const w = ui.zoneStarter;
-      html += `<p class="mwia-reco">Simulated with <b>${gearLabel(w)}</b> ${w.owned ? "from your inventory" : `(${coins9(w.cost)} on the market)`} instead of your weapon.
+      html += `<p class="mwia-reco">Simulated with <b>${gearLabel(w)}</b> ${w.owned ? "from your inventory" : `(${coins10(w.cost)} on the market)`} instead of your weapon.
           <b>Upgrades</b> shows what else to buy for this style.</p>`;
     }
     const profile = currentProfile();
     const current = profile?.currentZone && ui.zoneResults.find((z) => z.zone.zoneHrid === profile.currentZone.zoneHrid && z.zone.tier === profile.currentZone.tier);
-    const summary2 = (r2) => `<b>${xpNum(xpValue(r2, ui.settings))} ${xpLabel()}</b> and <b>${coins9(perDay(r2.profit))}</b> profit/day`;
+    const summary2 = (r2) => `<b>${xpNum(xpValue(r2, ui.settings))} ${xpLabel()}</b> and <b>${coins10(perDay(r2.profit))}</b> profit/day`;
     if (best) {
       html += `<div class="mwia-reco"><b>Recommendation:</b> ${zoneLabel(best.zone)} \u2013 about ${summary2(best.result)}, ${deathBadge(best.result.deaths)}.`;
       if (isSpawnCapped(best.result)) {
@@ -14151,36 +14632,36 @@ ${triggerWindowReport()}`, false);
       const r2 = z.result;
       const match = bestScore > 0 ? int(100 * score(r2, goal) / bestScore) : "\u2013";
       html += `<tr class="${z === best ? "mwia-best" : ""}"><td>${zoneLabel(z.zone)}${cappedBadge(r2)}</td><td class="mwia-num">${match}</td><td class="mwia-num">${xpNum(xpValue(r2, ui.settings))}</td>
-          <td class="mwia-num">${coins9(perDay(r2.profit))}</td><td class="mwia-num">${dec3(r2.killsTotal, 0)}</td><td>${deathBadge(r2.deaths)}</td></tr>`;
+          <td class="mwia-num">${coins10(perDay(r2.profit))}</td><td class="mwia-num">${dec3(r2.killsTotal, 0)}</td><td>${deathBadge(r2.deaths)}</td></tr>`;
     }
     html += `</tbody></table><p class="mwia-dim">Simulated ${int(Math.max(1, runSettings().hours / 2))} h per zone. These are estimates \u2013 differences of a few percent are noise.
       \u23F1 = you kill faster than monsters appear there.</p>`;
     return html;
   }
-  function upgradeNotes(c3, base) {
+  function upgradeNotes(c4, base) {
     const notes = [];
-    if (c3.owned && c3.cost === 0 && c3.kind === "gear") notes.push('<span class="mwia-ok">you own it</span>');
-    if (c3.enhance) notes.push(`<span class="mwia-dim" title="${esc(enhanceDetail(c3))}">\u{1F528} enhance yourself</span>`);
-    if (c3.deathsDelta < 0 && base.deaths > 0) notes.push(`<span class="mwia-ok">fewer deaths</span>`);
-    if (!c3.safe) notes.push(`<span class="mwia-bad">more deaths</span>`);
+    if (c4.owned && c4.cost === 0 && c4.kind === "gear") notes.push('<span class="mwia-ok">you own it</span>');
+    if (c4.enhance) notes.push(`<span class="mwia-dim" title="${esc(enhanceDetail(c4))}">\u{1F528} enhance yourself</span>`);
+    if (c4.deathsDelta < 0 && base.deaths > 0) notes.push(`<span class="mwia-ok">fewer deaths</span>`);
+    if (!c4.safe) notes.push(`<span class="mwia-bad">more deaths</span>`);
     return notes.join(" ");
   }
-  function cartItems2(c3) {
-    const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c3.result?.consumables?.[hrid] || 0)));
-    if (c3.kind === "house") return c3.materials.filter((m2) => m2.hrid !== COIN12).map((m2) => ({ hrid: m2.hrid, quantity: m2.count }));
-    if (c3.kind === "abilityOrder" || c3.kind === "skillLevel" || c3.kind === "trigger") return [];
-    if (c3.enhance) return mergeCart([...enhanceCart(c3), ...c3.extraFood ? [{ hrid: c3.extraFood, quantity: forOneDay(c3.extraFood) }] : []]);
-    if (c3.kind === "abilityLevel") return [{ hrid: c3.bookHrid, quantity: c3.books }];
-    if (c3.kind === "ability") return c3.cost ? [{ hrid: c3.bookHrid, quantity: 1 }] : [];
-    if (c3.kind === "food" || c3.kind === "drinks") return c3.remove ? [] : [{ hrid: c3.hrid, quantity: forOneDay(c3.hrid) }];
-    const items = c3.cost ? [{ hrid: c3.hrid, quantity: 1, enhancementLevel: c3.enhancementLevel || 0 }] : [];
-    if (c3.extraFood) items.push({ hrid: c3.extraFood, quantity: forOneDay(c3.extraFood) });
+  function cartItems2(c4) {
+    const forOneDay = (hrid) => Math.max(1, Math.ceil(perDay(c4.result?.consumables?.[hrid] || 0)));
+    if (c4.kind === "house") return c4.materials.filter((m2) => m2.hrid !== COIN12).map((m2) => ({ hrid: m2.hrid, quantity: m2.count }));
+    if (c4.kind === "abilityOrder" || c4.kind === "skillLevel" || c4.kind === "trigger") return [];
+    if (c4.enhance) return mergeCart([...enhanceCart(c4), ...c4.extraFood ? [{ hrid: c4.extraFood, quantity: forOneDay(c4.extraFood) }] : []]);
+    if (c4.kind === "abilityLevel") return [{ hrid: c4.bookHrid, quantity: c4.books }];
+    if (c4.kind === "ability") return c4.cost ? [{ hrid: c4.bookHrid, quantity: 1 }] : [];
+    if (c4.kind === "food" || c4.kind === "drinks") return c4.remove ? [] : [{ hrid: c4.hrid, quantity: forOneDay(c4.hrid) }];
+    const items = c4.cost ? [{ hrid: c4.hrid, quantity: 1, enhancementLevel: c4.enhancementLevel || 0 }] : [];
+    if (c4.extraFood) items.push({ hrid: c4.extraFood, quantity: forOneDay(c4.extraFood) });
     return items;
   }
   var COIN12 = "/items/coin";
-  function enhanceCart(c3) {
-    const e2 = c3.enhance;
-    const items = e2.start === "buy" ? [{ hrid: c3.hrid, quantity: 1, enhancementLevel: 0 }] : [];
+  function enhanceCart(c4) {
+    const e2 = c4.enhance;
+    const items = e2.start === "buy" ? [{ hrid: c4.hrid, quantity: 1, enhancementLevel: 0 }] : [];
     for (const m2 of e2.materials) if (m2.itemHrid !== COIN12) items.push({ hrid: m2.itemHrid, quantity: Math.ceil(m2.count * e2.attempts) });
     if (e2.protect && e2.protections > 0) items.push({ hrid: e2.protect.itemHrid, quantity: Math.ceil(e2.protections), enhancementLevel: 0 });
     for (const tea of e2.teas) items.push({ hrid: tea, quantity: Math.ceil(e2.drinks) });
@@ -14202,18 +14683,18 @@ ${triggerWindowReport()}`, false);
     if (h3 < 48) return `${dec3(h3, 1)} h`;
     return `${dec3(h3 / 24, 1)} days`;
   }
-  function enhanceDetail(c3) {
-    const e2 = c3.enhance;
-    const from = e2.start === "worn" ? `your +${e2.from}` : e2.start === "owned" ? `your copy at +${e2.from}` : `a +0 bought for ${coins9(e2.basePrice)}`;
-    const parts = [`from ${from} to +${c3.enhancementLevel}: about ${int(e2.attempts)} attempts (${hoursText2(e2.hours)} of Enhancing), materials and teas ${coins9(c3.price - e2.basePrice)}`];
+  function enhanceDetail(c4) {
+    const e2 = c4.enhance;
+    const from = e2.start === "worn" ? `your +${e2.from}` : e2.start === "owned" ? `your copy at +${e2.from}` : `a +0 bought for ${coins10(e2.basePrice)}`;
+    const parts = [`from ${from} to +${c4.enhancementLevel}: about ${int(e2.attempts)} attempts (${hoursText2(e2.hours)} of Enhancing), materials and teas ${coins10(c4.price - e2.basePrice)}`];
     if (e2.protect) parts.push(`protected from +${e2.protect.from} with ${itemName(e2.protect.itemHrid)} (about ${dec3(e2.protections, 1)})`);
     parts.push(e2.teas.length ? `teas: ${e2.teas.map(itemName).join(", ")}` : "no teas");
     return parts.join("; ");
   }
-  function costText3(c3) {
-    if (!c3.cost && !c3.resale) return "(free)";
-    const sold = c3.resale ? ` (${coins9(c3.price)} \u2212 ${coins9(c3.resale)} selling your ${c3.sold.map((g4) => gearLabel(g4)).join(" and ")})` : "";
-    return `for ${c3.cost ? coins9(c3.cost) : "nothing"}${sold}`;
+  function costText3(c4) {
+    if (!c4.cost && !c4.resale) return "(free)";
+    const sold = c4.resale ? ` (${coins10(c4.price)} \u2212 ${coins10(c4.resale)} selling your ${c4.sold.map((g4) => gearLabel(g4)).join(" and ")})` : "";
+    return `for ${c4.cost ? coins10(c4.cost) : "nothing"}${sold}`;
   }
   var starterCart = (w) => w?.cost ? [{ hrid: w.hrid, quantity: 1, enhancementLevel: w.enhancementLevel }] : [];
   var cartLabel = (i) => `${i.quantity ? i.quantity + "\xD7 " : ""}${itemName(i.hrid)}${i.enhancementLevel ? " +" + i.enhancementLevel : ""}`;
@@ -14246,7 +14727,7 @@ ${triggerWindowReport()}`, false);
     let html = `<p>Tests one change at a time (gear incl. enhanced +N copies \u2013 bought or enhanced yourself \u2013, new abilities, levelling abilities with extra books,
       the order of your abilities and their triggers, combat house rooms, drinks, food and their triggers, and a few more levels in each skill) in the chosen zone
       and measures how much it improves your focus \u2013 XP per hour, gold per hour, or a mix. Buy the things that give the most per coin first.</p>
-      ${settingsHtml2(["focus", "levels", "gear", "style", "zone", "budget", "spending", "risk", "accuracy"])}${loadoutNote(currentProfile())}
+      ${settingsHtml3(["focus", "levels", "gear", "style", "zone", "budget", "spending", "risk", "accuracy"])}${loadoutNote(currentProfile())}
       <button class="mwia-btn" data-action="upgrades" ${ui.busy ? "disabled" : ""}>Analyze upgrades</button>
       <button class="mwia-btn" data-action="upgrades-abilities" ${ui.busy ? "disabled" : ""} title="Only abilities, their levels and order, and the triggers of your abilities and food \u2013 much quicker">Abilities &amp; triggers only</button>
       <button class="mwia-link" data-action="trigger-window" title="Open a loadout's \u2699 under an ability in the game first. Reads how the game's Combat Triggers window is built \u2013 changes nothing \u2013 for filling it in later.">\u{1F4CB} Read the game's trigger window</button>`;
@@ -14254,8 +14735,8 @@ ${triggerWindowReport()}`, false);
     if (!result) return html;
     const base = result.base;
     const label3 = xpLabel();
-    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${xpNum(xpValue(base, ui.settings))} ${label3}</b>, profit <b>${coins9(perDay(base.profit))}/day</b>
-      (loot ${coins9(perDay(base.loot))} \u2212 food/drinks ${coins9(perDay(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
+    html += `<p>Zone: ${zoneLabel(result.zone)}. Now: <b>${xpNum(xpValue(base, ui.settings))} ${label3}</b>, profit <b>${coins10(perDay(base.profit))}/day</b>
+      (loot ${coins10(perDay(base.loot))} \u2212 food/drinks ${coins10(perDay(base.cost))}), ${deathBadge(base.deaths)}.</p>`;
     if (isSpawnCapped(base)) {
       html += `<p class="mwia-reco">\u23F1 In ${zoneLabel(result.zone)} you kill monsters as fast as they appear, so upgrades that add damage hardly matter here.
           A harder zone or tier is the biggest improvement \u2013 run <b>Where to fight</b> with a higher Max tier.</p>`;
@@ -14279,7 +14760,7 @@ ${triggerWindowReport()}`, false);
       if (plan.starter) {
         const w = plan.starter;
         html += `<li>${w.owned ? "Equip" : "Buy"} <b>${gearLabel(w)}</b> ${w.owned ? "from your inventory " : ""}to fight as ${STYLE_NAMES[ui.settings.combatStyle] || "the chosen style"}${w.replaces ? ` \u2013 replaces ${gearLabel(w.replaces)}` : ""}
-              ${w.cost ? `for ${coins9(w.cost)}` : "(free)"} <span class="mwia-dim">(everything here was simulated with it)</span> ${cartButton4(starterCart(w))}</li>`;
+              ${w.cost ? `for ${coins10(w.cost)}` : "(free)"} <span class="mwia-dim">(everything here was simulated with it)</span> ${cartButton4(starterCart(w))}</li>`;
       }
       for (const p2 of plan.picks) {
         let what;
@@ -14288,7 +14769,7 @@ ${triggerWindowReport()}`, false);
         } else if (p2.kind === "ability") {
           what = `ability <b>${esc(abilityName(p2.hrid))}</b>${p2.cost ? ` (buy the book ${esc(itemName(p2.bookHrid))})` : ` (level ${p2.level})`}${p2.triggers ? `, triggers: <b>${esc(describeTriggers(p2.triggers, getClientData()))}</b>` : ""}`;
         } else if (p2.kind === "house") {
-          html += `<li>Build <b>${esc(p2.name)}</b> level ${p2.fromLevel} \u2192 ${p2.level} <span class="mwia-dim">(${houseMaterials(p2)})</span>: ${gainText2(p2)} for ${coins9(p2.cost)} ${cartButton4(cartItems2(p2), "\u{1F6D2} Materials")}</li>`;
+          html += `<li>Build <b>${esc(p2.name)}</b> level ${p2.fromLevel} \u2192 ${p2.level} <span class="mwia-dim">(${houseMaterials(p2)})</span>: ${gainText2(p2)} for ${coins10(p2.cost)} ${cartButton4(cartItems2(p2), "\u{1F6D2} Materials")}</li>`;
           continue;
         } else if (p2.enhance) {
           const own = p2.enhance.start === "worn" ? `your <b>${gearLabel(p2.replaces)}</b>` : p2.enhance.start === "owned" ? `your <b>${gearLabel({ hrid: p2.hrid, enhancementLevel: p2.enhance.from })}</b>` : `a <b>${gearLabel({ hrid: p2.hrid })}</b>`;
@@ -14310,44 +14791,44 @@ ${triggerWindowReport()}`, false);
         html += `<li>Set the triggers of <b>${esc(triggerTargetName(t4))}</b> to <b>${esc(describeTriggers(t4.triggers, getClientData()))}</b>
               <span class="mwia-dim">(now ${esc(describeTriggers(t4.was, getClientData()))})</span>: ${gainText2(t4)} (free)</li>`;
       }
-      for (const [kind, pick2, max] of [["Food", plan.food, plan.foodMax], ["Drink", plan.drink, plan.drinkMax]]) {
-        if (!pick2) continue;
-        if (pick2.remove) {
-          html += `<li>Stop using <b>${esc(itemName(pick2.hrid))}</b> (empty that ${kind.toLowerCase()} slot): ${gainText2(pick2)},
-                  saves about ${coins9(perDay(-pick2.costPerHourDelta))}/day`;
+      for (const [kind, pick3, max] of [["Food", plan.food, plan.foodMax], ["Drink", plan.drink, plan.drinkMax]]) {
+        if (!pick3) continue;
+        if (pick3.remove) {
+          html += `<li>Stop using <b>${esc(itemName(pick3.hrid))}</b> (empty that ${kind.toLowerCase()} slot): ${gainText2(pick3)},
+                  saves about ${coins10(perDay(-pick3.costPerHourDelta))}/day`;
         } else {
-          const where = pick2.replaces ? `instead of ${esc(itemName(pick2.replaces))}` : "in an empty slot";
-          const money = pick2.costPerHourDelta < 0 ? `saves about ${coins9(perDay(-pick2.costPerHourDelta))}/day` : `costs about ${coins9(perDay(pick2.costPerHourDelta))}/day extra`;
-          html += `<li>${kind} <b>${esc(itemName(pick2.hrid))}</b> ${where}: ${gainText2(pick2)}, ${money}
-                  <span class="mwia-dim">(optional \u2013 a running cost)</span> ${cartButton4(cartItems2(pick2), "\u{1F6D2} 1 day")}`;
+          const where = pick3.replaces ? `instead of ${esc(itemName(pick3.replaces))}` : "in an empty slot";
+          const money = pick3.costPerHourDelta < 0 ? `saves about ${coins10(perDay(-pick3.costPerHourDelta))}/day` : `costs about ${coins10(perDay(pick3.costPerHourDelta))}/day extra`;
+          html += `<li>${kind} <b>${esc(itemName(pick3.hrid))}</b> ${where}: ${gainText2(pick3)}, ${money}
+                  <span class="mwia-dim">(optional \u2013 a running cost)</span> ${cartButton4(cartItems2(pick3), "\u{1F6D2} 1 day")}`;
         }
-        if (dropsHpFood(pick2)) {
+        if (dropsHpFood(pick3)) {
           html += `<br><span class="mwia-warn">You don't need HP food in this zone, but keep some at hand \u2013 put it back before you move to a harder zone or tier.</span>`;
         }
-        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText2(max)}) at ${coins9(perDay(max.costPerHourDelta))}/day.</span>`;
+        if (max) html += `<br><span class="mwia-dim">Biggest gain: ${esc(itemName(max.hrid))} (${gainText2(max)}) at ${coins10(perDay(max.costPerHourDelta))}/day.</span>`;
         html += `</li>`;
       }
-      html += `</ol><p>Total one-time cost: <b>${coins9(plan.spent)}</b> of your ${coins9(Number(ui.settings.budget) || 0)} budget.
+      html += `</ol><p>Total one-time cost: <b>${coins10(plan.spent)}</b> of your ${coins10(Number(ui.settings.budget) || 0)} budget.
           ${cartButton4([...starterCart(plan.starter), ...plan.picks.flatMap(cartItems2)], "\u{1F6D2} Add all purchases to cart")}</p>`;
       if (ui.verified) {
         const v = ui.verified;
         const before = xpValue(v.base, ui.settings);
         const after = xpValue(v.planned, ui.settings);
         html += `<div class="mwia-reco">Everything combined (simulated): <b>${xpNum(before)} \u2192 ${xpNum(after)} ${label3}</b> (${pct6(after / Math.max(countingLevels() ? 1e-9 : 1, before) - 1)}),
-              profit <b>${coins9(perDay(v.base.profit))} \u2192 ${coins9(perDay(v.planned.profit))}</b> per day (food/drinks ${coins9(perDay(v.base.cost))} \u2192 ${coins9(perDay(v.planned.cost))}),
+              profit <b>${coins10(perDay(v.base.profit))} \u2192 ${coins10(perDay(v.planned.profit))}</b> per day (food/drinks ${coins10(perDay(v.base.cost))} \u2192 ${coins10(perDay(v.planned.cost))}),
               deaths ${dec3(v.base.deaths, 2)} \u2192 ${dec3(v.planned.deaths, 2)} per hour.
               <br><span class="mwia-dim">Run the zone analysis again after buying \u2013 with better gear a harder zone may become the best.</span></div>`;
       }
     }
     const all = result.scope !== "abilities";
-    if (all) html += upgradeTable("Equipment", result.gear, base, (c3) => SLOT_NAMES[c3.slot], (c3) => gearLabel(c3) + (c3.extraFood ? ` <span class="mwia-dim">+ ${esc(itemName(c3.extraFood))} in new slot</span>` : ""), (c3) => c3.replaces ? gearLabel(c3.replaces) : "\u2013", "Item");
+    if (all) html += upgradeTable("Equipment", result.gear, base, (c4) => SLOT_NAMES[c4.slot], (c4) => gearLabel(c4) + (c4.extraFood ? ` <span class="mwia-dim">+ ${esc(itemName(c4.extraFood))} in new slot</span>` : ""), (c4) => c4.replaces ? gearLabel(c4.replaces) : "\u2013", "Item");
     html += upgradeTable(
       "Abilities",
       result.abilities,
       base,
-      (c3) => `Slot ${c3.slot.replace("ability", "")}`,
-      (c3) => esc(abilityName(c3.hrid)) + (c3.kind === "abilityLevel" ? ` <span class="mwia-dim">lvl ${c3.fromLevel} \u2192 ${c3.level} (${c3.books} books)</span>` : ` <span class="mwia-dim">lvl ${c3.level}</span>`) + (c3.triggers ? `<br><span class="mwia-dim">triggers: ${esc(describeTriggers(c3.triggers, getClientData()))}</span>` : ""),
-      (c3) => c3.kind === "abilityLevel" ? '<span class="mwia-dim">level up</span>' : c3.replaces ? esc(abilityName(c3.replaces)) : "\u2013",
+      (c4) => `Slot ${c4.slot.replace("ability", "")}`,
+      (c4) => esc(abilityName(c4.hrid)) + (c4.kind === "abilityLevel" ? ` <span class="mwia-dim">lvl ${c4.fromLevel} \u2192 ${c4.level} (${c4.books} books)</span>` : ` <span class="mwia-dim">lvl ${c4.level}</span>`) + (c4.triggers ? `<br><span class="mwia-dim">triggers: ${esc(describeTriggers(c4.triggers, getClientData()))}</span>` : ""),
+      (c4) => c4.kind === "abilityLevel" ? '<span class="mwia-dim">level up</span>' : c4.replaces ? esc(abilityName(c4.replaces)) : "\u2013",
       "Ability"
     );
     if (!getClientData().levelExperienceTable) {
@@ -14356,14 +14837,14 @@ ${triggerWindowReport()}`, false);
     html += orderTable(result.orders || []);
     html += triggerTable(result.triggers || [], result);
     if (all) {
-      html += upgradeTable("House", result.house || [], base, () => "House", (c3) => `${esc(c3.name)} <span class="mwia-dim">lvl ${c3.fromLevel} \u2192 ${c3.level}</span>`, () => "\u2013", "Room");
+      html += upgradeTable("House", result.house || [], base, () => "House", (c4) => `${esc(c4.name)} <span class="mwia-dim">lvl ${c4.fromLevel} \u2192 ${c4.level}</span>`, () => "\u2013", "Room");
       html += levelTable(result.levels || [], base);
       html += consumableTable("Drinks", result.drinks, base);
       html += consumableTable("Food", result.food, base);
     } else {
       html += `<p class="mwia-dim">Only abilities and triggers were tested. <b>Analyze upgrades</b> also tests gear, house rooms, drinks and food.</p>`;
     }
-    if (result.food.some((c3) => !c3.safe && c3.delta > 0) && result.gear.some((c3) => c3.extraFood && c3.safe && c3.delta > 0)) {
+    if (result.food.some((c4) => !c4.safe && c4.delta > 0) && result.gear.some((c4) => c4.extraFood && c4.safe && c4.delta > 0)) {
       html += `<p class="mwia-reco">Some food gives more XP but makes you die, because it replaces your only HP food. A bigger pouch gives an extra
           food slot so you can keep both \u2013 see the pouch row under Equipment.</p>`;
     }
@@ -14378,66 +14859,66 @@ ${triggerWindowReport()}`, false);
       (\u2716) are never put on the shopping list.</p>`;
     return html;
   }
-  function dropsHpFood(c3) {
-    if (c3.kind !== "food") return false;
+  function dropsHpFood(c4) {
+    if (c4.kind !== "food") return false;
     const items = getClientData().itemDetailMap;
     const heals = (hrid) => (items[hrid]?.consumableDetail?.hitpointRestore || 0) > 0;
     const before = currentProfile()?.food || [];
-    const after = c3.profile?.food || [];
+    const after = c4.profile?.food || [];
     return before.some((h3) => h3 && heals(h3)) && !after.some((h3) => h3 && heals(h3));
   }
-  function gainText2(c3) {
+  function gainText2(c4) {
     const gold = ui.upgradeResult.goal.gold;
-    const profit = `${signed4(coins9, perDay(c3.profitDelta))} profit/day`;
-    if (gold === 0) return `${pct6(c3.deltaPct)} ${xpLabel()}`;
+    const profit = `${signed4(coins10, perDay(c4.profitDelta))} profit/day`;
+    if (gold === 0) return `${pct6(c4.deltaPct)} ${xpLabel()}`;
     if (gold === 1) return profit;
-    return `${pct6(c3.deltaPct)} gain (${signed4(xpNum, c3.xpDelta)} ${xpLabel()}, ${profit})`;
+    return `${pct6(c4.deltaPct)} gain (${signed4(xpNum, c4.xpDelta)} ${xpLabel()}, ${profit})`;
   }
-  function confidenceCell(c3) {
-    const value = Math.round(c3.confidence * 100);
-    const cls = c3.confidence >= CONFIDENCE_LEVEL ? "mwia-ok" : c3.confidence >= 0.7 ? "mwia-warn" : "mwia-dim";
-    const title = c3.screened ? "Ruled out after one simulation: all but sure to give less than 1%, whatever the focus, so it got no more runs" : `Chance that this really improves your focus, from ${c3.runs.length} simulations`;
-    return `<span class="${cls}" title="${title}">${value}%${c3.screened ? " \u2717" : ""}</span>`;
+  function confidenceCell(c4) {
+    const value = Math.round(c4.confidence * 100);
+    const cls = c4.confidence >= CONFIDENCE_LEVEL ? "mwia-ok" : c4.confidence >= 0.7 ? "mwia-warn" : "mwia-dim";
+    const title = c4.screened ? "Ruled out after one simulation: all but sure to give less than 1%, whatever the focus, so it got no more runs" : `Chance that this really improves your focus, from ${c4.runs.length} simulations`;
+    return `<span class="${cls}" title="${title}">${value}%${c4.screened ? " \u2717" : ""}</span>`;
   }
   var CONF_TITLE = "How sure we are that this is an improvement and not luck (paired t-test over several simulations with different random seeds). Only \u2265 90% goes on the shopping list.";
   var GAIN_TITLE = "Improvement of your focus as a share of what you have now: XP/h and profit/h, weighted by the XP\u2013Gold slider";
   function upgradeTable(title, list, base, slotText, nameHtml, replacesHtml, nameHeader) {
-    const shown = list.filter((c3) => c3.delta > 0).slice(0, 20);
+    const shown = list.filter((c4) => c4.delta > 0).slice(0, 20);
     let html = `<h3>${title}</h3>`;
     if (!shown.length) return html + `<p class="mwia-dim">Nothing within budget improved your focus.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Slot</th><th>${nameHeader}</th><th>Replaces</th><th class="mwia-num">Price</th>
       <th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th><th class="mwia-num" title="${GAIN_TITLE}">Gain</th>
       <th class="mwia-num">Gain per 1M</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th><th></th></tr></thead><tbody>`;
-    for (const c3 of shown) {
-      const efficiency = c3.cost > 0 ? pct6(c3.delta / c3.cost * 1e6) : "\u221E";
-      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${slotText(c3)}</td><td>${nameHtml(c3)}</td><td>${replacesHtml(c3)}</td>
-          <td class="mwia-num"${c3.resale ? ` title="${coins9(c3.price)} \u2212 ${coins9(c3.resale)} for what it replaces"` : ""}>${c3.cost ? coins9(c3.cost) : "0"}${c3.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td>
-          <td class="mwia-num">${pct6(c3.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c3)}</td>
-          <td>${upgradeNotes(c3, base)}</td><td>${cartButton4(cartItems2(c3))}</td></tr>`;
+    for (const c4 of shown) {
+      const efficiency = c4.cost > 0 ? pct6(c4.delta / c4.cost * 1e6) : "\u221E";
+      html += `<tr class="${c4.significant ? "" : "mwia-faded"}"><td>${slotText(c4)}</td><td>${nameHtml(c4)}</td><td>${replacesHtml(c4)}</td>
+          <td class="mwia-num"${c4.resale ? ` title="${coins10(c4.price)} \u2212 ${coins10(c4.resale)} for what it replaces"` : ""}>${c4.cost ? coins10(c4.cost) : "0"}${c4.resale ? '<span class="mwia-dim">*</span>' : ""}</td><td class="mwia-num">${signed4(xpNum, c4.xpDelta)}</td><td class="mwia-num">${signed4(coins10, perDay(c4.profitDelta))}</td>
+          <td class="mwia-num">${pct6(c4.deltaPct)}</td><td class="mwia-num">${efficiency}</td><td class="mwia-num">${confidenceCell(c4)}</td>
+          <td>${upgradeNotes(c4, base)}</td><td>${cartButton4(cartItems2(c4))}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
-  function houseMaterials(c3) {
-    return c3.materials.map((m2) => m2.hrid === COIN12 ? `${coins9(m2.count)} coins` : `${int(m2.count)}\xD7 ${esc(itemName(m2.hrid))}`).join(", ");
+  function houseMaterials(c4) {
+    return c4.materials.map((m2) => m2.hrid === COIN12 ? `${coins10(m2.count)} coins` : `${int(m2.count)}\xD7 ${esc(itemName(m2.hrid))}`).join(", ");
   }
   function orderTable(list) {
-    const shown = list.filter((c3) => c3.delta > 0).slice(0, 5);
+    const shown = list.filter((c4) => c4.delta > 0).slice(0, 5);
     let html = `<h3>Ability order</h3>`;
     if (!list.length) return html + `<p class="mwia-dim">Fewer than two abilities in your slots \u2013 nothing to reorder.</p>`;
     if (!shown.length) return html + `<p class="mwia-dim">Your order is the best of the ${list.length + 1} orders tried.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Order</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th></tr></thead><tbody>`;
-    for (const c3 of shown) {
-      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${c3.order.map((h3) => esc(abilityName(h3))).join(" \u2192 ")}</td>
-          <td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td><td class="mwia-num">${pct6(c3.deltaPct)}</td>
-          <td class="mwia-num">${confidenceCell(c3)}</td><td>${upgradeNotes(c3, ui.upgradeResult.base)}</td></tr>`;
+    for (const c4 of shown) {
+      html += `<tr class="${c4.significant ? "" : "mwia-faded"}"><td>${c4.order.map((h3) => esc(abilityName(h3))).join(" \u2192 ")}</td>
+          <td class="mwia-num">${signed4(xpNum, c4.xpDelta)}</td><td class="mwia-num">${signed4(coins10, perDay(c4.profitDelta))}</td><td class="mwia-num">${pct6(c4.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c4)}</td><td>${upgradeNotes(c4, ui.upgradeResult.base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
-  var triggerTargetName = (c3) => c3.target === "food" ? itemName(c3.hrid) : abilityName(c3.hrid);
+  var triggerTargetName = (c4) => c4.target === "food" ? itemName(c4.hrid) : abilityName(c4.hrid);
   function triggerTable(list, result) {
     const data = getClientData();
-    const shown = list.filter((c3) => c3.delta > 0).slice(0, 8);
+    const shown = list.filter((c4) => c4.delta > 0).slice(0, 8);
     let html = `<h3>Triggers</h3>`;
     const waiting = Object.entries(result.telemetry?.abilities || {}).filter(([, s3]) => s3.waitingPerHour >= 0.1 * Math.max(1, s3.castsPerHour) && s3.waitingPerHour >= 3);
     if (waiting.length) {
@@ -14447,11 +14928,11 @@ ${triggerWindowReport()}`, false);
     if (!shown.length) return html + `<p class="mwia-dim">Your triggers are the best of the ${(result.triggerVariants || list).length + 1} settings tried.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>For</th><th>Triggers</th><th>Now</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th></th></tr></thead><tbody>`;
-    for (const c3 of shown) {
-      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${esc(triggerTargetName(c3))}</td><td>${esc(describeTriggers(c3.triggers, data))}</td>
-          <td class="mwia-dim">${esc(describeTriggers(c3.was, data))}</td>
-          <td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td><td class="mwia-num">${pct6(c3.deltaPct)}</td>
-          <td class="mwia-num">${confidenceCell(c3)}</td><td>${upgradeNotes(c3, ui.upgradeResult.base)}</td></tr>`;
+    for (const c4 of shown) {
+      html += `<tr class="${c4.significant ? "" : "mwia-faded"}"><td>${esc(triggerTargetName(c4))}</td><td>${esc(describeTriggers(c4.triggers, data))}</td>
+          <td class="mwia-dim">${esc(describeTriggers(c4.was, data))}</td>
+          <td class="mwia-num">${signed4(xpNum, c4.xpDelta)}</td><td class="mwia-num">${signed4(coins10, perDay(c4.profitDelta))}</td><td class="mwia-num">${pct6(c4.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c4)}</td><td>${upgradeNotes(c4, ui.upgradeResult.base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -14461,29 +14942,29 @@ ${triggerWindowReport()}`, false);
       The time is at the XP an hour that skill gets now, in this zone.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>Skill</th><th>Levels</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num" title="Time to get there at the XP an hour the skill gets now">Time</th><th></th></tr></thead><tbody>`;
-    for (const c3 of list) {
-      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${SKILL_NAMES[c3.hrid] || esc(c3.hrid)}</td><td>${c3.fromLevel} \u2192 ${c3.level}</td>
-          <td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td><td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td><td class="mwia-num">${pct6(c3.deltaPct)}</td>
-          <td class="mwia-num">${confidenceCell(c3)}</td><td class="mwia-num">${hoursText2(c3.hoursToReach)}</td><td>${upgradeNotes(c3, base)}</td></tr>`;
+    for (const c4 of list) {
+      html += `<tr class="${c4.significant ? "" : "mwia-faded"}"><td>${SKILL_NAMES[c4.hrid] || esc(c4.hrid)}</td><td>${c4.fromLevel} \u2192 ${c4.level}</td>
+          <td class="mwia-num">${signed4(xpNum, c4.xpDelta)}</td><td class="mwia-num">${signed4(coins10, perDay(c4.profitDelta))}</td><td class="mwia-num">${pct6(c4.deltaPct)}</td>
+          <td class="mwia-num">${confidenceCell(c4)}</td><td class="mwia-num">${hoursText2(c4.hoursToReach)}</td><td>${upgradeNotes(c4, base)}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
   function consumableTable(title, list, base) {
-    const shown = list.filter((c3) => c3.delta > 0 || c3.deathsDelta < 0).slice(0, 10);
+    const shown = list.filter((c4) => c4.delta > 0 || c4.deathsDelta < 0).slice(0, 10);
     let html = `<h3>${title}</h3>`;
     if (!shown.length) return html + `<p class="mwia-dim">No ${title.toLowerCase()} noticeably improved your focus.</p>`;
     html += `<table class="mwia-table mwia-wide"><thead><tr><th>${title === "Food" ? "Food" : "Drink"}</th><th>Replaces</th><th class="mwia-num">Unit price</th>
       <th class="mwia-num">Extra cost/day</th><th class="mwia-num">+${xpLabel()}</th><th class="mwia-num" title="Includes the extra food/drink cost">+Profit/day</th>
       <th class="mwia-num" title="${GAIN_TITLE}">Gain</th><th class="mwia-num" title="${CONF_TITLE}">Sure</th><th class="mwia-num">Deaths/h</th><th class="mwia-num" title="${countingLevels() ? "Extra cost per extra level" : "Extra cost per 1000 extra XP"}">${countingLevels() ? "Cost per level" : "Cost per 1000 XP"}</th><th></th></tr></thead><tbody>`;
-    for (const c3 of shown) {
+    for (const c4 of shown) {
       const unit = countingLevels() ? 1 : 1e3;
-      const per1000 = c3.xpDelta > 0 ? coins9(c3.costPerHourDelta / c3.xpDelta * unit) : c3.remove && c3.xpDelta < 0 ? `saves ${coins9(c3.costPerHourDelta / c3.xpDelta * unit)}` : "\u2013";
-      const name = (c3.remove ? `<i>Stop using</i> ${esc(itemName(c3.hrid))}` : esc(itemName(c3.hrid))) + (dropsHpFood(c3) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
-      html += `<tr class="${c3.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c3.replaces ? esc(itemName(c3.replaces)) : "\u2013"}</td>
-          <td class="mwia-num">${c3.remove ? "\u2013" : coins9(askPrice(c3.hrid))}</td><td class="mwia-num">${coins9(perDay(c3.costPerHourDelta))}</td><td class="mwia-num">${signed4(xpNum, c3.xpDelta)}</td>
-          <td class="mwia-num">${signed4(coins9, perDay(c3.profitDelta))}</td><td class="mwia-num">${pct6(c3.deltaPct)}</td><td class="mwia-num">${confidenceCell(c3)}</td>
-          <td class="mwia-num ${c3.safe ? "" : "mwia-bad"}">${dec3(c3.result.deaths, 2)}${c3.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
-          <td>${cartButton4(cartItems2(c3), "\u{1F6D2} 1 day")}</td></tr>`;
+      const per1000 = c4.xpDelta > 0 ? coins10(c4.costPerHourDelta / c4.xpDelta * unit) : c4.remove && c4.xpDelta < 0 ? `saves ${coins10(c4.costPerHourDelta / c4.xpDelta * unit)}` : "\u2013";
+      const name = (c4.remove ? `<i>Stop using</i> ${esc(itemName(c4.hrid))}` : esc(itemName(c4.hrid))) + (dropsHpFood(c4) ? ' <span class="mwia-warn" title="Leaves you without HP food \u2013 fine in this zone, risky in harder ones">\u26A0 no HP food</span>' : "");
+      html += `<tr class="${c4.significant ? "" : "mwia-faded"}"><td>${name}</td><td>${c4.replaces ? esc(itemName(c4.replaces)) : "\u2013"}</td>
+          <td class="mwia-num">${c4.remove ? "\u2013" : coins10(askPrice(c4.hrid))}</td><td class="mwia-num">${coins10(perDay(c4.costPerHourDelta))}</td><td class="mwia-num">${signed4(xpNum, c4.xpDelta)}</td>
+          <td class="mwia-num">${signed4(coins10, perDay(c4.profitDelta))}</td><td class="mwia-num">${pct6(c4.deltaPct)}</td><td class="mwia-num">${confidenceCell(c4)}</td>
+          <td class="mwia-num ${c4.safe ? "" : "mwia-bad"}">${dec3(c4.result.deaths, 2)}${c4.safe ? "" : " \u2716"}</td><td class="mwia-num">${per1000}</td>
+          <td>${cartButton4(cartItems2(c4), "\u{1F6D2} 1 day")}</td></tr>`;
     }
     return html + `</tbody></table>`;
   }
@@ -14562,8 +15043,8 @@ ${triggerWindowReport()}`, false);
   function showPanel() {
     ui.root.classList.remove("mwia-hidden");
     render3();
-    const row = ui.returnRow && ui.tab === "skilling" ? [...ui.root.querySelectorAll(".mwia-skill-row")].find((r2) => r2.dataset.hrid === ui.returnRow) : null;
-    row?.scrollIntoView({ block: "start" });
+    const row2 = ui.returnRow && ui.tab === "skilling" ? [...ui.root.querySelectorAll(".mwia-skill-row")].find((r2) => r2.dataset.hrid === ui.returnRow) : null;
+    row2?.scrollIntoView({ block: "start" });
     ui.returnRow = null;
   }
   async function openWithCount(actionHrid, count3) {
@@ -14590,10 +15071,10 @@ ${triggerWindowReport()}`, false);
     const steps = [`${kind} ${item}${level ? ` +${level}` : ""} ${kind === "enhance" ? `\u2192 +${value}` : `${label3} \xD7${value}`}`];
     steps.push(stacks.length ? `inventory: ${stacks.map((i) => `${i.count} at +${i.enhancementLevel || 0}`).join(", ")}` : "not in the inventory");
     const owned = held2 > 0;
-    const characterId6 = state.character?.character?.id;
-    if (owned && !characterId6) steps.push("no character id");
-    const hash3 = owned && characterId6 ? inventoryItemHash(characterId6, item, level) : null;
-    const ownHash = (hrid) => hrid && characterId6 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId6, hrid) : null;
+    const characterId7 = state.character?.character?.id;
+    if (owned && !characterId7) steps.push("no character id");
+    const hash3 = owned && characterId7 ? inventoryItemHash(characterId7, item, level) : null;
+    const ownHash = (hrid) => hrid && characterId7 && [...state.items.values()].some((i) => i.itemHrid === hrid && i.itemLocationHrid === "/item_locations/inventory" && !i.enhancementLevel && i.count > 0) ? inventoryItemHash(characterId7, hrid) : null;
     const protect = dataset.protect ? { hash: ownHash(dataset.protect), from: Number(dataset.protectFrom) } : null;
     const catalyst = dataset.catalyst ? { hash: ownHash(dataset.catalyst) } : null;
     clearNotice();
@@ -14612,7 +15093,7 @@ ${triggerWindowReport()}`, false);
     const diag = steps.filter(Boolean).join(" \xB7 ");
     showNotice(opened === "page" ? { level: "info", text: `${owned ? "Opened the page but could not put the item in." : "You don't have the item yet \u2013 buy it first (\u{1F6D2})."} Pick it in the game and ${what}.`, diag } : { level: "warn", text: `Could not open it automatically. Open it yourself and ${what}.`, diag });
   }
-  var VERSION3 = true ? "0.84.0" : "dev";
+  var VERSION3 = true ? "0.85.0" : "dev";
   function clearNotice() {
     ui.notice = null;
     ui.root.querySelector(".mwia-notice")?.remove();
@@ -14680,6 +15161,14 @@ ${triggerWindowReport()}`, false);
         break;
       case "horizon-run":
         return sendSnapshot({ run: true }).then(() => ui.tab === "horizon" && render3());
+      case "cplan-run":
+        return askCombatPlanNow().then(() => ui.tab === "cplan" && render3());
+      case "cplan-cart": {
+        const phase = combatPlanNow();
+        const have6 = ownedNow();
+        if (!phase || !have6) return;
+        return addPlanToCart(missingForCart(phase, have6));
+      }
       case "zones":
         runTask(doZones);
         break;
@@ -14808,7 +15297,7 @@ ${triggerWindowReport()}`, false);
       if (value === null) return;
       ui.settings.budget = value;
       event.target.value = coinsInput(value);
-    } else if (key2 === "acceptRareDeaths" || key2 === "countLevels") {
+    } else if (key2 === "acceptRareDeaths" || key2 === "countLevels" || key2 === "cplanCharms") {
       ui.settings[key2] = event.target.checked;
     } else if (key2 === "goldWeight") {
       ui.settings.goldWeight = Number(event.target.value) / 100;
@@ -14816,6 +15305,13 @@ ${triggerWindowReport()}`, false);
       ui.settings[key2] = event.target.value;
     }
     saveSettings();
+    if (key2.startsWith("cplan")) {
+      if (key2 === "cplanDays" || key2 === "cplanReserve") ui.settings[key2] = Number(ui.settings[key2]);
+      saveSettings();
+      sendSettings(false).finally(() => ui.tab === "cplan" && render3());
+      render3();
+      return;
+    }
     if (key2.startsWith("skilling") || key2.startsWith("horizon")) {
       render3();
       return;
@@ -14881,6 +15377,7 @@ ${triggerWindowReport()}`, false);
         <button class="mwia-tab" data-tab="upgrades">Upgrades</button>
         <button class="mwia-tab" data-tab="skilling">Skilling</button>
         <button class="mwia-tab" data-tab="horizon">\u{1F4C8} Plan</button>
+        <button class="mwia-tab" data-tab="cplan">\u2694 Plan</button>
         <button class="mwia-tab" data-tab="market">Market</button>
         <button class="mwia-tab" data-tab="labyrinth">Labyrinth</button>
         <button class="mwia-tab" data-tab="guide">Guide</button>
@@ -14899,7 +15396,7 @@ ${triggerWindowReport()}`, false);
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
-    startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart });
+    startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart, plan: plannedLoadout });
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare, penalty: fittedPenalty, skip: () => ({ rule: skipRule(ui.settings), teaCrate: runSetup(ui.settings).teaCrate }) });
     startLabyrinthLog({ predict: roomPrediction });
     startLabyrinthRuns({ prepare: () => loadClientData(ui.win) });
@@ -14912,13 +15409,17 @@ ${triggerWindowReport()}`, false);
     });
     startEnhancePlan(gameDeps);
     startHorizonSync({ settings: () => ui.settings, prepare: () => loadClientData(ui.win) });
+    startCombatPlan({ settings: () => ui.settings, onResult: adoptCombatPlan });
+    onCombatPlanChange(() => {
+      if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "cplan") render3();
+    });
     onHorizonChange(() => {
       scheduleDot();
       if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "horizon") render3();
     });
     watchTriggerClicks();
     startTriggerWindow({
-      advice: (hrid) => loadTriggerAdvice()[hrid] || null,
+      advice: (hrid) => planTriggerAdvice(hrid) || loadTriggerAdvice()[hrid] || null,
       describe: (triggers) => describeTriggers(triggers, getClientData() || {}),
       name: (hrid) => hrid.startsWith("/items/") ? itemName(hrid) : abilityName(hrid),
       onReport: (diag, copied) => {
@@ -15093,14 +15594,14 @@ ${triggerWindowReport()}`, false);
     }
     if (modals.length) setTimeout(scheduleScan11, 700);
     for (const modal of modals) {
-      let c3;
+      let c4;
       try {
-        c3 = getClientData() ? context(modal) : { error: `no game data (${l.loadError})` };
+        c4 = getClientData() ? context(modal) : { error: `no game data (${l.loadError})` };
       } catch (error) {
-        c3 = { error: String(error?.message || error) };
+        c4 = { error: String(error?.message || error) };
       }
       let box = modal.querySelector(".mwia-listprice");
-      if (!c3) {
+      if (!c4) {
         box?.remove();
         continue;
       }
@@ -15113,149 +15614,149 @@ ${triggerWindowReport()}`, false);
         else if (post) post.insertAdjacentElement("beforebegin", box);
         else modal.appendChild(box);
       }
-      if (!c3.error) notePrediction(prediction(c3));
-      const html = c3.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION4)} can't read this window: ${esc(c3.error)}. A screenshot of this helps.</div>` : boxHtml4(c3);
+      if (!c4.error) notePrediction(prediction(c4));
+      const html = c4.error ? `<div class="mwia-listprice-info">MWI Advisor ${esc(VERSION4)} can't read this window: ${esc(c4.error)}. A screenshot of this helps.</div>` : boxHtml4(c4);
       if (box.dataset.html !== html) {
         box.dataset.html = html;
         box.innerHTML = html;
       }
     }
   }
-  function boxHtml4(c3) {
-    const sell = c3.side === "sell";
-    const buttons = c3.suggestions.map((s3, i) => {
+  function boxHtml4(c4) {
+    const sell = c4.side === "sell";
+    const buttons = c4.suggestions.map((s3, i) => {
       const shown = s3.price === null ? "\u2014" : s3.kind === "wall" || s3.under ? `${sell ? "<" : ">"} ${shortCoins(s3.price)}` : shortCoins(s3.price);
-      return `<button type="button" data-listprice="${i}"${s3.price === null ? ' class="mwia-off"' : ""} title="${esc(titleFor(s3, c3))}"><b>${label2(s3)}</b><small>${shown}</small></button>`;
+      return `<button type="button" data-listprice="${i}"${s3.price === null ? ' class="mwia-off"' : ""} title="${esc(titleFor(s3, c4))}"><b>${label2(s3)}</b><small>${shown}</small></button>`;
     });
-    return `${limitHtml(c3)}${buttons.length ? `<div class="mwia-listprice-buttons">${buttons.join("")}</div>` : ""}<div class="mwia-listprice-info">${infoHtml(c3)}</div>`;
+    return `${limitHtml(c4)}${buttons.length ? `<div class="mwia-listprice-buttons">${buttons.join("")}</div>` : ""}<div class="mwia-listprice-info">${infoHtml(c4)}</div>`;
   }
-  function limitHtml(c3) {
-    const t4 = c3.limit;
+  function limitHtml(c4) {
+    const t4 = c4.limit;
     if (!t4) return "";
     const margin = `${Math.round(t4.margin * 100)}%`;
     const shown = t4.price === null ? "\u2014" : `\u2264 ${shortCoins(t4.price)}`;
-    return `<button type="button" class="mwia-listprice-limit${t4.price === null ? " mwia-off" : ""}" data-listprice="limit" title="${esc(limitTitle(t4, c3))}"><b>\u{1F9ED} Profit ${shown}</b><small>keeps ${margin} on ${esc(t4.job)}</small></button>`;
+    return `<button type="button" class="mwia-listprice-limit${t4.price === null ? " mwia-off" : ""}" data-listprice="limit" title="${esc(limitTitle(t4, c4))}"><b>\u{1F9ED} Profit ${shown}</b><small>keeps ${margin} on ${esc(t4.job)}</small></button>`;
   }
-  function limitTitle(t4, c3) {
+  function limitTitle(t4, c4) {
     const margin = `${Math.round(t4.margin * 100)}%`;
-    if (t4.price === null) return `${t4.job} needs ${itemName(c3.hrid)} at ${num(t4.exact)} or less to keep a ${margin} margin \u2013 under the tradable range (from ${num(c3.range.min)}). Nothing can be bought at a profit now.`;
-    const cap4 = t4.capped ? ` The tradable range stops at ${num(t4.price)}, under the ${num(t4.exact)} the margin allows.` : "";
-    const now2 = t4.listed === null ? `Open ${itemName(c3.hrid)} on the market to see how many are listed under it.` : t4.listed > 0 ? `${num(t4.listed)} listed at or under it now are bought at once, the cheapest first; the rest waits as a buy order at this price.` : `Nobody lists it that cheap now: the order waits for sellers.`;
-    return `The most ${itemName(c3.hrid)} may cost with the last action of ${t4.job} still making ${margin} (the other materials at their lowest ask).${cap4} ${now2} Worked out with the Skilling tab's prices ${Math.max(0, Math.round((Date.now() - t4.at) / 6e4))} min ago.`;
+    if (t4.price === null) return `${t4.job} needs ${itemName(c4.hrid)} at ${num(t4.exact)} or less to keep a ${margin} margin \u2013 under the tradable range (from ${num(c4.range.min)}). Nothing can be bought at a profit now.`;
+    const cap5 = t4.capped ? ` The tradable range stops at ${num(t4.price)}, under the ${num(t4.exact)} the margin allows.` : "";
+    const now2 = t4.listed === null ? `Open ${itemName(c4.hrid)} on the market to see how many are listed under it.` : t4.listed > 0 ? `${num(t4.listed)} listed at or under it now are bought at once, the cheapest first; the rest waits as a buy order at this price.` : `Nobody lists it that cheap now: the order waits for sellers.`;
+    return `The most ${itemName(c4.hrid)} may cost with the last action of ${t4.job} still making ${margin} (the other materials at their lowest ask).${cap5} ${now2} Worked out with the Skilling tab's prices ${Math.max(0, Math.round((Date.now() - t4.at) / 6e4))} min ago.`;
   }
-  function titleFor(s3, c3) {
-    const sell = c3.side === "sell";
-    const cap4 = s3.capped ? ` (the tradable range's ${s3.capped})` : "";
-    if (s3.kind === "match") return `The best ${sell ? "sell" : "buy"} offer now: ${num(s3.price)}${cap4}.`;
+  function titleFor(s3, c4) {
+    const sell = c4.side === "sell";
+    const cap5 = s3.capped ? ` (the tradable range's ${s3.capped})` : "";
+    if (s3.kind === "match") return `The best ${sell ? "sell" : "buy"} offer now: ${num(s3.price)}${cap5}.`;
     if (s3.kind === "wall") return `One step ${sell ? "under" : "over"} ${num(s3.wall.quantity)} at ${num(s3.price)}, the first level with a fifth of all ${sell ? "listed" : "bid"}; ${num(s3.wall.ahead)} lie in front of it.`;
-    return horizonTitle(s3, c3);
+    return horizonTitle(s3, c4);
   }
-  function prediction(c3) {
-    const key2 = `${c3.side}|${c3.hrid}|${c3.level}`;
+  function prediction(c4) {
+    const key2 = `${c4.side}|${c4.hrid}|${c4.level}`;
     const button3 = (s3) => s3.kind === "horizon" ? { h: s3.horizon, price: s3.price, under: !!s3.under, chance: s3.chance ?? null, windows: s3.windows ?? null, need: s3.need ?? null, why: s3.why ?? null } : { kind: s3.kind, price: s3.price };
     return {
-      side: c3.side,
-      item: c3.hrid,
-      level: c3.level,
-      quantity: c3.quantity,
-      best: c3.best,
-      othersBest: c3.book ? c3.levels[0]?.price ?? null : null,
-      bookAt: c3.book?.at ?? null,
-      takenPerHour: c3.taken?.perHour ?? null,
-      usual: c3.usual,
-      buttons: c3.suggestions.map(button3),
+      side: c4.side,
+      item: c4.hrid,
+      level: c4.level,
+      quantity: c4.quantity,
+      best: c4.best,
+      othersBest: c4.book ? c4.levels[0]?.price ?? null : null,
+      bookAt: c4.book?.at ?? null,
+      takenPerHour: c4.taken?.perHour ?? null,
+      usual: c4.usual,
+      buttons: c4.suggestions.map(button3),
       clicked: l.clicked?.key === key2 && Date.now() - l.clicked.at < PREDICTION_MS ? l.clicked.kind : null
     };
   }
-  function horizonTitle(s3, c3) {
-    const sell = c3.side === "sell";
+  function horizonTitle(s3, c4) {
+    const sell = c4.side === "sell";
     const goes = sell ? "sells" : "is bought";
     const pct7 = (share2) => `${Math.round(share2 * 100)}%`;
-    const rate3 = c3.taken ? `${sell ? "Buyers take" : "Sellers fill"} about ${num(c3.taken.perHour)} an hour from ${sell ? "sell" : "buy"} listings.` : "How many trade an hour isn't known yet, so the quantity isn't counted.";
+    const rate3 = c4.taken ? `${sell ? "Buyers take" : "Sellers fill"} about ${num(c4.taken.perHour)} an hour from ${sell ? "sell" : "buy"} listings.` : "How many trade an hour isn't known yet, so the quantity isn't counted.";
     if (s3.price === null) {
-      if (s3.why === "quantity") return `${num(c3.quantity)} is about ${num(c3.quantity / c3.taken.perHour)} h of what ${sell ? "buyers take" : "sellers fill"} (${num(c3.taken.perHour)} an hour): ${pct7(FILLED)} of it can't go within ${s3.horizon} h at any price.`;
+      if (s3.why === "quantity") return `${num(c4.quantity)} is about ${num(c4.quantity / c4.taken.perHour)} h of what ${sell ? "buyers take" : "sellers fill"} (${num(c4.taken.perHour)} an hour): ${pct7(FILLED)} of it can't go within ${s3.horizon} h at any price.`;
       if (s3.why === "history") return `Needs more hourly prices: ${s3.windows} of the 12 stretches of ${s3.horizon} h it looks back on so far.`;
-      if (s3.need > 1) return `${pct7(FILLED)} of ${num(c3.quantity)} takes about ${num(s3.need)} h first in line (${num(c3.taken.perHour)} an hour): no price was first in line that long in ${pct7(CONFIDENCE)} of past stretches of ${s3.horizon} h.`;
+      if (s3.need > 1) return `${pct7(FILLED)} of ${num(c4.quantity)} takes about ${num(s3.need)} h first in line (${num(c4.taken.perHour)} an hour): no price was first in line that long in ${pct7(CONFIDENCE)} of past stretches of ${s3.horizon} h.`;
       return `No price ${goes} within ${s3.horizon} h often enough.`;
     }
     const where = s3.under ? `One step ${sell ? "under" : "over"} the best offer (${num(s3.price)}): first in line now.` : `At ${num(s3.price)}.`;
-    return `${where} A ${pct7(CONFIDENCE)} chance that ${pct7(FILLED)} of ${num(c3.quantity)} ${goes} within ${s3.horizon} h \u2013 it did in ${pct7(s3.chance)} of ${s3.windows} past stretches of ${s3.horizon} h. ${rate3}`;
+    return `${where} A ${pct7(CONFIDENCE)} chance that ${pct7(FILLED)} of ${num(c4.quantity)} ${goes} within ${s3.horizon} h \u2013 it did in ${pct7(s3.chance)} of ${s3.windows} past stretches of ${s3.horizon} h. ${rate3}`;
   }
-  function infoHtml(c3) {
-    const sell = c3.side === "sell";
-    const price = priceIn(c3);
+  function infoHtml(c4) {
+    const sell = c4.side === "sell";
+    const price = priceIn(c4);
     const parts = [];
-    if (price > 0 && c3.book) {
-      const { better: better2, same: same2 } = standing(price, c3.levels, c3.side);
+    if (price > 0 && c4.book) {
+      const { better: better2, same: same2 } = standing(price, c4.levels, c4.side);
       parts.push(`${num(better2)} ${sell ? "listed cheaper" : "bid higher"}${same2 ? `, ${num(same2)} at ${num(price)}` : ""}`);
-      const age = Date.now() - c3.book.at;
+      const age = Date.now() - c4.book.at;
       if (age > BOOK_OLD_MS) parts.push(`order book ${Math.round(age / 6e4)} min old`);
-      const top = (sell ? c3.book.asks : c3.book.bids)[0]?.price;
-      if (c3.best > 0 && top > 0 && top !== c3.best) parts.push(`the order book's best (${num(top)}) isn't the window's \u2013 open ${esc(itemName(c3.hrid))}${c3.level ? ` +${c3.level}` : ""} on the market again`);
-    } else if (!c3.book) parts.push(`open ${esc(itemName(c3.hrid))}${c3.level ? ` +${c3.level}` : ""} on the market for the order book`);
-    const vs = price > 0 ? versusUsual(price, c3.usual) : null;
-    if (vs) parts.push(`${vs.diff >= 0 ? "+" : "\u2212"}${Math.abs(Math.round(vs.diff * 100))}% vs usual ${sell ? "ask" : "bid"} (${num(c3.usual)})`);
-    else if (!c3.usual) parts.push(`usual price after 12 h of prices${c3.hours ? ` (${c3.hours} so far)` : ""}`);
+      const top = (sell ? c4.book.asks : c4.book.bids)[0]?.price;
+      if (c4.best > 0 && top > 0 && top !== c4.best) parts.push(`the order book's best (${num(top)}) isn't the window's \u2013 open ${esc(itemName(c4.hrid))}${c4.level ? ` +${c4.level}` : ""} on the market again`);
+    } else if (!c4.book) parts.push(`open ${esc(itemName(c4.hrid))}${c4.level ? ` +${c4.level}` : ""} on the market for the order book`);
+    const vs = price > 0 ? versusUsual(price, c4.usual) : null;
+    if (vs) parts.push(`${vs.diff >= 0 ? "+" : "\u2212"}${Math.abs(Math.round(vs.diff * 100))}% vs usual ${sell ? "ask" : "bid"} (${num(c4.usual)})`);
+    else if (!c4.usual) parts.push(`usual price after 12 h of prices${c4.hours ? ` (${c4.hours} so far)` : ""}`);
     return parts.join(" \xB7 ");
   }
-  function priceIn(c3) {
-    if (c3.input) return numberIn(c3.input.value);
-    const text = [...c3.inputs.childNodes].filter((node) => node.nodeName !== "BUTTON").map((node) => node.textContent).join(" ");
+  function priceIn(c4) {
+    if (c4.input) return numberIn(c4.input.value);
+    const text = [...c4.inputs.childNodes].filter((node) => node.nodeName !== "BUTTON").map((node) => node.textContent).join(" ");
     return numberIn(text);
   }
-  function controls(c3) {
-    const buttons = [...c3.inputs.querySelectorAll("button")];
+  function controls(c4) {
+    const buttons = [...c4.inputs.querySelectorAll("button")];
     const by = (pattern) => buttons.find((b) => pattern.test(b.textContent.trim()));
     return { minus: by(/^[-−]$/), plus: by(/^\+$/), min: by(/^min$/i), max: by(/^max$/i) };
   }
   var MAX_STEPS = 400;
-  async function press(c3, button3) {
-    const before = priceIn(c3);
+  async function press(c4, button3) {
+    const before = priceIn(c4);
     button3.click();
     for (let i = 0; i < 10; i++) {
       await tick();
-      const now2 = priceIn(c3);
+      const now2 = priceIn(c4);
       if (now2 !== before) return now2;
     }
     return null;
   }
-  async function stepTo(c3, b, target, up = false) {
-    let price = priceIn(c3);
+  async function stepTo(c4, b, target, up = false) {
+    let price = priceIn(c4);
     for (let i = 0; i < MAX_STEPS && price !== null; i++) {
       if (price === target) return price;
       if (price < target) {
-        const next = await press(c3, b.plus);
+        const next = await press(c4, b.plus);
         if (next === null) return price;
-        if (next > target) return up ? next : press(c3, b.minus).then((back) => back ?? next);
+        if (next > target) return up ? next : press(c4, b.minus).then((back) => back ?? next);
         price = next;
       } else {
-        const next = await press(c3, b.minus);
+        const next = await press(c4, b.minus);
         if (next === null) return price;
-        if (next < target) return up ? press(c3, b.plus).then((back) => back ?? next) : next;
+        if (next < target) return up ? press(c4, b.plus).then((back) => back ?? next) : next;
         price = next;
       }
     }
     return price;
   }
   async function apply(modal, index) {
-    const c3 = context(modal);
-    const s3 = index === "limit" ? c3?.limit && { kind: "profit", price: c3.limit.price, capped: c3.limit.capped, step: 0 } : c3?.suggestions?.[index];
+    const c4 = context(modal);
+    const s3 = index === "limit" ? c4?.limit && { kind: "profit", price: c4.limit.price, capped: c4.limit.capped, step: 0 } : c4?.suggestions?.[index];
     if (!s3 || s3.price === null || l.applying) return;
-    l.clicked = { key: `${c3.side}|${c3.hrid}|${c3.level}`, kind: s3.kind === "horizon" ? `<${s3.horizon}h` : s3.kind, at: Date.now() };
+    l.clicked = { key: `${c4.side}|${c4.hrid}|${c4.level}`, kind: s3.kind === "horizon" ? `<${s3.horizon}h` : s3.kind, at: Date.now() };
     l.applying = true;
     try {
-      const b = controls(c3);
-      if (s3.capped === "max" && b.max) await press(c3, b.max);
-      else if (s3.capped === "min" && b.min) await press(c3, b.min);
+      const b = controls(c4);
+      if (s3.capped === "max" && b.max) await press(c4, b.max);
+      else if (s3.capped === "min" && b.min) await press(c4, b.min);
       else if (b.plus && b.minus) {
         const target = Math.round(s3.price);
-        if (c3.input) {
-          setReactInput(c3.input, target);
+        if (c4.input) {
+          setReactInput(c4.input, target);
           await tick();
         }
-        const reached = await stepTo(c3, b, target, s3.step > 0);
-        if (s3.step && reached === target) await press(c3, s3.step < 0 ? b.minus : b.plus);
-      } else if (c3.input) setReactInput(c3.input, Math.round(s3.price));
+        const reached = await stepTo(c4, b, target, s3.step > 0);
+        if (s3.step && reached === target) await press(c4, s3.step < 0 ? b.minus : b.plus);
+      } else if (c4.input) setReactInput(c4.input, Math.round(s3.price));
     } finally {
       l.applying = false;
     }

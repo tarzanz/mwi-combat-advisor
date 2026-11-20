@@ -375,8 +375,38 @@ ranged or melee, by simulating *your own* character), what to make and sell, how
   wear, a tool, a piece of clothing or a house room to buy, build or put on), how it compares with keeping to what earns now and with earning the most every block, and every plan
   shown step by step: from which day to which each job runs, its gold, XP and loadout, tools, clothes (with their +level) and house rooms bought, levels and room levels reached and the
   worth day by day. A plan you haven't seen puts a **blue dot** on the 🧭 button (the red one is the Market tab's);
-  opening the tab clears it. Gathering and production only (no Enhancing, Alchemy or combat yet); materials are
+  opening the tab clears it. Gathering and production only (no Enhancing or Alchemy; combat has its own ⚔ Plan); materials are
   bought, not gathered yourself; prices stay as they are now for the whole plan. Needs a Pi with `MWIA_ORDERS=1` ([pi/README.md](pi/README.md)).
+- **⚔ Plan (N days of combat, worked out on your Pi)** – the 📈 plan's counterpart for combat, but not for gold: the
+  levels your chosen style trains (*Style*: magic, ranged or melee – with melee you can keep to stab, slash or smash –
+  its own skill and the attack, defense, stamina and intelligence the game gives XP with it) in 7 to 90 days, with
+  the coins above *Keep* (5M by default) and what skilling earns spent on getting there faster. Worked out every night
+  after the Labyrinth's run (at the Pi's lowest priority, one heavy job at a time, about an hour), or now with ▶; the
+  loadouts go with the Labyrinth's requests, the coins and skilling's gold a day come from the 📈 plan.
+  - Time goes in 8-hour blocks of combat (a zone and tier, the loadout of the moment) or skilling (the 📈 plan's job
+    of that day, for its gold – skilling levels count for nothing here). About ten times in a plan the character is
+    looked at again at its levels then: the zones near the best (every zone and tier the first time) and every
+    upgrade one at a time in the best one, as Upgrades does – gear at +0 or a +level for sale, ability books and
+    levels, drinks, food, combat house rooms, the ability order (after the first look, only what helped before or
+    wasn't tried yet – newly unlocked or affordable). Charms only with *Charms* ticked (they put the XP into one
+    skill), dungeons not at all.
+  - How many blocks of skilling to put in first is chosen by the levels each choice gives by the end – fewer combat
+    blocks against a faster rate – plus 7 days of the rate at the end; the purchases its coins reach are bought
+    best levels a coin first, put on, the zones looked at again and the fight run at the rate measured. Coins never
+    go below *Keep*; the rest is meant to be spent. Combat's own loot and costs come and go with it.
+  - The triggers and the ability order are tuned for the first fight only (the *Abilities & triggers* analysis on
+    the loadout it will have); the next night tunes the next one.
+  - The tab shows what the plan reaches against fighting as you are (nothing bought), the skilling it puts in and
+    what skilling would have earned in the combat time, every phase, and **what to do now as a checklist that turns
+    green as the game shows it done**: ① buy (each piece, book, house room and the drinks and food for the phase, at
+    most 72 h, against what you hold; 🛒 puts everything missing in the MWITools cart), ② the loadout (*Loadout*: the
+    game loadout the plan builds in, by default the first whose weapon fits the style – every gear slot, ability in
+    order, drink and food against what that loadout holds), ③ the triggers of each ability and food, ④ the fight
+    queued. Red is what still differs.
+  - In the game the same plan lights up: the Loadouts panel showing the plan's loadout marks its abilities, drinks
+    and food green (as planned) or red (take it out) and lists what to put in, wear and set the triggers of – without
+    simulating anything in the browser; the trigger window's ▶ Fill in fills in the plan's triggers; the combat page's
+    drink and food slots glow as for the last Upgrades analysis.
 - **Market** – your own orders and what to sell.
   - *Your orders*: every open sell and buy order with its standing. ✅ first in line (or sharing the price); a few
     better offers first; ⛔ behind a wall – more than a day of sales comes before yours (from the sales the price
@@ -736,6 +766,7 @@ node test/price-history-browser-test.mjs /tmp             # price history: marke
 node test/pi-server-test.mjs                              # the Pi's history, server, key and CORS in Node
 node test/pi-sync-browser-test.mjs /tmp                   # a browser linked to the Pi: link, merge, orders, jobs, Labyrinth attempts, states, the nightly combat rooms and simulated runs, Pi down, unlink
 node test/labyrinth-combat-test.mjs                        # the Pi's nightly Labyrinth combat run (dist/pi-labyrinth-combat.mjs, after npm run build) and its store
+node test/combat-plan-test.mjs                             # the ⚔ combat plan on the Pi (dist/pi-combat-plan.mjs, after npm run build) and its store
 node test/horizon-test.mjs                                # the 📈 plan in Node: blocks, the market's share, coins, tools, clothes, +levels, house, training, cautious prices, no community buffs
 node test/horizon-browser-test.mjs /tmp                   # the 📈 plan end to end: snapshot to a real Pi, ▶ Plan now, the tab, the blue dot
 node test/version-tag-browser-test.mjs /tmp                # the version next to the name, red when a newer one is out

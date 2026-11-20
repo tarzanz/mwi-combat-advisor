@@ -185,17 +185,21 @@ async function simulateRuns(pool, items, zone, hours, onProgress) {
 
 const summarize = (runs, tier, profile) => enrich(average(runs), tier, profile);
 
-async function simulateVariants(pool, variants, zone, settings, onProgress) {
+export async function simulateVariants(pool, variants, zone, settings, onProgress) {
     const seeds = Array.from({ length: settings.seeds }, (_, i) => i);
     const runs = await simulateRuns(pool, variants.map((v) => ({ profile: v.profile, seeds })), zone, settings.hours, onProgress);
     return variants.map((variant, i) => ({ ...variant, result: summarize(runs[i], zone.tier, variant.profile), runs: runs[i] }));
 }
 
+// settings.zones: only these [{ zoneHrid, tier }] (the combat plan's later looks), else every zone up to maxTier.
 export async function analyzeZones(pool, profile, settings, onProgress) {
     const variants = [];
-    for (const zone of combatZones()) {
-        for (let tier = 0; tier <= Math.min(settings.maxTier, zone.maxDifficulty ?? 0); tier++) {
-            variants.push({ zone: { zoneHrid: zone.hrid, tier } });
+    if (settings.zones) for (const zone of settings.zones) variants.push({ zone: { zoneHrid: zone.zoneHrid, tier: zone.tier } });
+    else {
+        for (const zone of combatZones()) {
+            for (let tier = 0; tier <= Math.min(settings.maxTier, zone.maxDifficulty ?? 0); tier++) {
+                variants.push({ zone: { zoneHrid: zone.hrid, tier } });
+            }
         }
     }
     const data = getClientData();
@@ -711,26 +715,29 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
     const budget = settings.budget;
     const all = settings.scope !== "abilities";
     const seeds = (n) => Array.from({ length: n }, (_, i) => i);
+    // The combat plan (combat-plan.js) leaves some out: settings.keep(candidate) -> false drops one
+    // (charms, another melee style), noSkillLevels the "more levels" rows, noTriggers the trigger changes.
+    const keep = settings.keep || (() => true);
     const candidates = [
         ...(all ? gearCandidates(profile, settings) : []),
         ...abilityCandidates(profile, budget),
         ...abilityOrderCandidates(profile),
         ...(all ? houseCandidates(profile, budget) : []),
-        ...(all ? skillLevelCandidates(profile) : []),
+        ...(all && !settings.noSkillLevels ? skillLevelCandidates(profile) : []),
         ...(all ? consumableCandidates(profile, "drinks") : []),
         ...(all ? consumableCandidates(profile, "food") : []),
-    ];
+    ].filter(keep);
     // The setup as it is, measured: what its triggers get wrong decides which trigger changes to try.
     const baseItem = { profile, seeds: seeds(settings.seeds * BASE_SEED_FACTOR), telemetry: true };
     const planned = baseItem.seeds.length + candidates.length * settings.seeds;
     const [baseRuns] = await simulateRuns(pool, [baseItem], zone, settings.hours, (done) => onProgress?.(done, planned));
     const telemetry = mergeTelemetry(baseItem.telemetryOut);
-    for (const { change, profile: variant } of triggerCandidates(profile, telemetry)) {
+    for (const { change, profile: variant } of settings.noTriggers ? [] : triggerCandidates(profile, telemetry)) {
         candidates.push(triggerCandidate(change, variant));
     }
     candidates.forEach((c, id) => (c.id = id));
     // New abilities are measured too, to give the most promising ones their own triggers.
-    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds), telemetry: c.kind === "ability" }));
+    const items = candidates.map((c) => ({ profile: c.profile, seeds: seeds(settings.seeds), telemetry: !settings.noTriggers && c.kind === "ability" }));
     const done0 = baseItem.seeds.length;
     const base = summarize(baseRuns, zone.tier, profile);
     const runs = await simulateScreened(pool, candidates, items, baseRuns, base, zone, settings, (done, total) => onProgress?.(done0 + done, done0 + total));
@@ -751,7 +758,7 @@ export async function analyzeUpgrades(pool, profile, zone, settings, onProgress,
         telemetry: summaryOfTelemetry(telemetry),
         candidates: simulated,
     };
-    await tuneNewAbilities(pool, raw, settings, onRefineProgress);
+    if (!settings.noTriggers) await tuneNewAbilities(pool, raw, settings, onRefineProgress);
     for (const c of raw.candidates) delete c.telemetry;
     // Two automatic rounds of extra runs for promising but uncertain suggestions.
     for (let round = 0; round < 2; round++) {

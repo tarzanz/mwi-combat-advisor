@@ -71,9 +71,11 @@ import { runsExportLines, runsHtml } from "./labyrinth-run-ui.js";
 import { askCombatNow, combatState, onCombatChange, startLabyrinthCombat } from "./labyrinth-combat-sync.js";
 import { renderHorizon } from "./horizon-ui.js";
 import { horizonNews, onHorizonChange, sendSnapshot, startHorizonSync } from "./horizon-sync.js";
+import { missingForCart, ownedNow, renderCombatPlan } from "./combat-plan-ui.js";
+import { askCombatPlanNow, combatPlanNow, combatPlanResult, onCombatPlanChange, sendSettings as sendCombatPlanSettings, startCombatPlan } from "./combat-plan-sync.js";
 
 const SETTINGS_KEY = "mwia-settings";
-const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30, horizonDays: 30, horizonLevelDays: 7 };
+const DEFAULT_SETTINGS = { goldWeight: 0, countLevels: false, combatGear: "auto", combatStyle: "current", acceptRareDeaths: false, accuracy: "normal", budget: 2000000, spending: "balanced", maxTier: 1, zone: "auto", skillingSkill: "all", skillingSellAt: "ask", skillingTeas: "current", skillingMode: "away", skillingGold: 100, labyCoffee: "slots", labyFood: "slots", labyLevel: 30, horizonDays: 30, horizonLevelDays: 7, cplanStyle: "magic", cplanMelee: "any", cplanDays: 30, cplanReserve: 5000000, cplanCharms: false, cplanSetup: "auto" };
 
 const SKILL_NAMES = {
     stamina: "Stamina",
@@ -430,6 +432,35 @@ function loadTriggerAdvice() {
     return ui.triggerAdvice;
 }
 
+// ⚔ The combat plan's first fight: its loadout for the game's Loadouts panel, its triggers for
+// the trigger window, its drinks and food for the combat page's slots.
+function plannedLoadout() {
+    const result = combatPlanResult();
+    const phase = combatPlanNow();
+    return result?.setup?.id && phase ? { setupId: result.setup.id, phase } : null;
+}
+function planTriggerAdvice(hrid) {
+    const phase = combatPlanNow();
+    const map = hrid.startsWith("/abilities/") ? phase?.loadout?.abilityTriggers : phase?.loadout?.consumableTriggers;
+    return map?.[hrid] ? { triggers: map[hrid] } : null;
+}
+function adoptCombatPlan() {
+    const phase = combatPlanNow();
+    if (!phase) return;
+    rememberCombatSetup(phase.zone, { drinks: (phase.loadout.drinks || []).filter(Boolean), food: (phase.loadout.food || []).filter(Boolean), perHour: phase.rates.consumablesPerHour || {}, encountersPerHour: phase.rates.encountersPerHour });
+}
+async function addPlanToCart(items) {
+    if (!items.length) return;
+    try {
+        const outcome = await addToCart(ui.win, items);
+        const n = outcome.added.length + outcome.updated.length;
+        ui.notice = { level: outcome.failed.length ? "warn" : "info", text: `${n} added to the MWITools cart${outcome.present.length ? `, ${outcome.present.length} already there` : ""}${outcome.failed.length ? `, ${outcome.failed.length} failed` : ""}.` };
+    } catch (error) {
+        ui.notice = { level: "warn", text: error.message || String(error) };
+    }
+    render();
+}
+
 // The drinks and food the plan leaves you with, for the box in the game's combat window.
 function saveCombatSetup() {
     const raw = ui.upgradeRaw;
@@ -488,13 +519,14 @@ function render() {
     ui.cartItems = new Map();
     let html = "";
     if (ui.error) html += `<div class="mwia-error">${esc(ui.error)}</div>`;
-    if (ui.notice && ["upgrades", "skilling", "market", "labyrinth"].includes(ui.tab)) html += noticeHtml(ui.notice);
+    if (ui.notice && ["upgrades", "skilling", "market", "labyrinth", "cplan"].includes(ui.tab)) html += noticeHtml(ui.notice);
     if (ui.busy) html += progressHtml();
     if (ui.tab === "overview") html += renderOverview();
     else if (ui.tab === "zones") html += renderZones();
     else if (ui.tab === "upgrades") html += renderUpgrades();
     else if (ui.tab === "skilling") html += renderSkillingTab();
     else if (ui.tab === "horizon") html += renderHorizon(ui.settings);
+    else if (ui.tab === "cplan") html += renderCombatPlan(ui.settings, labyrinthSetups());
     else if (ui.tab === "market") html += renderMarketTab();
     else if (ui.tab === "labyrinth") html += renderLabyrinthTab();
     else html += renderGuide();
@@ -1475,6 +1507,14 @@ function act(target) {
             break;
         case "horizon-run":
             return sendSnapshot({ run: true }).then(() => ui.tab === "horizon" && render());
+        case "cplan-run":
+            return askCombatPlanNow().then(() => ui.tab === "cplan" && render());
+        case "cplan-cart": {
+            const phase = combatPlanNow();
+            const have = ownedNow();
+            if (!phase || !have) return;
+            return addPlanToCart(missingForCart(phase, have));
+        }
         case "zones":
             runTask(doZones);
             break;
@@ -1603,7 +1643,7 @@ function onChange(event) {
         if (value === null) return;
         ui.settings.budget = value;
         event.target.value = coinsInput(value);
-    } else if (key === "acceptRareDeaths" || key === "countLevels") {
+    } else if (key === "acceptRareDeaths" || key === "countLevels" || key === "cplanCharms") {
         ui.settings[key] = event.target.checked;
     } else if (key === "goldWeight") {
         ui.settings.goldWeight = Number(event.target.value) / 100;
@@ -1611,6 +1651,13 @@ function onChange(event) {
         ui.settings[key] = event.target.value;
     }
     saveSettings();
+    if (key.startsWith("cplan")) {
+        if (key === "cplanDays" || key === "cplanReserve") ui.settings[key] = Number(ui.settings[key]);
+        saveSettings();
+        sendCombatPlanSettings(false).finally(() => ui.tab === "cplan" && render());
+        render();
+        return;
+    }
     if (key.startsWith("skilling") || key.startsWith("horizon")) {
         render();
         return;
@@ -1685,6 +1732,7 @@ export function mountUI(win, workerSource) {
         <button class="mwia-tab" data-tab="upgrades">Upgrades</button>
         <button class="mwia-tab" data-tab="skilling">Skilling</button>
         <button class="mwia-tab" data-tab="horizon">📈 Plan</button>
+        <button class="mwia-tab" data-tab="cplan">⚔ Plan</button>
         <button class="mwia-tab" data-tab="market">Market</button>
         <button class="mwia-tab" data-tab="labyrinth">Labyrinth</button>
         <button class="mwia-tab" data-tab="guide">Guide</button>
@@ -1703,7 +1751,7 @@ export function mountUI(win, workerSource) {
     startJobLog(gameDeps);
     startToolNotice(gameDeps);
     startTeaSlots(gameDeps);
-    startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart });
+    startLoadoutAdvice({ settings: () => ui.settings, prepare: gameDeps.prepare, busy: () => ui.busy, profileOf: loadoutProfile, analyze: adviseLoadout, addToCart: gameDeps.addToCart, plan: plannedLoadout });
     startLabyrinthMarks({ level: () => roomLevelSetting(ui.settings), prepare: gameDeps.prepare, penalty: fittedPenalty, skip: () => ({ rule: skipRule(ui.settings), teaCrate: labyrinthRunSetup(ui.settings).teaCrate }) });
     startLabyrinthLog({ predict: roomPrediction });
     startLabyrinthRuns({ prepare: () => loadClientData(ui.win) });
@@ -1716,13 +1764,17 @@ export function mountUI(win, workerSource) {
     });
     startEnhancePlan(gameDeps);
     startHorizonSync({ settings: () => ui.settings, prepare: () => loadClientData(ui.win) });
+    startCombatPlan({ settings: () => ui.settings, onResult: adoptCombatPlan });
+    onCombatPlanChange(() => {
+        if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "cplan") render();
+    });
     onHorizonChange(() => {
         scheduleDot();
         if (!root.classList.contains("mwia-hidden") && !ui.busy && ui.tab === "horizon") render();
     });
     watchTriggerClicks();
     startTriggerWindow({
-        advice: (hrid) => loadTriggerAdvice()[hrid] || null,
+        advice: (hrid) => planTriggerAdvice(hrid) || loadTriggerAdvice()[hrid] || null,
         describe: (triggers) => describeTriggers(triggers, getClientData() || {}),
         name: (hrid) => (hrid.startsWith("/items/") ? itemName(hrid) : abilityName(hrid)),
         onReport: (diag, copied) => {

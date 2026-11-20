@@ -25,7 +25,8 @@ N-day plan for your character (see *The 📈 plan*).
   most 20 a request of 64 kB each) and `POST /labyrinth/sim` (what whole
   Labyrinth runs are simulated from; `GET /labyrinth/sim` reads the result), and
   `POST /labyrinth/combat` and `/labyrinth/combat/data` (the loadouts and the game's
-  data the nightly Labyrinth combat run works from; `GET /labyrinth/combat` reads it).
+  data the nightly Labyrinth combat run works from; `GET /labyrinth/combat` reads it),
+  and `POST /combat-plan` (the ⚔ combat plan's settings; `GET /combat-plan` reads the plan).
 - **Secrets** stay on the Pi: the key in `pi/.env` (not in git). Each browser gets
   it once from a link and keeps it in its own storage for the game's site.
 
@@ -224,3 +225,23 @@ as each part is done) and how the run stands (`running` with `progress`, `queued
     data/labyrinth/combat/<character>/result.json   the newest result
     data/labyrinth/combat/<character>/progress.json how far a run has got
     data/labyrinth/combat/<character>/status.json   { started, at, ms, error }
+
+### The ⚔ combat plan, every night
+
+`POST /combat-plan` with `{ character: { id }, settings, version, now }` (style, melee
+type, days, coins to keep, charms, the loadout to build in; at most 64 kB) keeps the
+settings; new settings, `now` or a character without a plan start a run. Every night at
+the same hour as the Labyrinth's combat run (after it), `dist/pi-combat-plan.mjs` (built
+from `pi/combat-plan-entry.js`) works the plan out from the Labyrinth's loadouts and game
+data, the 📈 plan's snapshot (coins) and best plan (skilling's gold a day) and the newest
+market file – in a process of its own (nice 19, 384 MB heap) with `MWIA_COMBAT_PLAN_WORKERS`
+threads (default 2), never beside the other heavy jobs. About 150–200 MB and an hour for a
+level-60 character. It starts only with 250 MB of swap free and is stopped when swap falls under
+60 MB or available memory under 150 MB (the Pi has rebooted when swap ran out); a run stopped
+so is tried again once there is room. `GET /combat-plan?character=<id>` reads the plan, the settings and how
+the run stands.
+
+    data/combat-plan/<character>/settings.json  { settings, at, version }
+    data/combat-plan/<character>/result.json    the newest plan
+    data/combat-plan/<character>/progress.json  how far a run has got
+    data/combat-plan/<character>/status.json    { started, at, ms, error }

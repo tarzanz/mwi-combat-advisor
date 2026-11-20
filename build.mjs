@@ -94,20 +94,22 @@ await build({
 const size = readFileSync(path.join(root, "dist/mwi-combat-advisor.user.js")).length;
 console.log(`Built dist/mwi-combat-advisor.user.js (${(size / 1024).toFixed(0)} KiB)`);
 
-// The Pi's nightly Labyrinth combat analyses (pi/labyrinth-combat-store.mjs starts it): the
-// advisor's own code and the engine for Node, the engine's data from the shim as above.
-await build({
-    entryPoints: [path.join(root, "pi/labyrinth-combat-entry.js")],
-    bundle: true,
-    platform: "node",
-    mainFields: ["module", "main"],
-    format: "esm",
-    target: "node20",
-    outfile: path.join(root, "dist/pi-labyrinth-combat.mjs"),
-    banner: { js: "// Built from pi/labyrinth-combat-entry.js by build.mjs – don't edit.\n// Combat engine: MWICombatSimulator by AmVoidGuy / shykai (MIT licence); heap-js (BSD-3-Clause). Licences at the end of this file." },
-    footer: { js: thirdPartyNotices() },
-    legalComments: "none",
-    define: { __MWIA_VERSION__: JSON.stringify(pkg.version) },
-    plugins: [liveDataPlugin],
-});
-console.log(`Built dist/pi-labyrinth-combat.mjs (${(readFileSync(path.join(root, "dist/pi-labyrinth-combat.mjs")).length / 1024).toFixed(0)} KiB)`);
+// The Pi's nightly combat runs (pi/labyrinth-combat-store.mjs and pi/combat-plan-store.mjs start
+// them): the advisor's own code and the engine for Node, the engine's data from the shim as above.
+for (const [entry, out] of [["pi/labyrinth-combat-entry.js", "dist/pi-labyrinth-combat.mjs"], ["pi/combat-plan-entry.js", "dist/pi-combat-plan.mjs"]]) {
+    await build({
+        entryPoints: [path.join(root, entry)],
+        bundle: true,
+        platform: "node",
+        mainFields: ["module", "main"],
+        format: "esm",
+        target: "node20",
+        outfile: path.join(root, out),
+        banner: { js: `// Built from ${entry} by build.mjs – don't edit.\n// Combat engine: MWICombatSimulator by AmVoidGuy / shykai (MIT licence); heap-js (BSD-3-Clause). Licences at the end of this file.` },
+        footer: { js: thirdPartyNotices() },
+        legalComments: "none",
+        define: { __MWIA_VERSION__: JSON.stringify(pkg.version) },
+        plugins: [liveDataPlugin],
+    });
+    console.log(`Built ${out} (${(readFileSync(path.join(root, out)).length / 1024).toFixed(0)} KiB)`);
+}
